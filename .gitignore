@@ -1,0 +1,21 @@
+node_modules/
+dist/
+frontend/dist/
+frontend-dist/
+.env
+*.js.map
+*.tsbuildinfo
+
+# Drizzle generated migrations (keep manually; ignore auto-snapshots)
+drizzle/meta/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/settings.json
+
+# Test coverage
+coverage/

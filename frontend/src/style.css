@@ -1,0 +1,421 @@
+/* ──────────────────────────────────────────────────────────────────────────────
+   Auth Service — Design System
+   Dark-first aesthetic aligned with Lagarde Cyber / Circle Cyber portal.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap");
+@import "tailwindcss";
+
+/* ── Light mode (accessible via toggle) ───────────────────────────────────── */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f4f5;
+  --bg-card: #ffffff;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-hover: rgba(0, 0, 0, 0.18);
+  --text-primary: #030213;
+  --text-muted: #717182;
+  --accent: #030213;
+  --accent-fg: #ffffff;
+  --accent-cyan: #0891b2;
+  --accent-cyan-dim: rgba(8, 145, 178, 0.55);
+  --nav-bg: rgba(255, 255, 255, 0.92);
+  --nav-border: rgba(0, 0, 0, 0.08);
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
+  /* Semantic badge colours */
+  --badge-success-color: rgba(4, 120, 87, 0.9);
+  --badge-success-bg: rgba(16, 185, 129, 0.1);
+  --badge-success-border: rgba(16, 185, 129, 0.2);
+  --badge-error-color: rgba(185, 28, 28, 0.9);
+  --badge-error-bg: rgba(239, 68, 68, 0.1);
+  --badge-error-border: rgba(239, 68, 68, 0.2);
+  --badge-warning-color: rgba(161, 98, 7, 0.9);
+  --badge-warning-bg: rgba(234, 179, 8, 0.1);
+  --badge-warning-border: rgba(234, 179, 8, 0.2);
+  --badge-inactive-color: rgba(71, 85, 105, 0.8);
+  --badge-inactive-bg: rgba(100, 116, 139, 0.1);
+  --badge-inactive-border: rgba(100, 116, 139, 0.15);
+}
+
+/* ── Dark mode — activated via html.dark ───────────────────────────────────── */
+html.dark {
+  --bg-primary: #09090b;
+  --bg-secondary: #18181b;
+  --bg-card: rgba(255, 255, 255, 0.02);
+  --border: rgba(255, 255, 255, 0.05);
+  --border-hover: rgba(255, 255, 255, 0.10);
+  --text-primary: #f4f4f5;
+  --text-muted: rgba(255, 255, 255, 0.40);
+  --accent: rgba(255, 255, 255, 0.92);
+  --accent-fg: #09090b;
+  --accent-cyan: #22d3ee;
+  --accent-cyan-dim: rgba(34, 211, 238, 0.45);
+  --nav-bg: rgba(9, 9, 11, 0.85);
+  --nav-border: rgba(255, 255, 255, 0.05);
+  --card-shadow: none;
+  /* Semantic badge colours — opacity pattern (like the portal) */
+  --badge-success-color: rgba(52, 211, 153, 0.8);
+  --badge-success-bg: rgba(16, 185, 129, 0.1);
+  --badge-success-border: rgba(16, 185, 129, 0.15);
+  --badge-error-color: rgba(248, 113, 113, 0.8);
+  --badge-error-bg: rgba(239, 68, 68, 0.1);
+  --badge-error-border: rgba(239, 68, 68, 0.15);
+  --badge-warning-color: rgba(251, 191, 36, 0.8);
+  --badge-warning-bg: rgba(234, 179, 8, 0.1);
+  --badge-warning-border: rgba(234, 179, 8, 0.15);
+  --badge-inactive-color: rgba(156, 163, 175, 0.55);
+  --badge-inactive-bg: rgba(107, 114, 128, 0.1);
+  --badge-inactive-border: rgba(107, 114, 128, 0.15);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: "Inter", system-ui, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+/* ── Typography ────────────────────────────────────────────────────────────── */
+code,
+kbd,
+pre,
+.font-mono {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+}
+
+/* ── Page title utility ────────────────────────────────────────────────────── */
+.gradient-text {
+  color: var(--text-primary);
+}
+
+html.dark .gradient-text {
+  background: linear-gradient(135deg, rgba(244, 244, 245, 0.95) 0%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--border-hover);
+}
+
+/* ── Nav glassmorphism ──────────────────────────────────────────────────────── */
+.nav-glass {
+  background: var(--nav-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-bottom: 1px solid var(--nav-border);
+}
+
+/* ── Input — bottom border only (minimal, like the portal) ───────────────── */
+.input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  padding: 0.625rem 0;
+  outline: none;
+  width: 100%;
+  transition: border-color 0.2s ease;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.input:focus {
+  border-bottom-color: var(--accent-cyan);
+  outline: none;
+  box-shadow: none;
+}
+
+/* ── Select — subtle box (native element requires enclosure) ─────────────── */
+.select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.select:focus {
+  border-color: var(--accent-cyan);
+  outline: none;
+}
+
+/* ── Button variants ───────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 0.5rem 1.25rem;
+  cursor: pointer;
+  transition:
+    opacity 0.15s ease,
+    transform 0.1s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+  border: none;
+  outline: none;
+  text-decoration: none;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background: var(--bg-secondary);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.btn-danger {
+  background: var(--badge-error-bg);
+  color: var(--badge-error-color);
+  border: 1px solid var(--badge-error-border);
+  border-radius: 9999px;
+}
+
+.btn-danger:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  font-family: "JetBrains Mono", monospace;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid transparent;
+}
+
+.badge-success {
+  color: var(--badge-success-color);
+  background: var(--badge-success-bg);
+  border-color: var(--badge-success-border);
+}
+
+.badge-warning {
+  color: var(--badge-warning-color);
+  background: var(--badge-warning-bg);
+  border-color: var(--badge-warning-border);
+}
+
+.badge-error {
+  color: var(--badge-error-color);
+  background: var(--badge-error-bg);
+  border-color: var(--badge-error-border);
+}
+
+.badge-inactive {
+  color: var(--badge-inactive-color);
+  background: var(--badge-inactive-bg);
+  border-color: var(--badge-inactive-border);
+}
+
+/* ── Sidebar nav links ─────────────────────────────────────────────────────── */
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 2px solid transparent;
+  border-radius: 0 0.375rem 0.375rem 0;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.nav-link:hover {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.nav-link-active {
+  border-left-color: var(--accent-cyan);
+  background-color: rgba(34, 211, 238, 0.05);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+html:not(.dark) .nav-link-active {
+  border-left-color: var(--accent);
+  background-color: var(--bg-secondary);
+}
+
+/* ── Dropdown menu ─────────────────────────────────────────────────────────── */
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 13rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.375rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+  animation: dropdownFadeIn 0.12s ease;
+}
+
+html:not(.dark) .dropdown-menu {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+@keyframes dropdownFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+}
+
+.dropdown-item:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.dropdown-item-danger {
+  color: var(--badge-error-color);
+}
+
+.dropdown-item-danger:hover {
+  background: var(--badge-error-bg);
+  color: var(--badge-error-color);
+}
+
+.dropdown-divider {
+  height: 1px;
+  margin: 0.25rem 0.375rem;
+  background: var(--border);
+}
+
+/* ── Subtle link (forgot password etc.) ───────────────────────────────────── */
+.link-subtle {
+  color: var(--accent-cyan-dim);
+  transition: color 0.15s ease;
+  text-decoration: none;
+}
+
+.link-subtle:hover {
+  color: var(--accent-cyan);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}

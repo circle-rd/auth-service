@@ -18,9 +18,11 @@ import { applicationRoutes } from "./routes/admin/applications.js";
 import { rolesRoutes } from "./routes/admin/roles.js";
 import { plansRoutes } from "./routes/admin/plans.js";
 import { usersRoutes } from "./routes/admin/users.js";
+import { sessionsRoutes } from "./routes/admin/sessions.js";
 import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
+import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { ApiError } from "./errors.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +86,9 @@ fastify.addHook("onRequest", (req, reply, done) => {
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+// Stripe webhook must be registered first — it uses a raw Buffer body parser
+// scoped to its plugin, which takes precedence over the default JSON parser.
+await fastify.register(stripeWebhookRoutes, { prefix: "/api/webhooks/stripe" });
 await fastify.register(healthRoutes);
 await fastify.register(applicationRoutes, {
   prefix: "/api/admin/applications",
@@ -91,6 +96,7 @@ await fastify.register(applicationRoutes, {
 await fastify.register(rolesRoutes, { prefix: "/api/admin" });
 await fastify.register(plansRoutes, { prefix: "/api/admin" });
 await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
+await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
 await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
 await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
 await fastify.register(userRoutes, { prefix: "/api/user" });

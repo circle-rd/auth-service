@@ -60,9 +60,7 @@ async function requireConsumptionAuth(
     if (role === "admin" || role === "superadmin") return;
   }
 
-  await reply
-    .status(401)
-    .send(ERR.AUTH_001("Valid client_credentials token required").toJSON());
+  await reply.status(403).send(ERR.CONS_004().toJSON());
 }
 
 export async function consumptionRoutes(
@@ -194,7 +192,7 @@ export async function consumptionRoutes(
         )
         .limit(1);
 
-      if (!row) throw ERR.CONS_004();
+      if (!row) throw ERR.CONS_003("Consumption record not found");
       await reply.send({ aggregate: row });
     },
   );

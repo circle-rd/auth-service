@@ -9,7 +9,7 @@ import {
   appRolePermissions,
   userAppRoles,
 } from "../../db/schema.js";
-import { and, eq, count } from "drizzle-orm";
+import { and, eq, ne, count } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 
@@ -42,6 +42,7 @@ async function requireAdmin(
 const createRoleSchema = z.object({
   name: z.string().min(1).max(64),
   description: z.string().max(250).optional(),
+  isDefault: z.boolean().default(false),
 });
 
 const createPermissionSchema = z.object({
@@ -120,14 +121,24 @@ export async function rolesRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
       if (existing) throw ERR.PERM_004();
 
-      const [role] = await db
-        .insert(appRoles)
-        .values({
-          applicationId: req.params.appId,
-          name: parsed.data.name,
-          description: parsed.data.description,
-        })
-        .returning();
+      const [role] = await db.transaction(async (tx) => {
+        // Ensure at most one default role per app
+        if (parsed.data.isDefault) {
+          await tx
+            .update(appRoles)
+            .set({ isDefault: false })
+            .where(eq(appRoles.applicationId, req.params.appId));
+        }
+        return tx
+          .insert(appRoles)
+          .values({
+            applicationId: req.params.appId,
+            name: parsed.data.name,
+            description: parsed.data.description,
+            isDefault: parsed.data.isDefault,
+          })
+          .returning();
+      });
 
       await reply.status(201).send({ role });
     },
@@ -141,16 +152,30 @@ export async function rolesRoutes(fastify: FastifyInstance): Promise<void> {
       if (!parsed.success)
         throw ERR.APP_001("Invalid role data", parsed.error.flatten());
 
-      const [role] = await db
-        .update(appRoles)
-        .set(parsed.data)
-        .where(
-          and(
-            eq(appRoles.id, req.params.roleId),
-            eq(appRoles.applicationId, req.params.appId),
-          ),
-        )
-        .returning();
+      const [role] = await db.transaction(async (tx) => {
+        // Ensure at most one default role per app
+        if (parsed.data.isDefault) {
+          await tx
+            .update(appRoles)
+            .set({ isDefault: false })
+            .where(
+              and(
+                eq(appRoles.applicationId, req.params.appId),
+                ne(appRoles.id, req.params.roleId),
+              ),
+            );
+        }
+        return tx
+          .update(appRoles)
+          .set(parsed.data)
+          .where(
+            and(
+              eq(appRoles.id, req.params.roleId),
+              eq(appRoles.applicationId, req.params.appId),
+            ),
+          )
+          .returning();
+      });
       if (!role) throw ERR.PERM_002();
 
       await reply.send({ role });

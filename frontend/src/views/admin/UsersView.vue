@@ -104,7 +104,7 @@
     <div class="flex items-center justify-between gap-4 flex-wrap">
       <div>
         <h1 class="text-2xl font-bold gradient-text">{{ t("admin.users") }}</h1>
-        <p v-if="total > 0" class="text-sm mt-0.5" style="color: var(--text-muted)">
+        <p v-if="total > 0" class="text-sm mt-0.5" style="color: var(--color-text-muted)">
           {{ total }} utilisateur{{ total > 1 ? "s" : "" }}
         </p>
       </div>
@@ -117,7 +117,7 @@
     <!-- Search -->
     <div class="relative" style="max-width: 360px">
       <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-        style="color: var(--text-muted)" />
+        style="color: var(--color-text-muted)" />
       <input v-model="searchQuery" type="text" :placeholder="t('common.search')" class="input pl-9" @input="onSearch" />
     </div>
 
@@ -126,9 +126,9 @@
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr style="border-bottom: 1px solid var(--border)">
+            <tr style="border-bottom: 1px solid var(--color-border)">
               <!-- Name -->
-              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--text-muted)"
+              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--color-text-muted)"
                 @click="setSort('name')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
                   {{ t("common.name") }}
@@ -139,7 +139,7 @@
               </th>
               <!-- Email -->
               <th class="text-left px-4 py-3 cursor-pointer select-none hidden sm:table-cell"
-                style="color: var(--text-muted)" @click="setSort('email')">
+                style="color: var(--color-text-muted)" @click="setSort('email')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
                   {{ t("common.email") }}
                   <ChevronsUpDown v-if="sortBy !== 'email'" class="w-3 h-3 opacity-40" />
@@ -148,7 +148,7 @@
                 </span>
               </th>
               <!-- Role -->
-              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--text-muted)"
+              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--color-text-muted)"
                 @click="setSort('role')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
                   {{ t("common.role") }}
@@ -159,7 +159,7 @@
               </th>
               <!-- Status -->
               <th class="text-left px-4 py-3 cursor-pointer select-none hidden md:table-cell"
-                style="color: var(--text-muted)" @click="setSort('status')">
+                style="color: var(--color-text-muted)" @click="setSort('status')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
                   {{ t("common.status") }}
                   <ChevronsUpDown v-if="sortBy !== 'status'" class="w-3 h-3 opacity-40" />
@@ -172,26 +172,26 @@
           </thead>
           <tbody>
             <tr v-if="loading">
-              <td colspan="5" class="text-center py-10" style="color: var(--text-muted)">
+              <td colspan="5" class="text-center py-10" style="color: var(--color-text-muted)">
                 {{ t("common.loading") }}
               </td>
             </tr>
             <template v-else>
               <tr v-for="user in sortedUsers" :key="user.id" class="transition-colors hover:bg-[--bg-secondary]"
-                style="border-bottom: 1px solid var(--border)">
+                style="border-bottom: 1px solid var(--color-border)">
                 <!-- Name -->
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2.5">
                     <div
                       class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 select-none"
-                      style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                      style="background: var(--color-primary-light); color: var(--color-primary)">
                       {{ (user.name?.[0] ?? "?").toUpperCase() }}
                     </div>
                     <span class="font-medium">{{ user.name }}</span>
                   </div>
                 </td>
                 <!-- Email -->
-                <td class="px-4 py-3 hidden sm:table-cell" style="color: var(--text-muted)">
+                <td class="px-4 py-3 hidden sm:table-cell" style="color: var(--color-text-muted)">
                   {{ user.email }}
                 </td>
                 <!-- Role -->
@@ -219,8 +219,8 @@
                 </td>
               </tr>
               <tr v-if="sortedUsers.length === 0">
-                <td colspan="5" class="text-center py-10 text-sm" style="color: var(--text-muted)">
-                  Aucun utilisateur trouvé.
+                <td colspan="5" class="text-center py-10 text-sm" style="color: var(--color-text-muted)">
+                  No users found.
                 </td>
               </tr>
             </template>
@@ -230,8 +230,8 @@
 
       <!-- Pagination -->
       <div v-if="totalPages > 1" class="flex items-center justify-between px-4 py-3"
-        style="border-top: 1px solid var(--border)">
-        <span class="text-xs" style="color: var(--text-muted)">
+        style="border-top: 1px solid var(--color-border)">
+        <span class="text-xs" style="color: var(--color-text-muted)">
           {{ (page - 1) * LIMIT + 1 }}–{{ Math.min(page * LIMIT, total) }} de {{ total }}
         </span>
         <div class="flex items-center gap-2">

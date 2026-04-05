@@ -21,6 +21,7 @@ export const applications = pgTable(
     description: text("description"),
     isActive: boolean("is_active").notNull().default(true),
     skipConsent: boolean("skip_consent").notNull().default(false),
+    isMfaRequired: boolean("is_mfa_required").notNull().default(false),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()
@@ -71,6 +72,7 @@ export const appRoles = pgTable(
       .references(() => applications.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
+    isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

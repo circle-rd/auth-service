@@ -127,45 +127,45 @@
             <input v-model="userSearch" class="input" style="max-width: 280px" :placeholder="t('common.search')" />
         </div>
 
-        <div v-if="loading" class="text-sm py-10 text-center" style="color: var(--text-muted)">
+        <div v-if="loading" class="text-sm py-10 text-center" style="color: var(--color-text-muted)">
             {{ t("common.loading") }}
         </div>
 
         <div v-else class="card !p-0 overflow-x-auto">
             <table class="w-full text-sm">
                 <thead>
-                    <tr style="border-bottom: 1px solid var(--border)">
+                    <tr style="border-bottom: 1px solid var(--color-border)">
                         <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide"
-                            style="color: var(--text-muted)">
+                            style="color: var(--color-text-muted)">
                             {{ t("common.name") }}
                         </th>
                         <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide"
-                            style="color: var(--text-muted)">
+                            style="color: var(--color-text-muted)">
                             {{ t("common.status") }}
                         </th>
                         <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide"
-                            style="color: var(--text-muted)">
+                            style="color: var(--color-text-muted)">
                             {{ t("common.role") }}
                         </th>
                         <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide"
-                            style="color: var(--text-muted)">
+                            style="color: var(--color-text-muted)">
                             {{ t("admin.plans") }}
                         </th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr v-for="user in filteredUsers" :key="user.id" style="border-bottom: 1px solid var(--border)"
+                    <tr v-for="user in filteredUsers" :key="user.id" style="border-bottom: 1px solid var(--color-border)"
                         :style="{ opacity: isUserInApp(user.id) ? '1' : '0.5' }" class="transition-opacity">
                         <!-- Name + email -->
                         <td class="px-4 py-3">
                             <div class="flex items-center gap-2.5">
                                 <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                                    style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                                    style="background: var(--color-primary-light); color: var(--color-primary)">
                                     {{ initials(user.name) }}
                                 </div>
                                 <div>
                                     <p class="font-medium leading-tight">{{ user.name }}</p>
-                                    <p class="text-xs" style="color: var(--text-muted)">{{ user.email }}</p>
+                                    <p class="text-xs" style="color: var(--color-text-muted)">{{ user.email }}</p>
                                 </div>
                             </div>
                         </td>
@@ -175,8 +175,8 @@
                             <button type="button" class="flex items-center gap-2 cursor-pointer"
                                 @click="toggleUserAccess(user.id)">
                                 <div class="w-9 h-5 rounded-full transition-colors shrink-0" :style="isUserInApp(user.id)
-                                        ? 'background: var(--accent-cyan)'
-                                        : 'background: var(--border)'
+                                        ? 'background: var(--color-primary)'
+                                        : 'background: var(--color-border)'
                                     ">
                                     <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
                                         :style="isUserInApp(user.id)
@@ -184,7 +184,7 @@
                                                 : 'transform: translateX(0.125rem)'
                                             " />
                                 </div>
-                                <span class="text-xs" style="color: var(--text-muted)">
+                                <span class="text-xs" style="color: var(--color-text-muted)">
                                     {{ isUserInApp(user.id) ? t("common.active") : t("common.inactive") }}
                                 </span>
                             </button>
@@ -201,7 +201,7 @@
                                     {{ role.name }}
                                 </option>
                             </select>
-                            <span v-else class="text-xs" style="color: var(--text-muted)">—</span>
+                            <span v-else class="text-xs" style="color: var(--color-text-muted)">—</span>
                         </td>
 
                         <!-- Plan select -->
@@ -215,12 +215,12 @@
                                     {{ plan.name }}
                                 </option>
                             </select>
-                            <span v-else class="text-xs" style="color: var(--text-muted)">—</span>
+                            <span v-else class="text-xs" style="color: var(--color-text-muted)">—</span>
                         </td>
                     </tr>
                     <tr v-if="filteredUsers.length === 0">
-                        <td colspan="4" class="px-4 py-10 text-center text-sm" style="color: var(--text-muted)">
-                            Aucun utilisateur trouvé.
+                        <td colspan="4" class="px-4 py-10 text-center text-sm" style="color: var(--color-text-muted)">
+                            No users found.
                         </td>
                     </tr>
                 </tbody>

@@ -6,6 +6,8 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
 import * as customSchema from "./db/schema.js";
 import * as authSchema from "./db/auth-schema.js";
+import { applications } from "./db/schema.js";
+import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { getUserClaims, userHasAppAccessBySlug } from "./services/claims.js";
 import {
@@ -35,6 +37,25 @@ export const auth = betterAuth({
     : {}),
   // Disable built-in /token route — /oauth2/token is used instead
   disabledPaths: ["/token"],
+  // Social login providers — only enabled when both CLIENT_ID and CLIENT_SECRET are set
+  socialProviders: {
+    ...(config.providers.google.enabled
+      ? {
+          google: {
+            clientId: config.providers.google.clientId as string,
+            clientSecret: config.providers.google.clientSecret as string,
+          },
+        }
+      : {}),
+    ...(config.providers.github.enabled
+      ? {
+          github: {
+            clientId: config.providers.github.clientId as string,
+            clientSecret: config.providers.github.clientSecret as string,
+          },
+        }
+      : {}),
+  },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
@@ -119,7 +140,8 @@ export const auth = betterAuth({
         "features",
       ],
       // Inject roles, permissions, and features into id_token.
-      // Also gates token issuance: throws FORBIDDEN if user has no access to the app.
+      // Also gates token issuance: throws FORBIDDEN if user has no access to the app
+      // or if the application requires MFA and the user has not enabled it.
       customIdTokenClaims: async ({ user, scopes, metadata }) => {
         // metadata.clientId is stored in oauthClient.metadata and equals applications.slug
         const clientId = (metadata as Record<string, unknown> | undefined)
@@ -130,6 +152,28 @@ export const auth = betterAuth({
             throw new APIError("FORBIDDEN", {
               message: "User not authorized for this application",
             });
+          }
+
+          // Enforce MFA when the application requires it.
+          // Look up the application by slug to check isMfaRequired.
+          const [app] = await db
+            .select({ isMfaRequired: applications.isMfaRequired })
+            .from(applications)
+            .where(eq(applications.slug, clientId))
+            .limit(1);
+
+          if (app?.isMfaRequired) {
+            const userRecord = user as Record<string, unknown>;
+            const hasMfaEnabled = Boolean(userRecord.twoFactorEnabled);
+            if (!hasMfaEnabled) {
+              // User has not set up MFA but the application requires it.
+              throw new APIError("FORBIDDEN", {
+                message:
+                  "This application requires MFA. Please enable two-factor authentication in your profile before continuing.",
+              });
+            }
+            // If MFA is enabled, the twoFactor plugin's sign-in hook already
+            // enforced verification during login — no additional check needed here.
           }
         }
         return getUserClaims(user.id, clientId, scopes);

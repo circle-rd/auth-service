@@ -3,6 +3,9 @@
   import { useI18n } from "vue-i18n";
   import { useAuthStore } from "../stores/auth.js";
   import { Shield, Key, Plus, Trash2, CheckCircle, Eye, EyeOff, QrCode } from "lucide-vue-next";
+  import { startRegistration } from "@simplewebauthn/browser";
+  import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/browser";
+  import QRCode from "qrcode";
 
   const { t } = useI18n();
   const authStore = useAuthStore();
@@ -46,7 +49,7 @@
 
   async function startTotpSetup(): Promise<void> {
     if (!totpPassword.value) {
-      totpError.value = "Veuillez saisir votre mot de passe pour continuer.";
+      totpError.value = "Please enter your password to continue.";
       return;
     }
     totpError.value = "";
@@ -59,11 +62,19 @@
       });
       const data = (await res.json()) as { totpURI?: string; message?: string; };
       if (!res.ok || !data.totpURI) {
-        totpError.value = data.message ?? "Mot de passe incorrect ou activation impossible.";
+        totpError.value = data.message ?? "Incorrect password or activation failed.";
         return;
       }
       totpUri.value = data.totpURI;
-      totpQrUrl.value = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.totpURI)}`;
+      // Generate QR code locally to avoid external service dependency and privacy concerns
+      totpQrUrl.value = await QRCode.toDataURL(data.totpURI, {
+        width: 200,
+        margin: 2,
+        color: {
+          dark: "#000000",
+          light: "#ffffff",
+        },
+      });
       totpCode.value = "";
       totpPassword.value = "";
       totpStep.value = "setup";
@@ -108,7 +119,7 @@
       });
       if (!res.ok) {
         const data = (await res.json()) as { message?: string; };
-        totpError.value = data.message ?? "Échec de la désactivation.";
+        totpError.value = data.message ?? "Failed to disable TOTP.";
         return;
       }
       totpEnabled.value = false;
@@ -132,7 +143,7 @@
       });
       const data = (await res.json()) as { backupCodes?: string[]; message?: string; };
       if (!res.ok || !data.backupCodes) {
-        totpError.value = data.message ?? "Échec de la régénération.";
+        totpError.value = data.message ?? "Failed to regenerate backup codes.";
         return;
       }
       backupCodes.value = data.backupCodes;
@@ -168,35 +179,31 @@
         credentials: "include",
       });
       if (!optRes.ok) {
-        passkeyError.value = "Impossible d'initier l'enregistrement.";
+        passkeyError.value = "Could not initiate passkey registration.";
         return;
       }
-      const options = (await optRes.json()) as PublicKeyCredentialCreationOptions;
+      const options = (await optRes.json()) as PublicKeyCredentialCreationOptionsJSON;
 
-      // 2. Browser prompts for passkey creation
-      const credential = await navigator.credentials.create({ publicKey: options as PublicKeyCredentialCreationOptions });
-      if (!credential) {
-        passkeyError.value = "Enregistrement annulé.";
-        return;
-      }
+      // 2. Browser prompts for passkey creation — startRegistration handles proper serialization
+      const attResp = await startRegistration({ optionsJSON: options });
 
-      // 3. Send credential to server to verify and persist
+      // 3. Send serialized credential to server to verify and persist
       const verifyRes = await fetch("/api/auth/passkey/register", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(credential),
+        body: JSON.stringify(attResp),
       });
       if (!verifyRes.ok) {
-        passkeyError.value = "Échec de l'enregistrement côté serveur.";
+        passkeyError.value = "Server-side registration failed.";
         return;
       }
-      passkeySuccess.value = "Clé de sécurité enregistrée avec succès.";
+      passkeySuccess.value = "Security key registered successfully.";
       await fetchPasskeys();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "";
       if (msg.includes("NotAllowedError") || msg.includes("cancelled")) {
-        passkeyError.value = "Enregistrement annulé par l'utilisateur.";
+        passkeyError.value = "Registration cancelled by user.";
       } else {
         passkeyError.value = msg || t("errors.SRV_001");
       }
@@ -220,7 +227,7 @@
   }
 
   function formatDate(str: string): string {
-    return new Date(str).toLocaleDateString("fr-FR", {
+    return new Date(str).toLocaleDateString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -240,113 +247,110 @@
 </script>
 
 <template>
-  <div class="space-y-8">
-    <h1 class="text-2xl font-bold gradient-text">{{ t("profile.mfaSettings") }}</h1>
+  <div class="mfa-view">
+    <h1 class="mfa-title">{{ t("profile.mfaSettings") }}</h1>
 
     <!-- ── TOTP Section ──────────────────────────────────────────────────── -->
-    <div class="card space-y-5">
-      <div class="flex items-start gap-3">
-        <Shield class="w-5 h-5 mt-0.5 shrink-0" style="color: var(--accent-cyan)" />
+    <div class="card mfa-section">
+      <div class="section-header">
+        <Shield class="w-5 h-5 shrink-0" style="color: var(--color-primary)" />
         <div>
-          <h2 class="font-semibold">Application d'authentification (TOTP)</h2>
-          <p class="text-sm mt-0.5" style="color: var(--text-muted)">
-            Google Authenticator, Authy, Bitwarden Authenticator…
-          </p>
+          <h2 class="section-title">Authenticator App (TOTP)</h2>
+          <p class="section-desc">Google Authenticator, Authy, Bitwarden Authenticator…</p>
         </div>
       </div>
 
       <!-- Status + actions when enabled -->
       <template v-if="totpEnabled && totpStep === 'idle'">
-        <div class="flex items-center gap-3 flex-wrap">
-          <span class="badge badge-success text-sm px-3 py-1">
+        <div class="status-row">
+          <span class="badge badge-success">
             <CheckCircle class="w-3.5 h-3.5 mr-1" />
-            Activé
+            Enabled
           </span>
-          <button class="btn btn-secondary text-sm" @click="regenerateBackupCodes">
-            Régénérer les codes de secours
+          <button class="btn btn-secondary btn-sm" @click="regenerateBackupCodes">
+            Regenerate backup codes
           </button>
-          <button class="btn btn-danger text-sm" :disabled="disablingTotp" @click="disableTotp">
-            {{ disablingTotp ? t("common.loading") : "Désactiver" }}
+          <button class="btn btn-danger btn-sm" :disabled="disablingTotp" @click="disableTotp">
+            {{ disablingTotp ? t("common.loading") : "Disable" }}
           </button>
         </div>
         <!-- Show regenerated backup codes -->
-        <div v-if="backupCodes.length > 0 && showBackupCodes" class="space-y-3">
-          <div class="flex items-center justify-between">
-            <p class="text-sm font-medium">Nouveaux codes de secours</p>
-            <button class="btn btn-ghost text-xs" @click="showBackupCodes = false">Masquer</button>
+        <div v-if="backupCodes.length > 0 && showBackupCodes" class="backup-codes-section">
+          <div class="backup-codes-header">
+            <p class="text-sm font-medium">New backup codes</p>
+            <button class="btn btn-ghost btn-sm" @click="showBackupCodes = false">Hide</button>
           </div>
-          <div class="grid grid-cols-2 gap-1.5 p-3 rounded-lg font-mono text-sm"
-            style="background: var(--bg-secondary)">
-            <span v-for="code in backupCodes" :key="code">{{ code }}</span>
+          <div class="backup-codes-grid">
+            <span v-for="code in backupCodes" :key="code" class="backup-code">{{ code }}</span>
           </div>
         </div>
       </template>
 
       <!-- Not enabled yet -->
       <template v-else-if="totpStep === 'idle'">
-        <div class="flex items-center gap-3">
-          <span class="badge badge-inactive text-sm px-3 py-1">Non activé</span>
-          <button class="btn btn-primary text-sm" @click="beginTotpSetup">Activer</button>
+        <div class="status-row">
+          <span class="badge badge-inactive">Not enabled</span>
+          <button class="btn btn-primary btn-sm" @click="beginTotpSetup">Enable</button>
         </div>
       </template>
 
       <!-- Step 0: Confirm current password -->
       <template v-else-if="totpStep === 'confirm-password'">
-        <div class="space-y-4">
-          <p class="text-sm" style="color: var(--text-muted)">
-            Pour activer la double authentification, confirmez votre mot de passe actuel.
+        <div class="setup-step">
+          <p class="text-sm" style="color: var(--color-text-muted)">
+            To enable two-factor authentication, please confirm your current password.
           </p>
-          <div class="space-y-2">
-            <label class="block text-sm font-medium">Mot de passe actuel</label>
-            <div class="relative" style="max-width: 320px">
+          <div class="form-group">
+            <label class="form-label">{{ t("profile.currentPassword") }}</label>
+            <div class="password-input-wrap">
               <input v-model="totpPassword" :type="showTotpPassword ? 'text' : 'password'" placeholder="••••••••"
-                class="input pr-10 w-full" @keydown.enter="startTotpSetup" />
-              <button type="button" class="absolute inset-y-0 right-0 flex items-center px-3"
-                style="color: var(--text-muted)" @click="showTotpPassword = !showTotpPassword">
+                class="input" @keydown.enter="startTotpSetup" />
+              <button type="button" class="password-toggle" style="color: var(--color-text-muted)"
+                @click="showTotpPassword = !showTotpPassword">
                 <EyeOff v-if="showTotpPassword" class="w-4 h-4" />
                 <Eye v-else class="w-4 h-4" />
               </button>
             </div>
           </div>
-          <div class="flex gap-2">
-            <button class="btn btn-primary text-sm" :disabled="!totpPassword" @click="startTotpSetup">
-              Continuer
+          <div class="step-actions">
+            <button class="btn btn-primary btn-sm" :disabled="!totpPassword" @click="startTotpSetup">
+              Continue
             </button>
-            <button class="btn btn-ghost text-sm" @click="totpStep = 'idle'">Annuler</button>
+            <button class="btn btn-ghost btn-sm" @click="totpStep = 'idle'">{{ t("common.cancel") }}</button>
           </div>
         </div>
       </template>
 
       <!-- Step 1: Show QR code -->
       <template v-else-if="totpStep === 'setup'">
-        <div class="space-y-4">
-          <div class="flex items-center gap-2" style="color: var(--text-muted)">
+        <div class="setup-step">
+          <div class="qr-hint">
             <QrCode class="w-4 h-4 shrink-0" />
             <p class="text-sm">
-              Scannez ce QR code avec votre application d'authentification, puis entrez le code à 6 chiffres.
+              Scan this QR code with your authenticator app, then enter the 6-digit code.
             </p>
           </div>
-          <div class="flex flex-col sm:flex-row gap-6 items-start">
-            <img :src="totpQrUrl" alt="QR Code TOTP" class="w-40 h-40 rounded-lg border shrink-0"
-              style="border-color: var(--border)" />
-            <div class="flex-1 space-y-3">
+          <div class="qr-layout">
+            <img :src="totpQrUrl" alt="TOTP QR Code" class="qr-image" />
+            <div class="qr-form">
               <div>
-                <p class="text-xs font-mono uppercase tracking-widest mb-1" style="color: var(--text-muted)">URI
-                  manuelle</p>
-                <code class="text-xs break-all block p-2 rounded"
-                  style="background: var(--bg-secondary); color: var(--text-primary)">{{ totpUri }}</code>
+                <p class="text-xs font-mono uppercase tracking-widest mb-1" style="color: var(--color-text-muted)">
+                  Manual URI
+                </p>
+                <code class="manual-uri">{{ totpUri }}</code>
               </div>
-              <div class="space-y-2">
-                <label class="block text-sm font-medium">Code de vérification</label>
+              <div class="form-group">
+                <label class="form-label">Verification code</label>
                 <input v-model="totpCode" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6"
-                  placeholder="000000" class="input font-mono text-center text-lg tracking-widest"
-                  style="max-width: 160px" @keydown.enter="verifyTotpCode" />
+                  placeholder="000000" class="input font-mono text-center"
+                  style="max-width: 160px; font-size: 1.125rem; letter-spacing: 0.2em"
+                  @keydown.enter="verifyTotpCode" />
               </div>
-              <div class="flex gap-2">
-                <button class="btn btn-primary text-sm" :disabled="totpCode.length < 6" @click="verifyTotpCode">
-                  Vérifier
+              <div class="step-actions">
+                <button class="btn btn-primary btn-sm" :disabled="totpCode.length < 6" @click="verifyTotpCode">
+                  Verify
                 </button>
-                <button class="btn btn-ghost text-sm" @click="totpStep = 'idle'">Annuler</button>
+                <button class="btn btn-ghost btn-sm" @click="totpStep = 'idle'">{{ t("common.cancel") }}</button>
               </div>
             </div>
           </div>
@@ -355,68 +359,249 @@
 
       <!-- Step 2: Backup codes revealed after verify -->
       <template v-else-if="totpStep === 'backup-codes'">
-        <div class="space-y-4">
-          <div class="flex items-center gap-2" style="color: var(--accent-cyan)">
+        <div class="setup-step">
+          <div class="success-notice">
             <CheckCircle class="w-4 h-4" />
-            <span class="text-sm font-medium">TOTP activé avec succès !</span>
+            <span class="text-sm font-medium">TOTP enabled successfully!</span>
           </div>
-          <p class="text-sm" style="color: var(--text-muted)">
-            Conservez ces codes de secours dans un endroit sûr. Ils ne seront plus affichés.
+          <p class="text-sm" style="color: var(--color-text-muted)">
+            Save these backup codes in a safe place. They will not be shown again.
           </p>
-          <div class="grid grid-cols-2 gap-1.5 p-3 rounded-lg font-mono text-sm"
-            style="background: var(--bg-secondary)">
-            <span v-for="code in backupCodes" :key="code">{{ code }}</span>
+          <div class="backup-codes-grid">
+            <span v-for="code in backupCodes" :key="code" class="backup-code">{{ code }}</span>
           </div>
-          <button class="btn btn-primary text-sm" @click="totpStep = 'idle'">
-            J'ai sauvegardé mes codes
+          <button class="btn btn-primary btn-sm" @click="totpStep = 'idle'">
+            I have saved my codes
           </button>
         </div>
       </template>
 
-      <p v-if="totpError" class="text-sm" style="color: #f87171">{{ totpError }}</p>
+      <p v-if="totpError" class="text-sm" style="color: var(--color-danger)">{{ totpError }}</p>
     </div>
 
     <!-- ── Passkeys Section ─────────────────────────────────────────────── -->
-    <div class="card space-y-5">
-      <div class="flex items-start justify-between gap-4 flex-wrap">
-        <div class="flex items-start gap-3">
-          <Key class="w-5 h-5 mt-0.5 shrink-0" style="color: var(--accent-cyan)" />
+    <div class="card mfa-section">
+      <div class="section-header-row">
+        <div class="section-header">
+          <Key class="w-5 h-5 shrink-0" style="color: var(--color-primary)" />
           <div>
-            <h2 class="font-semibold">Clés de sécurité (Passkeys / YubiKey)</h2>
-            <p class="text-sm mt-0.5" style="color: var(--text-muted)">
-              FIDO2 / WebAuthn — compatible YubiKey 5+ et autres clés FIDO2
-            </p>
+            <h2 class="section-title">Security Keys (Passkeys / YubiKey)</h2>
+            <p class="section-desc">FIDO2 / WebAuthn — compatible with YubiKey 5+ and other FIDO2 keys</p>
           </div>
         </div>
-        <button class="btn btn-primary text-sm shrink-0" :disabled="registeringPasskey" @click="registerPasskey">
+        <button class="btn btn-primary btn-sm" :disabled="registeringPasskey" @click="registerPasskey">
           <Plus class="w-4 h-4" />
-          {{ registeringPasskey ? "Enregistrement…" : "Ajouter une clé" }}
+          {{ registeringPasskey ? t("common.loading") : "Add key" }}
         </button>
       </div>
 
-      <div v-if="passkeyError" class="text-sm" style="color: #f87171">{{ passkeyError }}</div>
-      <div v-if="passkeySuccess" class="text-sm" style="color: var(--accent-cyan)">{{ passkeySuccess }}</div>
+      <div v-if="passkeyError" class="text-sm" style="color: var(--color-danger)">{{ passkeyError }}</div>
+      <div v-if="passkeySuccess" class="text-sm" style="color: var(--color-success)">{{ passkeySuccess }}</div>
 
-      <div v-if="passkeys.length === 0" class="text-sm" style="color: var(--text-muted)">
-        Aucune clé enregistrée.
+      <div v-if="passkeys.length === 0" class="text-sm" style="color: var(--color-text-muted)">
+        No security keys registered.
       </div>
 
-      <div v-else class="space-y-2">
-        <div v-for="pk in passkeys" :key="pk.id" class="flex items-center gap-3 p-3 rounded-lg"
-          style="background: var(--bg-secondary)">
-          <Key class="w-4 h-4 shrink-0" style="color: var(--text-muted)" />
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-medium">{{ pk.name ?? "Clé sans nom" }}</p>
-            <p class="text-xs" style="color: var(--text-muted)">
-              Enregistrée le {{ formatDate(pk.createdAt) }}
+      <div v-else class="passkeys-list">
+        <div v-for="pk in passkeys" :key="pk.id" class="passkey-item">
+          <Key class="w-4 h-4 shrink-0" style="color: var(--color-text-muted)" />
+          <div class="passkey-info">
+            <p class="text-sm font-medium">{{ pk.name ?? "Unnamed key" }}</p>
+            <p class="text-xs" style="color: var(--color-text-muted)">
+              Registered {{ formatDate(pk.createdAt) }}
             </p>
           </div>
-          <button class="btn btn-ghost p-1.5 shrink-0" :disabled="deletingPasskey.has(pk.id)"
-            :title="'Supprimer cette clé'" @click="deletePasskey(pk.id)">
-            <Trash2 class="w-4 h-4" style="color: #f87171" />
+          <button class="btn btn-ghost" style="padding: 0.375rem" :disabled="deletingPasskey.has(pk.id)"
+            title="Delete this key" @click="deletePasskey(pk.id)">
+            <Trash2 class="w-4 h-4" style="color: var(--color-danger)" />
           </button>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+  .mfa-view {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .mfa-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .mfa-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .section-header-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .section-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .section-desc {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    margin: 0.25rem 0 0;
+  }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .setup-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .step-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .password-input-wrap {
+    position: relative;
+    max-width: 20rem;
+  }
+
+  .password-toggle {
+    position: absolute;
+    inset-y: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 0.75rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+
+  .qr-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    color: var(--color-text-muted);
+  }
+
+  .qr-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  @media (min-width: 640px) {
+    .qr-layout {
+      flex-direction: row;
+      align-items: flex-start;
+    }
+  }
+
+  .qr-image {
+    width: 10rem;
+    height: 10rem;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    flex-shrink: 0;
+  }
+
+  .qr-form {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .manual-uri {
+    font-size: 0.75rem;
+    word-break: break-all;
+    display: block;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+  }
+
+  .success-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-success);
+  }
+
+  .backup-codes-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .backup-codes-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .backup-codes-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.375rem;
+    padding: 0.75rem;
+    border-radius: 6px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+  }
+
+  .backup-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8125rem;
+    color: var(--color-text);
+  }
+
+  .passkeys-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .passkey-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 6px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+  }
+
+  .passkey-info {
+    flex: 1;
+    min-width: 0;
+  }
+</style>

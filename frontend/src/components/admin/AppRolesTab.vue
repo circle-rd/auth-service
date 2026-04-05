@@ -1,7 +1,7 @@
 <script setup lang="ts">
     import { ref, computed, watch } from "vue";
     import { useI18n } from "vue-i18n";
-    import { Plus, Trash2, ChevronRight, ChevronDown } from "lucide-vue-next";
+    import { Plus, Trash2, ChevronRight, ChevronDown, Star } from "lucide-vue-next";
 
     const props = defineProps<{ appId: string; }>();
     const { t } = useI18n();
@@ -10,6 +10,7 @@
         id: string;
         name: string;
         description?: string;
+        isDefault: boolean;
         permissionIds: string[];
     }
     interface Permission {
@@ -75,6 +76,16 @@
         await fetch(`/api/admin/applications/${props.appId}/roles/${id}`, {
             method: "DELETE",
             credentials: "include",
+        });
+        await fetchData();
+    }
+
+    async function setAsDefault(roleId: string) {
+        await fetch(`/api/admin/applications/${props.appId}/roles/${roleId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ isDefault: true }),
         });
         await fetchData();
     }
@@ -149,11 +160,142 @@
 <template>
     <div class="space-y-6">
         <div class="grid gap-6" style="grid-template-columns: 2fr 3fr; align-items: start">
-            <!-- ── Left: Permission resources ────────────────────────────────────── -->
+            <!-- ── Left: Roles with permission matrix ─────────────────────────── -->
+            <div class="card space-y-4">
+                <h2 class="text-sm font-semibold">{{ t("admin.roles") }}</h2>
+                <div class="flex gap-2">
+                    <input v-model="newRoleName" class="input flex-1 text-sm" placeholder="editor"
+                        @keyup.enter="addRole" />
+                    <button class="btn btn-primary px-3" @click="addRole">
+                        <Plus class="w-4 h-4" />
+                    </button>
+                </div>
+
+                <div v-if="roles.length === 0" class="text-xs text-center py-4" style="color: var(--color-text-muted)">
+                    No roles yet.
+                </div>
+                <ul v-else class="space-y-2">
+                    <li v-for="role in roles" :key="role.id" class="rounded-lg overflow-hidden"
+                        style="border: 1px solid var(--color-border)">
+                        <!-- Role header -->
+                        <div class="flex items-center justify-between px-3 py-2" style="background: var(--color-bg)">
+                            <button class="flex items-center gap-2 flex-1 min-w-0 text-left"
+                                @click="expandedRoleId = expandedRoleId === role.id ? null : role.id">
+                                <component :is="expandedRoleId === role.id ? ChevronDown : ChevronRight"
+                                    class="w-3.5 h-3.5 shrink-0" style="color: var(--color-text-muted)" />
+                                <span class="text-sm font-mono truncate">{{ role.name }}</span>
+                                <span v-if="role.isDefault" class="badge badge-success shrink-0"
+                                    style="font-size: 0.6rem; padding: 1px 6px">
+                                    {{ t("admin.defaultRole") }}
+                                </span>
+                                <span v-if="role.permissionIds.length > 0" class="badge badge-inactive shrink-0"
+                                    style="font-size: 0.6rem; padding: 1px 6px">
+                                    {{ role.permissionIds.length }}
+                                </span>
+                            </button>
+                            <div class="flex items-center gap-1 ml-2 shrink-0">
+                                <button v-if="!role.isDefault" class="btn btn-ghost p-1"
+                                    :title="t('admin.setAsDefault')" @click="setAsDefault(role.id)">
+                                    <Star class="w-3.5 h-3.5" style="color: var(--color-text-muted)" />
+                                </button>
+                                <button class="btn btn-ghost p-1" @click="deleteRole(role.id)">
+                                    <Trash2 class="w-3.5 h-3.5" style="color: #f87171" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Permission matrix (expandable) -->
+                        <Transition name="expand">
+                            <div v-if="expandedRoleId === role.id">
+                                <div v-if="uniqueResources.length === 0" class="px-4 py-3 text-xs"
+                                    style="color: var(--color-text-muted)">
+                                    {{ t("admin.configurePermissions") }}
+                                </div>
+                                <table v-else class="w-full text-xs">
+                                    <thead>
+                                        <tr style="border-bottom: 1px solid var(--color-border)">
+                                            <th class="text-left px-4 py-2 font-medium"
+                                                style="color: var(--color-text-muted)">
+                                                Resource
+                                            </th>
+                                            <th class="px-4 py-2 font-medium text-center"
+                                                style="color: var(--color-text-muted); width: 80px">
+                                                {{ t("admin.readAccess") }}
+                                            </th>
+                                            <th class="px-4 py-2 font-medium text-center"
+                                                style="color: var(--color-text-muted); width: 80px">
+                                                {{ t("admin.writeAccess") }}
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="resource in uniqueResources" :key="resource"
+                                            style="border-bottom: 1px solid var(--color-border)">
+                                            <td class="px-4 py-2 font-mono">{{ resource }}</td>
+                                            <td class="px-4 py-2 text-center">
+                                                <template v-if="permByResource.get(resource)?.read">
+                                                    <button type="button"
+                                                        class="inline-flex w-9 h-5 rounded-full transition-colors"
+                                                        :style="hasPermission(
+                                                            role.id,
+                                                            permByResource.get(resource)!.read!.id,
+                                                        )
+                                                            ? 'background: var(--color-primary)'
+                                                            : 'background: var(--color-border)'
+                                                            "
+                                                        @click="togglePermission(role.id, permByResource.get(resource)!.read!)">
+                                                        <span
+                                                            class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                            :style="hasPermission(
+                                                                role.id,
+                                                                permByResource.get(resource)!.read!.id,
+                                                            )
+                                                                ? 'transform: translateX(1.1rem)'
+                                                                : 'transform: translateX(0.125rem)'
+                                                                " />
+                                                    </button>
+                                                </template>
+                                                <span v-else style="color: var(--color-text-muted)">—</span>
+                                            </td>
+                                            <td class="px-4 py-2 text-center">
+                                                <template v-if="permByResource.get(resource)?.write">
+                                                    <button type="button"
+                                                        class="inline-flex w-9 h-5 rounded-full transition-colors"
+                                                        :style="hasPermission(
+                                                            role.id,
+                                                            permByResource.get(resource)!.write!.id,
+                                                        )
+                                                            ? 'background: var(--color-primary)'
+                                                            : 'background: var(--color-border)'
+                                                            " @click="
+                                                                togglePermission(role.id, permByResource.get(resource)!.write!)
+                                                                ">
+                                                        <span
+                                                            class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                            :style="hasPermission(
+                                                                role.id,
+                                                                permByResource.get(resource)!.write!.id,
+                                                            )
+                                                                ? 'transform: translateX(1.1rem)'
+                                                                : 'transform: translateX(0.125rem)'
+                                                                " />
+                                                    </button>
+                                                </template>
+                                                <span v-else style="color: var(--color-text-muted)">—</span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Transition>
+                    </li>
+                </ul>
+            </div>
+            <!-- ── Right: Permission resources ────────────────────────────────────── -->
             <div class="card space-y-4">
                 <div>
                     <h2 class="text-sm font-semibold">{{ t("admin.permissions") }}</h2>
-                    <p class="text-xs mt-1" style="color: var(--text-muted)">
+                    <p class="text-xs mt-1" style="color: var(--color-text-muted)">
                         {{ t("admin.resourceHint") }}
                     </p>
                 </div>
@@ -166,13 +308,13 @@
                 </div>
 
                 <div v-if="uniqueResources.length === 0" class="text-xs text-center py-4"
-                    style="color: var(--text-muted)">
+                    style="color: var(--color-text-muted)">
                     {{ t("admin.noPermissions") }}
                 </div>
                 <ul v-else class="space-y-1.5">
                     <li v-for="resource in uniqueResources" :key="resource"
                         class="flex items-center justify-between px-3 py-2 rounded-lg"
-                        style="background: var(--bg-secondary)">
+                        style="background: var(--color-bg)">
                         <div>
                             <span class="text-sm font-mono">{{ resource }}</span>
                             <div class="flex items-center gap-1.5 mt-0.5">
@@ -191,127 +333,7 @@
                 </ul>
             </div>
 
-            <!-- ── Right: Roles with permission matrix ─────────────────────────── -->
-            <div class="card space-y-4">
-                <h2 class="text-sm font-semibold">{{ t("admin.roles") }}</h2>
-                <div class="flex gap-2">
-                    <input v-model="newRoleName" class="input flex-1 text-sm" placeholder="editor"
-                        @keyup.enter="addRole" />
-                    <button class="btn btn-primary px-3" @click="addRole">
-                        <Plus class="w-4 h-4" />
-                    </button>
-                </div>
 
-                <div v-if="roles.length === 0" class="text-xs text-center py-4" style="color: var(--text-muted)">
-                    Aucun rôle pour l'instant.
-                </div>
-                <ul v-else class="space-y-2">
-                    <li v-for="role in roles" :key="role.id" class="rounded-lg overflow-hidden"
-                        style="border: 1px solid var(--border)">
-                        <!-- Role header -->
-                        <div class="flex items-center justify-between px-3 py-2"
-                            style="background: var(--bg-secondary)">
-                            <button class="flex items-center gap-2 flex-1 min-w-0 text-left"
-                                @click="expandedRoleId = expandedRoleId === role.id ? null : role.id">
-                                <component :is="expandedRoleId === role.id ? ChevronDown : ChevronRight"
-                                    class="w-3.5 h-3.5 shrink-0" style="color: var(--text-muted)" />
-                                <span class="text-sm font-mono truncate">{{ role.name }}</span>
-                                <span v-if="role.permissionIds.length > 0" class="badge badge-success shrink-0"
-                                    style="font-size: 0.6rem; padding: 1px 6px">
-                                    {{ role.permissionIds.length }}
-                                </span>
-                            </button>
-                            <button class="btn btn-ghost p-1 ml-2 shrink-0" @click="deleteRole(role.id)">
-                                <Trash2 class="w-3.5 h-3.5" style="color: #f87171" />
-                            </button>
-                        </div>
-
-                        <!-- Permission matrix (expandable) -->
-                        <Transition name="expand">
-                            <div v-if="expandedRoleId === role.id">
-                                <div v-if="uniqueResources.length === 0" class="px-4 py-3 text-xs"
-                                    style="color: var(--text-muted)">
-                                    {{ t("admin.configurePermissions") }}
-                                </div>
-                                <table v-else class="w-full text-xs">
-                                    <thead>
-                                        <tr style="border-bottom: 1px solid var(--border)">
-                                            <th class="text-left px-4 py-2 font-medium"
-                                                style="color: var(--text-muted)">
-                                                Resource
-                                            </th>
-                                            <th class="px-4 py-2 font-medium text-center"
-                                                style="color: var(--text-muted); width: 80px">
-                                                {{ t("admin.readAccess") }}
-                                            </th>
-                                            <th class="px-4 py-2 font-medium text-center"
-                                                style="color: var(--text-muted); width: 80px">
-                                                {{ t("admin.writeAccess") }}
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="resource in uniqueResources" :key="resource"
-                                            style="border-bottom: 1px solid var(--border)">
-                                            <td class="px-4 py-2 font-mono">{{ resource }}</td>
-                                            <td class="px-4 py-2 text-center">
-                                                <template v-if="permByResource.get(resource)?.read">
-                                                    <button type="button"
-                                                        class="inline-flex w-9 h-5 rounded-full transition-colors"
-                                                        :style="hasPermission(
-                                                            role.id,
-                                                            permByResource.get(resource)!.read!.id,
-                                                        )
-                                                                ? 'background: var(--accent-cyan)'
-                                                                : 'background: var(--border)'
-                                                            " @click="togglePermission(role.id, permByResource.get(resource)!.read!)">
-                                                        <span
-                                                            class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
-                                                            :style="hasPermission(
-                                                                role.id,
-                                                                permByResource.get(resource)!.read!.id,
-                                                            )
-                                                                    ? 'transform: translateX(1.1rem)'
-                                                                    : 'transform: translateX(0.125rem)'
-                                                                " />
-                                                    </button>
-                                                </template>
-                                                <span v-else style="color: var(--text-muted)">—</span>
-                                            </td>
-                                            <td class="px-4 py-2 text-center">
-                                                <template v-if="permByResource.get(resource)?.write">
-                                                    <button type="button"
-                                                        class="inline-flex w-9 h-5 rounded-full transition-colors"
-                                                        :style="hasPermission(
-                                                            role.id,
-                                                            permByResource.get(resource)!.write!.id,
-                                                        )
-                                                                ? 'background: var(--accent-cyan)'
-                                                                : 'background: var(--border)'
-                                                            " @click="
-                                togglePermission(role.id, permByResource.get(resource)!.write!)
-                                ">
-                                                        <span
-                                                            class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
-                                                            :style="hasPermission(
-                                                                role.id,
-                                                                permByResource.get(resource)!.write!.id,
-                                                            )
-                                                                    ? 'transform: translateX(1.1rem)'
-                                                                    : 'transform: translateX(0.125rem)'
-                                                                " />
-                                                    </button>
-                                                </template>
-                                                <span v-else style="color: var(--text-muted)">—</span>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </Transition>
-                    </li>
-                </ul>
-            </div>
         </div>
     </div>
 </template>

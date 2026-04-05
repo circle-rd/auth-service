@@ -67,7 +67,7 @@
   }
 
   function formatDate(str: string): string {
-    return new Date(str).toLocaleString("fr-FR", {
+    return new Date(str).toLocaleString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -84,8 +84,7 @@
   }
 
   function parseUserAgent(ua?: string | null): string {
-    if (!ua) return "Navigateur inconnu";
-    // Extract browser name
+    if (!ua) return "Unknown browser";
     if (ua.includes("Firefox")) return "Firefox";
     if (ua.includes("Edg/")) return "Edge";
     if (ua.includes("Chrome")) return "Chrome";
@@ -100,67 +99,182 @@
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between gap-4 flex-wrap">
-      <h1 class="text-2xl font-bold gradient-text">{{ t("profile.sessions") }}</h1>
-      <button v-if="otherSessions.length > 0" class="btn btn-secondary text-sm" :disabled="revokingAll"
+  <div class="sessions-view">
+    <div class="sessions-header">
+      <h1 class="sessions-title">{{ t("profile.sessions") }}</h1>
+      <button v-if="otherSessions.length > 0" class="btn btn-secondary btn-sm" :disabled="revokingAll"
         @click="revokeOtherSessions">
         <LogOut class="w-4 h-4" />
-        {{ revokingAll ? t("common.loading") : "Révoquer les autres" }}
+        {{ revokingAll ? t("common.loading") : t("sessions.revokeOthers") }}
       </button>
     </div>
 
-    <p class="text-sm" style="color: var(--text-muted)">
-      Liste de toutes les sessions actives associées à votre compte.
-    </p>
+    <p class="sessions-desc">{{ t("sessions.description") }}</p>
 
-    <div v-if="error" class="card" style="border-color: rgba(239,68,68,0.3)">
-      <p class="text-sm" style="color: #f87171">{{ error }}</p>
+    <div v-if="error" class="alert alert-error">{{ error }}</div>
+
+    <div v-if="loading" class="sessions-loading">{{ t("common.loading") }}</div>
+
+    <div v-else-if="sessions.length === 0" class="sessions-empty">
+      <p>{{ t("sessions.noSessions") }}</p>
     </div>
 
-    <div v-if="loading" class="text-center py-8" style="color: var(--text-muted)">
-      {{ t("common.loading") }}
-    </div>
-
-    <div v-else-if="sessions.length === 0" class="card text-center py-8">
-      <p class="text-sm" style="color: var(--text-muted)">Aucune session active.</p>
-    </div>
-
-    <div v-else class="space-y-3">
-      <div v-for="session in sessions" :key="session.id" class="card flex items-start gap-4"
-        :style="session.isCurrent ? 'border-color: rgba(34,211,238,0.25)' : ''">
+    <div v-else class="sessions-list">
+      <div v-for="session in sessions" :key="session.id" class="session-item"
+        :class="{ 'session-item--current': session.isCurrent }">
         <!-- Device icon -->
-        <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5" :style="session.isCurrent
-          ? 'background: rgba(34,211,238,0.1); color: var(--accent-cyan)'
-          : 'background: var(--bg-secondary); color: var(--text-muted)'">
+        <div class="session-icon" :class="{ 'session-icon--current': session.isCurrent }">
           <component :is="getDeviceIcon(session.userAgent)" class="w-4 h-4" />
         </div>
 
         <!-- Details -->
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-sm font-medium">{{ parseUserAgent(session.userAgent) }}</span>
-            <span v-if="session.isCurrent" class="badge badge-success text-xs">Session courante</span>
+        <div class="session-details">
+          <div class="session-name-row">
+            <span class="session-name">{{ parseUserAgent(session.userAgent) }}</span>
+            <span v-if="session.isCurrent" class="badge badge-success">{{ t("sessions.current") }}</span>
           </div>
-          <div class="mt-1 space-y-0.5">
-            <p v-if="session.ipAddress" class="text-xs font-mono" style="color: var(--text-muted)">
+          <div class="session-meta">
+            <p v-if="session.ipAddress" class="session-meta-item font-mono">
               IP: {{ session.ipAddress }}
             </p>
-            <p class="text-xs" style="color: var(--text-muted)">
-              Créée le {{ formatDate(session.createdAt) }}
+            <p class="session-meta-item">
+              {{ t("sessions.createdAt") }}: {{ formatDate(session.createdAt) }}
             </p>
-            <p class="text-xs" style="color: var(--text-muted)">
-              Expire le {{ formatDate(session.expiresAt) }}
+            <p class="session-meta-item">
+              {{ t("sessions.expiresAt") }}: {{ formatDate(session.expiresAt) }}
             </p>
           </div>
         </div>
 
         <!-- Revoke button -->
-        <button v-if="!session.isCurrent" class="btn btn-ghost p-2 shrink-0" :disabled="revoking.has(session.token)"
-          :title="'Révoquer cette session'" @click="revokeSession(session.token)">
-          <Trash2 class="w-4 h-4" style="color: #f87171" />
+        <button v-if="!session.isCurrent" class="btn btn-ghost session-revoke-btn"
+          :disabled="revoking.has(session.token)" :title="t('sessions.revoke')" @click="revokeSession(session.token)">
+          <Trash2 class="w-4 h-4" style="color: var(--color-danger)" />
         </button>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+  .sessions-view {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .sessions-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .sessions-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .sessions-desc {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .sessions-loading {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+  }
+
+  .sessions-empty {
+    text-align: center;
+    padding: 2rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    color: var(--color-text-muted);
+    font-size: 0.875rem;
+  }
+
+  .sessions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .session-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    transition: border-color 0.15s ease;
+  }
+
+  .session-item--current {
+    border-color: var(--color-primary-border);
+    background: var(--color-primary-light);
+  }
+
+  .session-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: var(--color-bg);
+    color: var(--color-text-muted);
+    border: 1px solid var(--color-border);
+  }
+
+  .session-icon--current {
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    border-color: var(--color-primary-border);
+  }
+
+  .session-details {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .session-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .session-name {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text);
+  }
+
+  .session-meta {
+    margin-top: 0.375rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .session-meta-item {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .session-revoke-btn {
+    padding: 0.5rem;
+    flex-shrink: 0;
+  }
+</style>

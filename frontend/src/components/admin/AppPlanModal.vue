@@ -352,10 +352,11 @@
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.6)"
             @click.self="emit('close')">
             <div class="relative w-full max-w-2xl rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-                style="background: var(--bg-card); max-height: 90vh" @click.stop>
+                style="background: var(--color-surface); max-height: 90vh" @click.stop>
 
                 <!-- Header -->
-                <div class="flex items-center gap-3 px-6 py-4 border-b shrink-0" style="border-color: var(--border)">
+                <div class="flex items-center gap-3 px-6 py-4 border-b shrink-0"
+                    style="border-color: var(--color-border)">
                     <h2 class="font-semibold text-base flex-1">
                         {{ isEditMode ? t("admin.editPlan") : t("admin.createPlan") }}
                     </h2>
@@ -365,12 +366,12 @@
                 </div>
 
                 <!-- Tab bar -->
-                <div class="flex border-b shrink-0 overflow-x-auto" style="border-color: var(--border)">
+                <div class="flex border-b shrink-0 overflow-x-auto" style="border-color: var(--color-border)">
                     <button v-for="tab in tabs" :key="tab.id"
                         class="flex items-center gap-2 px-5 py-3 text-sm font-medium whitespace-nowrap transition-colors"
                         :style="activeTab === tab.id
-                            ? 'color: var(--accent-cyan); border-bottom: 2px solid var(--accent-cyan)'
-                            : 'color: var(--text-muted)'" @click="activeTab = tab.id">
+                            ? 'color: var(--color-primary); border-bottom: 2px solid var(--color-primary)'
+                            : 'color: var(--color-text-muted)'" @click="activeTab = tab.id">
                         <component :is="tab.icon" class="w-4 h-4" />
                         {{ tab.label }}
                     </button>
@@ -384,14 +385,14 @@
                         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("common.name") }}
                                 </label>
                                 <input v-model="form.name" class="input" :placeholder="t('admin.appName')" required />
                             </div>
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("admin.planDescription") }}
                                     <span style="opacity:0.55">({{ t("common.optional") }})</span>
                                 </label>
@@ -403,7 +404,7 @@
                         <label class="flex items-center gap-2.5 cursor-pointer select-none">
                             <input v-model="form.isDefault" type="checkbox" class="sr-only" />
                             <div class="w-9 h-5 rounded-full transition-colors shrink-0"
-                                :style="form.isDefault ? 'background: var(--accent-cyan)' : 'background: var(--border)'">
+                                :style="form.isDefault ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
                                 <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
                                     :style="form.isDefault ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
                             </div>
@@ -416,15 +417,13 @@
 
                         <!-- Mode switcher -->
                         <div class="flex items-center gap-2 text-xs">
-                            <button class="px-3 py-1 rounded-full font-medium transition-colors" :style="featuresMode === 'form'
-                                ? 'background: var(--accent-cyan); color: #000'
-                                : 'background: var(--bg-secondary); color: var(--text-muted)'"
+                            <button class="btn btn-sm transition-colors"
+                                :class="featuresMode === 'form' ? 'btn-primary' : 'btn-secondary'"
                                 @click="featuresMode === 'advanced' ? switchToForm() : void 0">
                                 {{ t("admin.featuresFormView") }}
                             </button>
-                            <button class="px-3 py-1 rounded-full font-medium transition-colors" :style="featuresMode === 'advanced'
-                                ? 'background: var(--accent-cyan); color: #000'
-                                : 'background: var(--bg-secondary); color: var(--text-muted)'"
+                            <button class="btn btn-sm transition-colors"
+                                :class="featuresMode === 'advanced' ? 'btn-primary' : 'btn-secondary'"
                                 @click="featuresMode === 'form' ? switchToAdvanced() : void 0">
                                 {{ t("admin.featuresAdvancedView") }}
                             </button>
@@ -433,28 +432,29 @@
                         <!-- Form view -->
                         <template v-if="featuresMode === 'form'">
                             <div v-if="featureRows.length === 0" class="text-sm text-center py-6"
-                                style="color: var(--text-muted)">
+                                style="color: var(--color-text-muted)">
                                 {{ t("admin.noPlans") }}
                             </div>
 
                             <div v-for="(row, idx) in featureRows" :key="idx" class="grid gap-3 p-4 rounded-xl"
-                                style="background: var(--bg-secondary); grid-template-columns: 1fr 1fr auto auto auto">
+                                style="background: var(--color-bg); grid-template-columns: 1fr 1fr auto auto auto">
 
                                 <!-- Key -->
                                 <div>
-                                    <label class="block text-xs mb-1" style="color: var(--text-muted)">
+                                    <label class="block text-xs mb-1" style="color: var(--color-text-muted)">
                                         {{ t("admin.featureKey") }}
                                     </label>
                                     <input v-model="row.key" class="input text-sm"
                                         :placeholder="t('admin.featureKeyPlaceholder')" @input="onRowChange" />
-                                    <p v-if="row.key" class="text-xs mt-1 font-mono" style="color: var(--text-muted)">
+                                    <p v-if="row.key" class="text-xs mt-1 font-mono"
+                                        style="color: var(--color-text-muted)">
                                         {{ toSnakeKey(row.key) }}
                                     </p>
                                 </div>
 
                                 <!-- Value -->
                                 <div>
-                                    <label class="block text-xs mb-1" style="color: var(--text-muted)">
+                                    <label class="block text-xs mb-1" style="color: var(--color-text-muted)">
                                         {{ t("admin.featureValue") }}
                                     </label>
                                     <input v-model="row.value" class="input text-sm"
@@ -463,11 +463,11 @@
 
                                 <!-- Usage toggle -->
                                 <div class="flex flex-col items-center justify-center gap-1 pt-1">
-                                    <label class="text-xs" style="color: var(--text-muted)">
+                                    <label class="text-xs" style="color: var(--color-text-muted)">
                                         {{ t("admin.featureUsage") }}
                                     </label>
                                     <button type="button" class="w-9 h-5 rounded-full transition-colors"
-                                        :style="row.usage ? 'background: var(--accent-cyan)' : 'background: var(--border)'"
+                                        :style="row.usage ? 'background: var(--color-primary)' : 'background: var(--color-border)'"
                                         @click="row.usage = !row.usage; onRowChange()">
                                         <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
                                             :style="row.usage ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
@@ -521,17 +521,17 @@
                         <div v-if="existingPrices.length > 0" class="space-y-2">
                             <div v-for="price in existingPrices" :key="price.id"
                                 class="flex items-center gap-3 px-4 py-3 rounded-xl"
-                                style="background: var(--bg-secondary)">
+                                style="background: var(--color-bg)">
                                 <div class="flex-1">
                                     <p class="font-medium text-sm">{{ price.name }}</p>
-                                    <p class="text-xs" style="color: var(--text-muted)">
+                                    <p class="text-xs" style="color: var(--color-text-muted)">
                                         {{ formatAmount(price.amount, price.currency) }} /
                                         {{ price.interval === "one_time" ? t("admin.priceIntervalOneTime") :
                                             price.interval === "year" ? t("admin.priceIntervalYear") :
-                                        t("admin.priceIntervalMonth") }}
+                                                t("admin.priceIntervalMonth") }}
                                     </p>
                                     <p v-if="price.stripePriceId" class="text-xs font-mono mt-0.5"
-                                        style="color: var(--text-muted); opacity: 0.6">
+                                        style="color: var(--color-text-muted); opacity: 0.6">
                                         {{ price.stripePriceId }}
                                     </p>
                                 </div>
@@ -545,19 +545,19 @@
                         <div v-if="pricesToCreate.length > 0" class="space-y-2">
                             <div v-for="(price, idx) in pricesToCreate" :key="idx"
                                 class="flex items-center gap-3 px-4 py-3 rounded-xl"
-                                style="background: var(--bg-secondary); border: 1px dashed var(--border)">
+                                style="background: var(--color-bg); border: 1px dashed var(--color-border)">
                                 <div class="flex-1">
                                     <p class="font-medium text-sm">{{ price.name }}
                                         <span class="text-xs ml-2 px-1.5 py-0.5 rounded"
-                                            style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                                            style="background: var(--color-primary-light); color: var(--color-primary)">
                                             pending
                                         </span>
                                     </p>
-                                    <p class="text-xs" style="color: var(--text-muted)">
+                                    <p class="text-xs" style="color: var(--color-text-muted)">
                                         {{ formatAmount(price.amount, price.currency) }} /
                                         {{ price.interval === "one_time" ? t("admin.priceIntervalOneTime") :
                                             price.interval === "year" ? t("admin.priceIntervalYear") :
-                                        t("admin.priceIntervalMonth") }}
+                                                t("admin.priceIntervalMonth") }}
                                     </p>
                                 </div>
                                 <button class="btn btn-ghost p-1.5" @click="removePendingPrice(idx)">
@@ -567,20 +567,21 @@
                         </div>
 
                         <div v-if="existingPrices.length === 0 && pricesToCreate.length === 0"
-                            class="text-sm text-center py-4" style="color: var(--text-muted)">
+                            class="text-sm text-center py-4" style="color: var(--color-text-muted)">
                             {{ t("admin.noPrices") }}
                         </div>
 
                         <!-- Add price form -->
-                        <div class="rounded-xl p-4 space-y-4" style="background: var(--bg-secondary)">
-                            <p class="text-xs font-mono uppercase tracking-widest" style="color: var(--text-muted)">
+                        <div class="rounded-xl p-4 space-y-4" style="background: var(--color-bg)">
+                            <p class="text-xs font-mono uppercase tracking-widest"
+                                style="color: var(--color-text-muted)">
                                 {{ t("admin.addPrice") }}
                             </p>
 
                             <div class="grid gap-3" style="grid-template-columns: 1fr 1fr">
                                 <!-- Tier name -->
                                 <div>
-                                    <label class="block text-xs mb-1" style="color: var(--text-muted)">
+                                    <label class="block text-xs mb-1" style="color: var(--color-text-muted)">
                                         {{ t("admin.priceName") }}
                                     </label>
                                     <input v-model="newPrice.name" class="input text-sm"
@@ -589,7 +590,7 @@
 
                                 <!-- Amount -->
                                 <div>
-                                    <label class="block text-xs mb-1" style="color: var(--text-muted)">
+                                    <label class="block text-xs mb-1" style="color: var(--color-text-muted)">
                                         {{ t("admin.priceAmount") }}
                                         <span style="opacity: 0.55">(cents)</span>
                                     </label>
@@ -599,7 +600,7 @@
 
                                 <!-- Currency -->
                                 <div>
-                                    <label class="block text-xs mb-1" style="color: var(--text-muted)">
+                                    <label class="block text-xs mb-1" style="color: var(--color-text-muted)">
                                         {{ t("admin.priceCurrency") }}
                                     </label>
                                     <input v-model="newPrice.currency" class="input text-sm font-mono" placeholder="usd"
@@ -608,7 +609,7 @@
 
                                 <!-- Interval -->
                                 <div>
-                                    <label class="block text-xs mb-1" style="color: var(--text-muted)">
+                                    <label class="block text-xs mb-1" style="color: var(--color-text-muted)">
                                         {{ t("admin.priceInterval") }}
                                     </label>
                                     <select v-model="newPrice.interval" class="input text-sm">
@@ -631,7 +632,7 @@
 
                 <!-- Footer -->
                 <div class="flex items-center justify-between gap-4 px-6 py-4 border-t shrink-0"
-                    style="border-color: var(--border)">
+                    style="border-color: var(--color-border)">
                     <p v-if="error" class="text-sm flex-1" style="color: #f87171">{{ error }}</p>
                     <div v-else class="flex-1" />
                     <div class="flex items-center gap-3">

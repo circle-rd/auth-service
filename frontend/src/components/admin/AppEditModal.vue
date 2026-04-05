@@ -9,7 +9,7 @@
         Users,
         BarChart2,
     } from "lucide-vue-next";
-    import AppInfoTab from "./AppInfoTab.vue";
+    import AppFormModal from "./AppFormModal.vue";
     import AppRolesTab from "./AppRolesTab.vue";
     import AppSubscriptionsTab from "./AppSubscriptionsTab.vue";
     import AppUsersTab from "./AppUsersTab.vue";
@@ -32,7 +32,7 @@
 
     const tabs: { id: Tab; label: string; shortLabel: string; icon: typeof LayoutGrid; }[] = [
         { id: "info", label: "admin.generalInfo", shortLabel: "Info", icon: LayoutGrid },
-        { id: "roles", label: "admin.roles", shortLabel: "Rôles", icon: Shield },
+        { id: "roles", label: "admin.roles", shortLabel: "Roles", icon: Shield },
         { id: "subscriptions", label: "admin.subscriptions", shortLabel: "Plans", icon: CreditCard },
         { id: "users", label: "admin.users", shortLabel: "Users", icon: Users },
         { id: "consumption", label: "admin.consumptionTab", shortLabel: "Stats", icon: BarChart2 },
@@ -89,17 +89,17 @@
 <template>
     <Teleport to="body">
         <Transition name="modal-fade">
-            <div v-if="open" class="fixed inset-0 z-50 flex flex-col lg:flex-row" style="background: var(--bg-primary)">
+            <div v-if="open" class="fixed inset-0 z-50 flex flex-col lg:flex-row" style="background: var(--color-bg)">
 
                 <!-- Mobile horizontal tab bar -->
                 <div class="flex lg:hidden shrink-0 items-center"
-                    style="border-bottom: 1px solid var(--border); background: var(--bg-primary)">
+                    style="border-bottom: 1px solid var(--color-border); background: var(--color-bg)">
                     <div class="flex items-center gap-2 px-4 py-2 shrink-0">
                         <img v-if="appSummary?.icon" :src="appSummary.icon" :alt="appSummary?.name"
                             class="w-6 h-6 rounded shrink-0 object-cover" />
                         <div v-else
                             class="w-6 h-6 rounded flex items-center justify-center text-xs font-bold font-mono shrink-0"
-                            style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                            style="background: var(--color-primary-light); color: var(--color-primary)">
                             {{ initials(appSummary?.name) }}
                         </div>
                         <span class="text-sm font-semibold truncate" style="max-width: 96px">{{ appSummary?.name ?? "…"
@@ -109,12 +109,12 @@
                     <div class="flex flex-1 overflow-x-auto">
                         <button v-for="tab in tabs" :key="tab.id"
                             class="flex flex-col items-center gap-0.5 px-3 py-2.5 transition-colors shrink-0 relative text-xs"
-                            :style="activeTab === tab.id ? 'color: var(--accent-cyan)' : 'color: var(--text-muted)'"
+                            :style="activeTab === tab.id ? 'color: var(--color-primary)' : 'color: var(--color-text-muted)'"
                             @click="activeTab = tab.id">
                             <component :is="tab.icon" class="w-4 h-4" />
                             <span>{{ tab.shortLabel }}</span>
                             <span v-if="activeTab === tab.id" class="absolute bottom-0 left-1 right-1 h-0.5 rounded-t"
-                                style="background: var(--accent-cyan)" />
+                                style="background: var(--color-primary)" />
                         </button>
                     </div>
 
@@ -126,17 +126,17 @@
 
                 <!-- Desktop sidebar -->
                 <aside class="hidden lg:flex flex-col shrink-0"
-                    style="width: 220px; border-right: 1px solid var(--border); background: var(--bg-primary); padding: 1.25rem 0.75rem">
+                    style="width: 220px; border-right: 1px solid var(--color-border); background: var(--color-bg); padding: 1.25rem 0.75rem">
                     <div class="px-3 mb-5">
                         <img v-if="appSummary?.icon" :src="appSummary.icon" :alt="appSummary?.name"
                             class="w-8 h-8 rounded-lg mb-2 object-cover" />
                         <div v-else
                             class="w-8 h-8 rounded-lg mb-2 flex items-center justify-center text-xs font-bold font-mono"
-                            style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                            style="background: var(--color-primary-light); color: var(--color-primary)">
                             {{ initials(appSummary?.name) }}
                         </div>
                         <p class="font-semibold text-sm leading-tight truncate">{{ appSummary?.name ?? "…" }}</p>
-                        <p class="text-xs font-mono truncate mt-0.5" style="color: var(--text-muted)">{{
+                        <p class="text-xs font-mono truncate mt-0.5" style="color: var(--color-text-muted)">{{
                             appSummary?.slug ?? "" }}</p>
                     </div>
 
@@ -159,7 +159,8 @@
                 <!-- Main content -->
                 <main class="flex-1 overflow-y-auto" style="padding: 2rem 2.5rem">
 
-                    <AppInfoTab v-if="activeTab === 'info'" :app-id="appId" @updated="onInfoUpdated" />
+                    <AppFormModal v-if="activeTab === 'info'" mode="edit" :app-id="appId" :open="true" inline
+                        @updated="onInfoUpdated" />
 
                     <template v-else-if="activeTab === 'roles'">
                         <h1 class="text-xl font-semibold gradient-text mb-6">{{ t("admin.roles") }} &amp; {{

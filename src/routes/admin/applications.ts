@@ -5,14 +5,14 @@ import { z } from "zod";
 import { db } from "../../db/index.js";
 import {
   applications,
+  appRoles,
   userApplications,
   userAppRoles,
   consumptionAggregates,
   subscriptionPlans,
   userSubscriptions,
 } from "../../db/schema.js";
-import { oauthClient } from "../../db/auth-schema.js";
-import { user as userTable } from "../../db/auth-schema.js";
+import { oauthClient, user as userTable } from "../../db/auth-schema.js";
 import { and, eq } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
@@ -59,6 +59,7 @@ const createAppSchema = z.object({
   description: z.string().max(500).optional(),
   isActive: z.boolean().default(true),
   skipConsent: z.boolean().default(false),
+  isMfaRequired: z.boolean().default(false),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().min(1)).default([]),
   url: z.string().url().optional().nullable(),
@@ -141,6 +142,48 @@ export async function applicationRoutes(
     });
   }
 
+  /**
+   * Assigns the application's default role to a user if:
+   *  - the app has a role marked as isDefault = true
+   *  - the user does not already have any role for that app
+   */
+  async function assignDefaultRoleIfNeeded(
+    userId: string,
+    applicationId: string,
+  ): Promise<void> {
+    const [defaultRole] = await db
+      .select({ id: appRoles.id })
+      .from(appRoles)
+      .where(
+        and(
+          eq(appRoles.applicationId, applicationId),
+          eq(appRoles.isDefault, true),
+        ),
+      )
+      .limit(1);
+
+    if (!defaultRole) return;
+
+    // Check if user already has a role for this app
+    const [existing] = await db
+      .select({ roleId: userAppRoles.roleId })
+      .from(userAppRoles)
+      .where(
+        and(
+          eq(userAppRoles.userId, userId),
+          eq(userAppRoles.applicationId, applicationId),
+        ),
+      )
+      .limit(1);
+
+    if (existing) return;
+
+    await db
+      .insert(userAppRoles)
+      .values({ userId, applicationId, roleId: defaultRole.id })
+      .onConflictDoNothing();
+  }
+
   // GET /api/admin/applications
   fastify.get("/", async (_req, reply) => {
     const rows = await db
@@ -180,6 +223,7 @@ export async function applicationRoutes(
           description: data.description,
           isActive: data.isActive,
           skipConsent: data.skipConsent,
+          isMfaRequired: data.isMfaRequired,
           allowedScopes: data.allowedScopes,
           redirectUris: data.redirectUris,
           url: data.url,
@@ -205,6 +249,81 @@ export async function applicationRoutes(
 
       return rows;
     });
+
+    // ── Bootstrap macros ────────────────────────────────────────────────────
+    // Run outside the main transaction so that failures here don't roll back
+    // the application/oauthClient creation.
+
+    // a) Create predefined roles: "user" (default) and "admin"
+    const [userRole, adminRole] = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(appRoles)
+        .values([
+          { applicationId: app!.id, name: "user", isDefault: true },
+          { applicationId: app!.id, name: "admin", isDefault: false },
+        ])
+        .returning();
+      return inserted;
+    });
+
+    // b) Create default "free" subscription plan
+    const [freePlan] = await db
+      .insert(subscriptionPlans)
+      .values({
+        applicationId: app!.id,
+        name: "free",
+        isDefault: true,
+        features: {},
+      })
+      .returning();
+
+    // c) Assign all existing superadmins to the app with the "admin" role and "free" plan
+    if (adminRole && freePlan) {
+      const superadmins = await db
+        .select({ id: userTable.id })
+        .from(userTable)
+        .where(eq(userTable.role, "superadmin"));
+
+      for (const sa of superadmins) {
+        // Grant access (upsert in case of edge-case duplicate)
+        await db
+          .insert(userApplications)
+          .values({
+            userId: sa.id,
+            applicationId: app!.id,
+            isActive: true,
+            subscriptionPlanId: freePlan.id,
+          })
+          .onConflictDoUpdate({
+            target: [userApplications.userId, userApplications.applicationId],
+            set: { isActive: true, subscriptionPlanId: freePlan.id },
+          });
+
+        // Assign the "admin" role (not the default "user" role)
+        await db
+          .insert(userAppRoles)
+          .values({
+            userId: sa.id,
+            applicationId: app!.id,
+            roleId: adminRole.id,
+          })
+          .onConflictDoNothing();
+
+        // Assign the "free" subscription
+        await db
+          .insert(userSubscriptions)
+          .values({
+            userId: sa.id,
+            applicationId: app!.id,
+            planId: freePlan.id,
+            isActive: true,
+          })
+          .onConflictDoNothing();
+      }
+    }
+
+    // Suppress unused variable warning for userRole (returned for completeness)
+    void userRole;
 
     await reply.status(201).send({
       application: app,
@@ -351,6 +470,7 @@ export async function applicationRoutes(
       .returning();
 
     if (parsed.data.roleId && ua) {
+      // Explicit role provided — assign it directly
       await db
         .insert(userAppRoles)
         .values({
@@ -359,6 +479,9 @@ export async function applicationRoutes(
           roleId: parsed.data.roleId,
         })
         .onConflictDoNothing();
+    } else {
+      // No explicit role — auto-assign the default role if one is configured
+      await assignDefaultRoleIfNeeded(parsed.data.userId, req.params.id);
     }
 
     // Auto-assign the app's default subscription plan if one is configured

@@ -3,6 +3,8 @@
   import { useRouter } from "vue-router";
   import { useI18n } from "vue-i18n";
   import { ShieldCheck } from "lucide-vue-next";
+  import { startAuthentication } from "@simplewebauthn/browser";
+  import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 
   const { t } = useI18n();
   const router = useRouter();
@@ -36,14 +38,38 @@
     error.value = null;
     loading.value = true;
     try {
-      const res = await fetch("/api/auth/passkey/authenticate", {
+      // 1. Get authentication options from server
+      const optRes = await fetch("/api/auth/passkey/generate-authenticate-options", {
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) {
+      if (!optRes.ok) {
+        error.value = t("errors.AUTH_005");
+        return;
+      }
+      const options = (await optRes.json()) as PublicKeyCredentialRequestOptionsJSON;
+
+      // 2. Browser prompts for passkey — startAuthentication handles proper serialization
+      const authResp = await startAuthentication({ optionsJSON: options });
+
+      // 3. Send serialized assertion to server to verify
+      const verifyRes = await fetch("/api/auth/passkey/verify-authentication", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(authResp),
+      });
+      if (!verifyRes.ok) {
         error.value = t("errors.AUTH_005");
       } else {
         await router.push("/profile");
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("NotAllowedError") || msg.includes("cancelled")) {
+        error.value = t("errors.AUTH_005");
+      } else {
+        error.value = msg || t("errors.AUTH_005");
       }
     } finally {
       loading.value = false;
@@ -52,63 +78,49 @@
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center px-4 pt-16">
-    <div class="w-full max-w-sm">
+  <div class="auth-page">
+    <div class="auth-container">
 
       <!-- Header -->
-      <div class="mb-10 text-center">
-        <div class="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5"
-          style="background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.2)">
-          <ShieldCheck class="w-6 h-6" style="color: var(--accent-cyan)" />
+      <div class="auth-header">
+        <div class="mfa-icon">
+          <ShieldCheck class="w-6 h-6" />
         </div>
-        <h1 class="mb-2"
-          style="font-size: 1.875rem; font-weight: 200; letter-spacing: -0.02em; color: var(--text-primary)">
-          {{ t("auth.mfaTitle") }}
-        </h1>
-        <p style="font-size: 0.875rem; color: var(--text-muted); font-weight: 300">
-          {{ t("auth.mfaSubtitle") }}
-        </p>
+        <h1 class="auth-title">{{ t("auth.mfaTitle") }}</h1>
+        <p class="auth-subtitle">{{ t("auth.mfaSubtitle") }}</p>
       </div>
 
       <!-- Card -->
-      <div class="card" style="padding: 2rem">
+      <div class="card auth-card">
 
         <!-- TOTP mode -->
-        <div v-if="!useHardwareKey" class="space-y-7">
-          <div>
-            <label class="block mb-2 text-center" style="
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.65rem;
-                text-transform: uppercase;
-                letter-spacing: 0.18em;
-                color: var(--text-muted);
-              ">
-              {{ t("auth.totpLabel") }}
-            </label>
+        <div v-if="!useHardwareKey" class="auth-form">
+          <div class="form-group">
+            <label class="form-label text-center">{{ t("auth.totpLabel") }}</label>
             <input v-model="code" type="text" inputmode="numeric" autocomplete="one-time-code"
-              :placeholder="t('auth.totpPlaceholder')" class="input font-mono tracking-widest text-center text-lg"
-              maxlength="6" required />
+              :placeholder="t('auth.totpPlaceholder')" class="input font-mono text-center"
+              style="font-size: 1.25rem; letter-spacing: 0.3em" maxlength="6" required />
           </div>
-          <p v-if="error" class="text-sm text-center" style="color: var(--badge-error-color)">{{ error }}</p>
+          <p v-if="error" class="auth-error text-center">{{ error }}</p>
           <button class="btn btn-primary w-full" :disabled="loading" @click="verifyTotp">
             {{ loading ? t("common.loading") : t("auth.verifyCode") }}
           </button>
-          <button class="btn btn-ghost w-full text-sm" @click="useHardwareKey = true">
+          <button class="btn btn-ghost w-full" @click="useHardwareKey = true">
             {{ t("auth.useHardwareKey") }}
           </button>
         </div>
 
         <!-- Hardware key mode -->
-        <div v-else class="space-y-7">
-          <p class="text-sm text-center" style="color: var(--text-muted); font-weight: 300">
+        <div v-else class="auth-form">
+          <p class="text-sm text-center" style="color: var(--color-text-muted)">
             Touch your hardware key to authenticate.
           </p>
-          <p v-if="error" class="text-sm text-center" style="color: var(--badge-error-color)">{{ error }}</p>
+          <p v-if="error" class="auth-error text-center">{{ error }}</p>
           <button class="btn btn-primary w-full" :disabled="loading" @click="verifyPasskey">
             {{ loading ? t("common.loading") : "Authenticate with hardware key" }}
           </button>
-          <button class="btn btn-ghost w-full text-sm" @click="useHardwareKey = false">
-            {{ t("auth.totpLabel") }} instead
+          <button class="btn btn-ghost w-full" @click="useHardwareKey = false">
+            Use {{ t("auth.totpLabel") }} instead
           </button>
         </div>
 
@@ -116,3 +128,70 @@
     </div>
   </div>
 </template>
+
+<style scoped>
+  .auth-page {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5rem 1rem 2rem;
+    background: var(--color-bg);
+  }
+
+  .auth-container {
+    width: 100%;
+    max-width: 24rem;
+  }
+
+  .auth-header {
+    margin-bottom: 2rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .mfa-icon {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
+  }
+
+  .auth-title {
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .auth-subtitle {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .auth-card {
+    padding: 2rem;
+  }
+
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .auth-error {
+    font-size: 0.875rem;
+    color: var(--color-danger);
+    margin: 0;
+  }
+</style>

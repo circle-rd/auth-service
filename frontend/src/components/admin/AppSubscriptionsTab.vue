@@ -127,13 +127,13 @@
         </div>
 
         <!-- Loading -->
-        <div v-if="loading" class="text-sm text-center py-8" style="color: var(--text-muted)">
+        <div v-if="loading" class="text-sm text-center py-8" style="color: var(--color-text-muted)">
             {{ t("common.loading") }}
         </div>
 
         <!-- Empty state -->
         <div v-else-if="plans.length === 0" class="card text-center py-12">
-            <p class="text-sm" style="color: var(--text-muted)">{{ t("admin.noPlans") }}</p>
+            <p class="text-sm" style="color: var(--color-text-muted)">{{ t("admin.noPlans") }}</p>
             <button class="btn btn-primary mt-4" @click="openCreate">
                 <Plus class="w-4 h-4" />
                 {{ t("admin.createPlan") }}
@@ -150,11 +150,11 @@
                             <span class="font-semibold">{{ plan.name }}</span>
                             <span v-if="plan.isDefault" class="badge badge-success text-xs">default</span>
                             <span v-if="plan.stripeProductId" class="text-xs font-mono px-2 py-0.5 rounded"
-                                style="background: var(--bg-secondary); color: var(--text-muted)">
+                                style="background: var(--color-bg); color: var(--color-text-muted)">
                                 {{ plan.stripeProductId }}
                             </span>
                         </div>
-                        <p v-if="plan.description" class="text-sm mt-0.5" style="color: var(--text-muted)">
+                        <p v-if="plan.description" class="text-sm mt-0.5" style="color: var(--color-text-muted)">
                             {{ plan.description }}
                         </p>
                     </div>
@@ -173,12 +173,12 @@
                 <div v-if="Object.keys(plan.features).length > 0" class="flex flex-wrap gap-2">
                     <template v-for="(val, key) in plan.features" :key="key">
                         <div class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg"
-                            style="background: var(--bg-secondary)">
-                            <span class="font-mono" style="color: var(--text-muted)">{{ key }}</span>
+                            style="background: var(--color-bg)">
+                            <span class="font-mono" style="color: var(--color-text-muted)">{{ key }}</span>
                             <span class="font-medium">
                                 {{ featureDisplayValue(val) }}
                             </span>
-                            <Check v-if="featureHasUsage(val)" class="w-3 h-3" style="color: var(--accent-cyan)"
+                            <Check v-if="featureHasUsage(val)" class="w-3 h-3" style="color: var(--color-primary)"
                                 :title="t('admin.featureUsage')" />
                         </div>
                     </template>
@@ -188,18 +188,18 @@
                 <div v-if="plan.prices.length > 0" class="grid gap-2"
                     style="grid-template-columns: repeat(auto-fill, minmax(180px, 1fr))">
                     <div v-for="price in plan.prices" :key="price.id" class="rounded-lg px-3 py-2.5"
-                        style="background: var(--bg-secondary)">
+                        style="background: var(--color-bg)">
                         <p class="font-medium text-sm">{{ price.name }}</p>
                         <p class="text-base font-semibold mt-0.5">
                             {{ formatAmount(Number(price.amount), price.currency) }}
-                            <span class="text-xs font-normal" style="color: var(--text-muted)">
+                            <span class="text-xs font-normal" style="color: var(--color-text-muted)">
                                 /{{ price.interval === "one_time" ? t("admin.priceIntervalOneTime") : price.interval ===
                                     "year" ?
                                     t("admin.priceIntervalYear") : t("admin.priceIntervalMonth") }}
                             </span>
                         </p>
                         <p v-if="price.stripePriceId" class="text-xs font-mono mt-1 truncate"
-                            :title="price.stripePriceId" style="color: var(--text-muted); opacity: 0.6">
+                            :title="price.stripePriceId" style="color: var(--color-text-muted); opacity: 0.6">
                             {{ price.stripePriceId }}
                         </p>
                     </div>

@@ -82,8 +82,8 @@ export const ERR = {
     new ApiError(400, "CONS_002", msg),
   CONS_003: (msg = "User and application combination not found") =>
     new ApiError(404, "CONS_003", msg),
-  CONS_004: (msg = "Consumption record not found") =>
-    new ApiError(404, "CONS_004", msg),
+  CONS_004: (msg = "Caller not authorized (requires client_credentials)") =>
+    new ApiError(403, "CONS_004", msg),
 
   // ── USR ───────────────────────────────────────────────────────────────────
   USR_001: (msg = "User not found") => new ApiError(404, "USR_001", msg),

@@ -172,7 +172,7 @@ initOidc().then(() => app.listen(3000));
             </RouterLink>
             <div>
                 <h1 class="text-xl font-bold gradient-text">{{ t("admin.integration") }}</h1>
-                <p class="text-sm mt-0.5" style="color: var(--text-muted)">
+                <p class="text-sm mt-0.5" style="color: var(--color-text-muted)">
                     Exemples de code OAuth 2.0 / OIDC pour intégrer cette application.
                 </p>
             </div>
@@ -183,20 +183,20 @@ initOidc().then(() => app.listen(3000));
             <h2 class="text-sm font-semibold mb-3">Informations de connexion</h2>
             <div class="grid gap-4 sm:grid-cols-2">
                 <div>
-                    <p class="text-xs font-medium mb-1" style="color: var(--text-muted)">Client ID (slug)</p>
-                    <code class="text-sm font-mono" style="color: var(--accent-cyan)">{{ clientId }}</code>
+                    <p class="text-xs font-medium mb-1" style="color: var(--color-text-muted)">Client ID (slug)</p>
+                    <code class="text-sm font-mono" style="color: var(--color-primary)">{{ clientId }}</code>
                 </div>
                 <div>
-                    <p class="text-xs font-medium mb-1" style="color: var(--text-muted)">Issuer / Authority</p>
-                    <code class="text-sm font-mono" style="color: var(--accent-cyan)">{{ authServiceUrl }}</code>
+                    <p class="text-xs font-medium mb-1" style="color: var(--color-text-muted)">Issuer / Authority</p>
+                    <code class="text-sm font-mono" style="color: var(--color-primary)">{{ authServiceUrl }}</code>
                 </div>
                 <div>
-                    <p class="text-xs font-medium mb-1" style="color: var(--text-muted)">Redirect URI (première)</p>
-                    <code class="text-sm font-mono break-all" style="color: var(--accent-cyan)">{{ redirectUri }}</code>
+                    <p class="text-xs font-medium mb-1" style="color: var(--color-text-muted)">Redirect URI (première)</p>
+                    <code class="text-sm font-mono break-all" style="color: var(--color-primary)">{{ redirectUri }}</code>
                 </div>
                 <div>
-                    <p class="text-xs font-medium mb-1" style="color: var(--text-muted)">Discovery document</p>
-                    <code class="text-sm font-mono break-all" style="color: var(--accent-cyan)">
+                    <p class="text-xs font-medium mb-1" style="color: var(--color-text-muted)">Discovery document</p>
+                    <code class="text-sm font-mono break-all" style="color: var(--color-primary)">
             {{ authServiceUrl }}/.well-known/openid-configuration
           </code>
                 </div>
@@ -206,57 +206,57 @@ initOidc().then(() => app.listen(3000));
         <!-- Framework tabs -->
         <div class="card !p-0 overflow-hidden">
             <!-- Tab bar -->
-            <div class="flex border-b" style="border-color: var(--border)">
+            <div class="flex border-b" style="border-color: var(--color-border)">
                 <button v-for="(label, key) in { vue: 'Vue 3', react: 'React', node: 'Node.js (TypeScript)' }"
                     :key="key" class="flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors relative"
                     :style="activeTab === key
-                        ? 'color: var(--accent-cyan)'
-                        : 'color: var(--text-muted)'" @click="activeTab = key as Framework">
+                        ? 'color: var(--color-primary)'
+                        : 'color: var(--color-text-muted)'" @click="activeTab = key as Framework">
                     <Code2 class="w-3.5 h-3.5" />
                     {{ label }}
                     <span v-if="activeTab === key" class="absolute bottom-0 left-0 right-0 h-0.5"
-                        style="background: var(--accent-cyan)" />
+                        style="background: var(--color-primary)" />
                 </button>
             </div>
 
             <!-- Code block: Vue -->
             <div v-if="activeTab === 'vue'" class="relative">
                 <button class="absolute top-3 right-3 btn btn-ghost p-2 z-10"
-                    :title="copiedKey === 'vue' ? 'Copié !' : 'Copier'" @click="copyCode('vue', vueSnippet)">
-                    <Check v-if="copiedKey === 'vue'" class="w-4 h-4" style="color: var(--badge-success-color)" />
+                    :title="copiedKey === 'vue' ? 'Copied!' : 'Copy'" @click="copyCode('vue', vueSnippet)">
+                    <Check v-if="copiedKey === 'vue'" class="w-4 h-4" style="color: var(--color-success)" />
                     <Copy v-else class="w-4 h-4" />
                 </button>
                 <pre class="overflow-x-auto p-5 text-xs leading-relaxed font-mono"
-                    style="background: var(--bg-secondary); color: var(--text-primary)"><code>{{ vueSnippet }}</code></pre>
+                    style="background: var(--color-bg); color: var(--color-text)"><code>{{ vueSnippet }}</code></pre>
             </div>
 
             <!-- Code block: React -->
             <div v-if="activeTab === 'react'" class="relative">
                 <button class="absolute top-3 right-3 btn btn-ghost p-2 z-10"
-                    :title="copiedKey === 'react' ? 'Copié !' : 'Copier'" @click="copyCode('react', reactSnippet)">
-                    <Check v-if="copiedKey === 'react'" class="w-4 h-4" style="color: var(--badge-success-color)" />
+                    :title="copiedKey === 'react' ? 'Copied!' : 'Copy'" @click="copyCode('react', reactSnippet)">
+                    <Check v-if="copiedKey === 'react'" class="w-4 h-4" style="color: var(--color-success)" />
                     <Copy v-else class="w-4 h-4" />
                 </button>
                 <pre class="overflow-x-auto p-5 text-xs leading-relaxed font-mono"
-                    style="background: var(--bg-secondary); color: var(--text-primary)"><code>{{ reactSnippet }}</code></pre>
+                    style="background: var(--color-bg); color: var(--color-text)"><code>{{ reactSnippet }}</code></pre>
             </div>
 
             <!-- Code block: Node.js -->
             <div v-if="activeTab === 'node'" class="relative">
                 <button class="absolute top-3 right-3 btn btn-ghost p-2 z-10"
-                    :title="copiedKey === 'node' ? 'Copié !' : 'Copier'" @click="copyCode('node', nodeSnippet)">
-                    <Check v-if="copiedKey === 'node'" class="w-4 h-4" style="color: var(--badge-success-color)" />
+                    :title="copiedKey === 'node' ? 'Copied!' : 'Copy'" @click="copyCode('node', nodeSnippet)">
+                    <Check v-if="copiedKey === 'node'" class="w-4 h-4" style="color: var(--color-success)" />
                     <Copy v-else class="w-4 h-4" />
                 </button>
                 <pre class="overflow-x-auto p-5 text-xs leading-relaxed font-mono"
-                    style="background: var(--bg-secondary); color: var(--text-primary)"><code>{{ nodeSnippet }}</code></pre>
+                    style="background: var(--color-bg); color: var(--color-text)"><code>{{ nodeSnippet }}</code></pre>
             </div>
         </div>
 
         <!-- Note -->
-        <p class="text-xs" style="color: var(--text-muted)">
+        <p class="text-xs" style="color: var(--color-text-muted)">
             Le <code class="font-mono">client_secret</code> doit être conservé côté serveur uniquement.
-            Récupérez-le depuis le menu <strong>Paramètres → Secret</strong> de l'application.
+            Retrieve it from the application's <strong>Settings → Secret</strong> menu.
         </p>
     </div>
 </template>

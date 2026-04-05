@@ -26,46 +26,32 @@
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center px-4 pt-16">
-    <div class="w-full max-w-sm">
+  <div class="auth-page">
+    <div class="auth-container">
 
       <!-- Header -->
-      <div class="mb-10 text-center">
-        <h1 class="mb-2"
-          style="font-size: 1.875rem; font-weight: 200; letter-spacing: -0.02em; color: var(--text-primary)">
-          {{ t("auth.forgotPassword") }}
-        </h1>
-        <p style="font-size: 0.875rem; color: var(--text-muted); font-weight: 300">
-          Enter your email and we'll send a reset link.
-        </p>
+      <div class="auth-header">
+        <h1 class="auth-title">{{ t("auth.forgotPassword") }}</h1>
+        <p class="auth-subtitle">{{ t("auth.forgotPasswordHint") }}</p>
       </div>
 
       <!-- Card -->
-      <div class="card" style="padding: 2rem">
+      <div class="card auth-card">
         <!-- Confirmed state -->
-        <div v-if="submitted" class="text-center py-4 space-y-4">
-          <div class="w-12 h-12 rounded-full flex items-center justify-center mx-auto"
-            style="background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.15)">
-            <Mail class="w-5 h-5" style="color: var(--accent-cyan)" />
+        <div v-if="submitted" class="submitted-state">
+          <div class="submitted-icon">
+            <Mail class="w-5 h-5" />
           </div>
-          <p class="text-sm" style="color: var(--text-muted); font-weight: 300">
-            If an account exists for <strong style="color: var(--text-primary); font-weight: 500">{{ email }}</strong>,
+          <p class="submitted-text">
+            If an account exists for <strong>{{ email }}</strong>,
             a reset link has been sent.
           </p>
         </div>
 
         <!-- Form -->
-        <form v-else @submit.prevent="handleSubmit" class="space-y-7">
-          <div>
-            <label class="block mb-2" style="
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.65rem;
-                text-transform: uppercase;
-                letter-spacing: 0.18em;
-                color: var(--text-muted);
-              ">
-              {{ t("common.email") }}
-            </label>
+        <form v-else @submit.prevent="handleSubmit" class="auth-form">
+          <div class="form-group">
+            <label class="form-label">{{ t("common.email") }}</label>
             <input v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')"
               class="input" required />
           </div>
@@ -76,7 +62,7 @@
       </div>
 
       <!-- Footer -->
-      <p class="mt-6 text-center text-sm" style="color: var(--text-muted); font-weight: 300">
+      <p class="auth-footer">
         <RouterLink to="/login" class="link-subtle text-sm">
           ← {{ t("auth.signIn") }}
         </RouterLink>
@@ -85,3 +71,88 @@
     </div>
   </div>
 </template>
+
+<style scoped>
+  .auth-page {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5rem 1rem 2rem;
+    background: var(--color-bg);
+  }
+
+  .auth-container {
+    width: 100%;
+    max-width: 24rem;
+  }
+
+  .auth-header {
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  .auth-title {
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    margin: 0 0 0.5rem;
+  }
+
+  .auth-subtitle {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .auth-card {
+    padding: 2rem;
+  }
+
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .submitted-state {
+    text-align: center;
+    padding: 1rem 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .submitted-icon {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
+  }
+
+  .submitted-text {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .submitted-text strong {
+    color: var(--color-text);
+    font-weight: 500;
+  }
+
+  .auth-footer {
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+</style>

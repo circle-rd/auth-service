@@ -95,15 +95,15 @@
     <!-- ── Avatar + identity header ───────────────────────────── -->
     <div class="avatar-header">
       <div>
-        <h1 class="text-xl font-bold gradient-text">{{ name || authStore.user?.name }}</h1>
-        <p class="text-sm mt-0.5" style="color: var(--text-muted)">{{ authStore.user?.email }}</p>
+        <h1 class="text-xl font-bold" style="color: var(--color-text)">{{ name || authStore.user?.name }}</h1>
+        <p class="text-sm mt-0.5" style="color: var(--color-text-muted)">{{ authStore.user?.email }}</p>
       </div>
     </div>
 
     <!-- ── Personal info ───────────────────────────────────────── -->
     <div class="card">
       <div class="flex items-center gap-2 mb-5">
-        <User class="w-4 h-4" style="color: var(--accent-cyan)" />
+        <User class="w-4 h-4" style="color: var(--color-primary)" />
         <h2 class="text-sm font-semibold">{{ t("profile.personalInfo") }}</h2>
       </div>
       <form @submit.prevent="updateProfile" class="space-y-4">
@@ -116,7 +116,7 @@
           </div>
           <!-- Label + input -->
           <div class="flex-1 min-w-0">
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
               {{ t('profile.avatarUrl') }}
               <span class="text-xs ml-1" style="opacity: 0.6">({{ t('common.optional') }})</span>
             </label>
@@ -127,27 +127,27 @@
         <!-- Name + Email -->
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">{{ t("common.name")
-            }}</label>
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{ t("common.name")
+              }}</label>
             <input v-model="name" type="text" class="input" required />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">{{ t("common.email")
-            }}</label>
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{ t("common.email")
+              }}</label>
             <input :value="authStore.user?.email" type="email" class="input opacity-50" disabled />
           </div>
         </div>
         <!-- Phone + Company -->
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
               {{ t("profile.phone") }}
               <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
             </label>
             <input v-model="phone" type="tel" class="input" :placeholder="t('profile.phonePlaceholder')" />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
               {{ t("profile.company") }}
               <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
             </label>
@@ -157,22 +157,22 @@
         <!-- Position + Address -->
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
               {{ t("profile.position") }}
               <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
             </label>
             <input v-model="position" type="text" class="input" :placeholder="t('profile.positionPlaceholder')" />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
               {{ t("profile.address") }}
               <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
             </label>
             <input v-model="address" type="text" class="input" :placeholder="t('profile.addressPlaceholder')" />
           </div>
         </div>
-        <p v-if="profileMsg" class="text-xs text-emerald-400">{{ profileMsg }}</p>
-        <p v-if="profileError" class="text-xs text-red-400">{{ profileError }}</p>
+        <p v-if="profileMsg" class="text-xs" style="color: var(--color-success)">{{ profileMsg }}</p>
+        <p v-if="profileError" class="text-xs" style="color: var(--color-danger)">{{ profileError }}</p>
         <button type="submit" class="btn btn-primary" :disabled="saving">
           {{ saving ? t("common.saving") : t("profile.updateProfile") }}
         </button>
@@ -182,29 +182,30 @@
     <!-- ── Password ───────────────────────────────────────────── -->
     <div class="card">
       <div class="flex items-center gap-2 mb-5">
-        <Lock class="w-4 h-4" style="color: var(--accent-cyan)" />
+        <Lock class="w-4 h-4" style="color: var(--color-primary);" />
         <h2 class="text-sm font-semibold">{{ t("profile.security") }}</h2>
       </div>
       <form @submit.prevent="changePassword" class="space-y-4">
         <div>
-          <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">{{
+          <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{
             t("profile.currentPassword") }}</label>
           <input v-model="currentPassword" type="password" class="input" required />
         </div>
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">{{ t("profile.newPassword")
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{
+              t("profile.newPassword")
             }}</label>
             <input v-model="newPassword" type="password" class="input" required minlength="8" />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--text-muted)">{{
+            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{
               t("profile.confirmPassword") }}</label>
             <input v-model="confirmPassword" type="password" class="input" required minlength="8" />
           </div>
         </div>
-        <p v-if="passwordMsg" class="text-xs text-emerald-400">{{ passwordMsg }}</p>
-        <p v-if="passwordError" class="text-xs text-red-400">{{ passwordError }}</p>
+        <p v-if="passwordMsg" class="text-xs" style="color: var(--color-success)">{{ passwordMsg }}</p>
+        <p v-if="passwordError" class="text-xs" style="color: var(--color-danger)">{{ passwordError }}</p>
         <button type="submit" class="btn btn-primary" :disabled="saving">
           {{ saving ? t("common.saving") : t("profile.changePassword") }}
         </button>
@@ -225,12 +226,11 @@
     position: relative;
     width: 3.5rem;
     height: 3.5rem;
-    border-radius: 9999px;
+    border-radius: 50%;
     flex-shrink: 0;
     overflow: hidden;
-    background: linear-gradient(135deg, rgba(34, 211, 238, 0.12) 0%, rgba(59, 130, 246, 0.12) 100%);
-    border: 2px solid rgba(34, 211, 238, 0.25);
-    box-shadow: 0 0 16px rgba(34, 211, 238, 0.1);
+    background: var(--color-primary-light);
+    border: 2px solid var(--color-primary-border);
     cursor: pointer;
   }
 
@@ -248,7 +248,7 @@
     height: 100%;
     font-size: 1.25rem;
     font-weight: 700;
-    color: var(--accent-cyan);
+    color: var(--color-primary);
   }
 
   .avatar-overlay {

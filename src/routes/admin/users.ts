@@ -206,6 +206,31 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  // DELETE /api/admin/users/:id
+  fastify.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
+    // Verify the target user exists
+    const target = await auth.api
+      .getUser?.({
+        headers: fromNodeHeaders(req.headers),
+        query: { id: req.params.id },
+      })
+      .catch(() => null);
+    if (!target) throw ERR.USR_001();
+
+    // Prevent admins from deleting themselves
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    if (session?.user.id === req.params.id) {
+      throw ERR.USR_003("You cannot delete your own account");
+    }
+
+    // Delete the user — cascade constraints in auth-schema handle related records
+    await db.delete(userTable).where(eq(userTable.id, req.params.id));
+
+    await reply.status(204).send();
+  });
+
   // ── Application ↔ User Access (legacy stubs — moved to applicationRoutes) ──
   // These endpoints now live at /api/admin/applications/:appId/users[/:userId]
   // handled by src/routes/admin/applications.ts, registered with the correct prefix.

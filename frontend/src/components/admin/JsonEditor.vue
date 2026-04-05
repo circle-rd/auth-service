@@ -44,13 +44,13 @@
 
 <style scoped>
     .json-editor-wrap {
-        border-radius: 0.5rem;
+        border-radius: 4px;
         overflow: hidden;
-        border: 1px solid var(--border);
+        border: 1px solid var(--color-border);
     }
 
     .json-editor-wrap:focus-within {
-        border-color: var(--accent-cyan);
+        border-color: var(--color-primary);
     }
 
     /* Ensure CodeMirror fills the height */

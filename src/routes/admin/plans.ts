@@ -9,7 +9,7 @@ import {
   userSubscriptions,
   userApplications,
 } from "../../db/schema.js";
-import { and, eq, count, inArray } from "drizzle-orm";
+import { and, eq, ne, count, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { stripe } from "../../services/stripe.js";
@@ -178,7 +178,7 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
             .where(
               and(
                 eq(subscriptionPlans.applicationId, req.params.appId),
-                // Exclude the plan being updated so the next update sets it correctly
+                ne(subscriptionPlans.id, req.params.planId),
               ),
             );
         }

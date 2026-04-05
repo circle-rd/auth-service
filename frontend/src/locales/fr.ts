@@ -23,6 +23,8 @@ const fr = {
     enabled: "Activé",
     disabled: "Désactivé",
     optional: "optionnel",
+    copy: "Copier",
+    done: "Terminé",
   },
   nav: {
     profile: "Profil",
@@ -38,7 +40,11 @@ const fr = {
     signUpTitle: "Créer votre compte",
     signUpSubtitle: "Rejoindre Auth Service",
     forgotPassword: "Mot de passe oublié ?",
+    forgotPasswordHint:
+      "Entrez votre email et nous vous enverrons un lien de réinitialisation.",
     resetPassword: "Réinitialiser le mot de passe",
+    passwordResetSuccess:
+      "Mot de passe mis à jour ! Redirection vers la connexion...",
     sendResetLink: "Envoyer le lien",
     noAccount: "Pas encore de compte ?",
     hasAccount: "Déjà un compte ?",
@@ -52,6 +58,9 @@ const fr = {
     totpPlaceholder: "Code à 6 chiffres",
     verifyCode: "Vérifier le code",
     useHardwareKey: "Utiliser une clé matérielle",
+    orContinueWith: "ou continuer avec",
+    continueWithGoogle: "Continuer avec Google",
+    continueWithGitHub: "Continuer avec GitHub",
   },
   consent: {
     title: "Demande d'autorisation",
@@ -68,6 +77,15 @@ const fr = {
       permissions: "Vos permissions dans cette application",
       features: "Vos fonctionnalités d'abonnement",
     },
+  },
+  sessions: {
+    description: "Toutes les sessions actives associées à votre compte.",
+    noSessions: "Aucune session active.",
+    current: "Session courante",
+    revokeOthers: "Révoquer les autres sessions",
+    revoke: "Révoquer cette session",
+    createdAt: "Créée le",
+    expiresAt: "Expire le",
   },
   profile: {
     title: "Mon profil",
@@ -129,6 +147,11 @@ const fr = {
     deleteAppConfirm: "Êtes-vous sûr de vouloir supprimer cette application ?",
     deleteAppWarning:
       "Cette action supprimera définitivement tous les rôles, plans d'abonnement et associations utilisateurs liés à cette application. Les utilisateurs eux-mêmes seront conservés, mais leur accès à cette application sera retiré.",
+    deleteUser: "Supprimer l'utilisateur",
+    deleteUserConfirm:
+      "Êtes-vous sûr de vouloir supprimer définitivement cet utilisateur ?",
+    deleteUserWarning:
+      "Cette action supprimera définitivement le compte utilisateur et toutes les données associées (sessions, tokens OAuth, passkeys). Cette action est irréversible.",
     appUrl: "URL de l'application",
     appIcon: "URL de l'icône",
     dashboard: "Tableau de bord",
@@ -187,6 +210,22 @@ const fr = {
       "L'intégration Stripe n'est pas configurée. Les tarifs seront enregistrés localement sans synchronisation Stripe.",
     noPlans: "Aucun plan d'abonnement pour l'instant.",
     noPrices: "Aucun tarif défini.",
+    appCreatedCredentials:
+      "Application créée — copiez ces identifiants maintenant. Le secret n'est affiché qu'une seule fois.",
+    slugHint: "Minuscules, chiffres & tirets uniquement",
+    rotateSecretHint:
+      "Générer un nouveau secret révoque l'ancien immédiatement.",
+    newSecretWarning:
+      "⚠ Nouveau secret — sauvegardez-le maintenant, il ne sera plus affiché.",
+    scopesHint:
+      "Sélectionnez les scopes OAuth que cette application est autorisée à demander.",
+    activeHint:
+      "Lorsqu'inactif, les utilisateurs ne peuvent plus s'authentifier via cette application.",
+    skipConsentHint:
+      "L'utilisateur ne verra pas l'écran de consentement lors de chaque connexion.",
+    isMfaRequired: "MFA obligatoire",
+    isMfaRequiredDescription:
+      "Les utilisateurs doivent avoir le MFA activé pour s'authentifier avec cette application",
   },
   errors: {
     AUTH_001: "Token d'authentification invalide ou manquant",

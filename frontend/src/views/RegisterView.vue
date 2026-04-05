@@ -37,70 +37,41 @@
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center px-4 pt-16">
-    <div class="w-full max-w-sm">
+  <div class="auth-page">
+    <div class="auth-container">
 
       <!-- Header -->
-      <div class="mb-10 text-center">
-        <h1 class="mb-2"
-          style="font-size: 1.875rem; font-weight: 200; letter-spacing: -0.02em; color: var(--text-primary)">
-          {{ t("auth.signUpTitle") }}
-        </h1>
-        <p style="font-size: 0.875rem; color: var(--text-muted); font-weight: 300">
-          {{ t("auth.signUpSubtitle") }}
-        </p>
+      <div class="auth-header">
+        <h1 class="auth-title">{{ t("auth.signUpTitle") }}</h1>
+        <p class="auth-subtitle">{{ t("auth.signUpSubtitle") }}</p>
       </div>
 
       <!-- Card -->
-      <div class="card" style="padding: 2rem">
-        <form @submit.prevent="handleSubmit" class="space-y-7">
+      <div class="card auth-card">
+        <form @submit.prevent="handleSubmit" class="auth-form">
 
           <!-- Name -->
-          <div>
-            <label class="block mb-2" style="
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.65rem;
-                text-transform: uppercase;
-                letter-spacing: 0.18em;
-                color: var(--text-muted);
-              ">
-              {{ t("auth.nameLabel") }}
-            </label>
+          <div class="form-group">
+            <label class="form-label">{{ t("auth.nameLabel") }}</label>
             <input v-model="name" type="text" autocomplete="name" :placeholder="t('auth.namePlaceholder')" class="input"
               required />
           </div>
 
           <!-- Email -->
-          <div>
-            <label class="block mb-2" style="
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.65rem;
-                text-transform: uppercase;
-                letter-spacing: 0.18em;
-                color: var(--text-muted);
-              ">
-              {{ t("common.email") }}
-            </label>
+          <div class="form-group">
+            <label class="form-label">{{ t("common.email") }}</label>
             <input v-model="email" type="email" autocomplete="email" :placeholder="t('auth.emailPlaceholder')"
               class="input" required />
           </div>
 
           <!-- Password -->
-          <div>
-            <label class="block mb-2" style="
-                font-family: 'JetBrains Mono', monospace;
-                font-size: 0.65rem;
-                text-transform: uppercase;
-                letter-spacing: 0.18em;
-                color: var(--text-muted);
-              ">
-              {{ t("common.password") }}
-            </label>
+          <div class="form-group">
+            <label class="form-label">{{ t("common.password") }}</label>
             <input v-model="password" type="password" autocomplete="new-password"
               :placeholder="t('auth.passwordPlaceholder')" class="input" required minlength="8" />
           </div>
 
-          <p v-if="error" class="text-sm" style="color: var(--badge-error-color)">{{ error }}</p>
+          <p v-if="error" class="auth-error">{{ error }}</p>
 
           <button type="submit" class="btn btn-primary w-full" :disabled="loading">
             <UserPlus class="w-4 h-4" />
@@ -111,9 +82,9 @@
       </div>
 
       <!-- Footer -->
-      <p class="mt-6 text-center text-sm" style="color: var(--text-muted); font-weight: 300">
+      <p class="auth-footer">
         {{ t("auth.hasAccount") }}
-        <RouterLink to="/login" class="font-medium" style="color: var(--accent-cyan)">
+        <RouterLink to="/login" class="link-subtle font-medium">
           {{ t("auth.signIn") }}
         </RouterLink>
       </p>
@@ -121,3 +92,61 @@
     </div>
   </div>
 </template>
+
+<style scoped>
+  .auth-page {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5rem 1rem 2rem;
+    background: var(--color-bg);
+  }
+
+  .auth-container {
+    width: 100%;
+    max-width: 24rem;
+  }
+
+  .auth-header {
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+
+  .auth-title {
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    margin: 0 0 0.5rem;
+  }
+
+  .auth-subtitle {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .auth-card {
+    padding: 2rem;
+  }
+
+  .auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .auth-error {
+    font-size: 0.875rem;
+    color: var(--color-danger);
+    margin: 0;
+  }
+
+  .auth-footer {
+    margin-top: 1.5rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+</style>

@@ -15,6 +15,7 @@
         description: "",
         isActive: true,
         skipConsent: false,
+        isMfaRequired: false,
         allowedScopes: ["openid", "profile", "email"] as string[],
         redirectUris: [] as string[],
     });
@@ -36,6 +37,7 @@
         form.description = "";
         form.isActive = true;
         form.skipConsent = false;
+        form.isMfaRequired = false;
         form.allowedScopes = ["openid", "profile", "email"];
         form.redirectUris = [];
         redirectUrisText.value = "";
@@ -115,7 +117,7 @@
                 <div class="card w-full max-w-2xl max-h-[92vh] flex flex-col" style="padding: 0; overflow: hidden">
                     <!-- Header -->
                     <div class="flex items-center justify-between shrink-0 px-6 py-4"
-                        style="border-bottom: 1px solid var(--border)">
+                        style="border-bottom: 1px solid var(--color-border)">
                         <h2 class="font-semibold text-base">{{ t("admin.createApp") }}</h2>
                         <button class="btn btn-ghost p-1.5" @click="close">
                             <X class="w-4 h-4" />
@@ -125,12 +127,11 @@
                     <!-- Credentials: shown once after successful creation -->
                     <div v-if="credentials" class="flex-1 overflow-y-auto px-6 py-6 space-y-5">
                         <div class="rounded-xl px-4 py-3 text-sm font-medium" style="
-                background: var(--badge-success-bg);
-                border: 1px solid var(--badge-success-border);
-                color: var(--badge-success-color);
+                background: var(--color-success-light);
+                border: 1px solid var(--color-success-border);
+                color: var(--color-success);
               ">
-                            Application créée — copiez ces identifiants maintenant. Le secret n'est affiché qu'une seule
-                            fois.
+                            {{ t("admin.appCreatedCredentials") }}
                         </div>
                         <div class="space-y-4">
                             <div v-for="item in [
@@ -138,27 +139,27 @@
                                 { label: t('admin.clientSecret'), val: credentials.clientSecret, key: 'secret' as const },
                             ]" :key="item.key">
                                 <p class="text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ item.label }}
                                 </p>
                                 <div class="flex items-center gap-2">
                                     <code class="flex-1 font-mono text-sm px-3 py-2.5 rounded-lg break-all" :style="item.key === 'secret'
-                                            ? 'background: var(--bg-secondary); color: #fbbf24'
-                                            : 'background: var(--bg-secondary)'
+                                        ? 'background: var(--color-bg); color: #fbbf24'
+                                        : 'background: var(--color-bg)'
                                         ">
                     {{ item.val }}
                   </code>
-                                    <button class="btn btn-ghost p-2 shrink-0" title="Copier"
+                                    <button class="btn btn-ghost p-2 shrink-0" :title="t('common.copy')"
                                         @click="copyToClipboard(item.val, item.key)">
                                         <Check v-if="copied === item.key" class="w-4 h-4"
-                                            style="color: var(--badge-success-color)" />
+                                            style="color: var(--color-success)" />
                                         <Copy v-else class="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>
                         </div>
                         <div class="flex justify-end pt-2">
-                            <button class="btn btn-primary" @click="close">Terminé</button>
+                            <button class="btn btn-primary" @click="close">{{ t("common.done") }}</button>
                         </div>
                     </div>
 
@@ -168,20 +169,20 @@
                         <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("admin.appName") }}
                                 </label>
                                 <input v-model="form.name" type="text" class="input" required />
                             </div>
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("admin.appSlug") }}
                                 </label>
                                 <input v-model="form.slug" type="text" class="input font-mono" placeholder="my-app"
                                     pattern="[a-z0-9\-]+" required />
-                                <p class="text-xs mt-1" style="color: var(--text-muted)">
-                                    Minuscules, chiffres &amp; tirets uniquement
+                                <p class="text-xs mt-1" style="color: var(--color-text-muted)">
+                                    {{ t("admin.slugHint") }}
                                 </p>
                             </div>
                         </div>
@@ -189,7 +190,7 @@
                         <!-- Description -->
                         <div>
                             <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                style="color: var(--text-muted)">
+                                style="color: var(--color-text-muted)">
                                 {{ t("admin.appDescription") }}
                                 <span style="opacity: 0.55">({{ t("common.optional") }})</span>
                             </label>
@@ -199,7 +200,7 @@
                         <!-- Allowed scopes -->
                         <div>
                             <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                style="color: var(--text-muted)">
+                                style="color: var(--color-text-muted)">
                                 {{ t("admin.allowedScopes") }}
                             </label>
                             <div class="flex flex-wrap gap-2">
@@ -215,7 +216,7 @@
                         <!-- Redirect URIs -->
                         <div>
                             <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                style="color: var(--text-muted)">
+                                style="color: var(--color-text-muted)">
                                 {{ t("admin.redirectUrls") }}
                             </label>
                             <textarea v-model="redirectUrisText" class="input resize-none font-mono text-xs" rows="3"
@@ -226,12 +227,12 @@
                         <div class="flex flex-wrap items-center gap-x-8 gap-y-3">
                             <label class="flex items-center gap-2.5 cursor-pointer select-none">
                                 <input v-model="form.isActive" type="checkbox" class="sr-only" />
-                                <div class="w-9 h-5 rounded-full transition-colors" :style="form.isActive ? 'background: var(--accent-cyan)' : 'background: var(--border)'
+                                <div class="w-9 h-5 rounded-full transition-colors" :style="form.isActive ? 'background: var(--color-primary)' : 'background: var(--color-border)'
                                     ">
                                     <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
                                         :style="form.isActive
-                                                ? 'transform: translateX(1.1rem)'
-                                                : 'transform: translateX(0.125rem)'
+                                            ? 'transform: translateX(1.1rem)'
+                                            : 'transform: translateX(0.125rem)'
                                             " />
                                 </div>
                                 <span class="text-sm">{{ t("common.active") }}</span>
@@ -239,16 +240,30 @@
                             <label class="flex items-center gap-2.5 cursor-pointer select-none">
                                 <input v-model="form.skipConsent" type="checkbox" class="sr-only" />
                                 <div class="w-9 h-5 rounded-full transition-colors" :style="form.skipConsent
-                                        ? 'background: var(--accent-cyan)'
-                                        : 'background: var(--border)'
+                                    ? 'background: var(--color-primary)'
+                                    : 'background: var(--color-border)'
                                     ">
                                     <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
                                         :style="form.skipConsent
-                                                ? 'transform: translateX(1.1rem)'
-                                                : 'transform: translateX(0.125rem)'
+                                            ? 'transform: translateX(1.1rem)'
+                                            : 'transform: translateX(0.125rem)'
                                             " />
                                 </div>
                                 <span class="text-sm">{{ t("admin.skipConsent") }}</span>
+                            </label>
+                            <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                                <input v-model="form.isMfaRequired" type="checkbox" class="sr-only" />
+                                <div class="w-9 h-5 rounded-full transition-colors" :style="form.isMfaRequired
+                                    ? 'background: var(--color-primary)'
+                                    : 'background: var(--color-border)'
+                                    ">
+                                    <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                        :style="form.isMfaRequired
+                                            ? 'transform: translateX(1.1rem)'
+                                            : 'transform: translateX(0.125rem)'
+                                            " />
+                                </div>
+                                <span class="text-sm">{{ t("admin.isMfaRequired") }}</span>
                             </label>
                         </div>
 
@@ -256,7 +271,7 @@
 
                         <!-- Footer -->
                         <div class="flex items-center justify-end gap-3 pt-2"
-                            style="border-top: 1px solid var(--border)">
+                            style="border-top: 1px solid var(--color-border)">
                             <button type="button" class="btn btn-secondary" @click="close">
                                 {{ t("common.cancel") }}
                             </button>

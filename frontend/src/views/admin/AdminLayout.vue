@@ -109,7 +109,7 @@
       <div class="sidebar-header">
         <RouterLink to="/admin" class="sidebar-logo" :title="collapsed ? 'Auth Service' : ''">
           <div class="sidebar-logo-icon">
-            <Shield class="w-4 h-4" style="color: var(--accent-cyan)" />
+            <Shield class="w-4 h-4" />
           </div>
           <Transition name="fade-label">
             <span v-if="!collapsed" class="sidebar-logo-text">
@@ -179,10 +179,10 @@
           </div>
           <Transition name="fade-label">
             <div v-if="!collapsed" class="sidebar-footer-info">
-              <span class="text-xs font-medium truncate" style="color: var(--text-primary)">
+              <span class="text-xs font-medium truncate" style="color: var(--color-text)">
                 {{ authStore.user?.name }}
               </span>
-              <span class="text-xs truncate" style="color: var(--text-muted)">
+              <span class="text-xs truncate" style="color: var(--color-text-muted)">
                 {{ t("nav.profile") }}
               </span>
             </div>
@@ -205,7 +205,7 @@
         <!-- Right actions -->
         <div class="topbar-right">
           <!-- Theme toggle -->
-          <button class="btn btn-ghost p-2" @click="toggleTheme" :title="t('nav.toggleTheme')">
+          <button class="btn btn-ghost" style="padding: 0.5rem" @click="toggleTheme" :title="t('nav.toggleTheme')">
             <Moon v-if="!isDark" class="w-4 h-4" />
             <Sun v-else class="w-4 h-4" />
           </button>
@@ -222,8 +222,8 @@
 
             <div v-if="userMenuOpen" class="dropdown-menu topbar-dropdown">
               <div class="px-3 py-2.5">
-                <p class="text-xs font-semibold" style="color: var(--text-primary)">{{ authStore.user?.name }}</p>
-                <p class="text-xs mt-0.5 truncate" style="color: var(--text-muted); max-width: 11rem">
+                <p class="text-xs font-semibold" style="color: var(--color-text)">{{ authStore.user?.name }}</p>
+                <p class="text-xs mt-0.5 truncate" style="color: var(--color-text-muted); max-width: 11rem">
                   {{ authStore.user?.email }}
                 </p>
               </div>
@@ -255,7 +255,7 @@
   .admin-shell {
     display: flex;
     min-height: 100dvh;
-    background: var(--bg-primary);
+    background: var(--color-bg);
   }
 
   /* ── Sidebar ────────────────────────────────────────────────── */
@@ -267,8 +267,8 @@
     width: 15rem;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--border);
-    background: var(--bg-primary);
+    border-right: 1px solid var(--color-border);
+    background: var(--color-surface);
     z-index: 40;
     transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
@@ -283,7 +283,7 @@
     .admin-sidebar {
       transform: translateX(-100%);
       width: 15rem;
-      box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+      box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
     }
 
     .sidebar--mobile-open {
@@ -295,7 +295,7 @@
   .sidebar-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.4);
     z-index: 39;
     backdrop-filter: blur(2px);
   }
@@ -308,7 +308,7 @@
     height: 3.5rem;
     padding: 0 0.75rem;
     flex-shrink: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--color-border);
     gap: 0.5rem;
     overflow: hidden;
   }
@@ -329,16 +329,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 0.5rem;
+    border-radius: 6px;
     flex-shrink: 0;
-    background: rgba(34, 211, 238, 0.08);
-    border: 1px solid rgba(34, 211, 238, 0.15);
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
   }
 
   .sidebar-logo-text {
     font-size: 0.875rem;
     font-weight: 300;
-    color: var(--text-primary);
+    color: var(--color-text);
     white-space: nowrap;
     overflow: hidden;
     letter-spacing: -0.01em;
@@ -351,8 +352,8 @@
     justify-content: center;
     width: 1.5rem;
     height: 1.5rem;
-    border-radius: 0.375rem;
-    color: var(--text-muted);
+    border-radius: 4px;
+    color: var(--color-text-muted);
     background: transparent;
     border: none;
     cursor: pointer;
@@ -360,8 +361,12 @@
   }
 
   .sidebar-collapse-btn:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  html.dark .sidebar-collapse-btn:hover {
+    background: var(--color-bg);
   }
 
   @media (max-width: 767px) {
@@ -384,7 +389,7 @@
   /* App sub-section */
   .app-sub-section {
     margin-top: 0.125rem;
-    border-left: 2px solid rgba(34, 211, 238, 0.25);
+    border-left: 2px solid var(--color-primary-border);
     margin-left: 0.5rem;
     padding-left: 0.5rem;
   }
@@ -401,7 +406,7 @@
     font-size: 0.6rem;
     text-transform: uppercase;
     letter-spacing: 0.15em;
-    color: var(--accent-cyan);
+    color: var(--color-primary);
     opacity: 0.8;
     white-space: nowrap;
     overflow: hidden;
@@ -412,14 +417,14 @@
     padding: 0.4rem 0.625rem;
     font-size: 0.775rem;
     border-left: none;
-    border-radius: 0.375rem;
+    border-radius: 4px;
   }
 
   /* ── Sidebar footer ─────────────────────────────────────────── */
   .sidebar-footer {
     flex-shrink: 0;
     padding: 0.5rem;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--color-border);
   }
 
   .sidebar-footer-link {
@@ -429,16 +434,16 @@
   .sidebar-user-avatar {
     width: 1.875rem;
     height: 1.875rem;
-    border-radius: 9999px;
+    border-radius: 50%;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 0.75rem;
     font-weight: 700;
-    background: linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(59, 130, 246, 0.12));
-    border: 1px solid rgba(34, 211, 238, 0.2);
-    color: var(--accent-cyan);
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
   }
 
   .sidebar-footer-info {
@@ -475,8 +480,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 1.25rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-primary);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface);
     position: sticky;
     top: 0;
     z-index: 30;
@@ -489,17 +494,17 @@
     justify-content: center;
     width: 2.25rem;
     height: 2.25rem;
-    border-radius: 0.5rem;
+    border-radius: 4px;
     border: none;
     background: transparent;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
   }
 
   .topbar-burger:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
+    background: var(--color-bg);
+    color: var(--color-text);
   }
 
   @media (max-width: 767px) {
@@ -520,38 +525,44 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.375rem 0.625rem 0.375rem 0.375rem;
-    border-radius: 0.5rem;
+    border-radius: 4px;
     border: none;
     background: transparent;
     cursor: pointer;
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     transition: background 0.15s;
   }
 
   .topbar-user-btn:hover,
   .topbar-user-btn--open {
-    background: var(--bg-secondary);
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  html.dark .topbar-user-btn:hover,
+  html.dark .topbar-user-btn--open {
+    background: var(--color-bg);
   }
 
   .topbar-avatar {
     width: 1.75rem;
     height: 1.75rem;
-    border-radius: 9999px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 0.7rem;
     font-weight: 700;
-    background: linear-gradient(135deg, rgba(34, 211, 238, 0.15), rgba(59, 130, 246, 0.15));
-    border: 1px solid rgba(34, 211, 238, 0.2);
-    color: var(--accent-cyan);
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
     flex-shrink: 0;
   }
 
   .topbar-user-name {
     font-size: 0.8125rem;
     font-weight: 500;
-    color: var(--text-primary);
+    color: var(--color-text);
     white-space: nowrap;
   }
 
@@ -572,11 +583,18 @@
     flex: 1;
     padding: 2rem 1.5rem;
     overflow-y: auto;
+    background: var(--color-bg);
   }
 
   @media (min-width: 1024px) {
     .admin-content {
       padding: 2.5rem 2rem;
+    }
+  }
+
+  @media (min-width: 1920px) {
+    .admin-content {
+      padding: 2.5rem 3rem;
     }
   }
 
@@ -603,9 +621,9 @@
 
   .sub-section-enter-active,
   .sub-section-leave-active {
-    transition: opacity 0.2s ease, max-height 0.25s ease;
-    max-height: 20rem;
+    transition: opacity 0.2s ease, max-height 0.2s ease;
     overflow: hidden;
+    max-height: 20rem;
   }
 
   .sub-section-enter-from,
@@ -613,4 +631,5 @@
     opacity: 0;
     max-height: 0;
   }
+
 </style>

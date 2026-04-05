@@ -53,42 +53,32 @@
 <template>
   <nav class="fixed top-0 left-0 right-0 z-50 nav-glass">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-16">
+      <div class="flex items-center justify-between h-14">
 
         <!-- Logo -->
-        <RouterLink to="/" class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg flex items-center justify-center"
-            style="background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.15)">
-            <Shield class="w-4 h-4" style="color: var(--accent-cyan)" />
+        <RouterLink to="/" class="nav-logo">
+          <div class="nav-logo-icon">
+            <Shield class="w-4 h-4" />
           </div>
-          <span style="font-weight: 300; color: var(--text-primary); font-size: 0.9rem; letter-spacing: -0.01em">
-            Auth<span style="font-weight: 600"> Service</span>
+          <span class="nav-logo-text">
+            Auth<span style="font-weight: 600">Service</span>
           </span>
         </RouterLink>
 
         <!-- Right actions -->
         <div class="flex items-center gap-1">
 
-          <!-- Theme toggle (always visible) -->
-          <button class="btn btn-ghost p-2" @click="toggleTheme" :title="t('nav.toggleTheme')">
+          <!-- Theme toggle -->
+          <button class="btn btn-ghost nav-icon-btn" @click="toggleTheme" :title="t('nav.toggleTheme')">
             <Moon v-if="!isDark" class="w-4 h-4" />
             <Sun v-else class="w-4 h-4" />
           </button>
 
           <!-- User menu (authenticated only) -->
           <div v-if="authStore.isAuthenticated" ref="menuRef" class="relative">
-            <button class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors" :style="{
-              color: 'var(--text-muted)',
-              background: userMenuOpen ? 'var(--bg-secondary)' : 'transparent',
-            }" @click="userMenuOpen = !userMenuOpen">
-              <!-- Avatar circle with user initial -->
-              <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold" style="
-                  background: linear-gradient(135deg, rgba(34,211,238,0.15), rgba(59,130,246,0.15));
-                  border: 1px solid rgba(34,211,238,0.2);
-                  color: var(--accent-cyan);
-                ">
-                {{ userInitial }}
-              </div>
+            <button class="nav-user-btn" :class="{ 'nav-user-btn--open': userMenuOpen }"
+              @click="userMenuOpen = !userMenuOpen">
+              <div class="nav-avatar">{{ userInitial }}</div>
               <ChevronDown class="w-3.5 h-3.5 transition-transform duration-200"
                 :style="{ transform: userMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)' }" />
             </button>
@@ -97,10 +87,10 @@
             <div v-if="userMenuOpen" class="dropdown-menu">
               <!-- User info header -->
               <div class="px-3 py-2.5">
-                <p class="text-xs font-semibold" style="color: var(--text-primary)">
+                <p class="text-xs font-semibold" style="color: var(--color-text)">
                   {{ authStore.user?.name }}
                 </p>
-                <p class="text-xs mt-0.5 truncate" style="color: var(--text-muted); max-width: 11rem">
+                <p class="text-xs mt-0.5 truncate" style="color: var(--color-text-muted); max-width: 11rem">
                   {{ authStore.user?.email }}
                 </p>
               </div>
@@ -131,3 +121,75 @@
     </div>
   </nav>
 </template>
+
+<style scoped>
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    text-decoration: none;
+  }
+
+  .nav-logo-icon {
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
+    flex-shrink: 0;
+  }
+
+  .nav-logo-text {
+    font-weight: 300;
+    color: var(--color-text);
+    font-size: 0.9rem;
+    letter-spacing: -0.01em;
+  }
+
+  .nav-icon-btn {
+    padding: 0.5rem;
+  }
+
+  .nav-user-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--color-text-muted);
+    transition: background 0.15s ease;
+  }
+
+  .nav-user-btn:hover,
+  .nav-user-btn--open {
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+
+  html.dark .nav-user-btn:hover,
+  html.dark .nav-user-btn--open {
+    background: var(--color-surface);
+  }
+
+  .nav-avatar {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
+    flex-shrink: 0;
+  }
+</style>

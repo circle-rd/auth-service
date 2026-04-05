@@ -52,13 +52,13 @@
                         </div>
                         <div>
                             <h2 class="font-semibold text-base">{{ t("admin.deleteApp") }}</h2>
-                            <p class="text-sm mt-0.5 font-mono" style="color: var(--text-muted)">{{ appName }}</p>
+                            <p class="text-sm mt-0.5 font-mono" style="color: var(--color-text-muted)">{{ appName }}</p>
                         </div>
                     </div>
 
                     <!-- Warning message -->
                     <div class="rounded-lg px-4 py-3 text-sm leading-relaxed"
-                        style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15); color: var(--text-primary)">
+                        style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15); color: var(--color-text)">
                         {{ t("admin.deleteAppWarning") }}
                     </div>
 

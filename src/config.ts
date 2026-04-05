@@ -86,18 +86,40 @@ export const config = {
     webhookSecret: parsed.data.STRIPE_WEBHOOK_SECRET,
   },
   providers: {
-    google: !!(
-      parsed.data.GOOGLE_CLIENT_ID && parsed.data.GOOGLE_CLIENT_SECRET
-    ),
-    github: !!(
-      parsed.data.GITHUB_CLIENT_ID && parsed.data.GITHUB_CLIENT_SECRET
-    ),
-    linkedin: !!(
-      parsed.data.LINKEDIN_CLIENT_ID && parsed.data.LINKEDIN_CLIENT_SECRET
-    ),
-    microsoft: !!(
-      parsed.data.MICROSOFT_CLIENT_ID && parsed.data.MICROSOFT_CLIENT_SECRET
-    ),
-    apple: !!(parsed.data.APPLE_CLIENT_ID && parsed.data.APPLE_CLIENT_SECRET),
+    google: {
+      enabled: !!(
+        parsed.data.GOOGLE_CLIENT_ID && parsed.data.GOOGLE_CLIENT_SECRET
+      ),
+      clientId: parsed.data.GOOGLE_CLIENT_ID,
+      clientSecret: parsed.data.GOOGLE_CLIENT_SECRET,
+    },
+    github: {
+      enabled: !!(
+        parsed.data.GITHUB_CLIENT_ID && parsed.data.GITHUB_CLIENT_SECRET
+      ),
+      clientId: parsed.data.GITHUB_CLIENT_ID,
+      clientSecret: parsed.data.GITHUB_CLIENT_SECRET,
+    },
+    linkedin: {
+      enabled: !!(
+        parsed.data.LINKEDIN_CLIENT_ID && parsed.data.LINKEDIN_CLIENT_SECRET
+      ),
+      clientId: parsed.data.LINKEDIN_CLIENT_ID,
+      clientSecret: parsed.data.LINKEDIN_CLIENT_SECRET,
+    },
+    microsoft: {
+      enabled: !!(
+        parsed.data.MICROSOFT_CLIENT_ID && parsed.data.MICROSOFT_CLIENT_SECRET
+      ),
+      clientId: parsed.data.MICROSOFT_CLIENT_ID,
+      clientSecret: parsed.data.MICROSOFT_CLIENT_SECRET,
+    },
+    apple: {
+      enabled: !!(
+        parsed.data.APPLE_CLIENT_ID && parsed.data.APPLE_CLIENT_SECRET
+      ),
+      clientId: parsed.data.APPLE_CLIENT_ID,
+      clientSecret: parsed.data.APPLE_CLIENT_SECRET,
+    },
   },
 } as const;

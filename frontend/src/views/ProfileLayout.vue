@@ -77,7 +77,7 @@
         padding-top: 5rem;
         padding-bottom: 3rem;
         min-height: 100dvh;
-        background: var(--bg-primary);
+        background: var(--color-bg);
     }
 
     .profile-container {
@@ -90,11 +90,11 @@
     .profile-card {
         display: flex;
         align-items: stretch;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 1.25rem;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 8px;
         overflow: hidden;
-        box-shadow: var(--card-shadow);
+        box-shadow: var(--shadow-sm);
         min-height: 36rem;
     }
 
@@ -103,7 +103,7 @@
         display: flex;
         flex-direction: column;
         width: 100%;
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid var(--color-border);
         flex-shrink: 0;
         padding: 1.25rem 0.5rem 1rem;
     }
@@ -112,7 +112,7 @@
         .profile-sidebar {
             width: 13rem;
             border-bottom: none;
-            border-right: 1px solid var(--border);
+            border-right: 1px solid var(--color-border);
             padding: 1.75rem 0.75rem 1.5rem;
         }
     }
@@ -156,14 +156,16 @@
             padding: 0.5rem 0.75rem;
             border-left: none;
             border-bottom: 2px solid transparent;
-            border-radius: 0.5rem 0.5rem 0 0;
+            border-radius: 4px 4px 0 0;
             font-size: 0.7rem;
             white-space: nowrap;
         }
 
         .sidebar-link--active {
-            border-bottom-color: var(--accent-cyan) !important;
+            border-bottom-color: var(--color-primary) !important;
             border-left-color: transparent !important;
+            color: var(--color-primary) !important;
+            background: var(--color-primary-light) !important;
         }
     }
 
@@ -178,12 +180,11 @@
     .sidebar-avatar {
         width: 2.5rem;
         height: 2.5rem;
-        border-radius: 9999px;
+        border-radius: 50%;
         overflow: hidden;
         flex-shrink: 0;
-        background: linear-gradient(135deg, rgba(34, 211, 238, 0.12) 0%, rgba(59, 130, 246, 0.12) 100%);
-        border: 1.5px solid rgba(34, 211, 238, 0.25);
-        box-shadow: 0 0 12px rgba(34, 211, 238, 0.1);
+        background: var(--color-primary-light);
+        border: 1.5px solid var(--color-primary-border);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -198,7 +199,7 @@
     .avatar-initial {
         font-size: 1rem;
         font-weight: 700;
-        color: var(--accent-cyan);
+        color: var(--color-primary);
     }
 
     .sidebar-user-info {
@@ -209,8 +210,7 @@
     .sidebar-user-name {
         font-size: 0.8125rem;
         font-weight: 600;
-        color: var(--text-primary);
-        truncate: ellipsis;
+        color: var(--color-text);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -219,7 +219,7 @@
 
     .sidebar-user-email {
         font-size: 0.7rem;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -229,7 +229,7 @@
     /* ── Section head ───────────────────────────────────────────── */
     .sidebar-section-head {
         padding: 0 0.25rem 0.5rem;
-        border-top: 1px solid var(--border);
+        border-top: 1px solid var(--color-border);
         padding-top: 1rem;
         margin-bottom: 0.25rem;
     }
@@ -239,8 +239,8 @@
         font-size: 0.55rem;
         text-transform: uppercase;
         letter-spacing: 0.2em;
-        color: var(--text-muted);
-        opacity: 0.5;
+        color: var(--color-text-muted);
+        opacity: 0.6;
     }
 
     /* ── Nav items ──────────────────────────────────────────────── */
@@ -255,31 +255,29 @@
         align-items: center;
         gap: 0.625rem;
         padding: 0.55rem 0.75rem;
-        color: var(--text-muted);
+        color: var(--color-text-muted);
         text-decoration: none;
         border-left: 2px solid transparent;
-        border-radius: 0 0.5rem 0.5rem 0;
+        border-radius: 0 4px 4px 0;
         font-size: 0.8125rem;
         transition: color 0.15s, background 0.15s, border-color 0.15s;
         white-space: nowrap;
     }
 
     .sidebar-link:hover {
-        color: var(--text-primary);
-        background: var(--bg-secondary);
+        color: var(--color-text);
+        background: var(--color-bg);
+    }
+
+    html.dark .sidebar-link:hover {
+        background: var(--color-bg);
     }
 
     .sidebar-link--active {
-        color: var(--accent-cyan);
-        background: rgba(34, 211, 238, 0.06);
-        border-left-color: var(--accent-cyan);
+        color: var(--color-primary);
+        background: var(--color-primary-light);
+        border-left-color: var(--color-primary);
         font-weight: 500;
-    }
-
-    html:not(.dark) .sidebar-link--active {
-        color: var(--accent-cyan);
-        background: rgba(8, 145, 178, 0.05);
-        border-left-color: var(--accent-cyan);
     }
 
     .sidebar-link-icon {

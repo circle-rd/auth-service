@@ -26,6 +26,7 @@
         icon?: string | null;
         isActive: boolean;
         skipConsent: boolean;
+        isMfaRequired: boolean;
         allowedScopes: string[];
         redirectUris: string[];
     }
@@ -71,6 +72,7 @@
                     icon: app.value.icon,
                     isActive: app.value.isActive,
                     skipConsent: app.value.skipConsent,
+                    isMfaRequired: app.value.isMfaRequired,
                     allowedScopes: app.value.allowedScopes,
                     redirectUris: app.value.redirectUris,
                 }),
@@ -116,7 +118,7 @@
 
 <template>
     <div class="space-y-6">
-        <div v-if="!app" class="text-sm py-10 text-center" style="color: var(--text-muted)">
+        <div v-if="!app" class="text-sm py-10 text-center" style="color: var(--color-text-muted)">
             {{ t("common.loading") }}
         </div>
 
@@ -127,14 +129,14 @@
                 <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
                     <div>
                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                            style="color: var(--text-muted); letter-spacing: 0.12em">
+                            style="color: var(--color-text-muted); letter-spacing: 0.12em">
                             {{ t("admin.appName") }}
                         </label>
                         <input v-model="app.name" type="text" class="input" required />
                     </div>
                     <div>
                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                            style="color: var(--text-muted); letter-spacing: 0.12em">
+                            style="color: var(--color-text-muted); letter-spacing: 0.12em">
                             {{ t("admin.appSlug") }}
                         </label>
                         <input :value="app.slug" type="text" class="input font-mono" style="opacity: 0.5" disabled />
@@ -145,7 +147,7 @@
                 <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
                     <div>
                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                            style="color: var(--text-muted); letter-spacing: 0.12em">
+                            style="color: var(--color-text-muted); letter-spacing: 0.12em">
                             {{ t("admin.appUrl") }}
                         </label>
                         <input v-model="(app.url as string)" type="url" class="input"
@@ -153,7 +155,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                            style="color: var(--text-muted); letter-spacing: 0.12em">
+                            style="color: var(--color-text-muted); letter-spacing: 0.12em">
                             {{ t("admin.appIcon") }}
                         </label>
                         <input v-model="(app.icon as string)" type="url" class="input"
@@ -164,7 +166,7 @@
                 <!-- Description -->
                 <div>
                     <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                        style="color: var(--text-muted); letter-spacing: 0.12em">
+                        style="color: var(--color-text-muted); letter-spacing: 0.12em">
                         {{ t("admin.appDescription") }}
                     </label>
                     <textarea v-model="(app.description as string)" class="input resize-none" rows="3" />
@@ -175,31 +177,42 @@
                     <label class="flex items-center gap-2.5 cursor-pointer select-none">
                         <input v-model="app.isActive" type="checkbox" class="sr-only" />
                         <div class="w-9 h-5 rounded-full transition-colors"
-                            :style="app.isActive ? 'background: var(--accent-cyan)' : 'background: var(--border)'">
+                            :style="app.isActive ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
                             <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5" :style="app.isActive
-                                    ? 'transform: translateX(1.1rem)'
-                                    : 'transform: translateX(0.125rem)'
+                                ? 'transform: translateX(1.1rem)'
+                                : 'transform: translateX(0.125rem)'
                                 " />
                         </div>
                         <span class="text-sm">{{ t("common.active") }}</span>
                     </label>
                     <label class="flex items-center gap-2.5 cursor-pointer select-none">
                         <input v-model="app.skipConsent" type="checkbox" class="sr-only" />
-                        <div class="w-9 h-5 rounded-full transition-colors" :style="app.skipConsent ? 'background: var(--accent-cyan)' : 'background: var(--border)'
+                        <div class="w-9 h-5 rounded-full transition-colors" :style="app.skipConsent ? 'background: var(--color-primary)' : 'background: var(--color-border)'
                             ">
                             <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5" :style="app.skipConsent
-                                    ? 'transform: translateX(1.1rem)'
-                                    : 'transform: translateX(0.125rem)'
+                                ? 'transform: translateX(1.1rem)'
+                                : 'transform: translateX(0.125rem)'
                                 " />
                         </div>
                         <span class="text-sm">{{ t("admin.skipConsent") }}</span>
+                    </label>
+                    <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                        <input v-model="app.isMfaRequired" type="checkbox" class="sr-only" />
+                        <div class="w-9 h-5 rounded-full transition-colors" :style="app.isMfaRequired ? 'background: var(--color-primary)' : 'background: var(--color-border)'
+                            ">
+                            <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5" :style="app.isMfaRequired
+                                ? 'transform: translateX(1.1rem)'
+                                : 'transform: translateX(0.125rem)'
+                                " />
+                        </div>
+                        <span class="text-sm">{{ t("admin.isMfaRequired") }}</span>
                     </label>
                 </div>
 
                 <!-- Allowed scopes -->
                 <div>
                     <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                        style="color: var(--text-muted); letter-spacing: 0.12em">
+                        style="color: var(--color-text-muted); letter-spacing: 0.12em">
                         {{ t("admin.allowedScopes") }}
                     </label>
                     <div class="flex flex-wrap gap-2">
@@ -215,7 +228,7 @@
                 <!-- Redirect URIs -->
                 <div>
                     <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                        style="color: var(--text-muted); letter-spacing: 0.12em">
+                        style="color: var(--color-text-muted); letter-spacing: 0.12em">
                         {{ t("admin.redirectUrls") }}
                     </label>
                     <textarea :value="app.redirectUris.join('\n')" class="input resize-none font-mono text-xs" rows="4"
@@ -228,7 +241,7 @@
                 </div>
 
                 <p v-if="infoError" class="text-sm" style="color: #f87171">{{ infoError }}</p>
-                <p v-if="infoMsg" class="text-sm" style="color: var(--accent-cyan)">{{ infoMsg }}</p>
+                <p v-if="infoMsg" class="text-sm" style="color: var(--color-primary)">{{ infoMsg }}</p>
 
                 <div>
                     <button type="submit" class="btn btn-primary" :disabled="saving">
@@ -241,22 +254,22 @@
             <div class="card space-y-4">
                 <div>
                     <h2 class="text-sm font-semibold">{{ t("admin.clientSecret") }}</h2>
-                    <p class="text-xs mt-0.5" style="color: var(--text-muted)">
-                        Générer un nouveau secret révoque l'ancien immédiatement.
+                    <p class="text-xs mt-0.5" style="color: var(--color-text-muted)">
+                        {{ t("admin.rotateSecretHint") }}
                     </p>
                 </div>
 
                 <div v-if="newSecret" class="space-y-2">
                     <p class="text-xs font-medium" style="color: #fbbf24">
-                        ⚠ Nouveau secret — sauvegardez-le maintenant, il ne sera plus affiché.
+                        {{ t("admin.newSecretWarning") }}
                     </p>
                     <div class="flex items-start gap-2">
                         <code class="flex-1 font-mono text-xs px-3 py-2.5 rounded-lg break-all"
-                            style="background: var(--bg-secondary)">
+                            style="background: var(--color-bg)">
               {{ newSecret }}
             </code>
                         <button class="btn btn-ghost p-2 shrink-0" @click="copySecret">
-                            <Check v-if="copiedSecret" class="w-4 h-4" style="color: var(--badge-success-color)" />
+                            <Check v-if="copiedSecret" class="w-4 h-4" style="color: var(--color-success)" />
                             <Copy v-else class="w-4 h-4" />
                         </button>
                     </div>

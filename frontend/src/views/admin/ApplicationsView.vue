@@ -132,24 +132,24 @@
     <div class="flex flex-wrap items-center gap-3">
       <div class="relative flex-1" style="min-width: 200px; max-width: 360px">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-          style="color: var(--text-muted)" />
+          style="color: var(--color-text-muted)" />
         <input v-model="searchQuery" type="text" :placeholder="t('common.search')" class="input pl-9"
           @input="page = 1" />
       </div>
       <div class="flex items-center gap-1 rounded-lg p-0.5"
-        style="background: var(--bg-secondary); border: 1px solid var(--border)">
+        style="background: var(--color-bg); border: 1px solid var(--color-border)">
         <button
           v-for="opt in [{ val: 'all', label: 'Tous' }, { val: 'active', label: t('common.active') }, { val: 'inactive', label: t('common.inactive') }]"
           :key="opt.val" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors" :style="statusFilter === opt.val
-            ? 'background: var(--bg-card); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.1)'
-            : 'color: var(--text-muted)'" @click="statusFilter = opt.val as typeof statusFilter; page = 1">
+            ? 'background: var(--color-surface); color: var(--color-text); box-shadow: 0 1px 2px rgba(0,0,0,0.1)'
+            : 'color: var(--color-text-muted)'" @click="statusFilter = opt.val as typeof statusFilter; page = 1">
           {{ opt.label }}
         </button>
       </div>
     </div>
 
     <!-- Loading -->
-    <div v-if="loading" class="card text-center py-12" style="color: var(--text-muted)">
+    <div v-if="loading" class="card text-center py-12" style="color: var(--color-text-muted)">
       {{ t("common.loading") }}
     </div>
 
@@ -158,9 +158,9 @@
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr style="border-bottom: 1px solid var(--border)">
+            <tr style="border-bottom: 1px solid var(--color-border)">
               <!-- Name -->
-              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--text-muted)"
+              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--color-text-muted)"
                 @click="setSort('name')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
                   {{ t("common.name") }}
@@ -171,7 +171,7 @@
               </th>
               <!-- Slug -->
               <th class="text-left px-4 py-3 cursor-pointer select-none hidden sm:table-cell"
-                style="color: var(--text-muted)" @click="setSort('slug')">
+                style="color: var(--color-text-muted)" @click="setSort('slug')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
                   {{ t("admin.appSlug") }}
                   <ChevronsUpDown v-if="sortBy !== 'slug'" class="w-3 h-3 opacity-40" />
@@ -180,7 +180,7 @@
                 </span>
               </th>
               <!-- Status -->
-              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--text-muted)"
+              <th class="text-left px-4 py-3 cursor-pointer select-none" style="color: var(--color-text-muted)"
                 @click="setSort('status')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
                   {{ t("common.status") }}
@@ -191,9 +191,9 @@
               </th>
               <!-- Created at -->
               <th class="text-left px-4 py-3 cursor-pointer select-none hidden md:table-cell"
-                style="color: var(--text-muted)" @click="setSort('createdAt')">
+                style="color: var(--color-text-muted)" @click="setSort('createdAt')">
                 <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
-                  Créé le
+                  Created
                   <ChevronsUpDown v-if="sortBy !== 'createdAt'" class="w-3 h-3 opacity-40" />
                   <ChevronUp v-else-if="sortDir === 'asc'" class="w-3 h-3" />
                   <ChevronDown v-else class="w-3 h-3" />
@@ -206,7 +206,7 @@
           <tbody>
             <tr v-for="app in paginated" :key="app.id"
               class="transition-colors hover:bg-[--bg-secondary] cursor-pointer"
-              style="border-bottom: 1px solid var(--border)" @click="openApp(app.id)">
+              style="border-bottom: 1px solid var(--color-border)" @click="openApp(app.id)">
               <!-- Name + icon -->
               <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
@@ -214,7 +214,7 @@
                     class="w-8 h-8 rounded-lg object-cover shrink-0" />
                   <div v-else
                     class="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold font-mono shrink-0"
-                    style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                    style="background: var(--color-primary-light); color: var(--color-primary)">
                     {{ initials(app.name) }}
                   </div>
                   <span class="font-medium truncate">{{ app.name }}</span>
@@ -222,7 +222,7 @@
               </td>
               <!-- Slug -->
               <td class="px-4 py-3 hidden sm:table-cell">
-                <code class="text-xs font-mono" style="color: var(--text-muted)">{{ app.slug }}</code>
+                <code class="text-xs font-mono" style="color: var(--color-text-muted)">{{ app.slug }}</code>
               </td>
               <!-- Status -->
               <td class="px-4 py-3">
@@ -231,7 +231,7 @@
                 </span>
               </td>
               <!-- Created -->
-              <td class="px-4 py-3 hidden md:table-cell text-sm" style="color: var(--text-muted)">
+              <td class="px-4 py-3 hidden md:table-cell text-sm" style="color: var(--color-text-muted)">
                 {{ new Date(app.createdAt).toLocaleDateString() }}
               </td>
               <!-- Actions -->
@@ -248,7 +248,7 @@
             <!-- Empty state -->
             <tr v-if="paginated.length === 0">
               <td colspan="5" class="px-4 py-12 text-center">
-                <p class="text-sm" style="color: var(--text-muted)">
+                <p class="text-sm" style="color: var(--color-text-muted)">
                   {{ filtered.length === 0 && apps.length > 0 ? 'No results for this search.' : 'No applications yet.'
                   }}
                 </p>
@@ -264,8 +264,8 @@
 
       <!-- Pagination -->
       <div v-if="totalPages > 1" class="flex items-center justify-between px-4 py-3"
-        style="border-top: 1px solid var(--border)">
-        <span class="text-xs" style="color: var(--text-muted)">
+        style="border-top: 1px solid var(--color-border)">
+        <span class="text-xs" style="color: var(--color-text-muted)">
           {{ (page - 1) * PAGE_SIZE + 1 }}–{{ Math.min(page * PAGE_SIZE, filtered.length) }}
           de {{ filtered.length }}
         </span>

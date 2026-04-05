@@ -29,10 +29,10 @@
     ];
 
     const tabs: { id: Tab; label: string; shortLabel: string; icon: typeof LayoutGrid; }[] = [
-        { id: "general", label: "admin.generalInfo", shortLabel: "Général", icon: LayoutGrid },
-        { id: "callbacks", label: "admin.redirectUrls", shortLabel: "Callbacks", icon: Link },
-        { id: "scopes", label: "admin.allowedScopes", shortLabel: "Scopes", icon: Shield },
-        { id: "options", label: "common.actions", shortLabel: "Options", icon: Settings },
+        { id: "general", label: "admin.generalInfo", shortLabel: t("admin.generalInfo"), icon: LayoutGrid },
+        { id: "callbacks", label: "admin.redirectUrls", shortLabel: t("admin.redirectUrls"), icon: Link },
+        { id: "scopes", label: "admin.allowedScopes", shortLabel: t("admin.allowedScopes"), icon: Shield },
+        { id: "options", label: "common.actions", shortLabel: t("common.actions"), icon: Settings },
     ];
 
     interface Application {
@@ -169,16 +169,16 @@
 <template>
     <Teleport to="body">
         <Transition name="modal-fade">
-            <div v-if="open" class="fixed inset-0 z-50 flex flex-col lg:flex-row" style="background: var(--bg-primary)">
+            <div v-if="open" class="fixed inset-0 z-50 flex flex-col lg:flex-row" style="background: var(--color-bg)">
                 <!-- Mobile horizontal tab bar -->
                 <div class="flex lg:hidden shrink-0 items-center"
-                    style="border-bottom: 1px solid var(--border); background: var(--bg-primary)">
+                    style="border-bottom: 1px solid var(--color-border); background: var(--color-bg)">
                     <div class="flex items-center gap-2 px-4 py-2 shrink-0">
                         <img v-if="appIcon" :src="appIcon" :alt="appName"
                             class="w-6 h-6 rounded shrink-0 object-cover" />
                         <div v-else
                             class="w-6 h-6 rounded flex items-center justify-center text-xs font-bold font-mono shrink-0"
-                            style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                            style="background: var(--color-primary-light); color: var(--color-primary)">
                             {{ initials(appName) }}
                         </div>
                         <span class="text-sm font-semibold truncate" style="max-width: 96px">{{ appName }}</span>
@@ -187,12 +187,12 @@
                     <div class="flex flex-1 overflow-x-auto">
                         <button v-for="tab in tabs" :key="tab.id"
                             class="flex flex-col items-center gap-0.5 px-3 py-2.5 transition-colors shrink-0 relative text-xs"
-                            :style="activeTab === tab.id ? 'color: var(--accent-cyan)' : 'color: var(--text-muted)'"
+                            :style="activeTab === tab.id ? 'color: var(--color-primary)' : 'color: var(--color-text-muted)'"
                             @click="activeTab = tab.id">
                             <component :is="tab.icon" class="w-4 h-4" />
                             <span>{{ tab.shortLabel }}</span>
                             <span v-if="activeTab === tab.id" class="absolute bottom-0 left-1 right-1 h-0.5 rounded-t"
-                                style="background: var(--accent-cyan)" />
+                                style="background: var(--color-primary)" />
                         </button>
                     </div>
 
@@ -204,17 +204,18 @@
 
                 <!-- Desktop sidebar -->
                 <aside class="hidden lg:flex flex-col shrink-0"
-                    style="width: 220px; border-right: 1px solid var(--border); background: var(--bg-primary); padding: 1.25rem 0.75rem">
+                    style="width: 220px; border-right: 1px solid var(--color-border); background: var(--color-bg); padding: 1.25rem 0.75rem">
                     <div class="px-3 mb-5">
                         <img v-if="appIcon" :src="appIcon" :alt="appName"
                             class="w-8 h-8 rounded-lg mb-2 object-cover" />
                         <div v-else
                             class="w-8 h-8 rounded-lg mb-2 flex items-center justify-center text-xs font-bold font-mono"
-                            style="background: rgba(34,211,238,0.1); color: var(--accent-cyan)">
+                            style="background: var(--color-primary-light); color: var(--color-primary)">
                             {{ initials(appName) }}
                         </div>
                         <p class="font-semibold text-sm leading-tight truncate">{{ appName }}</p>
-                        <p class="text-xs font-mono truncate mt-0.5" style="color: var(--text-muted)">{{ appSlug }}</p>
+                        <p class="text-xs font-mono truncate mt-0.5" style="color: var(--color-text-muted)">{{ appSlug
+                            }}</p>
                     </div>
 
                     <nav class="flex-1 space-y-0.5">
@@ -236,7 +237,7 @@
                 <!-- Main content -->
                 <main class="flex-1 overflow-y-auto" style="padding: 2rem 2.5rem">
 
-                    <div v-if="loading" class="text-center py-16" style="color: var(--text-muted)">
+                    <div v-if="loading" class="text-center py-16" style="color: var(--color-text-muted)">
                         {{ t("common.loading") }}
                     </div>
 
@@ -249,14 +250,14 @@
                                 <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
                                     <div>
                                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                            style="color: var(--text-muted); letter-spacing: 0.12em">{{
-                                            t("admin.appName") }}</label>
+                                            style="color: var(--color-text-muted); letter-spacing: 0.12em">{{
+                                                t("admin.appName") }}</label>
                                         <input v-model="form.name" type="text" class="input" required />
                                     </div>
                                     <div>
                                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                            style="color: var(--text-muted); letter-spacing: 0.12em">{{
-                                            t("admin.appSlug") }}</label>
+                                            style="color: var(--color-text-muted); letter-spacing: 0.12em">{{
+                                                t("admin.appSlug") }}</label>
                                         <input :value="appSlug" type="text" class="input font-mono" style="opacity: 0.5"
                                             disabled />
                                     </div>
@@ -264,23 +265,23 @@
                                 <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
                                     <div>
                                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                            style="color: var(--text-muted); letter-spacing: 0.12em">{{
-                                            t("admin.appUrl") }}</label>
+                                            style="color: var(--color-text-muted); letter-spacing: 0.12em">{{
+                                                t("admin.appUrl") }}</label>
                                         <input v-model="form.url" type="url" class="input"
                                             :placeholder="t('common.optional')" />
                                     </div>
                                     <div>
                                         <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                            style="color: var(--text-muted); letter-spacing: 0.12em">{{
-                                            t("admin.appIcon") }}</label>
+                                            style="color: var(--color-text-muted); letter-spacing: 0.12em">{{
+                                                t("admin.appIcon") }}</label>
                                         <input v-model="form.icon" type="url" class="input"
                                             :placeholder="t('common.optional')" />
                                     </div>
                                 </div>
                                 <div>
                                     <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                        style="color: var(--text-muted); letter-spacing: 0.12em">{{
-                                        t("admin.appDescription") }}</label>
+                                        style="color: var(--color-text-muted); letter-spacing: 0.12em">{{
+                                            t("admin.appDescription") }}</label>
                                     <textarea v-model="form.description" class="input resize-none" rows="3" />
                                 </div>
                             </div>
@@ -291,11 +292,12 @@
                             <h1 class="text-xl font-semibold gradient-text mb-6">{{ t("admin.redirectUrls") }}</h1>
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted); letter-spacing: 0.12em">{{ t("admin.redirectUrls")
+                                    style="color: var(--color-text-muted); letter-spacing: 0.12em">{{
+                                        t("admin.redirectUrls")
                                     }}</label>
                                 <textarea v-model="form.redirectUrisText" class="input resize-none font-mono text-xs"
                                     rows="10" :placeholder="t('admin.redirectUrlsHint')" />
-                                <p class="text-xs mt-2" style="color: var(--text-muted)">
+                                <p class="text-xs mt-2" style="color: var(--color-text-muted)">
                                     {{ t("admin.redirectUrlsHint") }}
                                 </p>
                             </div>
@@ -305,8 +307,8 @@
                         <template v-else-if="activeTab === 'scopes'">
                             <h1 class="text-xl font-semibold gradient-text mb-6">{{ t("admin.allowedScopes") }}</h1>
                             <div class="space-y-3">
-                                <p class="text-sm" style="color: var(--text-muted)">
-                                    Sélectionnez les scopes OAuth que cette application est autorisée à demander.
+                                <p class="text-sm" style="color: var(--color-text-muted)">
+                                    {{ t("admin.scopesHint") }}
                                 </p>
                                 <div class="flex flex-wrap gap-2 mt-4">
                                     <button v-for="scope in SCOPES" :key="scope" type="button"
@@ -322,13 +324,13 @@
 
                         <!-- ── Options ─────────────────────────────────────────────── -->
                         <template v-else-if="activeTab === 'options'">
-                            <h1 class="text-xl font-semibold gradient-text mb-6">Options</h1>
+                            <h1 class="text-xl font-semibold gradient-text mb-6">{{ t("common.actions") }}</h1>
                             <div class="space-y-6">
                                 <label class="flex items-start gap-4 cursor-pointer select-none">
                                     <div class="mt-0.5">
                                         <input v-model="form.isActive" type="checkbox" class="sr-only" />
                                         <div class="w-9 h-5 rounded-full transition-colors"
-                                            :style="form.isActive ? 'background: var(--accent-cyan)' : 'background: var(--border)'">
+                                            :style="form.isActive ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
                                             <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
                                                 :style="form.isActive
                                                     ? 'transform: translateX(1.1rem)'
@@ -337,9 +339,8 @@
                                     </div>
                                     <div>
                                         <p class="text-sm font-medium">{{ t("common.active") }}</p>
-                                        <p class="text-xs mt-0.5" style="color: var(--text-muted)">
-                                            Lorsqu'inactif, les utilisateurs ne peuvent plus s'authentifier via cette
-                                            application.
+                                        <p class="text-xs mt-0.5" style="color: var(--color-text-muted)">
+                                            {{ t("admin.activeHint") }}
                                         </p>
                                     </div>
                                 </label>
@@ -348,7 +349,7 @@
                                     <div class="mt-0.5">
                                         <input v-model="form.skipConsent" type="checkbox" class="sr-only" />
                                         <div class="w-9 h-5 rounded-full transition-colors"
-                                            :style="form.skipConsent ? 'background: var(--accent-cyan)' : 'background: var(--border)'">
+                                            :style="form.skipConsent ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
                                             <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
                                                 :style="form.skipConsent
                                                     ? 'transform: translateX(1.1rem)'
@@ -357,8 +358,8 @@
                                     </div>
                                     <div>
                                         <p class="text-sm font-medium">{{ t("admin.skipConsent") }}</p>
-                                        <p class="text-xs mt-0.5" style="color: var(--text-muted)">
-                                            L'utilisateur ne verra pas l'écran de consentement lors de chaque connexion.
+                                        <p class="text-xs mt-0.5" style="color: var(--color-text-muted)">
+                                            {{ t("admin.skipConsentHint") }}
                                         </p>
                                     </div>
                                 </label>
@@ -370,7 +371,7 @@
                             <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
                                 {{ saving ? t("common.saving") : t("common.save") }}
                             </button>
-                            <p v-if="saveMsg" class="text-sm" style="color: var(--accent-cyan)">{{ saveMsg }}</p>
+                            <p v-if="saveMsg" class="text-sm" style="color: var(--color-primary)">{{ saveMsg }}</p>
                             <p v-if="saveError" class="text-sm" style="color: #f87171">{{ saveError }}</p>
                         </div>
 

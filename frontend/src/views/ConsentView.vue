@@ -74,36 +74,42 @@
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center px-4 pt-16">
-    <div class="w-full max-w-sm">
-      <div class="mb-8 text-center">
-        <ShieldCheck class="w-12 h-12 mx-auto mb-3" style="color: var(--accent)" />
-        <h1 class="text-2xl font-bold gradient-text mb-2">{{ t("consent.title") }}</h1>
-        <p v-if="!loading" class="text-sm" style="color: var(--text-muted)">
+  <div class="consent-page">
+    <div class="consent-container">
+
+      <!-- Header -->
+      <div class="consent-header">
+        <div class="consent-icon">
+          <ShieldCheck class="w-6 h-6" />
+        </div>
+        <h1 class="consent-title">{{ t("consent.title") }}</h1>
+        <p v-if="!loading" class="consent-subtitle">
           {{ t("consent.requestingAccess", { app: clientName }) }}
         </p>
       </div>
 
-      <div v-if="loading" class="card text-center py-8" style="color: var(--text-muted)">
+      <!-- Loading -->
+      <div v-if="loading" class="card consent-card text-center" style="color: var(--color-text-muted)">
         {{ t("common.loading") }}
       </div>
 
-      <div v-else class="card space-y-5">
+      <!-- Content -->
+      <div v-else class="card consent-card">
         <!-- Requested scopes -->
-        <div>
-          <p class="text-sm font-medium mb-3">{{ t("consent.scopes") }}</p>
-          <ul class="space-y-2">
-            <li v-for="scope in scopes" :key="scope" class="flex items-center gap-2 text-sm">
-              <ShieldCheck class="w-4 h-4 shrink-0" style="color: var(--accent)" />
+        <div class="scopes-section">
+          <p class="scopes-title">{{ t("consent.scopes") }}</p>
+          <ul class="scopes-list">
+            <li v-for="scope in scopes" :key="scope" class="scope-item">
+              <ShieldCheck class="w-4 h-4 shrink-0" style="color: var(--color-primary)" />
               <span>{{ t(`consent.scope.${scope}`, scope) }}</span>
             </li>
           </ul>
         </div>
 
-        <p v-if="error" class="text-sm text-red-400">{{ error }}</p>
+        <p v-if="error" class="consent-error">{{ error }}</p>
 
         <!-- Actions -->
-        <div class="flex gap-3">
+        <div class="consent-actions">
           <button class="btn btn-primary flex-1" :disabled="submitting" @click="respond(true)">
             {{ submitting ? t("common.loading") : t("consent.allow") }}
           </button>
@@ -113,6 +119,105 @@
           </button>
         </div>
       </div>
+
     </div>
   </div>
 </template>
+
+<style scoped>
+  .consent-page {
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5rem 1rem 2rem;
+    background: var(--color-bg);
+  }
+
+  .consent-container {
+    width: 100%;
+    max-width: 24rem;
+  }
+
+  .consent-header {
+    margin-bottom: 2rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .consent-icon {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
+  }
+
+  .consent-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .consent-subtitle {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .consent-card {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .scopes-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .scopes-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .scopes-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .scope-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-text);
+  }
+
+  .consent-error {
+    font-size: 0.875rem;
+    color: var(--color-danger);
+    margin: 0;
+  }
+
+  .consent-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+</style>

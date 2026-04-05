@@ -23,6 +23,8 @@ const en = {
     enabled: "Enabled",
     disabled: "Disabled",
     optional: "optional",
+    copy: "Copy",
+    done: "Done",
   },
   nav: {
     profile: "Profile",
@@ -38,7 +40,9 @@ const en = {
     signUpTitle: "Create your account",
     signUpSubtitle: "Join Auth Service",
     forgotPassword: "Forgot password?",
+    forgotPasswordHint: "Enter your email and we'll send you a reset link.",
     resetPassword: "Reset password",
+    passwordResetSuccess: "Password updated! Redirecting to sign in...",
     sendResetLink: "Send reset link",
     noAccount: "Don't have an account?",
     hasAccount: "Already have an account?",
@@ -52,6 +56,9 @@ const en = {
     totpPlaceholder: "6-digit code",
     verifyCode: "Verify code",
     useHardwareKey: "Use hardware key instead",
+    orContinueWith: "or continue with",
+    continueWithGoogle: "Continue with Google",
+    continueWithGitHub: "Continue with GitHub",
   },
   consent: {
     title: "Authorization request",
@@ -68,6 +75,15 @@ const en = {
       permissions: "Your permissions in this application",
       features: "Your subscription features",
     },
+  },
+  sessions: {
+    description: "All active sessions associated with your account.",
+    noSessions: "No active sessions.",
+    current: "Current session",
+    revokeOthers: "Revoke other sessions",
+    revoke: "Revoke this session",
+    createdAt: "Created",
+    expiresAt: "Expires",
   },
   profile: {
     title: "My profile",
@@ -129,6 +145,10 @@ const en = {
     deleteAppConfirm: "Are you sure you want to delete this application?",
     deleteAppWarning:
       "This will permanently delete all roles, subscription plans, and user associations linked to this application. Users themselves will be preserved, but their access to this application will be removed.",
+    deleteUser: "Delete user",
+    deleteUserConfirm: "Are you sure you want to permanently delete this user?",
+    deleteUserWarning:
+      "This will permanently delete the user account and all associated data (sessions, OAuth tokens, passkeys). This action cannot be undone.",
     appUrl: "Application URL",
     appIcon: "Icon URL",
     dashboard: "Dashboard",
@@ -184,6 +204,21 @@ const en = {
       "Stripe integration is not configured. Price tiers will be saved locally without Stripe synchronization.",
     noPlans: "No subscription plans yet.",
     noPrices: "No price tiers defined.",
+    appCreatedCredentials:
+      "Application created — copy these credentials now. The secret is only shown once.",
+    slugHint: "Lowercase, digits & hyphens only",
+    rotateSecretHint:
+      "Generating a new secret immediately revokes the old one.",
+    newSecretWarning: "⚠ New secret — save it now, it will not be shown again.",
+    scopesHint:
+      "Select the OAuth scopes this application is allowed to request.",
+    activeHint:
+      "When inactive, users can no longer authenticate via this application.",
+    skipConsentHint:
+      "The user will not see the consent screen on each sign-in.",
+    isMfaRequired: "Require MFA",
+    isMfaRequiredDescription:
+      "Users must have MFA enabled to authenticate with this application",
   },
   errors: {
     AUTH_001: "Invalid or missing authentication token",

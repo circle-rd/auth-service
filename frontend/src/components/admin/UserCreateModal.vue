@@ -89,7 +89,7 @@
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("common.name") }}
                                 </label>
                                 <input v-model="form.name" type="text" class="input"
@@ -97,7 +97,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("common.email") }}
                                 </label>
                                 <input v-model="form.email" type="email" class="input"
@@ -109,7 +109,7 @@
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("common.password") }}
                                 </label>
                                 <input v-model="form.password" type="password" class="input"
@@ -117,7 +117,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--text-muted)">
+                                    style="color: var(--color-text-muted)">
                                     {{ t("common.role") }}
                                 </label>
                                 <select v-model="form.role" class="select">
@@ -128,7 +128,7 @@
                             </div>
                         </div>
 
-                        <p v-if="createError" class="text-sm" style="color: var(--badge-error-color)">
+                        <p v-if="createError" class="text-sm" style="color: var(--color-danger)">
                             {{ createError }}
                         </p>
 

@@ -178,7 +178,7 @@ const fr = {
     writeAccess: "Écriture",
     noPermissions: "Aucune ressource de permission définie",
     configurePermissions:
-      "Ajoutez d'abord des ressources dans le panneau gauche",
+      "Ajoutez d'abord des ressources dans le panneau droit",
     // Plan modal
     planInfo: "Informations",
     planFeatures: "Fonctionnalités",
@@ -226,6 +226,10 @@ const fr = {
     isMfaRequired: "MFA obligatoire",
     isMfaRequiredDescription:
       "Les utilisateurs doivent avoir le MFA activé pour s'authentifier avec cette application",
+    defaultRole: "Défaut",
+    setAsDefault: "Définir comme rôle par défaut",
+    appCreationBootstrap:
+      "Les rôles 'user' (par défaut) et 'admin', un plan 'free' et tous les superadmins ont été automatiquement ajoutés à cette application.",
   },
   errors: {
     AUTH_001: "Token d'authentification invalide ou manquant",

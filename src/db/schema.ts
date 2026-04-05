@@ -72,6 +72,7 @@ export const appRoles = pgTable(
       .references(() => applications.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     description: text("description"),
+    isDefault: boolean("is_default").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

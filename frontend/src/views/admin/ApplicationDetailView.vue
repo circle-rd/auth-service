@@ -3,7 +3,7 @@
     import { useI18n } from "vue-i18n";
     import { useRoute, RouterLink } from "vue-router";
     import { ArrowLeft, Settings, Users, CreditCard, BarChart3, ShieldCheck, Puzzle } from "lucide-vue-next";
-    import AppAuthConfigModal from "../../components/admin/AppAuthConfigModal.vue";
+    import AppEditModal from "../../components/admin/AppEditModal.vue";
 
     const { t } = useI18n();
     const route = useRoute();
@@ -187,7 +187,7 @@
         </div>
 
         <!-- Edit modal -->
-        <AppAuthConfigModal v-if="showEditModal && app" :app-id="app.id" :open="showEditModal"
+        <AppEditModal v-if="showEditModal && app" :app-id="app.id" :open="showEditModal"
             @close="showEditModal = false" @updated="fetchApp" />
     </div>
 </template>

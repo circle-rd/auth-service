@@ -9,7 +9,7 @@
         Users,
         BarChart2,
     } from "lucide-vue-next";
-    import AppInfoTab from "./AppInfoTab.vue";
+    import AppFormModal from "./AppFormModal.vue";
     import AppRolesTab from "./AppRolesTab.vue";
     import AppSubscriptionsTab from "./AppSubscriptionsTab.vue";
     import AppUsersTab from "./AppUsersTab.vue";
@@ -159,7 +159,8 @@
                 <!-- Main content -->
                 <main class="flex-1 overflow-y-auto" style="padding: 2rem 2.5rem">
 
-                    <AppInfoTab v-if="activeTab === 'info'" :app-id="appId" @updated="onInfoUpdated" />
+                    <AppFormModal v-if="activeTab === 'info'" mode="edit" :app-id="appId" :open="true" inline
+                        @updated="onInfoUpdated" />
 
                     <template v-else-if="activeTab === 'roles'">
                         <h1 class="text-xl font-semibold gradient-text mb-6">{{ t("admin.roles") }} &amp; {{

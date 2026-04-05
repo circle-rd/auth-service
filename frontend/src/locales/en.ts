@@ -173,7 +173,7 @@ const en = {
     readAccess: "Read",
     writeAccess: "Write",
     noPermissions: "No permission resources defined yet",
-    configurePermissions: "Add permission resources on the left first",
+    configurePermissions: "Add permission resources on the right first",
     // Plan modal
     planInfo: "Information",
     planFeatures: "Features",
@@ -219,6 +219,10 @@ const en = {
     isMfaRequired: "Require MFA",
     isMfaRequiredDescription:
       "Users must have MFA enabled to authenticate with this application",
+    defaultRole: "Default",
+    setAsDefault: "Set as default role",
+    appCreationBootstrap:
+      "Roles 'user' (default) and 'admin', a 'free' plan, and all superadmins have been automatically added to this application.",
   },
   errors: {
     AUTH_001: "Invalid or missing authentication token",

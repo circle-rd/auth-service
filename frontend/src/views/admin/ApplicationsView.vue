@@ -4,7 +4,7 @@
   import { useRouter } from "vue-router";
   import { Plus, Search, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from "lucide-vue-next";
   import AppDeleteModal from "../../components/admin/AppDeleteModal.vue";
-  import AppCreateModal from "../../components/admin/AppCreateModal.vue";
+  import AppFormModal from "../../components/admin/AppFormModal.vue";
   import { Trash2 } from "lucide-vue-next";
 
   const { t } = useI18n();
@@ -282,7 +282,7 @@
     </div>
 
     <!-- Create modal -->
-    <AppCreateModal :open="showCreateModal" @close="showCreateModal = false"
+    <AppFormModal mode="create" :open="showCreateModal" @close="showCreateModal = false"
       @created="showCreateModal = false; fetchApps()" />
 
     <!-- Edit modal removed: rows now navigate to ApplicationDetailView -->

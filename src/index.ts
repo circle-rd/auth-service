@@ -24,6 +24,7 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { ApiError } from "./errors.js";
+import { renderAuthPage } from "./services/templates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,6 +51,62 @@ if (existsSync(frontendDist)) {
     root: frontendDist,
     prefix: "/",
     wildcard: false,
+  });
+}
+
+// ── Auth page routes — served before Vue SPA ─────────────────────────────────
+// BetterAuth redirects to /login?redirectTo=... and /register?redirectTo=...
+// These routes serve either a custom HTML template (from TEMPLATES_DIR) or
+// fall through to the Vue SPA index.html when no template is found.
+const authPageRoutes: Array<{
+  path: string;
+  page: "login" | "register" | "verify-email";
+}> = [
+  { path: "/login", page: "login" },
+  { path: "/register", page: "register" },
+  { path: "/verify-email", page: "verify-email" },
+];
+
+for (const { path, page } of authPageRoutes) {
+  fastify.get(path, async (req, reply) => {
+    // Only serve custom template when TEMPLATES_DIR is configured.
+    // Without it, fall through to the Vue SPA (handled by the static file
+    // plugin or the notFound handler below).
+    if (!config.templatesDir) {
+      if (existsSync(frontendDist)) {
+        return reply.sendFile("index.html", frontendDist);
+      }
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    const query = req.query as Record<string, string>;
+    const redirectTo = query.redirectTo ?? query.next ?? "/";
+    const appSlug = query.client_id ?? "";
+
+    try {
+      const html = renderAuthPage(
+        page,
+        {
+          actionUrl: `/api/auth/sign-in/email`,
+          redirectTo,
+          appSlug,
+          authUrl: config.betterAuth.url,
+          errorMessage: query.error,
+        },
+        appSlug || null,
+        config.templatesDir,
+      );
+      return reply
+        .status(200)
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
+    } catch {
+      // Template not found — fall back to Vue SPA
+      if (existsSync(frontendDist)) {
+        return reply.sendFile("index.html", frontendDist);
+      }
+      return reply.status(404).send({ error: "Not found" });
+    }
   });
 }
 

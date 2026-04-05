@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verify your email</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f3f4f6;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+    }
+
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.4rem; font-weight: 700; color: #111; margin-bottom: .5rem; }
+    p { color: #6b7280; font-size: .95rem; line-height: 1.5; }
+
+    .error {
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: .6rem .875rem;
+      font-size: .875rem;
+      margin: 1rem 0;
+      text-align: left;
+    }
+
+    .success {
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: .6rem .875rem;
+      font-size: .875rem;
+      margin: 1rem 0;
+    }
+
+    button {
+      margin-top: 1.5rem;
+      padding: .65rem 1.75rem;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: #4338ca; }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+
+    .footer {
+      font-size: .875rem;
+      color: #6b7280;
+      margin-top: 1.5rem;
+    }
+    .footer a { color: #4f46e5; text-decoration: none; font-weight: 500; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📧</div>
+    <h1>Check your inbox</h1>
+    <p>We've sent a verification link to your email address.<br>
+       Click the link to activate your account.</p>
+
+    {{#if ERROR_MESSAGE}}
+    <div class="error">{{ERROR_MESSAGE}}</div>
+    {{/if}}
+
+    <div id="status-box"></div>
+
+    <button id="resend-btn">Resend verification email</button>
+
+    <p class="footer">
+      Already verified? <a href="/login?redirectTo={{REDIRECT_TO}}">Sign in</a>
+    </p>
+  </div>
+
+  <script type="module">
+    const btn = document.getElementById('resend-btn');
+    const statusBox = document.getElementById('status-box');
+    const AUTH_URL = '{{AUTH_URL}}';
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      statusBox.innerHTML = '';
+      try {
+        const res = await fetch(`${AUTH_URL}/api/auth/send-verification-email`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json',
+                     'Origin': window.location.origin },
+          body: JSON.stringify({ callbackURL: window.location.href }),
+        });
+        if (res.ok) {
+          statusBox.innerHTML = '<div class="success">Email sent! Check your inbox.</div>';
+        } else {
+          const data = await res.json().catch(() => ({}));
+          statusBox.innerHTML = `<div class="error">${data?.error?.message ?? 'Failed to resend.'}</div>`;
+        }
+      } catch {
+        statusBox.innerHTML = '<div class="error">Network error. Please try again.</div>';
+      } finally {
+        // Re-enable after 30 s to prevent spam
+        setTimeout(() => { btn.disabled = false; }, 30_000);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -22,7 +22,14 @@
     try {
       await authStore.signIn(email.value, password.value);
       const redirectTo = (route.query.redirectTo as string | undefined) ?? "/";
-      await router.push(redirectTo);
+      // If the redirect target is an API path or an absolute URL (OAuth flow),
+      // perform a full navigation instead of a Vue Router push which would
+      // fail silently for non-SPA routes.
+      if (redirectTo.startsWith("/api/") || redirectTo.startsWith("http")) {
+        window.location.href = redirectTo;
+      } else {
+        await router.push(redirectTo);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "unknown";
       if (message === "MFA_REQUIRED") {

@@ -25,6 +25,10 @@ const envSchema = z.object({
   SMTP_PASS: z.string().optional(),
   SMTP_FROM: z.string().default("auth-service <no-reply@localhost>"),
 
+  // Templates directory — optional, allows overriding login/register/verify-email pages
+  // per-application (mount a volume at this path in Docker)
+  TEMPLATES_DIR: z.string().optional(),
+
   // Stripe (optional — billing integration)
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
@@ -85,6 +89,7 @@ export const config = {
     secretKey: parsed.data.STRIPE_SECRET_KEY,
     webhookSecret: parsed.data.STRIPE_WEBHOOK_SECRET,
   },
+  templatesDir: parsed.data.TEMPLATES_DIR ?? null,
   providers: {
     google: {
       enabled: !!(

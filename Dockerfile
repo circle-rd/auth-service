@@ -40,7 +40,7 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=backend-builder /app/dist ./dist
 
 # Built frontend
-COPY --from=frontend-builder /app/frontend/dist ./frontend-dist
+COPY --from=frontend-builder /app/frontend-dist ./frontend-dist
 
 # Drizzle migrations (generated during build)
 COPY --from=backend-builder /app/drizzle ./drizzle

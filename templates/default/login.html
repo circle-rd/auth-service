@@ -69,6 +69,7 @@
       font-size: .875rem;
       margin-bottom: 1rem;
     }
+    .error:empty { display: none; }
 
     .footer {
       text-align: center;
@@ -89,10 +90,7 @@
     <h1>Sign in</h1>
     <p class="subtitle">Welcome back — enter your credentials to continue.</p>
 
-    {{#if ERROR_MESSAGE}}
     <div class="error" id="error-box">{{ERROR_MESSAGE}}</div>
-    {{/if}}
-    <div class="error" id="error-box" style="display:none"></div>
 
     <form id="login-form">
       <input type="hidden" name="redirectTo" value="{{REDIRECT_TO}}" />

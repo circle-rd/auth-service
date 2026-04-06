@@ -31,6 +31,12 @@ export interface TemplateVars {
   appSlug: string;
   errorMessage?: string;
   authUrl: string;
+  /**
+   * Raw OAuth query string (including sig) forwarded from BetterAuth's login
+   * redirect. When present it is passed as `oauth_query` in the sign-in body
+   * so BetterAuth's after-hook can resume the authorization flow.
+   */
+  oauthQuery?: string;
 }
 
 /**
@@ -94,6 +100,10 @@ export function renderAuthPage(
     .replace(
       /\{\{ERROR_MESSAGE\}\}/g,
       vars.errorMessage ? escapeHtml(vars.errorMessage) : "",
+    )
+    .replace(
+      /\{\{OAUTH_QUERY\}\}/g,
+      vars.oauthQuery ? escapeHtml(vars.oauthQuery) : "",
     );
 }
 

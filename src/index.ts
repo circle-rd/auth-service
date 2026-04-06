@@ -55,7 +55,8 @@ if (existsSync(frontendDist)) {
 }
 
 // ── Auth page routes — served before Vue SPA ─────────────────────────────────
-// BetterAuth redirects to /login?redirectTo=... and /register?redirectTo=...
+// BetterAuth's oauthProvider redirects to /login carrying the full signed OAuth
+// params in the query string (client_id, sig, exp, …), NOT a plain redirectTo.
 // These routes serve either a custom HTML template (from TEMPLATES_DIR) or
 // fall through to the Vue SPA index.html when no template is found.
 const authPageRoutes: Array<{
@@ -83,6 +84,17 @@ for (const { path, page } of authPageRoutes) {
     const redirectTo = query.redirectTo ?? query.next ?? "/";
     const appSlug = query.client_id ?? "";
 
+    // When BetterAuth's oauthProvider initiates the login, it signs all OAuth
+    // params (including client_id + sig). Pass the raw query string back to the
+    // template so the sign-in form can include it as `oauth_query` in the body,
+    // allowing BetterAuth's after-hook to resume the authorization flow.
+    const rawUrl = req.raw.url ?? "";
+    const rawQs = rawUrl.includes("?")
+      ? rawUrl.split("?").slice(1).join("?")
+      : "";
+    const oauthQuery =
+      query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
+
     try {
       const html = renderAuthPage(
         page,
@@ -92,6 +104,7 @@ for (const { path, page } of authPageRoutes) {
           appSlug,
           authUrl: config.betterAuth.url,
           errorMessage: query.error,
+          oauthQuery,
         },
         appSlug || null,
         config.templatesDir,

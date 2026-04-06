@@ -37,6 +37,13 @@ export interface TemplateVars {
    * so BetterAuth's after-hook can resume the authorization flow.
    */
   oauthQuery?: string;
+  /**
+   * Whether new-user self-registration is allowed for this application.
+   * When false the login template hides the registration link and the
+   * /register route redirects to /login.
+   * Defaults to true when omitted.
+   */
+  allowRegister?: boolean;
 }
 
 /**
@@ -104,6 +111,10 @@ export function renderAuthPage(
     .replace(
       /\{\{OAUTH_QUERY\}\}/g,
       vars.oauthQuery ? escapeHtml(vars.oauthQuery) : "",
+    )
+    .replace(
+      /\{\{ALLOW_REGISTER\}\}/g,
+      vars.allowRegister !== false ? "true" : "false",
     );
 }
 

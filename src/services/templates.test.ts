@@ -160,4 +160,60 @@ describe("renderAuthPage", () => {
       expect(html).toContain("</html>");
     });
   });
+
+  describe("allowRegister substitution", () => {
+    it("renders ALLOW_REGISTER as 'true' when allowRegister is true", () => {
+      const html = renderAuthPage(
+        "login",
+        {
+          actionUrl: "/api/auth/sign-in/email",
+          redirectTo: "/",
+          appSlug: "",
+          authUrl: "https://auth.example.com",
+          allowRegister: true,
+        },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).not.toContain("{{ALLOW_REGISTER}}");
+      expect(html).toContain("'true'");
+    });
+
+    it("renders ALLOW_REGISTER as 'false' when allowRegister is false", () => {
+      const html = renderAuthPage(
+        "login",
+        {
+          actionUrl: "/api/auth/sign-in/email",
+          redirectTo: "/",
+          appSlug: "",
+          authUrl: "https://auth.example.com",
+          allowRegister: false,
+        },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).not.toContain("{{ALLOW_REGISTER}}");
+      expect(html).toContain("'false'");
+    });
+
+    it("defaults ALLOW_REGISTER to 'true' when allowRegister is omitted", () => {
+      const html = renderAuthPage(
+        "login",
+        {
+          actionUrl: "/api/auth/sign-in/email",
+          redirectTo: "/",
+          appSlug: "",
+          authUrl: "https://auth.example.com",
+          // allowRegister intentionally omitted
+        },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).not.toContain("{{ALLOW_REGISTER}}");
+      expect(html).toContain("'true'");
+    });
+  });
 });

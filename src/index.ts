@@ -25,6 +25,9 @@ import { userRoutes } from "./routes/user.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { ApiError } from "./errors.js";
 import { renderAuthPage } from "./services/templates.js";
+import { db } from "./db/index.js";
+import { applications } from "./db/schema.js";
+import { eq } from "drizzle-orm";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -96,6 +99,24 @@ for (const { path, page } of authPageRoutes) {
       query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
 
     try {
+      // Resolve allowRegister for the requested app (when a client_id is present).
+      // Falls back to true so that pages without an app context are unaffected.
+      let allowRegister = true;
+      if (appSlug) {
+        const [appRow] = await db
+          .select({ allowRegister: applications.allowRegister })
+          .from(applications)
+          .where(eq(applications.slug, appSlug))
+          .limit(1);
+        allowRegister = appRow?.allowRegister ?? true;
+      }
+
+      // Block self-registration when the application has disabled it.
+      if (page === "register" && !allowRegister) {
+        const loginUrl = rawQs ? `/login?${rawQs}` : "/login";
+        return reply.redirect(loginUrl, 302);
+      }
+
       const html = renderAuthPage(
         page,
         {
@@ -105,6 +126,7 @@ for (const { path, page } of authPageRoutes) {
           authUrl: config.betterAuth.url,
           errorMessage: query.error,
           oauthQuery,
+          allowRegister,
         },
         appSlug || null,
         config.templatesDir,

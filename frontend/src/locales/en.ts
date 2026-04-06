@@ -219,6 +219,8 @@ const en = {
     isMfaRequired: "Require MFA",
     isMfaRequiredDescription:
       "Users must have MFA enabled to authenticate with this application",
+    allowRegister: "Allow registration",
+    allowRegisterHint: "New users can create an account from the login page.",
     defaultRole: "Default",
     setAsDefault: "Set as default role",
     appCreationBootstrap:

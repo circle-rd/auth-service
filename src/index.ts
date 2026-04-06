@@ -24,6 +24,10 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { ApiError } from "./errors.js";
+import { renderAuthPage } from "./services/templates.js";
+import { db } from "./db/index.js";
+import { applications } from "./db/schema.js";
+import { eq } from "drizzle-orm";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,6 +54,94 @@ if (existsSync(frontendDist)) {
     root: frontendDist,
     prefix: "/",
     wildcard: false,
+  });
+}
+
+// ── Auth page routes — served before Vue SPA ─────────────────────────────────
+// BetterAuth's oauthProvider redirects to /login carrying the full signed OAuth
+// params in the query string (client_id, sig, exp, …), NOT a plain redirectTo.
+// These routes serve either a custom HTML template (from TEMPLATES_DIR) or
+// fall through to the Vue SPA index.html when no template is found.
+const authPageRoutes: Array<{
+  path: string;
+  page: "login" | "register" | "verify-email";
+}> = [
+  { path: "/login", page: "login" },
+  { path: "/register", page: "register" },
+  { path: "/verify-email", page: "verify-email" },
+];
+
+for (const { path, page } of authPageRoutes) {
+  fastify.get(path, async (req, reply) => {
+    // Only serve custom template when TEMPLATES_DIR is configured.
+    // Without it, fall through to the Vue SPA (handled by the static file
+    // plugin or the notFound handler below).
+    if (!config.templatesDir) {
+      if (existsSync(frontendDist)) {
+        return reply.sendFile("index.html", frontendDist);
+      }
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    const query = req.query as Record<string, string>;
+    const redirectTo = query.redirectTo ?? query.next ?? "/";
+    const appSlug = query.client_id ?? "";
+
+    // When BetterAuth's oauthProvider initiates the login, it signs all OAuth
+    // params (including client_id + sig). Pass the raw query string back to the
+    // template so the sign-in form can include it as `oauth_query` in the body,
+    // allowing BetterAuth's after-hook to resume the authorization flow.
+    const rawUrl = req.raw.url ?? "";
+    const rawQs = rawUrl.includes("?")
+      ? rawUrl.split("?").slice(1).join("?")
+      : "";
+    const oauthQuery =
+      query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
+
+    try {
+      // Resolve allowRegister for the requested app (when a client_id is present).
+      // Falls back to true so that pages without an app context are unaffected.
+      let allowRegister = true;
+      if (appSlug) {
+        const [appRow] = await db
+          .select({ allowRegister: applications.allowRegister })
+          .from(applications)
+          .where(eq(applications.slug, appSlug))
+          .limit(1);
+        allowRegister = appRow?.allowRegister ?? true;
+      }
+
+      // Block self-registration when the application has disabled it.
+      if (page === "register" && !allowRegister) {
+        const loginUrl = rawQs ? `/login?${rawQs}` : "/login";
+        return reply.redirect(loginUrl, 302);
+      }
+
+      const html = renderAuthPage(
+        page,
+        {
+          actionUrl: `/api/auth/sign-in/email`,
+          redirectTo,
+          appSlug,
+          authUrl: config.betterAuth.url,
+          errorMessage: query.error,
+          oauthQuery,
+          allowRegister,
+        },
+        appSlug || null,
+        config.templatesDir,
+      );
+      return reply
+        .status(200)
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
+    } catch {
+      // Template not found — fall back to Vue SPA
+      if (existsSync(frontendDist)) {
+        return reply.sendFile("index.html", frontendDist);
+      }
+      return reply.status(404).send({ error: "Not found" });
+    }
   });
 }
 

@@ -35,6 +35,7 @@
         isActive: true,
         skipConsent: false,
         isMfaRequired: false,
+        allowRegister: true,
         allowedScopes: ["openid", "profile", "email"] as string[],
         redirectUris: [] as string[],
     });
@@ -53,6 +54,7 @@
         createForm.isActive = true;
         createForm.skipConsent = false;
         createForm.isMfaRequired = false;
+        createForm.allowRegister = true;
         createForm.allowedScopes = ["openid", "profile", "email"];
         createForm.redirectUris = [];
         redirectUrisText.value = "";
@@ -122,6 +124,7 @@
         isActive: boolean;
         skipConsent: boolean;
         isMfaRequired: boolean;
+        allowRegister: boolean;
         allowedScopes: string[];
         redirectUris: string[];
     }
@@ -175,6 +178,7 @@
                     isActive: app.value.isActive,
                     skipConsent: app.value.skipConsent,
                     isMfaRequired: app.value.isMfaRequired,
+                    allowRegister: app.value.allowRegister,
                     allowedScopes: app.value.allowedScopes,
                     redirectUris,
                 }),
@@ -420,6 +424,15 @@
                                     </div>
                                     <span class="text-sm">{{ t("admin.isMfaRequired") }}</span>
                                 </label>
+                                <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                                    <input v-model="createForm.allowRegister" type="checkbox" class="sr-only" />
+                                    <div class="w-9 h-5 rounded-full transition-colors"
+                                        :style="createForm.allowRegister ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                            :style="createForm.allowRegister ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                    </div>
+                                    <span class="text-sm">{{ t("admin.allowRegister") }}</span>
+                                </label>
                             </div>
 
                             <p v-if="createError" class="text-sm" style="color: #f87171">{{ createError }}</p>
@@ -529,6 +542,15 @@
                                     :style="app.isMfaRequired ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
                             </div>
                             <span class="text-sm">{{ t("admin.isMfaRequired") }}</span>
+                        </label>
+                        <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                            <input v-model="app.allowRegister" type="checkbox" class="sr-only" />
+                            <div class="w-9 h-5 rounded-full transition-colors"
+                                :style="app.allowRegister ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                    :style="app.allowRegister ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                            </div>
+                            <span class="text-sm">{{ t("admin.allowRegister") }}</span>
                         </label>
                     </div>
 

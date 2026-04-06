@@ -22,6 +22,7 @@ export const applications = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     skipConsent: boolean("skip_consent").notNull().default(false),
     isMfaRequired: boolean("is_mfa_required").notNull().default(false),
+    allowRegister: boolean("allow_register").notNull().default(true),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()

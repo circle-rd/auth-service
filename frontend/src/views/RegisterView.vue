@@ -1,6 +1,6 @@
 <script setup lang="ts">
   import { ref } from "vue";
-  import { useRouter, RouterLink } from "vue-router";
+  import { useRouter, useRoute, RouterLink } from "vue-router";
   import { useI18n } from "vue-i18n";
   import { UserPlus } from "lucide-vue-next";
   import { useAuthStore } from "../stores/auth.js";
@@ -8,6 +8,7 @@
   const { t } = useI18n();
   const authStore = useAuthStore();
   const router = useRouter();
+  const route = useRoute();
 
   const name = ref("");
   const email = ref("");
@@ -20,7 +21,12 @@
     loading.value = true;
     try {
       await authStore.register(email.value, password.value, name.value);
-      await router.push("/profile");
+      const redirectTo = (route.query.redirectTo as string | undefined) ?? "/profile";
+      if (redirectTo.startsWith("/api/") || redirectTo.startsWith("http")) {
+        window.location.href = redirectTo;
+      } else {
+        await router.push(redirectTo);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("already")) {

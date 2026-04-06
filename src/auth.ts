@@ -87,8 +87,12 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    // Required for asymmetric JWT signing used by oauthProvider
-    jwt(),
+    // Required for asymmetric JWT signing used by oauthProvider.
+    // Set an explicit issuer so both the jwt plugin and oauthProvider's
+    // createIdToken use the same value (config.betterAuth.url without '/api/auth').
+    // Without this, createIdToken falls back to ctx.context.baseURL which
+    // BetterAuth computes as `${baseURL}/api/auth`, causing iss/issuer mismatch.
+    jwt({ jwt: { issuer: config.betterAuth.url } }),
     twoFactor(),
     passkey(),
     admin({

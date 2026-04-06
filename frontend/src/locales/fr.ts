@@ -226,6 +226,8 @@ const fr = {
     isMfaRequired: "MFA obligatoire",
     isMfaRequiredDescription:
       "Les utilisateurs doivent avoir le MFA activé pour s'authentifier avec cette application",
+    allowRegister: "Ouverture des inscriptions",
+    allowRegisterHint: "Les nouveaux utilisateurs peuvent créer un compte depuis la page de connexion.",
     defaultRole: "Défaut",
     setAsDefault: "Définir comme rôle par défaut",
     appCreationBootstrap:

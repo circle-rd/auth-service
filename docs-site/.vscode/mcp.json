@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "Auth Service Docs (local dev)": {
+      "url": "http://localhost:3000/mcp",
+      "type": "http"
+    },
+    "Auth Service Docs": {
+      "url": "https://docs.circle-cyber.com/auth-service/mcp",
+      "type": "http"
+    }
+  }
+}

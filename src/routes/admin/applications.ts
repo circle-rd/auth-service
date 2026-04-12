@@ -58,6 +58,7 @@ const createAppSchema = z.object({
     .regex(/^[a-z0-9-]+$/, "slug must be lowercase alphanumeric with hyphens"),
   description: z.string().max(500).optional(),
   isActive: z.boolean().default(true),
+  isPublic: z.boolean().default(false),
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(true),
@@ -67,7 +68,7 @@ const createAppSchema = z.object({
   icon: z.string().optional().nullable(),
 });
 
-const updateAppSchema = createAppSchema.partial().omit({ slug: true });
+const updateAppSchema = createAppSchema.partial().omit({ slug: true, isPublic: true });
 
 const grantUserAccessSchema = z.object({
   userId: z.string().min(1),
@@ -210,9 +211,9 @@ export async function applicationRoutes(
       .limit(1);
     if (existing) throw ERR.APP_003();
 
-    // Generate and hash the client secret
-    const rawSecret = randomBytes(32).toString("hex");
-    const hashedSecret = hashClientSecret(rawSecret);
+    // Generate and hash the client secret (only for confidential clients)
+    const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
+    const hashedSecret = rawSecret ? hashClientSecret(rawSecret) : null;
 
     // Transactionally create the application row and the corresponding oauthClient row
     const [app] = await db.transaction(async (tx) => {
@@ -223,6 +224,7 @@ export async function applicationRoutes(
           slug: data.slug,
           description: data.description,
           isActive: data.isActive,
+          isPublic: data.isPublic,
           skipConsent: data.skipConsent,
           isMfaRequired: data.isMfaRequired,
           allowRegister: data.allowRegister,
@@ -246,6 +248,9 @@ export async function applicationRoutes(
         skipConsent: data.skipConsent,
         scopes: data.allowedScopes,
         redirectUris: data.redirectUris,
+        public: data.isPublic || null,
+        tokenEndpointAuthMethod: data.isPublic ? "none" : null,
+        requirePKCE: data.isPublic ? true : null,
         metadata: { clientId: data.slug, applicationId: app.id },
       });
 
@@ -327,12 +332,14 @@ export async function applicationRoutes(
     // Suppress unused variable warning for userRole (returned for completeness)
     void userRole;
 
-    await reply.status(201).send({
+    const response: Record<string, unknown> = {
       application: app,
       clientId: data.slug,
-      // Secret shown once — not persisted in plaintext
-      clientSecret: rawSecret,
-    });
+    };
+    // Secret shown once — not persisted in plaintext. Public clients have no secret.
+    if (rawSecret) response.clientSecret = rawSecret;
+
+    await reply.status(201).send(response);
   });
 
   // GET /api/admin/applications/:id
@@ -399,11 +406,15 @@ export async function applicationRoutes(
     "/:id/rotate-secret",
     async (req, reply) => {
       const [app] = await db
-        .select({ id: applications.id, slug: applications.slug })
+        .select({ id: applications.id, slug: applications.slug, isPublic: applications.isPublic })
         .from(applications)
         .where(eq(applications.id, req.params.id))
         .limit(1);
       if (!app) throw ERR.APP_002();
+
+      if (app.isPublic) {
+        throw ERR.APP_001("Public clients do not have a client secret");
+      }
 
       const newSecret = randomBytes(32).toString("hex");
       const hashedSecret = hashClientSecret(newSecret);

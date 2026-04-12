@@ -33,6 +33,7 @@
         url: "",
         icon: "",
         isActive: true,
+        isPublic: false,
         skipConsent: false,
         isMfaRequired: false,
         allowRegister: true,
@@ -42,7 +43,7 @@
     const redirectUrisText = ref("");
     const createError = ref<string | null>(null);
     const creating = ref(false);
-    const credentials = ref<{ clientId: string; clientSecret: string } | null>(null);
+    const credentials = ref<{ clientId: string; clientSecret?: string; isPublic: boolean } | null>(null);
     const copied = ref<"id" | "secret" | null>(null);
 
     function resetCreate() {
@@ -52,6 +53,7 @@
         createForm.url = "";
         createForm.icon = "";
         createForm.isActive = true;
+        createForm.isPublic = false;
         createForm.skipConsent = false;
         createForm.isMfaRequired = false;
         createForm.allowRegister = true;
@@ -92,7 +94,8 @@
             } else {
                 credentials.value = {
                     clientId: data.clientId!,
-                    clientSecret: data.clientSecret!,
+                    clientSecret: data.clientSecret,
+                    isPublic: !data.clientSecret,
                 };
                 emit("created");
             }
@@ -122,6 +125,7 @@
         url?: string | null;
         icon?: string | null;
         isActive: boolean;
+        isPublic: boolean;
         skipConsent: boolean;
         isMfaRequired: boolean;
         allowRegister: boolean;
@@ -273,13 +277,16 @@
                                 border: 1px solid var(--color-success-border);
                                 color: var(--color-success);
                             ">
-                                {{ t("admin.appCreatedCredentials") }}
+                                {{ credentials.isPublic ? t("admin.appCreatedPublicClient") : t("admin.appCreatedCredentials") }}
                             </div>
                             <div class="space-y-4">
-                                <div v-for="item in [
-                                    { label: t('admin.clientId'), val: credentials.clientId, key: 'id' as const },
-                                    { label: t('admin.clientSecret'), val: credentials.clientSecret, key: 'secret' as const },
-                                ]" :key="item.key">
+                                <div v-for="item in (credentials.isPublic
+                                    ? [{ label: t('admin.clientId'), val: credentials.clientId, key: 'id' as const }]
+                                    : [
+                                        { label: t('admin.clientId'), val: credentials.clientId, key: 'id' as const },
+                                        { label: t('admin.clientSecret'), val: credentials.clientSecret!, key: 'secret' as const },
+                                      ]
+                                )" :key="item.key">
                                     <p class="text-xs font-mono uppercase tracking-widest mb-2"
                                         style="color: var(--color-text-muted)">
                                         {{ item.label }}
@@ -405,6 +412,15 @@
                                             :style="createForm.isActive ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
                                     </div>
                                     <span class="text-sm">{{ t("common.active") }}</span>
+                                </label>
+                                <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                                    <input v-model="createForm.isPublic" type="checkbox" class="sr-only" />
+                                    <div class="w-9 h-5 rounded-full transition-colors"
+                                        :style="createForm.isPublic ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                            :style="createForm.isPublic ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                    </div>
+                                    <span class="text-sm">{{ t("admin.isPublic") }}</span>
                                 </label>
                                 <label class="flex items-center gap-2.5 cursor-pointer select-none">
                                     <input v-model="createForm.skipConsent" type="checkbox" class="sr-only" />
@@ -552,6 +568,11 @@
                             </div>
                             <span class="text-sm">{{ t("admin.allowRegister") }}</span>
                         </label>
+                        <!-- Public client indicator (read-only — set at creation) -->
+                        <span v-if="app.isPublic" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                            style="background: var(--color-primary-light, #eff6ff); color: var(--color-primary); border: 1px solid var(--color-primary-border, #bfdbfe)">
+                            {{ t("admin.publicClientBadge") }}
+                        </span>
                     </div>
 
                     <!-- Allowed scopes -->
@@ -590,8 +611,8 @@
                     </div>
                 </form>
 
-                <!-- Client secret rotation -->
-                <div class="card space-y-4">
+                <!-- Client secret rotation (hidden for public clients) -->
+                <div v-if="!app.isPublic" class="card space-y-4">
                     <div>
                         <h2 class="text-sm font-semibold">{{ t("admin.clientSecret") }}</h2>
                         <p class="text-xs mt-0.5" style="color: var(--color-text-muted)">

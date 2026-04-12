@@ -28,6 +28,7 @@ export const applications = pgTable(
       .notNull()
       .default(["openid", "profile", "email"]),
     redirectUris: text("redirect_uris").array().notNull().default([]),
+    isPublic: boolean("is_public").notNull().default(false),
     url: text("url"),
     icon: text("icon"),
     createdAt: timestamp("created_at", { withTimezone: true })

@@ -221,6 +221,11 @@ const en = {
       "Users must have MFA enabled to authenticate with this application",
     allowRegister: "Allow registration",
     allowRegisterHint: "New users can create an account from the login page.",
+    isPublic: "Public client (PKCE only)",
+    isPublicHint: "No client secret — authentication via PKCE only (RFC 9700). Suitable for SPAs and native apps.",
+    publicClientBadge: "Public client",
+    appCreatedPublicClient:
+      "Application created — this is a public client. No client secret is issued.",
     defaultRole: "Default",
     setAsDefault: "Set as default role",
     appCreationBootstrap:

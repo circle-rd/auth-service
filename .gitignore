@@ -6,8 +6,8 @@ frontend-dist/
 *.js.map
 *.tsbuildinfo
 
-# Drizzle generated migrations (keep manually; ignore auto-snapshots)
-drizzle/meta/
+# Drizzle generated migrations — track journal and SQL, ignore snapshots
+drizzle/meta/0*_snapshot.json
 
 # OS
 .DS_Store

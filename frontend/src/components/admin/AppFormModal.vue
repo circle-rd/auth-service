@@ -37,14 +37,39 @@
         skipConsent: false,
         isMfaRequired: false,
         allowRegister: true,
-        allowedScopes: ["openid", "profile", "email"] as string[],
+        allowedScopes: [...SCOPES] as string[],
         redirectUris: [] as string[],
     });
     const redirectUrisText = ref("");
+    const slugUserEdited = ref(false);
+    const redirectUserEdited = ref(false);
     const createError = ref<string | null>(null);
     const creating = ref(false);
     const credentials = ref<{ clientId: string; clientSecret?: string; isPublic: boolean } | null>(null);
     const copied = ref<"id" | "secret" | null>(null);
+
+    function toSlug(name: string): string {
+        return name
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/[^a-z0-9\s-]/g, "")
+            .trim()
+            .replace(/\s+/g, "-")
+            .replace(/-+/g, "-");
+    }
+
+    watch(() => createForm.name, (name) => {
+        if (!slugUserEdited.value) {
+            createForm.slug = toSlug(name);
+        }
+    });
+
+    watch(() => createForm.url, (url) => {
+        if (!redirectUserEdited.value) {
+            redirectUrisText.value = url ? url.replace(/\/$/, "") + "/callback" : "";
+        }
+    });
 
     function resetCreate() {
         createForm.name = "";
@@ -57,9 +82,11 @@
         createForm.skipConsent = false;
         createForm.isMfaRequired = false;
         createForm.allowRegister = true;
-        createForm.allowedScopes = ["openid", "profile", "email"];
+        createForm.allowedScopes = [...SCOPES];
         createForm.redirectUris = [];
         redirectUrisText.value = "";
+        slugUserEdited.value = false;
+        redirectUserEdited.value = false;
         createError.value = null;
         credentials.value = null;
     }
@@ -320,24 +347,28 @@
                         </div>
 
                         <!-- Create form -->
-                        <form v-else class="flex-1 overflow-y-auto px-6 py-5 space-y-6"
+                        <form v-else class="flex-1 overflow-y-auto px-6 py-5 space-y-5"
                             @submit.prevent="submitCreate">
                             <!-- Name + Slug -->
                             <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                                 <div>
-                                    <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                                    <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
                                         style="color: var(--color-text-muted)">
                                         {{ t("admin.appName") }}
                                     </label>
                                     <input v-model="createForm.name" type="text" class="input" required />
+                                    <p class="text-xs mt-1" style="color: var(--color-text-muted)">
+                                        {{ t("admin.appNameHint") }}
+                                    </p>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                                    <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
                                         style="color: var(--color-text-muted)">
                                         {{ t("admin.appSlug") }}
                                     </label>
                                     <input v-model="createForm.slug" type="text" class="input font-mono"
-                                        placeholder="my-app" pattern="[a-z0-9\-]+" required />
+                                        placeholder="my-app" pattern="[a-z0-9\-]+" required
+                                        @input="slugUserEdited = true" />
                                     <p class="text-xs mt-1" style="color: var(--color-text-muted)">
                                         {{ t("admin.slugHint") }}
                                     </p>
@@ -347,108 +378,177 @@
                             <!-- URL + Icon -->
                             <div class="grid grid-cols-1 gap-5 sm:grid-cols-2">
                                 <div>
-                                    <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                                    <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
                                         style="color: var(--color-text-muted)">
                                         {{ t("admin.appUrl") }}
                                         <span style="opacity: 0.55">({{ t("common.optional") }})</span>
                                     </label>
                                     <input v-model="createForm.url" type="url" class="input"
                                         :placeholder="t('common.optional')" />
+                                    <p class="text-xs mt-1" style="color: var(--color-text-muted)">
+                                        {{ t("admin.appUrlHint") }}
+                                    </p>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                                    <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
                                         style="color: var(--color-text-muted)">
                                         {{ t("admin.appIcon") }}
                                         <span style="opacity: 0.55">({{ t("common.optional") }})</span>
                                     </label>
                                     <input v-model="createForm.icon" type="url" class="input"
                                         :placeholder="t('common.optional')" />
+                                    <p class="text-xs mt-1" style="color: var(--color-text-muted)">
+                                        {{ t("admin.appIconHint") }}
+                                    </p>
                                 </div>
                             </div>
 
                             <!-- Description -->
                             <div>
-                                <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                                <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
                                     style="color: var(--color-text-muted)">
                                     {{ t("admin.appDescription") }}
                                     <span style="opacity: 0.55">({{ t("common.optional") }})</span>
                                 </label>
                                 <textarea v-model="createForm.description" class="input resize-none" rows="2" />
-                            </div>
-
-                            <!-- Allowed scopes -->
-                            <div>
-                                <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                                    style="color: var(--color-text-muted)">
-                                    {{ t("admin.allowedScopes") }}
-                                </label>
-                                <div class="flex flex-wrap gap-2">
-                                    <button v-for="scope in SCOPES" :key="scope" type="button"
-                                        class="badge cursor-pointer select-none transition-colors"
-                                        :class="createForm.allowedScopes.includes(scope) ? 'badge-success' : 'badge-inactive'"
-                                        @click="toggleScopeCreate(scope)">
-                                        {{ scope }}
-                                    </button>
-                                </div>
+                                <p class="text-xs mt-1" style="color: var(--color-text-muted)">
+                                    {{ t("admin.appDescriptionHint") }}
+                                </p>
                             </div>
 
                             <!-- Redirect URIs -->
                             <div>
-                                <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                                <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
                                     style="color: var(--color-text-muted)">
                                     {{ t("admin.redirectUrls") }}
                                 </label>
                                 <textarea v-model="redirectUrisText" class="input resize-none font-mono text-xs"
-                                    rows="3" :placeholder="t('admin.redirectUrlsHint')" />
+                                    rows="3" :placeholder="t('admin.redirectUrlsHint')"
+                                    @input="redirectUserEdited = true" />
+                                <p class="text-xs mt-1" style="color: var(--color-text-muted)">
+                                    {{ t("admin.redirectUrlsDescription") }}
+                                </p>
                             </div>
 
-                            <!-- Toggles -->
-                            <div class="flex flex-wrap items-center gap-x-8 gap-y-3">
-                                <label class="flex items-center gap-2.5 cursor-pointer select-none">
-                                    <input v-model="createForm.isActive" type="checkbox" class="sr-only" />
-                                    <div class="w-9 h-5 rounded-full transition-colors"
-                                        :style="createForm.isActive ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
-                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
-                                            :style="createForm.isActive ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
-                                    </div>
-                                    <span class="text-sm">{{ t("common.active") }}</span>
+                            <!-- Allowed scopes -->
+                            <div>
+                                <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
+                                    style="color: var(--color-text-muted)">
+                                    {{ t("admin.allowedScopes") }}
                                 </label>
-                                <label class="flex items-center gap-2.5 cursor-pointer select-none">
-                                    <input v-model="createForm.isPublic" type="checkbox" class="sr-only" />
-                                    <div class="w-9 h-5 rounded-full transition-colors"
-                                        :style="createForm.isPublic ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
-                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
-                                            :style="createForm.isPublic ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                <p class="text-xs mb-2.5" style="color: var(--color-text-muted)">
+                                    {{ t("admin.scopesHint") }}
+                                </p>
+                                <div class="space-y-1.5">
+                                    <div v-for="scope in SCOPES" :key="scope"
+                                        class="flex items-center justify-between px-3 py-2 rounded-lg"
+                                        style="background: var(--color-bg); border: 1px solid var(--color-border)">
+                                        <div class="flex items-center gap-3 min-w-0">
+                                            <span class="badge shrink-0 text-xs font-mono"
+                                                :class="createForm.allowedScopes.includes(scope) ? 'badge-success' : 'badge-inactive'">
+                                                {{ scope }}
+                                            </span>
+                                            <span class="text-xs truncate" style="color: var(--color-text-muted)">
+                                                {{ t(`consent.scope.${scope}`) }}
+                                            </span>
+                                        </div>
+                                        <label class="flex items-center cursor-pointer select-none shrink-0 ml-3">
+                                            <input type="checkbox" class="sr-only"
+                                                :checked="createForm.allowedScopes.includes(scope)"
+                                                @change="toggleScopeCreate(scope)" />
+                                            <div class="w-9 h-5 rounded-full transition-colors"
+                                                :style="createForm.allowedScopes.includes(scope) ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                                <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                    :style="createForm.allowedScopes.includes(scope) ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                            </div>
+                                        </label>
                                     </div>
-                                    <span class="text-sm">{{ t("admin.isPublic") }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Options -->
+                            <div>
+                                <label class="block text-xs font-mono uppercase tracking-widest mb-2.5"
+                                    style="color: var(--color-text-muted)">
+                                    {{ t("admin.appOptions") }}
                                 </label>
-                                <label class="flex items-center gap-2.5 cursor-pointer select-none">
-                                    <input v-model="createForm.skipConsent" type="checkbox" class="sr-only" />
-                                    <div class="w-9 h-5 rounded-full transition-colors"
-                                        :style="createForm.skipConsent ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
-                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
-                                            :style="createForm.skipConsent ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div class="flex items-start justify-between gap-3 px-3 py-2.5 rounded-lg"
+                                        style="background: var(--color-bg); border: 1px solid var(--color-border)">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-medium leading-snug">{{ t("common.active") }}</p>
+                                            <p class="text-xs mt-0.5 leading-tight" style="color: var(--color-text-muted)">{{ t("admin.activeHint") }}</p>
+                                        </div>
+                                        <label class="flex items-center cursor-pointer select-none shrink-0 mt-0.5">
+                                            <input v-model="createForm.isActive" type="checkbox" class="sr-only" />
+                                            <div class="w-9 h-5 rounded-full transition-colors"
+                                                :style="createForm.isActive ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                                <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                    :style="createForm.isActive ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                            </div>
+                                        </label>
                                     </div>
-                                    <span class="text-sm">{{ t("admin.skipConsent") }}</span>
-                                </label>
-                                <label class="flex items-center gap-2.5 cursor-pointer select-none">
-                                    <input v-model="createForm.isMfaRequired" type="checkbox" class="sr-only" />
-                                    <div class="w-9 h-5 rounded-full transition-colors"
-                                        :style="createForm.isMfaRequired ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
-                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
-                                            :style="createForm.isMfaRequired ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                    <div class="flex items-start justify-between gap-3 px-3 py-2.5 rounded-lg"
+                                        style="background: var(--color-bg); border: 1px solid var(--color-border)">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-medium leading-snug">{{ t("admin.isPublic") }}</p>
+                                            <p class="text-xs mt-0.5 leading-tight" style="color: var(--color-text-muted)">{{ t("admin.isPublicHint") }}</p>
+                                        </div>
+                                        <label class="flex items-center cursor-pointer select-none shrink-0 mt-0.5">
+                                            <input v-model="createForm.isPublic" type="checkbox" class="sr-only" />
+                                            <div class="w-9 h-5 rounded-full transition-colors"
+                                                :style="createForm.isPublic ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                                <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                    :style="createForm.isPublic ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                            </div>
+                                        </label>
                                     </div>
-                                    <span class="text-sm">{{ t("admin.isMfaRequired") }}</span>
-                                </label>
-                                <label class="flex items-center gap-2.5 cursor-pointer select-none">
-                                    <input v-model="createForm.allowRegister" type="checkbox" class="sr-only" />
-                                    <div class="w-9 h-5 rounded-full transition-colors"
-                                        :style="createForm.allowRegister ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
-                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
-                                            :style="createForm.allowRegister ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                    <div class="flex items-start justify-between gap-3 px-3 py-2.5 rounded-lg"
+                                        style="background: var(--color-bg); border: 1px solid var(--color-border)">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-medium leading-snug">{{ t("admin.skipConsent") }}</p>
+                                            <p class="text-xs mt-0.5 leading-tight" style="color: var(--color-text-muted)">{{ t("admin.skipConsentHint") }}</p>
+                                        </div>
+                                        <label class="flex items-center cursor-pointer select-none shrink-0 mt-0.5">
+                                            <input v-model="createForm.skipConsent" type="checkbox" class="sr-only" />
+                                            <div class="w-9 h-5 rounded-full transition-colors"
+                                                :style="createForm.skipConsent ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                                <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                    :style="createForm.skipConsent ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                            </div>
+                                        </label>
                                     </div>
-                                    <span class="text-sm">{{ t("admin.allowRegister") }}</span>
-                                </label>
+                                    <div class="flex items-start justify-between gap-3 px-3 py-2.5 rounded-lg"
+                                        style="background: var(--color-bg); border: 1px solid var(--color-border)">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-medium leading-snug">{{ t("admin.isMfaRequired") }}</p>
+                                            <p class="text-xs mt-0.5 leading-tight" style="color: var(--color-text-muted)">{{ t("admin.isMfaRequiredDescription") }}</p>
+                                        </div>
+                                        <label class="flex items-center cursor-pointer select-none shrink-0 mt-0.5">
+                                            <input v-model="createForm.isMfaRequired" type="checkbox" class="sr-only" />
+                                            <div class="w-9 h-5 rounded-full transition-colors"
+                                                :style="createForm.isMfaRequired ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                                <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                    :style="createForm.isMfaRequired ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                            </div>
+                                        </label>
+                                    </div>
+                                    <div class="flex items-start justify-between gap-3 px-3 py-2.5 rounded-lg"
+                                        style="background: var(--color-bg); border: 1px solid var(--color-border)">
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-medium leading-snug">{{ t("admin.allowRegister") }}</p>
+                                            <p class="text-xs mt-0.5 leading-tight" style="color: var(--color-text-muted)">{{ t("admin.allowRegisterHint") }}</p>
+                                        </div>
+                                        <label class="flex items-center cursor-pointer select-none shrink-0 mt-0.5">
+                                            <input v-model="createForm.allowRegister" type="checkbox" class="sr-only" />
+                                            <div class="w-9 h-5 rounded-full transition-colors"
+                                                :style="createForm.allowRegister ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                                <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                                    :style="createForm.allowRegister ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
 
                             <p v-if="createError" class="text-sm" style="color: #f87171">{{ createError }}</p>
@@ -577,17 +677,35 @@
 
                     <!-- Allowed scopes -->
                     <div>
-                        <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                        <label class="block text-xs font-mono uppercase tracking-widest mb-1.5"
                             style="color: var(--color-text-muted); letter-spacing: 0.12em">
                             {{ t("admin.allowedScopes") }}
                         </label>
-                        <div class="flex flex-wrap gap-2">
-                            <button v-for="scope in SCOPES" :key="scope" type="button"
-                                class="badge cursor-pointer select-none transition-colors"
-                                :class="app.allowedScopes.includes(scope) ? 'badge-success' : 'badge-inactive'"
-                                @click="toggleScopeEdit(scope)">
-                                {{ scope }}
-                            </button>
+                        <p class="text-xs mb-2.5" style="color: var(--color-text-muted)">{{ t("admin.scopesHint") }}</p>
+                        <div class="space-y-1.5">
+                            <div v-for="scope in SCOPES" :key="scope"
+                                class="flex items-center justify-between px-3 py-2 rounded-lg"
+                                style="background: var(--color-bg); border: 1px solid var(--color-border)">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <span class="badge shrink-0 text-xs font-mono"
+                                        :class="app.allowedScopes.includes(scope) ? 'badge-success' : 'badge-inactive'">
+                                        {{ scope }}
+                                    </span>
+                                    <span class="text-xs truncate" style="color: var(--color-text-muted)">
+                                        {{ t(`consent.scope.${scope}`) }}
+                                    </span>
+                                </div>
+                                <label class="flex items-center cursor-pointer select-none shrink-0 ml-3">
+                                    <input type="checkbox" class="sr-only"
+                                        :checked="app.allowedScopes.includes(scope)"
+                                        @change="toggleScopeEdit(scope)" />
+                                    <div class="w-9 h-5 rounded-full transition-colors"
+                                        :style="app.allowedScopes.includes(scope) ? 'background: var(--color-primary)' : 'background: var(--color-border)'">
+                                        <div class="w-4 h-4 bg-white rounded-full shadow transition-transform mt-0.5"
+                                            :style="app.allowedScopes.includes(scope) ? 'transform: translateX(1.1rem)' : 'transform: translateX(0.125rem)'" />
+                                    </div>
+                                </label>
+                            </div>
                         </div>
                     </div>
 

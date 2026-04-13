@@ -17,6 +17,7 @@ interface UserClaims {
   features?: Record<string, unknown>;
   email?: string;
   name?: string;
+  company?: string;
 }
 
 /**
@@ -27,7 +28,7 @@ export async function getUserClaims(
   userId: string,
   applicationSlug: string | undefined,
   scopes: string[],
-  profile?: { email?: string | null; name?: string | null },
+  profile?: { email?: string | null; name?: string | null; company?: string | null },
 ): Promise<UserClaims> {
   const claims: UserClaims = {};
 
@@ -35,6 +36,7 @@ export async function getUserClaims(
   if (profile) {
     if (scopes.includes("email") && profile.email) claims.email = profile.email;
     if (scopes.includes("profile") && profile.name) claims.name = profile.name;
+    if (scopes.includes("profile") && profile.company) claims.company = profile.company;
   }
 
   if (!applicationSlug) return claims;

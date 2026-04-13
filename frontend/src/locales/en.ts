@@ -230,6 +230,12 @@ const en = {
     setAsDefault: "Set as default role",
     appCreationBootstrap:
       "Roles 'user' (default) and 'admin', a 'free' plan, and all superadmins have been automatically added to this application.",
+    appOptions: "Options",
+    appNameHint: "Display name shown to users on the consent and login pages.",
+    appUrlHint: "Home page URL — auto-fills the redirect URI with {url}/callback.",
+    appIconHint: "Logo displayed on the consent page (PNG, SVG or WebP).",
+    appDescriptionHint: "Short description shown on the consent page.",
+    redirectUrlsDescription: "One callback URL per line. Auto-filled from the application URL.",
     // Organizations
     organizations: "Organizations",
     newOrganization: "New organization",

@@ -210,6 +210,7 @@ export const auth = betterAuth({
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
+          company: (user as Record<string, unknown>).company as string | null | undefined,
         });
       },
       // Inject claims into the OAuth2 access token JWT (verified by ioserver-oidc).
@@ -227,6 +228,7 @@ export const auth = betterAuth({
         const claims = await getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
+          company: (user as Record<string, unknown>).company as string | null | undefined,
         });
         // Inject org_id when the client requested the "org" scope and a
         // reference (activeOrganizationId) was captured during the postLogin flow.
@@ -244,6 +246,7 @@ export const auth = betterAuth({
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
+          company: (user as Record<string, unknown>).company as string | null | undefined,
         });
       },
       // When the "org" scope is requested: after login, determine whether we need

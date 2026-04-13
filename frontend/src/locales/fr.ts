@@ -237,6 +237,12 @@ const fr = {
     setAsDefault: "Définir comme rôle par défaut",
     appCreationBootstrap:
       "Les rôles 'user' (par défaut) et 'admin', un plan 'free' et tous les superadmins ont été automatiquement ajoutés à cette application.",
+    appOptions: "Options",
+    appNameHint: "Nom affiché aux utilisateurs sur les pages de consentement et de connexion.",
+    appUrlHint: "URL de la page d'accueil — pré-remplit l'URI de redirection avec {url}/callback.",
+    appIconHint: "Logo affiché sur la page de consentement (PNG, SVG ou WebP).",
+    appDescriptionHint: "Courte description affichée sur la page de consentement.",
+    redirectUrlsDescription: "Une URL de callback par ligne. Pré-rempli d'après l'URL de l'application.",
     // Organizations
     organizations: "Organisations",
     newOrganization: "Nouvelle organisation",

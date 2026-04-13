@@ -22,6 +22,14 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
   baseURL: config.betterAuth.url,
+  // Silence startup self-check warnings for well-known OIDC discovery endpoints.
+  // Both /.well-known/openid-configuration and /.well-known/oauth-authorization-server
+  // are served correctly via /api/auth/.well-known/* — BetterAuth's HTTP check fires
+  // before the server is listening, producing false-positive warnings.
+  silenceWarnings: {
+    oauthAuthServerConfig: true,
+    openidConfig: true,
+  },
   // Let BetterAuth trust all configured CORS origins
   trustedOrigins: config.cors.origins,
   // Enable cross-subdomain cookies when SESSION_DOMAIN is configured (e.g. "example.com")

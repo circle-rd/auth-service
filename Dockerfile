@@ -20,6 +20,7 @@ COPY package.json pnpm-lock.yaml* ./
 RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json drizzle.config.ts ./
+COPY drizzle/ ./drizzle/
 COPY src/ ./src/
 RUN pnpm build:server
 # Generate SQL migrations from schema (no DB needed)

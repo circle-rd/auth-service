@@ -29,6 +29,13 @@ const envSchema = z.object({
   // per-application (mount a volume at this path in Docker)
   TEMPLATES_DIR: z.string().optional(),
 
+  // OAuth 2.1 resource server audiences — comma-separated list of valid `aud`
+  // values that the oauthProvider will put in JWT access tokens.
+  // Clients must send `resource=<url>` matching one of these values to obtain
+  // a JWT (RFC 8707). Defaults to the auth-service base URL when unset.
+  // Example: "https://api.example.com,https://mcp.example.com"
+  OAUTH_VALID_AUDIENCES: z.string().optional(),
+
   // Stripe (optional — billing integration)
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
@@ -90,6 +97,14 @@ export const config = {
     webhookSecret: parsed.data.STRIPE_WEBHOOK_SECRET,
   },
   templatesDir: parsed.data.TEMPLATES_DIR ?? null,
+  oauthProvider: {
+    // Parsed list of valid audience URLs for JWT access tokens.
+    // When set, clients must include `resource=<url>` in their auth requests
+    // and the JWT `aud` claim will be set to that URL.
+    validAudiences: parsed.data.OAUTH_VALID_AUDIENCES
+      ? parsed.data.OAUTH_VALID_AUDIENCES.split(",").map((a) => a.trim()).filter(Boolean)
+      : [],
+  },
   providers: {
     google: {
       enabled: !!(

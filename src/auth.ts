@@ -134,6 +134,13 @@ export const auth = betterAuth({
     oauthProvider({
       loginPage: "/login",
       consentPage: "/oauth2/consent",
+      // Valid resource server audiences for JWT access tokens (RFC 8707).
+      // When empty, BetterAuth defaults to the base URL as the audience.
+      // Clients must include `resource=<url>` in auth/token requests to
+      // receive a JWT; without it they receive an opaque token instead.
+      ...(config.oauthProvider.validAudiences.length > 0
+        ? { validAudiences: config.oauthProvider.validAudiences }
+        : {}),
       scopes: [
         "openid",
         "profile",

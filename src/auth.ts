@@ -192,6 +192,20 @@ export const auth = betterAuth({
           name: (user as Record<string, unknown>).name as string | null | undefined,
         });
       },
+      // Inject claims into the OAuth2 access token JWT (verified by ioserver-oidc).
+      // `customIdTokenClaims` only affects the ID token; this callback is what
+      // puts roles/permissions/features/email/name in the Bearer JWT that the
+      // resource server (MCP-Central) receives and verifies.
+      // `resource` is the RFC 8707 audience URL (e.g. "https://api.lagarde.dev").
+      // `metadata.clientId` holds the OAuth client slug (application slug).
+      customAccessTokenClaims: async ({ user, scopes, metadata }) => {
+        const clientId = (metadata as Record<string, unknown> | undefined)
+          ?.clientId as string | undefined;
+        return getUserClaims(user.id, clientId, scopes, {
+          email: (user as Record<string, unknown>).email as string | null | undefined,
+          name: (user as Record<string, unknown>).name as string | null | undefined,
+        });
+      },
       // Same data in /oauth2/userinfo response.
       // clientId is read from the access token's azp (authorized party) claim.
       customUserInfoClaims: async ({ user, scopes, jwt }) => {

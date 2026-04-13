@@ -95,10 +95,13 @@ export const auth = betterAuth({
     jwt({ jwt: { issuer: config.betterAuth.url } }),
     twoFactor(),
     passkey(),
-    // Organization support — only admins can create orgs via admin API.
+    // Organization support — only admins/superadmins can create orgs via admin API.
     // Regular users can be members of orgs but cannot create them.
     organization({
-      allowUserToCreateOrganization: false,
+      allowUserToCreateOrganization: async (user) => {
+        const role = (user as Record<string, unknown>).role as string | undefined;
+        return role === "admin" || role === "superadmin";
+      },
     }),
     admin({
       adminRoles: ["admin", "superadmin"],

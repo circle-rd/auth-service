@@ -29,13 +29,21 @@ export async function getUserClaims(
   scopes: string[],
   profile?: { email?: string | null; name?: string | null },
 ): Promise<UserClaims> {
-  if (!applicationSlug) return {};
+  const claims: UserClaims = {};
+
+  // Profile claims come directly from the token — no DB lookup needed
+  if (profile) {
+    if (scopes.includes("email") && profile.email) claims.email = profile.email;
+    if (scopes.includes("profile") && profile.name) claims.name = profile.name;
+  }
+
+  if (!applicationSlug) return claims;
 
   const needsRoles = scopes.includes("roles");
   const needsPermissions = scopes.includes("permissions");
   const needsFeatures = scopes.includes("features");
 
-  if (!needsRoles && !needsPermissions && !needsFeatures) return {};
+  if (!needsRoles && !needsPermissions && !needsFeatures) return claims;
 
   // Resolve application by slug (slug = oauthClient.clientId)
   const [app] = await db
@@ -44,9 +52,7 @@ export async function getUserClaims(
     .where(eq(applications.slug, applicationSlug))
     .limit(1);
 
-  if (!app) return {};
-
-  const claims: UserClaims = {};
+  if (!app) return claims;
 
   if (needsRoles || needsPermissions) {
     const userRoles = await db
@@ -130,11 +136,6 @@ export async function getUserClaims(
     } else {
       claims.features = {};
     }
-  }
-
-  if (profile) {
-    if (scopes.includes("email") && profile.email) claims.email = profile.email;
-    if (scopes.includes("profile") && profile.name) claims.name = profile.name;
   }
 
   return claims;

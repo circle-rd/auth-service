@@ -239,7 +239,6 @@ const en = {
     invitations: "Invitations",
     addMember: "Add member",
     inviteMember: "Invite",
-    expiresInDays: "Expires (days)",
   },
   errors: {
     AUTH_001: "Invalid or missing authentication token",

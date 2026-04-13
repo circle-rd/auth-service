@@ -23,8 +23,6 @@ COPY tsconfig.json drizzle.config.ts ./
 COPY drizzle/ ./drizzle/
 COPY src/ ./src/
 RUN pnpm build:server
-# Generate SQL migrations from schema (no DB needed)
-RUN pnpm db:generate
 
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime

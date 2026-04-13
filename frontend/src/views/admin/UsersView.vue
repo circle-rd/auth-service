@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { ref, computed, onMounted } from "vue";
   import { useI18n } from "vue-i18n";
-  import { RouterLink } from "vue-router";
+  import { useRouter } from "vue-router";
   import {
     Search,
     Plus,
@@ -10,10 +10,14 @@
     ChevronsUpDown,
     ChevronLeft,
     ChevronRight,
+    UserX,
+    UserCheck,
+    Trash2,
   } from "lucide-vue-next";
   import UserCreateModal from "../../components/admin/UserCreateModal.vue";
 
   const { t } = useI18n();
+  const router = useRouter();
 
   interface User {
     id: string;
@@ -38,6 +42,11 @@
 
   // Create modal
   const showCreateModal = ref(false);
+
+  // Ban / Delete in-list state
+  const togglingBanId = ref<string | null>(null);
+  const confirmDeleteId = ref<string | null>(null);
+  const deletingId = ref<string | null>(null);
 
   async function fetchUsers() {
     loading.value = true;
@@ -64,6 +73,40 @@
   function setSort(field: SortField) {
     if (sortBy.value === field) sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
     else { sortBy.value = field; sortDir.value = "asc"; }
+  }
+
+  function openUser(id: string) {
+    router.push(`/admin/users/${id}`);
+  }
+
+  async function toggleBan(user: User) {
+    togglingBanId.value = user.id;
+    const action = user.banned ? "enable" : "disable";
+    try {
+      await fetch(`/api/admin/users/${user.id}/${action}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      await fetchUsers();
+    } finally {
+      togglingBanId.value = null;
+    }
+  }
+
+  async function deleteUserFromList(id: string) {
+    deletingId.value = id;
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok || res.status === 204) {
+        confirmDeleteId.value = null;
+        await fetchUsers();
+      }
+    } finally {
+      deletingId.value = null;
+    }
   }
 
   const sortedUsers = computed(() => {
@@ -177,8 +220,8 @@
               </td>
             </tr>
             <template v-else>
-              <tr v-for="user in sortedUsers" :key="user.id" class="transition-colors hover:bg-[--bg-secondary]"
-                style="border-bottom: 1px solid var(--color-border)">
+              <tr v-for="user in sortedUsers" :key="user.id" class="transition-colors hover:bg-[--bg-secondary] cursor-pointer"
+                style="border-bottom: 1px solid var(--color-border)" @click="openUser(user.id)">
                 <!-- Name -->
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2.5">
@@ -212,10 +255,30 @@
                   </span>
                 </td>
                 <!-- Actions -->
-                <td class="px-4 py-3 text-right">
-                  <RouterLink :to="`/admin/users/${user.id}`" class="btn btn-ghost text-xs py-1 px-2.5">
-                    {{ t("common.edit") }}
-                  </RouterLink>
+                <td class="px-4 py-3 text-right" @click.stop>
+                  <div v-if="confirmDeleteId === user.id" class="flex items-center gap-2 justify-end">
+                    <span class="text-xs" style="color: var(--color-text-muted)">{{ t('admin.deleteUserConfirm') }}</span>
+                    <button class="btn btn-danger py-1 px-2 text-xs" :disabled="deletingId === user.id"
+                      @click="deleteUserFromList(user.id)">
+                      {{ deletingId === user.id ? '…' : t('common.yes') }}
+                    </button>
+                    <button class="btn btn-ghost py-1 px-2 text-xs" @click="confirmDeleteId = null">
+                      {{ t('common.no') }}
+                    </button>
+                  </div>
+                  <div v-else class="flex items-center gap-1 justify-end">
+                    <button class="btn btn-ghost p-1.5"
+                      :title="user.banned ? t('admin.unbanUser') : t('admin.banUser')"
+                      :disabled="togglingBanId === user.id"
+                      @click="toggleBan(user)">
+                      <UserCheck v-if="user.banned" class="w-4 h-4" style="color: var(--color-primary)" />
+                      <UserX v-else class="w-4 h-4" style="color: #f59e0b" />
+                    </button>
+                    <button class="btn btn-ghost p-1.5" :title="t('common.delete')"
+                      @click="confirmDeleteId = user.id">
+                      <Trash2 class="w-4 h-4" style="color: #f87171" />
+                    </button>
+                  </div>
                 </td>
               </tr>
               <tr v-if="sortedUsers.length === 0">

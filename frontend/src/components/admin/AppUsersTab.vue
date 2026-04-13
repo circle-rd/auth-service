@@ -1,6 +1,7 @@
 <script setup lang="ts">
     import { ref, computed, watch } from "vue";
     import { useI18n } from "vue-i18n";
+    import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-vue-next";
 
     const props = defineProps<{ appId: string; }>();
     const { t } = useI18n();
@@ -9,6 +10,7 @@
         id: string;
         name: string;
         email: string;
+        company?: string | null;
     }
     interface AppUser {
         userId: string;
@@ -34,6 +36,16 @@
     const userSearch = ref("");
     const loading = ref(false);
 
+    // Sorting
+    type SortField = "name" | "email" | "company";
+    const sortBy = ref<SortField>("name");
+    const sortDir = ref<"asc" | "desc">("asc");
+
+    function setSort(field: SortField) {
+        if (sortBy.value === field) sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+        else { sortBy.value = field; sortDir.value = "asc"; }
+    }
+
     const appUserMap = computed((): Map<string, AppUser> => {
         const m = new Map<string, AppUser>();
         for (const u of appUsers.value) m.set(u.userId, u);
@@ -42,10 +54,26 @@
 
     const filteredUsers = computed(() => {
         const q = userSearch.value.toLowerCase();
-        if (!q) return allUsers.value;
-        return allUsers.value.filter(
-            (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
-        );
+        const list = q
+            ? allUsers.value.filter(
+                (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) ||
+                    (u.company ?? "").toLowerCase().includes(q),
+            )
+            : allUsers.value.slice();
+
+        list.sort((a, b) => {
+            let va: string, vb: string;
+            if (sortBy.value === "company") {
+                va = (a.company ?? "").toLowerCase();
+                vb = (b.company ?? "").toLowerCase();
+            } else {
+                va = (a[sortBy.value] ?? "").toLowerCase();
+                vb = (b[sortBy.value] ?? "").toLowerCase();
+            }
+            const cmp = va < vb ? -1 : va > vb ? 1 : 0;
+            return sortDir.value === "asc" ? cmp : -cmp;
+        });
+        return list;
     });
 
     function isUserInApp(userId: string): boolean {
@@ -135,9 +163,23 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr style="border-bottom: 1px solid var(--color-border)">
-                        <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide"
-                            style="color: var(--color-text-muted)">
-                            {{ t("common.name") }}
+                        <th class="text-left px-4 py-3 cursor-pointer select-none"
+                            style="color: var(--color-text-muted)" @click="setSort('name')">
+                            <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
+                                {{ t("common.name") }}
+                                <ChevronsUpDown v-if="sortBy !== 'name'" class="w-3 h-3 opacity-40" />
+                                <ChevronUp v-else-if="sortDir === 'asc'" class="w-3 h-3" />
+                                <ChevronDown v-else class="w-3 h-3" />
+                            </span>
+                        </th>
+                        <th class="text-left px-4 py-3 cursor-pointer select-none hidden sm:table-cell"
+                            style="color: var(--color-text-muted)" @click="setSort('company')">
+                            <span class="flex items-center gap-1.5 text-xs uppercase tracking-wide font-medium">
+                                {{ t("profile.company") }}
+                                <ChevronsUpDown v-if="sortBy !== 'company'" class="w-3 h-3 opacity-40" />
+                                <ChevronUp v-else-if="sortDir === 'asc'" class="w-3 h-3" />
+                                <ChevronDown v-else class="w-3 h-3" />
+                            </span>
                         </th>
                         <th class="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide"
                             style="color: var(--color-text-muted)">
@@ -168,6 +210,12 @@
                                     <p class="text-xs" style="color: var(--color-text-muted)">{{ user.email }}</p>
                                 </div>
                             </div>
+                        </td>
+
+                        <!-- Company -->
+                        <td class="px-4 py-3 hidden sm:table-cell">
+                            <span v-if="user.company" class="text-sm">{{ user.company }}</span>
+                            <span v-else class="text-xs" style="color: var(--color-text-muted)">—</span>
                         </td>
 
                         <!-- Toggle access -->
@@ -219,7 +267,7 @@
                         </td>
                     </tr>
                     <tr v-if="filteredUsers.length === 0">
-                        <td colspan="4" class="px-4 py-10 text-center text-sm" style="color: var(--color-text-muted)">
+                        <td colspan="5" class="px-4 py-10 text-center text-sm" style="color: var(--color-text-muted)">
                             No users found.
                         </td>
                     </tr>

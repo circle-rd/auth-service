@@ -150,6 +150,8 @@ const fr = {
     deleteUser: "Supprimer l'utilisateur",
     deleteUserConfirm:
       "Êtes-vous sûr de vouloir supprimer définitivement cet utilisateur ?",
+    banUser: "Suspendre le compte",
+    unbanUser: "Réactiver le compte",
     deleteUserWarning:
       "Cette action supprimera définitivement le compte utilisateur et toutes les données associées (sessions, tokens OAuth, passkeys). Cette action est irréversible.",
     appUrl: "URL de l'application",

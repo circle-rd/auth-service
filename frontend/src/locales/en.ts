@@ -147,6 +147,8 @@ const en = {
       "This will permanently delete all roles, subscription plans, and user associations linked to this application. Users themselves will be preserved, but their access to this application will be removed.",
     deleteUser: "Delete user",
     deleteUserConfirm: "Are you sure you want to permanently delete this user?",
+    banUser: "Suspend account",
+    unbanUser: "Reactivate account",
     deleteUserWarning:
       "This will permanently delete the user account and all associated data (sessions, OAuth tokens, passkeys). This action cannot be undone.",
     appUrl: "Application URL",

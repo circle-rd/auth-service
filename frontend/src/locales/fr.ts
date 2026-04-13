@@ -246,7 +246,6 @@ const fr = {
     invitations: "Invitations",
     addMember: "Ajouter un membre",
     inviteMember: "Inviter",
-    expiresInDays: "Expire (jours)",
   },
   errors: {
     AUTH_001: "Token d'authentification invalide ou manquant",

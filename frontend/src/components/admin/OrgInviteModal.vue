@@ -7,14 +7,13 @@
   const emit = defineEmits<{ close: []; invited: []; }>();
   const { t } = useI18n();
 
-  const form = reactive({ email: "", role: "member" as "owner" | "admin" | "member", expiresInDays: 7 });
+  const form = reactive({ email: "", role: "member" as "owner" | "admin" | "member" });
   const inviting = ref(false);
   const error = ref<string | null>(null);
 
   function reset() {
     form.email = "";
     form.role = "member";
-    form.expiresInDays = 7;
     error.value = null;
   }
 
@@ -31,7 +30,7 @@
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email, role: form.role, expiresInDays: form.expiresInDays }),
+        body: JSON.stringify({ email: form.email, role: form.role }),
       });
       const data = (await res.json()) as { invitation?: unknown; error?: { message?: string; }; };
       if (!res.ok) {
@@ -87,26 +86,16 @@
               <input v-model="form.email" type="email" class="input" placeholder="alice@example.com" required />
             </div>
 
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                  style="color: var(--color-text-muted)">
-                  {{ t("common.role") }}
-                </label>
-                <select v-model="form.role" class="select">
-                  <option value="member">member</option>
-                  <option value="admin">admin</option>
-                  <option value="owner">owner</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="block text-xs font-mono uppercase tracking-widest mb-2"
-                  style="color: var(--color-text-muted)">
-                  {{ t("admin.expiresInDays") }}
-                </label>
-                <input v-model.number="form.expiresInDays" type="number" class="input" min="1" max="30" />
-              </div>
+            <div>
+              <label class="block text-xs font-mono uppercase tracking-widest mb-2"
+                style="color: var(--color-text-muted)">
+                {{ t("common.role") }}
+              </label>
+              <select v-model="form.role" class="select">
+                <option value="member">member</option>
+                <option value="admin">admin</option>
+                <option value="owner">owner</option>
+              </select>
             </div>
 
             <p v-if="error" class="text-sm" style="color: var(--color-danger)">{{ error }}</p>

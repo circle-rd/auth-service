@@ -41,7 +41,6 @@ const addMemberSchema = z.object({
 const createInvitationSchema = z.object({
   email: z.string().email(),
   role: z.enum(["owner", "admin", "member"]).default("member"),
-  expiresInDays: z.number().int().min(1).max(30).default(7),
 });
 
 export async function organizationsRoutes(
@@ -206,10 +205,10 @@ export async function organizationsRoutes(
     if (!parsed.success)
       throw ERR.ORG_003("Invalid invitation data", parsed.error.flatten());
 
-    const { email, role, expiresInDays } = parsed.data;
+    const { email, role } = parsed.data;
     try {
       const invitation = await auth.api.createInvitation({
-        body: { email, role, organizationId: id, expiresIn: expiresInDays * 24 * 60 * 60 },
+        body: { email, role, organizationId: id },
         headers: fromNodeHeaders(req.headers),
       });
       await reply.status(201).send({ invitation });

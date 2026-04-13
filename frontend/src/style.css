@@ -34,6 +34,7 @@
   --color-bg: #f8fafc;
   --color-surface: #ffffff;
   --color-surface-hover: #f8fafc;
+  --color-hero-bg: #f5f5f7;
 
   /* Borders */
   --color-border: #e2e8f0;
@@ -79,6 +80,22 @@
   --accent: var(--color-primary);
   --accent-fg: #ffffff;
   --card-shadow: var(--shadow-sm);
+
+  /* Profile layout */
+  --profile-max-w: 48rem;
+}
+
+@media (min-width: 1280px) {
+  :root { --profile-max-w: 56rem; }
+}
+@media (min-width: 1536px) {
+  :root { --profile-max-w: 64rem; }
+}
+@media (min-width: 1920px) {
+  :root { --profile-max-w: 72rem; }
+}
+@media (min-width: 2560px) {
+  :root { --profile-max-w: 80rem; }
 }
 
 /* ── Dark mode ─────────────────────────────────────────────────────────────── */
@@ -102,23 +119,24 @@ html.dark {
   --color-warning-light: rgba(251, 191, 36, 0.1);
   --color-warning-border: rgba(251, 191, 36, 0.3);
 
-  --color-bg: #0f172a;
-  --color-surface: #1e293b;
-  --color-surface-hover: #263348;
+  --color-bg: #080808;
+  --color-surface: #111111;
+  --color-surface-hover: #1a1a1a;
+  --color-hero-bg: #0f0f0f;
 
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-hover: rgba(255, 255, 255, 0.15);
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-hover: rgba(255, 255, 255, 0.13);
 
   --color-text: #f1f5f9;
   --color-text-muted: #94a3b8;
-  --color-text-light: #64748b;
+  --color-text-light: #505050;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
 
-  --nav-bg: rgba(15, 23, 42, 0.95);
+  --nav-bg: rgba(8, 8, 8, 0.96);
   --nav-border: rgba(255, 255, 255, 0.08);
 
   --badge-success-color: #4ade80;
@@ -143,7 +161,7 @@ html.dark {
   --text-primary: var(--color-text);
   --text-muted: var(--color-text-muted);
   --accent: var(--color-primary);
-  --accent-fg: #0f172a;
+  --accent-fg: #000000;
   --card-shadow: none;
 }
 

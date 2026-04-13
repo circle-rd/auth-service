@@ -90,7 +90,9 @@ const fr = {
   profile: {
     title: "Mon profil",
     personalInfo: "Informations personnelles",
+    personalInfoDesc: "Mettez à jour votre nom, avatar et coordonnées.",
     security: "Sécurité",
+    securityDesc: "Modifiez votre mot de passe pour sécuriser votre compte.",
     mfaSettings: "Authentification à deux facteurs",
     sessions: "Sessions actives",
     subscription: "Mon abonnement",

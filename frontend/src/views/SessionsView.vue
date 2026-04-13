@@ -99,9 +99,9 @@
 </script>
 
 <template>
-  <div class="sessions-view">
-    <div class="sessions-header">
-      <h1 class="sessions-title">{{ t("profile.sessions") }}</h1>
+  <div class="sessions-root">
+    <div class="view-header">
+      <h1 class="view-title">{{ t("profile.sessions") }}</h1>
       <button v-if="otherSessions.length > 0" class="btn btn-secondary btn-sm" :disabled="revokingAll"
         @click="revokeOtherSessions">
         <LogOut class="w-4 h-4" />
@@ -109,7 +109,7 @@
       </button>
     </div>
 
-    <p class="sessions-desc">{{ t("sessions.description") }}</p>
+    <p class="view-desc">{{ t("sessions.description") }}</p>
 
     <div v-if="error" class="alert alert-error">{{ error }}</div>
 
@@ -157,31 +157,32 @@
 </template>
 
 <style scoped>
-  .sessions-view {
+  .sessions-root {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: 0;
   }
 
-  .sessions-header {
+  .view-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
+    padding-bottom: 0.375rem;
   }
 
-  .sessions-title {
-    font-size: 1.25rem;
+  .view-title {
+    font-size: 0.9375rem;
     font-weight: 600;
     color: var(--color-text);
     margin: 0;
   }
 
-  .sessions-desc {
-    font-size: 0.875rem;
+  .view-desc {
+    font-size: 0.8125rem;
     color: var(--color-text-muted);
-    margin: 0;
+    margin: 0 0 1.5rem;
   }
 
   .sessions-loading {
@@ -204,7 +205,7 @@
   .sessions-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.625rem;
   }
 
   .session-item {
@@ -214,7 +215,7 @@
     padding: 1rem;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: 10px;
     transition: border-color 0.15s ease;
   }
 

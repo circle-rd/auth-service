@@ -88,22 +88,22 @@
 </script>
 
 <template>
-  <div class="subscription-view">
-    <div class="subscription-header">
-      <h1 class="subscription-title">{{ t("profile.subscription") }}</h1>
-      <p class="subscription-desc">Your active plans and consumption metrics per application.</p>
+  <div class="sub-root">
+    <div class="view-header">
+      <h1 class="view-title">{{ t("profile.subscription") }}</h1>
+      <p class="view-desc">Your active plans and consumption metrics per application.</p>
     </div>
 
     <div v-if="error" class="alert alert-error">{{ error }}</div>
 
-    <div v-if="loading" class="subscription-loading">{{ t("common.loading") }}</div>
+    <div v-if="loading" class="sub-loading">{{ t("common.loading") }}</div>
 
-    <div v-else-if="subscriptions.length === 0" class="subscription-empty">
+    <div v-else-if="subscriptions.length === 0" class="sub-empty">
       <p>You don't have access to any applications yet.</p>
     </div>
 
-    <div v-else class="subscription-list">
-      <div v-for="sub in subscriptions" :key="sub.applicationId" class="card subscription-card">
+    <div v-else class="sub-list">
+      <div v-for="sub in subscriptions" :key="sub.applicationId" class="sub-card">
         <!-- App header -->
         <div class="app-header">
           <img v-if="sub.applicationIcon" :src="sub.applicationIcon" :alt="sub.applicationName" class="app-icon-img" />
@@ -193,58 +193,62 @@
 </template>
 
 <style scoped>
-  .subscription-view {
+  .sub-root {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
   }
 
-  .subscription-header {
+  .view-header {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.25rem;
   }
 
-  .subscription-title {
-    font-size: 1.25rem;
+  .view-title {
+    font-size: 0.9375rem;
     font-weight: 600;
     color: var(--color-text);
     margin: 0;
   }
 
-  .subscription-desc {
-    font-size: 0.875rem;
+  .view-desc {
+    font-size: 0.8125rem;
     color: var(--color-text-muted);
     margin: 0;
   }
 
-  .subscription-loading {
+  .sub-loading {
     text-align: center;
     padding: 2rem;
     color: var(--color-text-muted);
     font-size: 0.875rem;
   }
 
-  .subscription-empty {
+  .sub-empty {
     text-align: center;
     padding: 2rem;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: 10px;
     color: var(--color-text-muted);
     font-size: 0.875rem;
   }
 
-  .subscription-list {
+  .sub-list {
     display: flex;
     flex-direction: column;
     gap: 1rem;
   }
 
-  .subscription-card {
+  .sub-card {
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    padding: 1.25rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
   }
 
   .app-header {

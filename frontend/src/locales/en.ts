@@ -88,7 +88,9 @@ const en = {
   profile: {
     title: "My profile",
     personalInfo: "Personal information",
+    personalInfoDesc: "Update your name, avatar, and contact details.",
     security: "Security",
+    securityDesc: "Change your password to keep your account safe.",
     mfaSettings: "Two-factor authentication",
     sessions: "Active sessions",
     subscription: "My subscription",

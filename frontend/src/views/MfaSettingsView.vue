@@ -247,11 +247,10 @@
 </script>
 
 <template>
-  <div class="mfa-view">
-    <h1 class="mfa-title">{{ t("profile.mfaSettings") }}</h1>
+  <div class="mfa-root">
 
     <!-- ── TOTP Section ──────────────────────────────────────────────────── -->
-    <div class="card mfa-section">
+    <div class="mfa-section-group">
       <div class="section-header">
         <Shield class="w-5 h-5 shrink-0" style="color: var(--color-primary)" />
         <div>
@@ -380,7 +379,7 @@
     </div>
 
     <!-- ── Passkeys Section ─────────────────────────────────────────────── -->
-    <div class="card mfa-section">
+    <div class="mfa-section-group mfa-section-group--last">
       <div class="section-header-row">
         <div class="section-header">
           <Key class="w-5 h-5 shrink-0" style="color: var(--color-primary)" />
@@ -422,23 +421,22 @@
 </template>
 
 <style scoped>
-  .mfa-view {
+  .mfa-root {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
   }
 
-  .mfa-title {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .mfa-section {
+  .mfa-section-group {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    padding: 2rem 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .mfa-section-group--last {
+    border-bottom: none;
+    padding-bottom: 0;
   }
 
   .section-header {

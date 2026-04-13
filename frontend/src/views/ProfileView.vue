@@ -1,7 +1,6 @@
 <script setup lang="ts">
   import { ref } from "vue";
   import { useI18n } from "vue-i18n";
-  import { User, Lock } from "lucide-vue-next";
   import { useAuthStore } from "../stores/auth.js";
 
   const { t } = useI18n();
@@ -91,179 +90,238 @@
 </script>
 
 <template>
-  <div class="space-y-7">
-    <!-- ── Avatar + identity header ───────────────────────────── -->
-    <div class="avatar-header">
-      <div>
-        <h1 class="text-xl font-bold" style="color: var(--color-text)">{{ name || authStore.user?.name }}</h1>
-        <p class="text-sm mt-0.5" style="color: var(--color-text-muted)">{{ authStore.user?.email }}</p>
-      </div>
-    </div>
+  <div class="profile-sections">
 
     <!-- ── Personal info ───────────────────────────────────────── -->
-    <div class="card">
-      <div class="flex items-center gap-2 mb-5">
-        <User class="w-4 h-4" style="color: var(--color-primary)" />
-        <h2 class="text-sm font-semibold">{{ t("profile.personalInfo") }}</h2>
+    <div class="section-group">
+      <div class="section-group-header">
+        <div>
+          <h2 class="section-title">{{ t("profile.personalInfo") }}</h2>
+          <p class="section-subtitle">{{ t("profile.personalInfoDesc") }}</p>
+        </div>
+        <!-- Live avatar preview -->
+        <div class="avatar-preview shrink-0">
+          <img v-if="avatarPreview" :src="avatarPreview" :alt="name" class="avatar-preview-img" />
+          <span v-else class="avatar-preview-initial">{{ userInitial }}</span>
+        </div>
       </div>
-      <form @submit.prevent="updateProfile" class="space-y-4">
-        <!-- Avatar URL + preview -->
-        <div class="flex items-center gap-4">
-          <!-- Avatar preview circle -->
-          <div class="avatar-wrap shrink-0">
-            <img v-if="avatarPreview" :src="avatarPreview" :alt="name" class="avatar-img" />
-            <span v-else class="avatar-initial">{{ userInitial }}</span>
-          </div>
-          <!-- Label + input -->
-          <div class="flex-1 min-w-0">
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
-              {{ t('profile.avatarUrl') }}
-              <span class="text-xs ml-1" style="opacity: 0.6">({{ t('common.optional') }})</span>
-            </label>
-            <input v-model="image" type="url" class="input" :placeholder="t('profile.avatarUrlPlaceholder')"
-              @input="onAvatarInput" />
-          </div>
+      <form @submit.prevent="updateProfile" class="section-form">
+        <!-- Avatar URL -->
+        <div class="field-full">
+          <label class="field-label">
+            {{ t('profile.avatarUrl') }}
+            <span class="field-optional">({{ t('common.optional') }})</span>
+          </label>
+          <input v-model="image" type="url" class="input" :placeholder="t('profile.avatarUrlPlaceholder')"
+            @input="onAvatarInput" />
         </div>
         <!-- Name + Email -->
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="field-grid">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{ t("common.name")
-              }}</label>
+            <label class="field-label">{{ t("common.name") }}</label>
             <input v-model="name" type="text" class="input" required />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{ t("common.email")
-              }}</label>
+            <label class="field-label">{{ t("common.email") }}</label>
             <input :value="authStore.user?.email" type="email" class="input opacity-50" disabled />
           </div>
         </div>
         <!-- Phone + Company -->
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="field-grid">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
+            <label class="field-label">
               {{ t("profile.phone") }}
-              <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
+              <span class="field-optional">({{ t("common.optional") }})</span>
             </label>
             <input v-model="phone" type="tel" class="input" :placeholder="t('profile.phonePlaceholder')" />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
+            <label class="field-label">
               {{ t("profile.company") }}
-              <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
+              <span class="field-optional">({{ t("common.optional") }})</span>
             </label>
             <input v-model="company" type="text" class="input" :placeholder="t('profile.companyPlaceholder')" />
           </div>
         </div>
         <!-- Position + Address -->
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="field-grid">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
+            <label class="field-label">
               {{ t("profile.position") }}
-              <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
+              <span class="field-optional">({{ t("common.optional") }})</span>
             </label>
             <input v-model="position" type="text" class="input" :placeholder="t('profile.positionPlaceholder')" />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">
+            <label class="field-label">
               {{ t("profile.address") }}
-              <span class="text-xs ml-1" style="opacity: 0.6">({{ t("common.optional") }})</span>
+              <span class="field-optional">({{ t("common.optional") }})</span>
             </label>
             <input v-model="address" type="text" class="input" :placeholder="t('profile.addressPlaceholder')" />
           </div>
         </div>
-        <p v-if="profileMsg" class="text-xs" style="color: var(--color-success)">{{ profileMsg }}</p>
-        <p v-if="profileError" class="text-xs" style="color: var(--color-danger)">{{ profileError }}</p>
-        <button type="submit" class="btn btn-primary" :disabled="saving">
-          {{ saving ? t("common.saving") : t("profile.updateProfile") }}
-        </button>
+        <div class="form-footer">
+          <p v-if="profileMsg" class="form-feedback form-feedback--ok">{{ profileMsg }}</p>
+          <p v-if="profileError" class="form-feedback form-feedback--err">{{ profileError }}</p>
+          <button type="submit" class="btn btn-primary" :disabled="saving">
+            {{ saving ? t("common.saving") : t("profile.updateProfile") }}
+          </button>
+        </div>
       </form>
     </div>
 
-    <!-- ── Password ───────────────────────────────────────────── -->
-    <div class="card">
-      <div class="flex items-center gap-2 mb-5">
-        <Lock class="w-4 h-4" style="color: var(--color-primary);" />
-        <h2 class="text-sm font-semibold">{{ t("profile.security") }}</h2>
-      </div>
-      <form @submit.prevent="changePassword" class="space-y-4">
-        <div>
-          <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{
-            t("profile.currentPassword") }}</label>
-          <input v-model="currentPassword" type="password" class="input" required />
+    <!-- ── Security ───────────────────────────────────────────── -->
+    <div class="section-group section-group--last">
+      <h2 class="section-title">{{ t("profile.security") }}</h2>
+      <p class="section-subtitle">{{ t("profile.securityDesc") }}</p>
+      <form @submit.prevent="changePassword" class="section-form">
+        <div class="field-full">
+          <label class="field-label">{{ t("profile.currentPassword") }}</label>
+          <input v-model="currentPassword" type="password" class="input" required style="max-width: 24rem" />
         </div>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div class="field-grid">
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{
-              t("profile.newPassword")
-            }}</label>
+            <label class="field-label">{{ t("profile.newPassword") }}</label>
             <input v-model="newPassword" type="password" class="input" required minlength="8" />
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color: var(--color-text-muted)">{{
-              t("profile.confirmPassword") }}</label>
+            <label class="field-label">{{ t("profile.confirmPassword") }}</label>
             <input v-model="confirmPassword" type="password" class="input" required minlength="8" />
           </div>
         </div>
-        <p v-if="passwordMsg" class="text-xs" style="color: var(--color-success)">{{ passwordMsg }}</p>
-        <p v-if="passwordError" class="text-xs" style="color: var(--color-danger)">{{ passwordError }}</p>
-        <button type="submit" class="btn btn-primary" :disabled="saving">
-          {{ saving ? t("common.saving") : t("profile.changePassword") }}
-        </button>
+        <div class="form-footer">
+          <p v-if="passwordMsg" class="form-feedback form-feedback--ok">{{ passwordMsg }}</p>
+          <p v-if="passwordError" class="form-feedback form-feedback--err">{{ passwordError }}</p>
+          <button type="submit" class="btn btn-primary" :disabled="saving">
+            {{ saving ? t("common.saving") : t("profile.changePassword") }}
+          </button>
+        </div>
       </form>
     </div>
+
   </div>
 </template>
 
 <style scoped>
-  .avatar-header {
+  /* ── Sections ─────────────────────────────────────────────── */
+  .profile-sections {
     display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding-bottom: 0.5rem;
+    flex-direction: column;
   }
 
-  .avatar-wrap {
-    position: relative;
-    width: 3.5rem;
-    height: 3.5rem;
+  .section-group {
+    padding: 2rem 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .section-group--last {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .section-group-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .section-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-text);
+    margin: 0;
+  }
+
+  .section-subtitle {
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+    margin: 0.25rem 0 0;
+  }
+
+  /* ── Avatar preview ───────────────────────────────────────── */
+  .avatar-preview {
+    width: 3.25rem;
+    height: 3.25rem;
     border-radius: 50%;
-    flex-shrink: 0;
     overflow: hidden;
     background: var(--color-primary-light);
     border: 2px solid var(--color-primary-border);
-    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
   }
 
-  .avatar-img {
+  .avatar-preview-img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
 
-  .avatar-initial {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    font-size: 1.25rem;
+  .avatar-preview-initial {
+    font-size: 1.125rem;
     font-weight: 700;
     color: var(--color-primary);
   }
 
-  .avatar-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+  /* ── Form layout ──────────────────────────────────────────── */
+  .section-form {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    opacity: 0;
-    transition: opacity 0.15s;
+    flex-direction: column;
+    gap: 1.125rem;
   }
 
-  .avatar-wrap:hover .avatar-overlay {
-    opacity: 1;
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.125rem;
+  }
+
+  @media (min-width: 640px) {
+    .field-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  .field-full {
+    /* full-width field, no special layout needed */
+  }
+
+  .field-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    margin-bottom: 0.375rem;
+  }
+
+  .field-optional {
+    font-size: 0.7rem;
+    margin-left: 0.25rem;
+    opacity: 0.6;
+  }
+
+  /* ── Form footer (feedback + save btn) ───────────────────── */
+  .form-footer {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding-top: 0.5rem;
+  }
+
+  .form-feedback {
+    font-size: 0.8125rem;
+    margin: 0;
+  }
+
+  .form-feedback--ok {
+    color: var(--color-success);
+  }
+
+  .form-feedback--err {
+    color: var(--color-danger);
   }
 </style>

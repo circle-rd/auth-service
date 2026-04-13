@@ -84,6 +84,14 @@ export const router = createRouter({
           component: () => import("../views/admin/UserDetailView.vue"),
         },
         {
+          path: "organizations",
+          component: () => import("../views/admin/OrganizationsView.vue"),
+        },
+        {
+          path: "organizations/:id",
+          component: () => import("../views/admin/OrganizationDetailView.vue"),
+        },
+        {
           path: "applications",
           component: () => import("../views/admin/ApplicationsView.vue"),
         },

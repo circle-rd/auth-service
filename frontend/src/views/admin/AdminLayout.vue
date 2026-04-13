@@ -3,7 +3,7 @@
   import { useI18n } from "vue-i18n";
   import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
   import {
-    LayoutDashboard, Users, LayoutGrid, Shield, ChevronLeft, ChevronRight,
+    LayoutDashboard, Users, LayoutGrid, Shield, Building2, ChevronLeft, ChevronRight,
     Menu, X, Sun, Moon, LogOut, User, ChevronDown,
   } from "lucide-vue-next";
   import { useAuthStore } from "../../stores/auth.js";
@@ -143,6 +143,16 @@
           <Users class="w-4 h-4 shrink-0" />
           <Transition name="fade-label">
             <span v-if="!collapsed">{{ t("admin.users") }}</span>
+          </Transition>
+        </RouterLink>
+
+        <!-- Organizations -->
+        <RouterLink to="/admin/organizations" class="nav-link"
+          :class="{ 'nav-link-active': route.path.startsWith('/admin/organizations') }"
+          :title="collapsed ? t('admin.organizations') : ''">
+          <Building2 class="w-4 h-4 shrink-0" />
+          <Transition name="fade-label">
+            <span v-if="!collapsed">{{ t("admin.organizations") }}</span>
           </Transition>
         </RouterLink>
 

@@ -187,7 +187,10 @@ export const auth = betterAuth({
             // enforced verification during login — no additional check needed here.
           }
         }
-        return getUserClaims(user.id, clientId, scopes);
+        return getUserClaims(user.id, clientId, scopes, {
+          email: (user as Record<string, unknown>).email as string | null | undefined,
+          name: (user as Record<string, unknown>).name as string | null | undefined,
+        });
       },
       // Same data in /oauth2/userinfo response.
       // clientId is read from the access token's azp (authorized party) claim.
@@ -195,7 +198,10 @@ export const auth = betterAuth({
         const clientId = (jwt as Record<string, unknown>)?.azp as
           | string
           | undefined;
-        return getUserClaims(user.id, clientId, scopes);
+        return getUserClaims(user.id, clientId, scopes, {
+          email: (user as Record<string, unknown>).email as string | null | undefined,
+          name: (user as Record<string, unknown>).name as string | null | undefined,
+        });
       },
     }),
   ],

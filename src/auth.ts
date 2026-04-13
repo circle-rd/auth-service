@@ -199,6 +199,8 @@ export const auth = betterAuth({
       // `resource` is the RFC 8707 audience URL (e.g. "https://api.lagarde.dev").
       // `metadata.clientId` holds the OAuth client slug (application slug).
       customAccessTokenClaims: async ({ user, scopes, metadata }) => {
+        // `user` is null for client_credentials grants (machine-to-machine)
+        if (!user) return {};
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
         return getUserClaims(user.id, clientId, scopes, {

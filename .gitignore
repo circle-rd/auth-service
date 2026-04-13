@@ -16,6 +16,7 @@ Thumbs.db
 # Editor
 .idea/
 .vscode/settings.json
+.kilo/
 
 # Test coverage
 coverage/

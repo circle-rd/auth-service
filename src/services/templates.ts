@@ -23,7 +23,7 @@ const BUILTIN_TEMPLATES_DIR = join(
   "default",
 );
 
-type PageName = "login" | "register" | "verify-email";
+type PageName = "login" | "register" | "verify-email" | "select-org";
 
 export interface TemplateVars {
   actionUrl: string;
@@ -44,6 +44,11 @@ export interface TemplateVars {
    * Defaults to true when omitted.
    */
   allowRegister?: boolean;
+  /**
+   * JSON-encoded array of organizations for the select-org page.
+   * Defaults to "[]" when omitted.
+   */
+  organizationsJson?: string;
 }
 
 /**
@@ -115,6 +120,11 @@ export function renderAuthPage(
     .replace(
       /\{\{ALLOW_REGISTER\}\}/g,
       vars.allowRegister !== false ? "true" : "false",
+    )
+    .replace(
+      /\{\{ORGANIZATIONS_JSON\}\}/g,
+      // Escape forward-slashes to prevent </script> injection.
+      (vars.organizationsJson ?? "[]").replace(/\//g, "\\/"),
     );
 }
 

@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { twoFactor, admin, jwt, role } from "better-auth/plugins";
+import { twoFactor, admin, jwt, role, organization } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
@@ -95,6 +95,11 @@ export const auth = betterAuth({
     jwt({ jwt: { issuer: config.betterAuth.url } }),
     twoFactor(),
     passkey(),
+    // Organization support — only admins can create orgs via admin API.
+    // Regular users can be members of orgs but cannot create them.
+    organization({
+      allowUserToCreateOrganization: false,
+    }),
     admin({
       adminRoles: ["admin", "superadmin"],
       defaultRole: "user",
@@ -149,8 +154,12 @@ export const auth = betterAuth({
         "roles",
         "permissions",
         "features",
+        // org — injects org_id (activeOrganizationId) as a claim in the access token.
+        // Clients that need org-scoped data should request this scope and include
+        // `resource=<audience>` to receive a JWT (RFC 8707).
+        "org",
       ],
-      // Inject roles, permissions, and features into id_token.
+      // Inject roles, permissions, features, and org_id into id_token.
       // Also gates token issuance: throws FORBIDDEN if user has no access to the app
       // or if the application requires MFA and the user has not enabled it.
       customIdTokenClaims: async ({ user, scopes, metadata }) => {
@@ -194,19 +203,26 @@ export const auth = betterAuth({
       },
       // Inject claims into the OAuth2 access token JWT (verified by ioserver-oidc).
       // `customIdTokenClaims` only affects the ID token; this callback is what
-      // puts roles/permissions/features/email/name in the Bearer JWT that the
-      // resource server (MCP-Central) receives and verifies.
+      // puts roles/permissions/features/email/name/org_id in the Bearer JWT that
+      // the resource server (MCP-Central, CyPlate, etc.) receives and verifies.
       // `resource` is the RFC 8707 audience URL (e.g. "https://api.lagarde.dev").
+      // `referenceId` is the org ID stored at consent time via postLogin flow.
       // `metadata.clientId` holds the OAuth client slug (application slug).
-      customAccessTokenClaims: async ({ user, scopes, metadata }) => {
+      customAccessTokenClaims: async ({ user, scopes, metadata, referenceId }) => {
         // `user` is null for client_credentials grants (machine-to-machine)
         if (!user) return {};
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
-        return getUserClaims(user.id, clientId, scopes, {
+        const claims = await getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
         });
+        // Inject org_id when the client requested the "org" scope and a
+        // reference (activeOrganizationId) was captured during the postLogin flow.
+        if (scopes.includes("org") && referenceId) {
+          (claims as Record<string, unknown>).org_id = referenceId;
+        }
+        return claims;
       },
       // Same data in /oauth2/userinfo response.
       // clientId is read from the access token's azp (authorized party) claim.
@@ -218,6 +234,37 @@ export const auth = betterAuth({
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
         });
+      },
+      // When the "org" scope is requested: after login, determine whether we need
+      // to redirect the user to the org-selection page (postLogin flow).
+      postLogin: {
+        page: "/select-org",
+        shouldRedirect: async ({ session, scopes, headers }) => {
+          if (!scopes.includes("org")) return false;
+          const organizations = await auth.api.listOrganizations({ headers });
+          const orgs = organizations ?? [];
+          // Skip redirect if the user has 0 orgs (nothing to select)
+          // or exactly 1 org that is already set as active.
+          if (orgs.length === 0) return false;
+          if (
+            orgs.length === 1 &&
+            orgs[0]?.id === (session as Record<string, unknown>)?.activeOrganizationId
+          ) {
+            return false;
+          }
+          return true;
+        },
+        consentReferenceId: ({ session, scopes }) => {
+          if (!scopes.includes("org")) return undefined;
+          const orgId = (session as Record<string, unknown>)
+            ?.activeOrganizationId as string | undefined;
+          if (!orgId) {
+            throw new APIError("BAD_REQUEST", {
+              message: "Please select an organization before continuing.",
+            });
+          }
+          return orgId;
+        },
       },
     }),
   ],

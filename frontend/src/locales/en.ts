@@ -230,6 +230,16 @@ const en = {
     setAsDefault: "Set as default role",
     appCreationBootstrap:
       "Roles 'user' (default) and 'admin', a 'free' plan, and all superadmins have been automatically added to this application.",
+    // Organizations
+    organizations: "Organizations",
+    newOrganization: "New organization",
+    orgSlug: "Slug",
+    noOrganizations: "No organizations yet.",
+    members: "Members",
+    invitations: "Invitations",
+    addMember: "Add member",
+    inviteMember: "Invite",
+    expiresInDays: "Expires (days)",
   },
   errors: {
     AUTH_001: "Invalid or missing authentication token",

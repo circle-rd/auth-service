@@ -237,6 +237,16 @@ const fr = {
     setAsDefault: "Définir comme rôle par défaut",
     appCreationBootstrap:
       "Les rôles 'user' (par défaut) et 'admin', un plan 'free' et tous les superadmins ont été automatiquement ajoutés à cette application.",
+    // Organizations
+    organizations: "Organisations",
+    newOrganization: "Nouvelle organisation",
+    orgSlug: "Slug",
+    noOrganizations: "Aucune organisation pour l'instant.",
+    members: "Membres",
+    invitations: "Invitations",
+    addMember: "Ajouter un membre",
+    inviteMember: "Inviter",
+    expiresInDays: "Expire (jours)",
   },
   errors: {
     AUTH_001: "Token d'authentification invalide ou manquant",

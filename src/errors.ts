@@ -91,7 +91,16 @@ export const ERR = {
     new ApiError(400, "USR_002", msg),
   USR_003: (msg = "Invalid user data", details?: unknown) =>
     new ApiError(400, "USR_003", msg, details),
-
+  // ── ORG ──────────────────────────────────────────────────────────────────
+  ORG_001: (msg = "Organization not found") => new ApiError(404, "ORG_001", msg),
+  ORG_002: (msg = "Organization slug already exists") =>
+    new ApiError(409, "ORG_002", msg),
+  ORG_003: (msg = "Invalid organization data", details?: unknown) =>
+    new ApiError(400, "ORG_003", msg, details),
+  ORG_004: (msg = "Member not found in organization") =>
+    new ApiError(404, "ORG_004", msg),
+  ORG_005: (msg = "User is already a member of this organization") =>
+    new ApiError(409, "ORG_005", msg),
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),
   SRV_002: (msg = "Service temporarily unavailable") =>

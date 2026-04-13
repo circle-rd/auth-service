@@ -4,125 +4,286 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sign in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
+    /* ── Variables ───────────────────────────── */
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --border-focus: #2563eb;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-light: #94a3b8;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eff6ff;
+      --primary-border: #bfdbfe;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,.07), 0 2px 4px -1px rgba(0,0,0,.04);
+      --shadow-lg: 0 10px 24px -3px rgba(0,0,0,.1), 0 4px 8px -2px rgba(0,0,0,.05);
+      --radius: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #080808;
+        --surface: #111111;
+        --border: rgba(255,255,255,.07);
+        --border-focus: #3b82f6;
+        --text: #f1f5f9;
+        --text-muted: #94a3b8;
+        --text-light: #505050;
+        --primary: #3b82f6;
+        --primary-hover: #2563eb;
+        --primary-light: rgba(59,130,246,.1);
+        --primary-border: rgba(59,130,246,.3);
+        --danger: #f87171;
+        --danger-bg: rgba(239,68,68,.1);
+        --danger-border: rgba(239,68,68,.3);
+        --shadow-md: 0 4px 6px rgba(0,0,0,.3);
+        --shadow-lg: 0 10px 24px rgba(0,0,0,.4);
+      }
+    }
+
+    /* ── Reset ───────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f3f4f6;
-      min-height: 100vh;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100svh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1rem;
+      padding: 1.5rem 1rem;
+      -webkit-font-smoothing: antialiased;
     }
 
-    .card {
-      background: #fff;
-      border-radius: 12px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
-      padding: 2.5rem 2rem;
+    /* ── Shell ───────────────────────────────── */
+    .auth-container {
       width: 100%;
-      max-width: 400px;
+      max-width: 24rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
     }
 
-    h1 { font-size: 1.5rem; font-weight: 700; color: #111; margin-bottom: .25rem; }
-    .subtitle { color: #6b7280; font-size: .875rem; margin-bottom: 2rem; }
+    /* ── Header ──────────────────────────────── */
+    .auth-header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.75rem;
+      text-align: center;
+    }
 
-    label { display: block; font-size: .875rem; font-weight: 500; color: #374151; margin-bottom: .35rem; }
+    .auth-icon {
+      width: 3.5rem;
+      height: 3.5rem;
+      border-radius: 50%;
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .auth-icon svg { width: 1.25rem; height: 1.25rem; }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    .subtitle {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* ── Card ────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      width: 100%;
+      box-shadow: var(--shadow-lg);
+    }
+
+    /* ── Form ────────────────────────────────── */
+    .form-group { margin-bottom: 1.25rem; }
+    .form-group:last-child { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 0.375rem;
+    }
+
+    .label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.375rem;
+    }
+
+    .label-row label { margin-bottom: 0; }
+
+    .label-link {
+      font-size: 0.8125rem;
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .label-link:hover { text-decoration: underline; }
 
     input[type="email"],
-    input[type="password"] {
+    input[type="password"],
+    input[type="text"] {
       width: 100%;
-      padding: .625rem .875rem;
-      border: 1px solid #d1d5db;
-      border-radius: 8px;
-      font-size: .95rem;
-      color: #111;
+      padding: 0.5625rem 0.875rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.9375rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--surface);
       outline: none;
-      transition: border-color .15s;
-      margin-bottom: 1rem;
+      transition: border-color .15s, box-shadow .15s;
+      line-height: 1.5;
     }
-    input:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,.15); }
+    input::placeholder { color: var(--text-light); }
+    input:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
 
-    button[type="submit"] {
+    /* ── Buttons ─────────────────────────────── */
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
       width: 100%;
-      padding: .7rem;
-      background: #4f46e5;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 1rem;
+      padding: 0.625rem 1rem;
+      border-radius: 6px;
+      font-size: 0.9375rem;
       font-weight: 600;
+      font-family: inherit;
       cursor: pointer;
-      transition: background .15s;
-      margin-top: .25rem;
+      transition: background .15s, border-color .15s, opacity .15s;
+      border: 1px solid transparent;
+      line-height: 1.5;
+      margin-top: 1.25rem;
     }
-    button[type="submit"]:hover { background: #4338ca; }
 
-    .error {
-      background: #fef2f2;
-      color: #b91c1c;
-      border: 1px solid #fecaca;
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* ── Error ───────────────────────────────── */
+    .error-box {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid var(--danger-border);
       border-radius: 8px;
-      padding: .6rem .875rem;
-      font-size: .875rem;
-      margin-bottom: 1rem;
+      padding: 0.625rem 0.875rem;
+      font-size: 0.875rem;
+      margin-bottom: 1.25rem;
     }
-    .error:empty { display: none; }
+    .error-box:empty, .error-box[hidden] { display: none; }
 
-    .footer {
-      text-align: center;
-      font-size: .875rem;
-      color: #6b7280;
+    /* ── Footer ──────────────────────────────── */
+    .auth-footer {
       margin-top: 1.5rem;
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-muted);
     }
-    .footer a { color: #4f46e5; text-decoration: none; font-weight: 500; }
-    .footer a:hover { text-decoration: underline; }
-
-    .forgot { display: block; text-align: right; font-size: .8125rem; color: #4f46e5;
-              text-decoration: none; margin-top: -.5rem; margin-bottom: 1rem; }
-    .forgot:hover { text-decoration: underline; }
+    .auth-footer a {
+      color: var(--primary);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .auth-footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Sign in</h1>
-    <p class="subtitle">Welcome back — enter your credentials to continue.</p>
+  <div class="auth-container">
 
-    <div class="error" id="error-box">{{ERROR_MESSAGE}}</div>
+    <div class="auth-header">
+      <div class="auth-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+          <polyline points="10 17 15 12 10 7"/>
+          <line x1="15" y1="12" x2="3" y2="12"/>
+        </svg>
+      </div>
+      <h1>Welcome back</h1>
+      <p class="subtitle">Sign in to your account to continue.</p>
+    </div>
 
-    <form id="login-form">
-      <input type="hidden" name="redirectTo" value="{{REDIRECT_TO}}" />
-      <input type="hidden" name="oauthQuery" value="{{OAUTH_QUERY}}" />
+    <div class="card">
+      <div class="error-box" id="error-box">{{ERROR_MESSAGE}}</div>
 
-      <label for="email">Email</label>
-      <input id="email" name="email" type="email" autocomplete="email"
-             placeholder="you@example.com" required />
+      <form id="login-form">
+        <input type="hidden" name="redirectTo" value="{{REDIRECT_TO}}" />
+        <input type="hidden" name="oauthQuery" value="{{OAUTH_QUERY}}" />
 
-      <label for="password">Password</label>
-      <input id="password" name="password" type="password"
-             autocomplete="current-password" placeholder="••••••••" required />
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email"
+                 placeholder="you@example.com" required />
+        </div>
 
-      <a class="forgot" href="/forgot-password">Forgot password?</a>
+        <div class="form-group">
+          <div class="label-row">
+            <label for="password">Password</label>
+            <a class="label-link" href="/forgot-password">Forgot password?</a>
+          </div>
+          <input id="password" name="password" type="password"
+                 autocomplete="current-password" placeholder="••••••••" required />
+        </div>
 
-      <button type="submit">Sign in</button>
-    </form>
+        <button type="submit" class="btn btn-primary" id="submit-btn">Sign in</button>
+      </form>
+    </div>
 
-    <p class="footer" id="register-footer">
+    <p class="auth-footer" id="register-footer">
       No account yet?
       <a href="/register?redirectTo={{REDIRECT_TO}}">Create one</a>
     </p>
+
   </div>
 
   <script type="module">
     const form = document.getElementById('login-form');
     const errorBox = document.getElementById('error-box');
+    const submitBtn = document.getElementById('submit-btn');
     const AUTH_URL = '{{AUTH_URL}}';
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      errorBox.style.display = 'none';
+      errorBox.textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in…';
 
       const email    = form.email.value.trim();
       const password = form.password.value;
@@ -136,19 +297,16 @@
         const res = await fetch(`${AUTH_URL}/api/auth/sign-in/email`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json',
-                     'Origin': window.location.origin },
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
           body: JSON.stringify(body),
         });
         const data = await res.json();
 
         if (!res.ok) {
           errorBox.textContent = data?.error?.message ?? 'Authentication failed.';
-          errorBox.style.display = 'block';
           return;
         }
 
-        // BetterAuth may return a redirect URL directly
         if (data?.url) {
           window.location.href = data.url;
         } else if (redirectTo.startsWith('/api/') || redirectTo.startsWith('http')) {
@@ -158,7 +316,9 @@
         }
       } catch {
         errorBox.textContent = 'A network error occurred. Please try again.';
-        errorBox.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign in';
       }
     });
 

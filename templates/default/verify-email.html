@@ -4,96 +4,199 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Verify your email</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-light: #94a3b8;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --primary-light: #eff6ff;
+      --primary-border: #bfdbfe;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --danger-border: #fecaca;
+      --success: #16a34a;
+      --success-bg: #f0fdf4;
+      --success-border: #bbf7d0;
+      --shadow-lg: 0 10px 24px -3px rgba(0,0,0,.1), 0 4px 8px -2px rgba(0,0,0,.05);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #080808;
+        --surface: #111111;
+        --border: rgba(255,255,255,.07);
+        --text: #f1f5f9;
+        --text-muted: #94a3b8;
+        --text-light: #505050;
+        --primary: #3b82f6;
+        --primary-hover: #2563eb;
+        --primary-light: rgba(59,130,246,.1);
+        --primary-border: rgba(59,130,246,.3);
+        --danger: #f87171;
+        --danger-bg: rgba(239,68,68,.1);
+        --danger-border: rgba(239,68,68,.3);
+        --success: #4ade80;
+        --success-bg: rgba(74,222,128,.1);
+        --success-border: rgba(74,222,128,.3);
+        --shadow-lg: 0 10px 24px rgba(0,0,0,.4);
+      }
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f3f4f6;
-      min-height: 100vh;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100svh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 1rem;
+      padding: 1.5rem 1rem;
+      -webkit-font-smoothing: antialiased;
     }
 
+    .auth-container {
+      width: 100%;
+      max-width: 24rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Card ─────────────── */
     .card {
-      background: #fff;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 12px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, .08);
       padding: 2.5rem 2rem;
       width: 100%;
-      max-width: 400px;
+      box-shadow: var(--shadow-lg);
       text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
     }
 
-    .icon { font-size: 3rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.4rem; font-weight: 700; color: #111; margin-bottom: .5rem; }
-    p { color: #6b7280; font-size: .95rem; line-height: 1.5; }
+    /* ── Icon ─────────────── */
+    .icon-wrap {
+      width: 3.5rem;
+      height: 3.5rem;
+      border-radius: 50%;
+      background: var(--primary-light);
+      border: 1px solid var(--primary-border);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon-wrap svg { width: 1.375rem; height: 1.375rem; }
 
-    .error {
-      background: #fef2f2;
-      color: #b91c1c;
-      border: 1px solid #fecaca;
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    p.body-text {
+      font-size: 0.9375rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* ── Status messages ──── */
+    .msg {
+      width: 100%;
       border-radius: 8px;
-      padding: .6rem .875rem;
-      font-size: .875rem;
-      margin: 1rem 0;
+      padding: 0.625rem 0.875rem;
+      font-size: 0.875rem;
       text-align: left;
     }
-
-    .success {
-      background: #f0fdf4;
-      color: #166534;
-      border: 1px solid #bbf7d0;
-      border-radius: 8px;
-      padding: .6rem .875rem;
-      font-size: .875rem;
-      margin: 1rem 0;
+    .msg-error {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid var(--danger-border);
+    }
+    .msg-success {
+      background: var(--success-bg);
+      color: var(--success);
+      border: 1px solid var(--success-border);
     }
 
-    button {
-      margin-top: 1.5rem;
-      padding: .65rem 1.75rem;
-      background: #4f46e5;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: .95rem;
+    /* ── Button ───────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.625rem 1.5rem;
+      border-radius: 6px;
+      font-size: 0.9375rem;
       font-weight: 600;
+      font-family: inherit;
       cursor: pointer;
-      transition: background .15s;
+      transition: background .15s, opacity .15s;
+      border: 1px solid transparent;
+      line-height: 1.5;
+      margin-top: 0.25rem;
     }
-    button:hover { background: #4338ca; }
-    button:disabled { background: #9ca3af; cursor: not-allowed; }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
 
-    .footer {
-      font-size: .875rem;
-      color: #6b7280;
+    /* ── Footer ───────────── */
+    .auth-footer {
       margin-top: 1.5rem;
+      text-align: center;
+      font-size: 0.875rem;
+      color: var(--text-muted);
     }
-    .footer a { color: #4f46e5; text-decoration: none; font-weight: 500; }
-    .footer a:hover { text-decoration: underline; }
+    .auth-footer a { color: var(--primary); text-decoration: none; font-weight: 500; }
+    .auth-footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <div class="icon">📧</div>
-    <h1>Check your inbox</h1>
-    <p>We've sent a verification link to your email address.<br>
-       Click the link to activate your account.</p>
+  <div class="auth-container">
 
-    {{#if ERROR_MESSAGE}}
-    <div class="error">{{ERROR_MESSAGE}}</div>
-    {{/if}}
+    <div class="card">
+      <div class="icon-wrap" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="4" width="20" height="16" rx="2"/>
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+        </svg>
+      </div>
 
-    <div id="status-box"></div>
+      <h1>Check your inbox</h1>
+      <p class="body-text">
+        We've sent a verification link to your email address.<br>
+        Click the link to activate your account.
+      </p>
 
-    <button id="resend-btn">Resend verification email</button>
+      {{#if ERROR_MESSAGE}}
+      <div class="msg msg-error">{{ERROR_MESSAGE}}</div>
+      {{/if}}
 
-    <p class="footer">
+      <div id="status-box"></div>
+
+      <button id="resend-btn" class="btn btn-primary">Resend verification email</button>
+    </div>
+
+    <p class="auth-footer">
       Already verified? <a href="/login?redirectTo={{REDIRECT_TO}}">Sign in</a>
     </p>
+
   </div>
 
   <script type="module">
@@ -103,24 +206,25 @@
 
     btn.addEventListener('click', async () => {
       btn.disabled = true;
+      btn.textContent = 'Sending…';
       statusBox.innerHTML = '';
       try {
         const res = await fetch(`${AUTH_URL}/api/auth/send-verification-email`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json',
-                     'Origin': window.location.origin },
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
           body: JSON.stringify({ callbackURL: window.location.href }),
         });
         if (res.ok) {
-          statusBox.innerHTML = '<div class="success">Email sent! Check your inbox.</div>';
+          statusBox.innerHTML = '<div class="msg msg-success">Email sent! Check your inbox.</div>';
         } else {
           const data = await res.json().catch(() => ({}));
-          statusBox.innerHTML = `<div class="error">${data?.error?.message ?? 'Failed to resend.'}</div>`;
+          statusBox.innerHTML = `<div class="msg msg-error">${data?.error?.message ?? 'Failed to resend.'}</div>`;
         }
       } catch {
-        statusBox.innerHTML = '<div class="error">Network error. Please try again.</div>';
+        statusBox.innerHTML = '<div class="msg msg-error">Network error. Please try again.</div>';
       } finally {
+        btn.textContent = 'Resend verification email';
         // Re-enable after 30 s to prevent spam
         setTimeout(() => { btn.disabled = false; }, 30_000);
       }

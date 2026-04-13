@@ -74,6 +74,9 @@
 
       <!-- Header -->
       <div class="auth-header">
+        <div class="auth-icon">
+          <LogIn class="w-5 h-5" />
+        </div>
         <h1 class="auth-title">{{ t("auth.signInTitle") }}</h1>
         <p class="auth-subtitle">{{ t("auth.signInSubtitle") }}</p>
       </div>
@@ -177,6 +180,23 @@
   .auth-header {
     margin-bottom: 2rem;
     text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .auth-icon {
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-primary-light);
+    border: 1px solid var(--color-primary-border);
+    color: var(--color-primary);
+    flex-shrink: 0;
   }
 
   .auth-title {

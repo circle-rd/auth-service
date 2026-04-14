@@ -63,6 +63,8 @@ const en = {
     orContinueWith: "or continue with",
     continueWithGoogle: "Continue with Google",
     continueWithGitHub: "Continue with GitHub",
+    continueWithLinkedIn: "Continue with LinkedIn",
+    continueWithMicrosoft: "Continue with Microsoft",
   },
   consent: {
     title: "Authorization request",
@@ -256,6 +258,12 @@ const en = {
     invitations: "Invitations",
     addMember: "Add member",
     inviteMember: "Invite",
+    // Social providers
+    providers: "Social providers",
+    socialProvidersHint: "Enable social sign-in providers for this application. Only providers configured in the environment (.env) are available.",
+    notConfiguredInEnv: "Not configured in environment",
+    noProvidersConfigured: "No social providers are configured in the environment.",
+    saveProviders: "Save providers",
   },
   errors: {
     AUTH_001: "Invalid or missing authentication token",

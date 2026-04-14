@@ -236,7 +236,7 @@
 
     <p class="auth-footer">
       Already have an account?
-      <a href="/login?redirectTo={{REDIRECT_TO}}">Sign in</a>
+      <a id="login-link" href="/login?redirectTo={{REDIRECT_TO}}">Sign in</a>
     </p>
 
   </div>
@@ -292,6 +292,16 @@
         submitBtn.textContent = 'Create account';
       }
     });
+
+    // Update sign-in link to preserve full OAuth context when available
+    const loginLink = document.getElementById('login-link');
+    if (loginLink) {
+      const qs = form.oauthQuery?.value;
+      const redir = form.redirectTo?.value || '/';
+      loginLink.href = qs
+        ? '/login?' + qs
+        : '/login?redirectTo=' + encodeURIComponent(redir);
+    }
   </script>
 </body>
 </html>

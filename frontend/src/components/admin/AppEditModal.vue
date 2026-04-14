@@ -8,12 +8,14 @@
         CreditCard,
         Users,
         BarChart2,
+        Globe,
     } from "lucide-vue-next";
     import AppFormModal from "./AppFormModal.vue";
     import AppRolesTab from "./AppRolesTab.vue";
     import AppSubscriptionsTab from "./AppSubscriptionsTab.vue";
     import AppUsersTab from "./AppUsersTab.vue";
     import AppConsumptionTab from "./AppConsumptionTab.vue";
+    import AppProvidersTab from "./AppProvidersTab.vue";
 
     const props = defineProps<{
         appId: string;
@@ -27,7 +29,7 @@
 
     const { t } = useI18n();
 
-    type Tab = "info" | "roles" | "subscriptions" | "users" | "consumption";
+    type Tab = "info" | "roles" | "subscriptions" | "users" | "consumption" | "providers";
     const activeTab = ref<Tab>("info");
 
     const tabs: { id: Tab; label: string; shortLabel: string; icon: typeof LayoutGrid; }[] = [
@@ -36,6 +38,7 @@
         { id: "subscriptions", label: "admin.subscriptions", shortLabel: "Plans", icon: CreditCard },
         { id: "users", label: "admin.users", shortLabel: "Users", icon: Users },
         { id: "consumption", label: "admin.consumptionTab", shortLabel: "Stats", icon: BarChart2 },
+        { id: "providers", label: "admin.providers", shortLabel: "Providers", icon: Globe },
     ];
 
     interface AppSummary {
@@ -173,6 +176,8 @@
                     <AppUsersTab v-else-if="activeTab === 'users'" :app-id="appId" />
 
                     <AppConsumptionTab v-else-if="activeTab === 'consumption'" :app-id="appId" />
+
+                    <AppProvidersTab v-else-if="activeTab === 'providers'" :app-id="appId" :app-slug="appSummary?.slug ?? ''" />
 
                 </main>
             </div>

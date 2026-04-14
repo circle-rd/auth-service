@@ -65,6 +65,8 @@ const fr = {
     orContinueWith: "ou continuer avec",
     continueWithGoogle: "Continuer avec Google",
     continueWithGitHub: "Continuer avec GitHub",
+    continueWithLinkedIn: "Continuer avec LinkedIn",
+    continueWithMicrosoft: "Continuer avec Microsoft",
   },
   consent: {
     title: "Demande d'autorisation",
@@ -263,6 +265,12 @@ const fr = {
     invitations: "Invitations",
     addMember: "Ajouter un membre",
     inviteMember: "Inviter",
+    // Social providers
+    providers: "Fournisseurs sociaux",
+    socialProvidersHint: "Activez les fournisseurs d'authentification sociale pour cette application. Seuls les fournisseurs configurés dans l'environnement (.env) sont disponibles.",
+    notConfiguredInEnv: "Non configuré dans l'environnement",
+    noProvidersConfigured: "Aucun fournisseur social n'est configuré dans l'environnement.",
+    saveProviders: "Enregistrer les fournisseurs",
   },
   errors: {
     AUTH_001: "Token d'authentification invalide ou manquant",

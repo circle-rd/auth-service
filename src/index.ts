@@ -24,6 +24,7 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
+import { appConfigRoutes } from "./routes/app-config.js";
 import { ApiError } from "./errors.js";
 import { renderAuthPage } from "./services/templates.js";
 import { db } from "./db/index.js";
@@ -74,6 +75,30 @@ const authPageRoutes: Array<{
 
 for (const { path, page } of authPageRoutes) {
   fastify.get(path, async (req, reply) => {
+    const query = req.query as Record<string, string>;
+    const appSlug = query.client_id ?? "";
+    const rawUrl = req.raw.url ?? "";
+    const rawQs = rawUrl.includes("?")
+      ? rawUrl.split("?").slice(1).join("?")
+      : "";
+
+    // Resolve allowRegister before choosing the render mode so the guard fires
+    // in both template and SPA paths regardless of TEMPLATES_DIR.
+    let allowRegister = true;
+    if (appSlug) {
+      const [appRow] = await db
+        .select({ allowRegister: applications.allowRegister })
+        .from(applications)
+        .where(eq(applications.slug, appSlug))
+        .limit(1);
+      allowRegister = appRow?.allowRegister ?? true;
+    }
+
+    if (page === "register" && !allowRegister) {
+      const loginUrl = rawQs ? `/login?${rawQs}` : "/login";
+      return reply.redirect(loginUrl, 302);
+    }
+
     // Only serve custom template when TEMPLATES_DIR is configured.
     // Without it, fall through to the Vue SPA (handled by the static file
     // plugin or the notFound handler below).
@@ -84,40 +109,15 @@ for (const { path, page } of authPageRoutes) {
       return reply.status(404).send({ error: "Not found" });
     }
 
-    const query = req.query as Record<string, string>;
     const redirectTo = query.redirectTo ?? query.next ?? "/";
-    const appSlug = query.client_id ?? "";
-
     // When BetterAuth's oauthProvider initiates the login, it signs all OAuth
     // params (including client_id + sig). Pass the raw query string back to the
     // template so the sign-in form can include it as `oauth_query` in the body,
     // allowing BetterAuth's after-hook to resume the authorization flow.
-    const rawUrl = req.raw.url ?? "";
-    const rawQs = rawUrl.includes("?")
-      ? rawUrl.split("?").slice(1).join("?")
-      : "";
     const oauthQuery =
       query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
 
     try {
-      // Resolve allowRegister for the requested app (when a client_id is present).
-      // Falls back to true so that pages without an app context are unaffected.
-      let allowRegister = true;
-      if (appSlug) {
-        const [appRow] = await db
-          .select({ allowRegister: applications.allowRegister })
-          .from(applications)
-          .where(eq(applications.slug, appSlug))
-          .limit(1);
-        allowRegister = appRow?.allowRegister ?? true;
-      }
-
-      // Block self-registration when the application has disabled it.
-      if (page === "register" && !allowRegister) {
-        const loginUrl = rawQs ? `/login?${rawQs}` : "/login";
-        return reply.redirect(loginUrl, 302);
-      }
-
       const html = renderAuthPage(
         page,
         {
@@ -260,6 +260,7 @@ await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
 await fastify.register(organizationsRoutes, { prefix: "/api/admin/organizations" });
 await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
 await fastify.register(userRoutes, { prefix: "/api/user" });
+await fastify.register(appConfigRoutes, { prefix: "/api/app-config" });
 
 // ── OIDC / OAuth 2.0 discovery at root (RFC 8414 / OIDC Core §4) ──────────────
 // BetterAuth serves these under /api/auth/.well-known/… but many clients look

@@ -83,25 +83,36 @@ export const useAuthStore = defineStore("auth", () => {
     session.value = null;
   }
 
+  interface RegisterContext {
+    callbackURL?: string;
+    oauthQuery?: string;
+  }
+
   async function register(
     email: string,
     password: string,
     name: string,
-  ): Promise<void> {
+    context?: RegisterContext,
+  ): Promise<{ url?: string }> {
+    const body: Record<string, unknown> = { email, password, name };
+    if (context?.callbackURL) body.callbackURL = context.callbackURL;
+    if (context?.oauthQuery) body.oauth_query = context.oauthQuery;
+
     const res = await fetch("/api/auth/sign-up/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify(body),
     });
     const data = (await res.json()) as
-      | Session
+      | (Session & { url?: string })
       | { error: { code: string; message: string } };
     if (!res.ok) {
       const err = data as { error: { code: string; message: string } };
       throw new Error(err.error?.message ?? "Registration failed");
     }
     session.value = data as Session;
+    return data as { url?: string };
   }
 
   return {

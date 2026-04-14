@@ -602,4 +602,36 @@ export async function applicationRoutes(
       await reply.send({ entries: rows });
     },
   );
+
+  // PATCH /api/admin/applications/:id/providers — update per-app social providers
+  const updateProvidersSchema = z.object({
+    enabledSocialProviders: z
+      .array(z.enum(["google", "github", "linkedin", "microsoft", "apple"]))
+      .nullable(),
+  });
+
+  fastify.patch<{ Params: { id: string } }>(
+    "/:id/providers",
+    async (req, reply) => {
+      const parsed = updateProvidersSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw ERR.APP_001("Invalid providers data");
+      }
+
+      const [app] = await db
+        .select({ id: applications.id })
+        .from(applications)
+        .where(eq(applications.id, req.params.id))
+        .limit(1);
+      if (!app) throw ERR.APP_002();
+
+      const [updated] = await db
+        .update(applications)
+        .set({ enabledSocialProviders: parsed.data.enabledSocialProviders })
+        .where(eq(applications.id, req.params.id))
+        .returning();
+
+      await reply.send({ application: updated });
+    },
+  );
 }

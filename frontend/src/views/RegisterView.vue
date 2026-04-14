@@ -1,9 +1,10 @@
 <script setup lang="ts">
-  import { ref } from "vue";
+  import { ref, computed, watch } from "vue";
   import { useRouter, useRoute, RouterLink } from "vue-router";
   import { useI18n } from "vue-i18n";
   import { UserPlus } from "lucide-vue-next";
   import { useAuthStore } from "../stores/auth.js";
+  import { useAppConfig } from "../composables/useAppConfig.js";
 
   const { t } = useI18n();
   const authStore = useAuthStore();
@@ -16,13 +17,47 @@
   const error = ref<string | null>(null);
   const loading = ref(false);
 
+  const clientId = computed(() => route.query.client_id as string | undefined);
+  const { appConfig } = useAppConfig(clientId);
+
+  const loginPath = computed(() => {
+    const qs = new URLSearchParams(route.query as Record<string, string>).toString();
+    return qs ? `/login?${qs}` : "/login";
+  });
+
+  // Redirect to login if the app has disabled registration.
+  // Uses a watcher via useAppConfig; after config loads we react.
+  watch(appConfig, (cfg) => {
+    if (cfg && !cfg.allowRegister) {
+      void router.replace(loginPath.value);
+    }
+  });
+
   async function handleSubmit() {
     error.value = null;
     loading.value = true;
     try {
-      await authStore.register(email.value, password.value, name.value);
-      const redirectTo = (route.query.redirectTo as string | undefined) ?? "/profile";
-      if (redirectTo.startsWith("/api/") || redirectTo.startsWith("http")) {
+      const rawQuery = route.query as Record<string, string>;
+      // Carry the full OAuth signed query string when present so BetterAuth
+      // can resume the authorization flow immediately after sign-up.
+      const oauthQuery =
+        rawQuery.client_id !== undefined && rawQuery.sig !== undefined
+          ? new URLSearchParams(rawQuery).toString()
+          : undefined;
+      const redirectTo = rawQuery.redirectTo ?? "/profile";
+
+      const result = await authStore.register(email.value, password.value, name.value, {
+        callbackURL: redirectTo,
+        oauthQuery,
+      });
+
+      if (result?.url) {
+        window.location.href = result.url;
+      } else if (oauthQuery) {
+        // Session created but no redirect URL returned — re-trigger the OAuth
+        // authorization flow by sending the user back to /login with context.
+        window.location.href = `/login?${oauthQuery}`;
+      } else if (redirectTo.startsWith("/api/") || redirectTo.startsWith("http")) {
         window.location.href = redirectTo;
       } else {
         await router.push(redirectTo);
@@ -93,7 +128,7 @@
       <!-- Footer -->
       <p class="auth-footer">
         {{ t("auth.hasAccount") }}
-        <RouterLink to="/login" class="link-subtle font-medium">
+        <RouterLink :to="loginPath" class="link-subtle font-medium">
           {{ t("auth.signIn") }}
         </RouterLink>
       </p>

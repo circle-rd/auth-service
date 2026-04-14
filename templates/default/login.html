@@ -268,7 +268,7 @@
 
     <p class="auth-footer" id="register-footer">
       No account yet?
-      <a href="/register?redirectTo={{REDIRECT_TO}}">Create one</a>
+      <a id="register-link" href="/register?redirectTo={{REDIRECT_TO}}">Create one</a>
     </p>
 
   </div>
@@ -324,6 +324,16 @@
 
     if ('{{ALLOW_REGISTER}}' !== 'true') {
       document.getElementById('register-footer')?.remove();
+    } else {
+      // Update register link to preserve full OAuth context when available
+      const registerLink = document.getElementById('register-link');
+      if (registerLink) {
+        const qs = form.oauthQuery?.value;
+        const redir = form.redirectTo?.value || '/';
+        registerLink.href = qs
+          ? '/register?' + qs
+          : '/register?redirectTo=' + encodeURIComponent(redir);
+      }
     }
   </script>
 </body>

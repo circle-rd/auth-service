@@ -49,6 +49,22 @@ export interface TemplateVars {
    * Defaults to "[]" when omitted.
    */
   organizationsJson?: string;
+  /**
+   * JSON-encoded array of enabled social provider slugs for this app
+   * (intersection of globally configured providers and per-app settings).
+   * Defaults to "[]" when omitted. Used by templates to render social login buttons.
+   */
+  socialProvidersJson?: string;
+  /**
+   * Pre-computed URL for the login page, with full OAuth query string when available.
+   * Used directly as the href for "Sign in" links so the OAuth context is never lost.
+   */
+  loginUrl?: string;
+  /**
+   * Pre-computed URL for the register page, with full OAuth query string when available.
+   * Omitted (empty string) when allowRegister is false.
+   */
+  registerUrl?: string;
 }
 
 /**
@@ -125,6 +141,18 @@ export function renderAuthPage(
       /\{\{ORGANIZATIONS_JSON\}\}/g,
       // Escape forward-slashes to prevent </script> injection.
       (vars.organizationsJson ?? "[]").replace(/\//g, "\\/"),
+    )
+    .replace(
+      /\{\{SOCIAL_PROVIDERS_JSON\}\}/g,
+      (vars.socialProvidersJson ?? "[]").replace(/\//g, "\\/"),
+    )
+    .replace(
+      /\{\{LOGIN_URL\}\}/g,
+      escapeHtml(vars.loginUrl ?? "/login"),
+    )
+    .replace(
+      /\{\{REGISTER_URL\}\}/g,
+      escapeHtml(vars.registerUrl ?? "/register"),
     );
 }
 

@@ -24,7 +24,7 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
-import { appConfigRoutes } from "./routes/app-config.js";
+import { appConfigRoutes, globallyEnabledProviders } from "./routes/app-config.js";
 import { ApiError } from "./errors.js";
 import { renderAuthPage } from "./services/templates.js";
 import { db } from "./db/index.js";
@@ -85,13 +85,32 @@ for (const { path, page } of authPageRoutes) {
     // Resolve allowRegister before choosing the render mode so the guard fires
     // in both template and SPA paths regardless of TEMPLATES_DIR.
     let allowRegister = true;
+    let socialProvidersJson = "[]";
     if (appSlug) {
       const [appRow] = await db
-        .select({ allowRegister: applications.allowRegister })
+        .select({
+          allowRegister: applications.allowRegister,
+          enabledSocialProviders: applications.enabledSocialProviders,
+        })
         .from(applications)
         .where(eq(applications.slug, appSlug))
         .limit(1);
       allowRegister = appRow?.allowRegister ?? true;
+
+      // Compute social providers: null → inherit all globally active providers;
+      // explicit array → intersect with globally active providers so a provider
+      // removed from .env cannot be forced on by the DB value.
+      const globalProviders = globallyEnabledProviders();
+      const appProviders =
+        appRow?.enabledSocialProviders === null || appRow?.enabledSocialProviders === undefined
+          ? globalProviders
+          : (appRow.enabledSocialProviders as string[]).filter((p) =>
+              globalProviders.includes(p as never),
+            );
+      socialProvidersJson = JSON.stringify(appProviders);
+    } else {
+      // No client_id — expose globally active providers
+      socialProvidersJson = JSON.stringify(globallyEnabledProviders());
     }
 
     if (page === "register" && !allowRegister) {
@@ -117,6 +136,17 @@ for (const { path, page } of authPageRoutes) {
     const oauthQuery =
       query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
 
+    // Pre-compute cross-links that preserve the full OAuth context so templates
+    // never lose the signed query when navigating between login and register.
+    const encodedRedirect = encodeURIComponent(redirectTo);
+    const loginUrl = oauthQuery
+      ? `/login?${oauthQuery}`
+      : `/login?redirectTo=${encodedRedirect}`;
+    const registerUrl =
+      allowRegister && oauthQuery
+        ? `/register?${oauthQuery}`
+        : `/register?redirectTo=${encodedRedirect}`;
+
     try {
       const html = renderAuthPage(
         page,
@@ -128,6 +158,9 @@ for (const { path, page } of authPageRoutes) {
           errorMessage: query.error,
           oauthQuery,
           allowRegister,
+          socialProvidersJson,
+          loginUrl,
+          registerUrl,
         },
         appSlug || null,
         config.templatesDir,

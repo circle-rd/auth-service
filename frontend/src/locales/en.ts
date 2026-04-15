@@ -264,6 +264,8 @@ const en = {
     notConfiguredInEnv: "Not configured in environment",
     noProvidersConfigured: "No social providers are configured in the environment.",
     saveProviders: "Save providers",
+    inheritGlobal: "Reset to inherit global",
+    inheritingGlobalProviders: "Inheriting all globally enabled providers (null). Uncheck any provider below to create an explicit per-app override.",
   },
   errors: {
     AUTH_001: "Invalid or missing authentication token",

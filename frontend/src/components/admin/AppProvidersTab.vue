@@ -16,6 +16,8 @@
   const globalProviders = ref<SocialProvider[]>([]);
   // Providers enabled for this specific app (null = inherit all)
   const appProviders = ref<SocialProvider[] | null>(null);
+  // Whether the app is in "inherit global" mode (appProviders === null)
+  const inheritGlobal = ref(true);
   // Local copy for the form checkboxes
   const selected = ref<Set<SocialProvider>>(new Set());
 
@@ -41,10 +43,12 @@
       };
       appProviders.value = appData.application.enabledSocialProviders;
 
-      // Initialise checkboxes: null = all global providers, otherwise the specific set
+      // Initialise checkboxes: null = inherit all global providers, otherwise the specific set
       if (appProviders.value === null) {
+        inheritGlobal.value = true;
         selected.value = new Set(globalProviders.value);
       } else {
+        inheritGlobal.value = false;
         selected.value = new Set(appProviders.value.filter((p) => globalProviders.value.includes(p)));
       }
     } finally {
@@ -53,6 +57,7 @@
   }
 
   function toggle(provider: SocialProvider) {
+    inheritGlobal.value = false;
     if (selected.value.has(provider)) {
       selected.value.delete(provider);
     } else {
@@ -67,12 +72,13 @@
     saveError.value = null;
     saveSuccess.value = false;
     try {
-      // Use null (inherit all) when the selection equals the full global set,
-      // otherwise store the explicit subset.
+      // Use null (inherit all) when explicitly in inherit-global mode
+      // or when the selection equals the full global set.
       const allGlobalSelected =
-        globalProviders.value.length > 0 &&
-        globalProviders.value.every((p) => selected.value.has(p)) &&
-        selected.value.size === globalProviders.value.length;
+        inheritGlobal.value ||
+        (globalProviders.value.length > 0 &&
+          globalProviders.value.every((p) => selected.value.has(p)) &&
+          selected.value.size === globalProviders.value.length);
 
       const payload: { enabledSocialProviders: SocialProvider[] | null } = {
         enabledSocialProviders: allGlobalSelected ? null : [...selected.value],
@@ -91,6 +97,7 @@
       }
 
       appProviders.value = payload.enabledSocialProviders;
+      inheritGlobal.value = payload.enabledSocialProviders === null;
       saveSuccess.value = true;
       setTimeout(() => (saveSuccess.value = false), 3000);
     } catch (err) {
@@ -107,6 +114,10 @@
   <div>
     <h1 class="text-xl font-semibold gradient-text mb-1">{{ t("admin.providers") }}</h1>
     <p class="text-sm mb-6" style="color: var(--color-text-muted)">{{ t("admin.socialProvidersHint") }}</p>
+
+    <div v-if="inheritGlobal" class="text-sm mb-4 px-3 py-2 rounded-lg" style="background: var(--color-primary-bg); color: var(--color-primary); border: 1px solid var(--color-primary-border)">
+      {{ t("admin.inheritingGlobalProviders") }}
+    </div>
 
     <div v-if="loading" class="text-sm" style="color: var(--color-text-muted)">{{ t("common.loading") }}</div>
 
@@ -144,13 +155,23 @@
       <p v-if="saveError" class="text-sm mb-3" style="color: var(--color-error)">{{ saveError }}</p>
       <p v-if="saveSuccess" class="text-sm mb-3" style="color: var(--color-success)">{{ t("common.done") }}</p>
 
-      <button
-        class="btn btn-primary"
-        :disabled="saving || globalProviders.length === 0"
-        @click="save"
-      >
-        {{ saving ? t("common.saving") : t("admin.saveProviders") }}
-      </button>
+      <div class="flex gap-3 flex-wrap">
+        <button
+          class="btn btn-primary"
+          :disabled="saving || globalProviders.length === 0"
+          @click="save"
+        >
+          {{ saving ? t("common.saving") : t("admin.saveProviders") }}
+        </button>
+        <button
+          v-if="!inheritGlobal"
+          class="btn btn-secondary"
+          :disabled="saving"
+          @click="() => { inheritGlobal = true; selected = new Set(globalProviders); }"
+        >
+          {{ t("admin.inheritGlobal") }}
+        </button>
+      </div>
     </template>
   </div>
 </template>

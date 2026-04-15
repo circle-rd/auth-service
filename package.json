@@ -13,7 +13,10 @@
         "db:push": "drizzle-kit push",
         "test": "vitest run",
         "test:watch": "vitest",
-        "test:integration": "vitest run --config vitest.integration.config.ts"
+        "test:integration": "vitest run --config vitest.integration.config.ts",
+        "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
+        "test:e2e:ui": "playwright test --ui --config tests/e2e/playwright.config.ts",
+        "test:e2e:docker": "docker compose -f tests/e2e/docker-compose.yml up --build --wait && playwright test --config tests/e2e/playwright.config.ts"
     },
     "dependencies": {
         "@better-auth/drizzle-adapter": "^1.5.6",
@@ -39,6 +42,7 @@
         "supertest": "^7.0.0",
         "tsx": "^4.21.0",
         "typescript": "^5.9.3",
-        "vitest": "^3.0.0"
+        "vitest": "^3.0.0",
+        "@playwright/test": "^1.52.0"
     }
 }

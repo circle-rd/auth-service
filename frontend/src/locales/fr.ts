@@ -271,6 +271,8 @@ const fr = {
     notConfiguredInEnv: "Non configuré dans l'environnement",
     noProvidersConfigured: "Aucun fournisseur social n'est configuré dans l'environnement.",
     saveProviders: "Enregistrer les fournisseurs",
+    inheritGlobal: "Réinitialiser (hériter du global)",
+    inheritingGlobalProviders: "Hérite de tous les fournisseurs globaux (null). Décochez un fournisseur ci-dessous pour créer une liste explicite propre à cette application.",
   },
   errors: {
     AUTH_001: "Token d'authentification invalide ou manquant",

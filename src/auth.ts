@@ -6,8 +6,8 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
 import * as customSchema from "./db/schema.js";
 import * as authSchema from "./db/auth-schema.js";
-import { applications } from "./db/schema.js";
-import { eq } from "drizzle-orm";
+import { applications, userApplications } from "./db/schema.js";
+import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { getUserClaims, userHasAppAccessBySlug } from "./services/claims.js";
 import {
@@ -171,29 +171,76 @@ export const auth = betterAuth({
         "org",
       ],
       // Inject roles, permissions, features, and org_id into id_token.
-      // Also gates token issuance: throws FORBIDDEN if user has no access to the app
-      // or if the application requires MFA and the user has not enabled it.
+      // Also gates token issuance:
+      //   - throws FORBIDDEN when the user has no access AND the app is neither
+      //     public nor open to registration
+      //   - auto-provisions a userApplications row for new users on public apps
+      //     or apps with allowRegister=true (their first token exchange)
       customIdTokenClaims: async ({ user, scopes, metadata }) => {
         // metadata.clientId is stored in oauthClient.metadata and equals applications.slug
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
         if (clientId) {
-          const hasAccess = await userHasAppAccessBySlug(user.id, clientId);
-          if (!hasAccess) {
-            throw new APIError("FORBIDDEN", {
-              message: "User not authorized for this application",
-            });
-          }
-
-          // Enforce MFA when the application requires it.
-          // Look up the application by slug to check isMfaRequired.
+          // Single query: resolve app + check access in one round-trip
           const [app] = await db
-            .select({ isMfaRequired: applications.isMfaRequired })
+            .select({
+              id: applications.id,
+              isPublic: applications.isPublic,
+              allowRegister: applications.allowRegister,
+              isMfaRequired: applications.isMfaRequired,
+            })
             .from(applications)
             .where(eq(applications.slug, clientId))
             .limit(1);
 
-          if (app?.isMfaRequired) {
+          if (!app) {
+            throw new APIError("FORBIDDEN", {
+              message: "Application not found",
+            });
+          }
+
+          const hasAccess = await userHasAppAccessBySlug(user.id, clientId);
+          if (!hasAccess) {
+            // Distinguish "never had access" from "explicitly revoked" (isActive: false).
+            // A revoked row must not be re-activated by auto-provisioning.
+            const [existingRow] = await db
+              .select({ isActive: userApplications.isActive })
+              .from(userApplications)
+              .where(
+                and(
+                  eq(userApplications.userId, user.id),
+                  eq(userApplications.applicationId, app.id),
+                ),
+              )
+              .limit(1);
+
+            if (existingRow) {
+              // Row exists but isActive is false → access explicitly revoked.
+              throw new APIError("FORBIDDEN", {
+                message: "User access has been revoked for this application",
+              });
+            }
+
+            if (app.isPublic || app.allowRegister) {
+              // Auto-provision: insert a userApplications row so subsequent calls
+              // find the user as an active member of this application.
+              await db
+                .insert(userApplications)
+                .values({
+                  userId: user.id,
+                  applicationId: app.id,
+                  isActive: true,
+                })
+                .onConflictDoNothing();
+            } else {
+              throw new APIError("FORBIDDEN", {
+                message: "User not authorized for this application",
+              });
+            }
+          }
+
+          // Enforce MFA when the application requires it.
+          if (app.isMfaRequired) {
             const userRecord = user as Record<string, unknown>;
             const hasMfaEnabled = Boolean(userRecord.twoFactorEnabled);
             if (!hasMfaEnabled) {

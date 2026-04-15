@@ -15,7 +15,7 @@ const ALL_PROVIDERS: readonly SocialProvider[] = [
   "apple",
 ];
 
-function globallyEnabledProviders(): SocialProvider[] {
+export function globallyEnabledProviders(): SocialProvider[] {
   return ALL_PROVIDERS.filter(
     (p) => config.providers[p as keyof typeof config.providers]?.enabled ?? false,
   );

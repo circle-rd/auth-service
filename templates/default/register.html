@@ -186,6 +186,38 @@
     }
     .auth-footer a { color: var(--primary); text-decoration: none; font-weight: 500; }
     .auth-footer a:hover { text-decoration: underline; }
+
+    /* ── Social ────────────────────────────────────────────────────── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      margin: 1.25rem 0 1rem;
+      color: var(--text-light);
+      font-size: .8125rem;
+    }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .social-buttons { display: flex; flex-direction: column; gap: .5rem; }
+    .btn-social {
+      display: flex;
+      align-items: center;
+      gap: .625rem;
+      width: 100%;
+      padding: .5625rem .875rem;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: .9375rem;
+      font-weight: 500;
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+      line-height: 1.5;
+    }
+    .btn-social:hover:not(:disabled) { border-color: var(--border-focus); background: var(--primary-light); }
+    .btn-social:disabled { opacity: .55; cursor: not-allowed; }
+    .btn-social svg { flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -232,11 +264,14 @@
 
         <button type="submit" class="btn btn-primary" id="submit-btn">Create account</button>
       </form>
+
+      <!-- Social providers — populated by JS from {{SOCIAL_PROVIDERS_JSON}} -->
+      <div id="social-section"></div>
     </div>
 
     <p class="auth-footer">
       Already have an account?
-      <a id="login-link" href="/login?redirectTo={{REDIRECT_TO}}">Sign in</a>
+      <a id="login-link" href="{{LOGIN_URL}}">Sign in</a>
     </p>
 
   </div>
@@ -260,8 +295,14 @@
       const oauthQuery = form.oauthQuery.value;
 
       try {
-        const body = { name, email, password, callbackURL: redirectTo };
-        if (oauthQuery) body.oauth_query = oauthQuery;
+        // When coming from an OAuth flow, point callbackURL at the authorize
+        // endpoint so BetterAuth resumes the signed flow after account creation.
+        // Never send oauth_query in the body: BetterAuth's inline OAuth hook fires
+        // before the userApplications row exists, causing a 403 for new users.
+        const callbackURL = oauthQuery
+          ? AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery
+          : (redirectTo || '/');
+        const body = { name, email, password, callbackURL };
 
         const res = await fetch(`${AUTH_URL}/api/auth/sign-up/email`, {
           method: 'POST',
@@ -277,13 +318,7 @@
           return;
         }
 
-        if (data?.url) {
-          window.location.href = data.url;
-        } else if (redirectTo.startsWith('/api/') || redirectTo.startsWith('http')) {
-          window.location.href = redirectTo;
-        } else {
-          window.location.href = redirectTo || '/';
-        }
+        window.location.href = data?.url ?? callbackURL;
       } catch {
         errorBox.textContent = 'A network error occurred. Please try again.';
         errorBox.style.display = 'block';
@@ -293,14 +328,52 @@
       }
     });
 
-    // Update sign-in link to preserve full OAuth context when available
-    const loginLink = document.getElementById('login-link');
-    if (loginLink) {
-      const qs = form.oauthQuery?.value;
-      const redir = form.redirectTo?.value || '/';
-      loginLink.href = qs
-        ? '/login?' + qs
-        : '/login?redirectTo=' + encodeURIComponent(redir);
+    // ── Social sign-up ───────────────────────────────────────────────
+    const PROVIDER_CONFIG = {
+      google: { label: 'Sign up with Google', icon: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>' },
+      github: { label: 'Sign up with GitHub', icon: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>' },
+      linkedin: { label: 'Sign up with LinkedIn', icon: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="#0A66C2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>' },
+      microsoft: { label: 'Sign up with Microsoft', icon: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#00A4EF" d="M13 1h10v10H13z"/><path fill="#7FBA00" d="M1 13h10v10H1z"/><path fill="#FFB900" d="M13 13h10v10H13z"/></svg>' },
+      apple: { label: 'Sign up with Apple', icon: '<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>' },
+    };
+    const socialProviders = (() => { try { return JSON.parse('{{SOCIAL_PROVIDERS_JSON}}'); } catch { return []; } })();
+    if (socialProviders.length > 0) {
+      const sec = document.getElementById('social-section');
+      sec.innerHTML = '<div class="divider"><span>or sign up with</span></div><div class="social-buttons" id="social-buttons"></div>';
+      const container = document.getElementById('social-buttons');
+      socialProviders.forEach(provider => {
+        const cfg = PROVIDER_CONFIG[provider]; if (!cfg) return;
+        const btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'btn-social'; btn.dataset.provider = provider;
+        btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>';
+        btn.addEventListener('click', async () => {
+          container.querySelectorAll('.btn-social').forEach(b => { b.disabled = true; });
+          btn.innerHTML = cfg.icon + '<span>Redirecting…</span>';
+          const oq = form.oauthQuery.value; const rd = form.redirectTo.value || '/';
+          const callbackURL = oq ? AUTH_URL + '/api/auth/oauth2/authorize?' + oq : rd;
+          try {
+            const res = await fetch(`${AUTH_URL}/api/auth/sign-in/social`, {
+              method: 'POST', credentials: 'include',
+              headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+              body: JSON.stringify({ provider, callbackURL }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.url) {
+              errorBox.textContent = data?.error?.message ?? 'Social sign-up failed.';
+              errorBox.style.display = 'block';
+              container.querySelectorAll('.btn-social').forEach(b => { b.disabled = false; });
+              btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>'; return;
+            }
+            window.location.href = data.url;
+          } catch {
+            errorBox.textContent = 'A network error occurred. Please try again.';
+            errorBox.style.display = 'block';
+            container.querySelectorAll('.btn-social').forEach(b => { b.disabled = false; });
+            btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>';
+          }
+        });
+        container.appendChild(btn);
+      });
     }
   </script>
 </body>

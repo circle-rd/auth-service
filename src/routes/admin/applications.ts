@@ -12,6 +12,10 @@ import {
   subscriptionPlans,
   userSubscriptions,
 } from "../../db/schema.js";
+import {
+  assignDefaultRoleIfNeeded,
+  assignDefaultPlanIfNeeded,
+} from "../../services/claims.js";
 import { oauthClient, user as userTable } from "../../db/auth-schema.js";
 import { and, eq } from "drizzle-orm";
 import { ERR } from "../../errors.js";
@@ -87,104 +91,6 @@ export async function applicationRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
-
-  /**
-   * Assigns the application's default subscription plan to a user if:
-   *  - the app has a plan marked as isDefault = true
-   *  - the user does not already have an active subscription for that app
-   * Also sets userApplications.subscriptionPlanId for convenience.
-   */
-  async function assignDefaultPlanIfNeeded(
-    userId: string,
-    applicationId: string,
-  ): Promise<void> {
-    const [defaultPlan] = await db
-      .select({ id: subscriptionPlans.id })
-      .from(subscriptionPlans)
-      .where(
-        and(
-          eq(subscriptionPlans.applicationId, applicationId),
-          eq(subscriptionPlans.isDefault, true),
-        ),
-      )
-      .limit(1);
-
-    if (!defaultPlan) return;
-
-    // Check if user already has a subscription (active or not)
-    const [existing] = await db
-      .select({ id: userSubscriptions.id })
-      .from(userSubscriptions)
-      .where(
-        and(
-          eq(userSubscriptions.userId, userId),
-          eq(userSubscriptions.applicationId, applicationId),
-        ),
-      )
-      .limit(1);
-
-    if (existing) return;
-
-    await db.transaction(async (tx) => {
-      await tx.insert(userSubscriptions).values({
-        userId,
-        applicationId,
-        planId: defaultPlan.id,
-        isActive: true,
-      });
-      await tx
-        .update(userApplications)
-        .set({ subscriptionPlanId: defaultPlan.id })
-        .where(
-          and(
-            eq(userApplications.userId, userId),
-            eq(userApplications.applicationId, applicationId),
-          ),
-        );
-    });
-  }
-
-  /**
-   * Assigns the application's default role to a user if:
-   *  - the app has a role marked as isDefault = true
-   *  - the user does not already have any role for that app
-   */
-  async function assignDefaultRoleIfNeeded(
-    userId: string,
-    applicationId: string,
-  ): Promise<void> {
-    const [defaultRole] = await db
-      .select({ id: appRoles.id })
-      .from(appRoles)
-      .where(
-        and(
-          eq(appRoles.applicationId, applicationId),
-          eq(appRoles.isDefault, true),
-        ),
-      )
-      .limit(1);
-
-    if (!defaultRole) return;
-
-    // Check if user already has a role for this app
-    const [existing] = await db
-      .select({ roleId: userAppRoles.roleId })
-      .from(userAppRoles)
-      .where(
-        and(
-          eq(userAppRoles.userId, userId),
-          eq(userAppRoles.applicationId, applicationId),
-        ),
-      )
-      .limit(1);
-
-    if (existing) return;
-
-    await db
-      .insert(userAppRoles)
-      .values({ userId, applicationId, roleId: defaultRole.id })
-      .onConflictDoNothing();
-  }
 
   // GET /api/admin/applications
   fastify.get("/", async (_req, reply) => {

@@ -9,7 +9,12 @@ import * as authSchema from "./db/auth-schema.js";
 import { applications, userApplications } from "./db/schema.js";
 import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
-import { getUserClaims, userHasAppAccessBySlug } from "./services/claims.js";
+import {
+  getUserClaims,
+  userHasAppAccessBySlug,
+  assignDefaultRoleIfNeeded,
+  assignDefaultPlanIfNeeded,
+} from "./services/claims.js";
 import {
   sendResetPasswordEmail,
   sendVerificationEmail,
@@ -232,6 +237,8 @@ export const auth = betterAuth({
                   isActive: true,
                 })
                 .onConflictDoNothing();
+              await assignDefaultRoleIfNeeded(user.id, app.id);
+              await assignDefaultPlanIfNeeded(user.id, app.id);
             } else {
               throw new APIError("FORBIDDEN", {
                 message: "User not authorized for this application",

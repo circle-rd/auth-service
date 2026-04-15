@@ -9,7 +9,7 @@ import {
   appRoles,
 } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
-import { eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 
@@ -223,6 +223,17 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     });
     if (session?.user.id === req.params.id) {
       throw ERR.USR_003("You cannot delete your own account");
+    }
+
+    // Prevent deleting the last superadmin
+    if ((target as unknown as Record<string, unknown>).role === "superadmin") {
+      const [{ total }] = await db
+        .select({ total: count() })
+        .from(userTable)
+        .where(eq(userTable.role, "superadmin"));
+      if (Number(total) <= 1) {
+        throw ERR.USR_002();
+      }
     }
 
     // Delete the user — cascade constraints in auth-schema handle related records

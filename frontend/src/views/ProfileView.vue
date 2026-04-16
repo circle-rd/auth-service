@@ -1,327 +1,202 @@
 <script setup lang="ts">
-  import { ref } from "vue";
-  import { useI18n } from "vue-i18n";
-  import { useAuthStore } from "../stores/auth.js";
+import { ref, onMounted } from 'vue';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '@/stores/auth';
+import { updateUser } from '@/api/users';
+import { listSessions } from '@/api/sessions';
+import { revokeSession } from '@/api/sessions';
+import { getUserConsumption } from '@/api/consumption';
+import { listApplications } from '@/api/applications';
+import type { Session, UserApplication, ConsumptionAggregate, Application } from '@/types';
+import { getUser } from '@/api/users';
+import { useToast } from '@/composables/useToast';
+import { parseUserAgent } from '@/composables/useUserAgent';
+import AppLayout from '@/components/layout/AppLayout.vue';
+import BaseButton from '@/components/ui/BaseButton.vue';
+import BaseInput from '@/components/ui/BaseInput.vue';
+import UserAvatar from '@/components/ui/UserAvatar.vue';
+import BaseBadge from '@/components/ui/BaseBadge.vue';
+import { Monitor, CheckCircle, ShieldCheck, Key } from 'lucide-vue-next';
 
-  const { t } = useI18n();
-  const authStore = useAuthStore();
+const { t } = useI18n();
+const auth = useAuthStore();
+const toast = useToast();
 
-  const u = authStore.user as Record<string, unknown> | null;
-  const name = ref((u?.name as string) ?? "");
-  const image = ref((u?.image as string) ?? "");
-  const phone = ref((u?.phone as string) ?? "");
-  const company = ref((u?.company as string) ?? "");
-  const position = ref((u?.position as string) ?? "");
-  const address = ref((u?.address as string) ?? "");
+const sessions = ref<Session[]>([]);
+const userApps = ref<UserApplication[]>([]);
+const applications = ref<Application[]>([]);
+const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
+const loading = ref(true);
+const saveLoading = ref(false);
 
-  const currentPassword = ref("");
-  const newPassword = ref("");
-  const confirmPassword = ref("");
-  const profileMsg = ref<string | null>(null);
-  const passwordMsg = ref<string | null>(null);
-  const profileError = ref<string | null>(null);
-  const passwordError = ref<string | null>(null);
-  const saving = ref(false);
+const form = ref({
+  name: '',
+  phone: '',
+  company: '',
+  position: '',
+  address: '',
+  image: '',
+});
 
-  const avatarPreview = ref((u?.image as string) ?? "");
-  const userInitial = (authStore.user?.name ?? "?").charAt(0).toUpperCase();
+onMounted(async () => {
+  if (!auth.user) return;
+  const [sessRes, userRes, appsRes] = await Promise.all([
+    listSessions({ limit: 10 }),
+    getUser(auth.user.id),
+    listApplications(),
+  ]);
+  sessions.value = sessRes.sessions.filter(s => s.userId === auth.user!.id);
+  userApps.value = userRes.applications;
+  applications.value = appsRes.applications;
 
-  function onAvatarInput() { avatarPreview.value = image.value; }
-
-  async function updateProfile() {
-    profileError.value = null;
-    profileMsg.value = null;
-    saving.value = true;
-    try {
-      const res = await fetch("/api/auth/update-user", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          name: name.value,
-          image: image.value || undefined,
-          phone: phone.value || undefined,
-          company: company.value || undefined,
-          position: position.value || undefined,
-          address: address.value || undefined,
-        }),
-      });
-      if (!res.ok) {
-        profileError.value = t("errors.SRV_001");
-      } else {
-        profileMsg.value = t("profile.profileUpdated");
-        await authStore.fetchSession();
-      }
-    } finally {
-      saving.value = false;
-    }
+  for (const ua of userRes.applications) {
+    const res = await getUserConsumption(ua.userId, ua.applicationId);
+    consumption.value[ua.applicationId] = res.aggregates;
   }
 
-  async function changePassword() {
-    passwordError.value = null;
-    passwordMsg.value = null;
-    if (newPassword.value !== confirmPassword.value) {
-      passwordError.value = t("profile.passwordMismatch");
-      return;
-    }
-    saving.value = true;
-    try {
-      const res = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          currentPassword: currentPassword.value,
-          newPassword: newPassword.value,
-        }),
-      });
-      if (!res.ok) {
-        passwordError.value = t("errors.AUTH_003");
-      } else {
-        passwordMsg.value = t("profile.passwordChanged");
-        currentPassword.value = "";
-        newPassword.value = "";
-        confirmPassword.value = "";
-      }
-    } finally {
-      saving.value = false;
-    }
+  form.value = {
+    name: auth.user.name,
+    phone: auth.user.phone ?? '',
+    company: auth.user.company ?? '',
+    position: auth.user.position ?? '',
+    address: auth.user.address ?? '',
+    image: auth.user.image ?? '',
+  };
+  loading.value = false;
+});
+
+async function handleSave() {
+  if (!auth.user) return;
+  saveLoading.value = true;
+  try {
+    await updateUser(auth.user.id, {
+      name: form.value.name,
+      phone: form.value.phone || null,
+      company: form.value.company || null,
+      position: form.value.position || null,
+      address: form.value.address || null,
+      image: form.value.image || null,
+    });
+    toast.success('Profile updated');
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to update');
+  } finally {
+    saveLoading.value = false;
   }
+}
+
+function getAppName(appId: string) {
+  return applications.value.find(a => a.id === appId)?.name ?? appId;
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+}
+
+async function handleRevoke(session: Session) {
+  await revokeSession(session.id);
+  toast.info('Session revoke is not yet available via API.');
+}
 </script>
 
 <template>
-  <div class="profile-sections">
-
-    <!-- ── Personal info ───────────────────────────────────────── -->
-    <div class="section-group">
-      <div class="section-group-header">
-        <div>
-          <h2 class="section-title">{{ t("profile.personalInfo") }}</h2>
-          <p class="section-subtitle">{{ t("profile.personalInfoDesc") }}</p>
+  <AppLayout :title="t('profile.title')" :subtitle="t('profile.subtitle')">
+    <div class="space-y-6 max-w-2xl">
+      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-6">
+        <div class="flex items-center gap-4 mb-6">
+          <UserAvatar :name="auth.user?.name" :image="auth.user?.image" size="lg" />
+          <div>
+            <h2 class="text-base font-semibold text-surface-100">{{ auth.user?.name }}</h2>
+            <p class="text-sm text-surface-500">{{ auth.user?.email }}</p>
+          </div>
         </div>
-        <!-- Live avatar preview -->
-        <div class="avatar-preview shrink-0">
-          <img v-if="avatarPreview" :src="avatarPreview" :alt="name" class="avatar-preview-img" />
-          <span v-else class="avatar-preview-initial">{{ userInitial }}</span>
+
+        <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-4">{{ t('profile.personalInfo') }}</h3>
+        <form @submit.prevent="handleSave" class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.name" :label="t('profile.name')" required />
+            <BaseInput v-model="form.phone" :label="t('profile.phone')" type="tel" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.company" :label="t('profile.company')" />
+            <BaseInput v-model="form.position" :label="t('profile.position')" />
+          </div>
+          <BaseInput v-model="form.address" :label="t('profile.address')" />
+          <BaseInput v-model="form.image" :label="t('profile.avatar')" :hint="t('profile.emailChangeNote')" />
+          <div class="flex justify-end">
+            <BaseButton type="submit" :loading="saveLoading">{{ t('common.save') }}</BaseButton>
+          </div>
+        </form>
+      </div>
+
+      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+        <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-4">{{ t('profile.security') }}</h3>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between py-3 border-b border-surface-800/40">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center">
+                <ShieldCheck class="w-4 h-4 text-primary-400" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-surface-200">{{ t('profile.totp') }}</p>
+                <p class="text-xs text-surface-500 mt-0.5">{{ auth.user?.twoFactorEnabled ? t('profile.totpEnabled') : t('profile.totpDisabled') }}</p>
+              </div>
+            </div>
+            <CheckCircle v-if="auth.user?.twoFactorEnabled" class="w-5 h-5 text-emerald-400" />
+            <BaseBadge v-else variant="neutral">Not set</BaseBadge>
+          </div>
+          <div class="flex items-center justify-between py-3">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center">
+                <Key class="w-4 h-4 text-surface-400" />
+              </div>
+              <div>
+                <p class="text-sm font-medium text-surface-200">{{ t('profile.passkeys') }}</p>
+                <p class="text-xs text-surface-500 mt-0.5">{{ t('profile.passkeysNote') }}</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <form @submit.prevent="updateProfile" class="section-form">
-        <!-- Avatar URL -->
-        <div class="field-full">
-          <label class="field-label">
-            {{ t('profile.avatarUrl') }}
-            <span class="field-optional">({{ t('common.optional') }})</span>
-          </label>
-          <input v-model="image" type="url" class="input" :placeholder="t('profile.avatarUrlPlaceholder')"
-            @input="onAvatarInput" />
-        </div>
-        <!-- Name + Email -->
-        <div class="field-grid">
-          <div>
-            <label class="field-label">{{ t("common.name") }}</label>
-            <input v-model="name" type="text" class="input" required />
-          </div>
-          <div>
-            <label class="field-label">{{ t("common.email") }}</label>
-            <input :value="authStore.user?.email" type="email" class="input opacity-50" disabled />
-          </div>
-        </div>
-        <!-- Phone + Company -->
-        <div class="field-grid">
-          <div>
-            <label class="field-label">
-              {{ t("profile.phone") }}
-              <span class="field-optional">({{ t("common.optional") }})</span>
-            </label>
-            <input v-model="phone" type="tel" class="input" :placeholder="t('profile.phonePlaceholder')" />
-          </div>
-          <div>
-            <label class="field-label">
-              {{ t("profile.company") }}
-              <span class="field-optional">({{ t("common.optional") }})</span>
-            </label>
-            <input v-model="company" type="text" class="input" :placeholder="t('profile.companyPlaceholder')" />
-          </div>
-        </div>
-        <!-- Position + Address -->
-        <div class="field-grid">
-          <div>
-            <label class="field-label">
-              {{ t("profile.position") }}
-              <span class="field-optional">({{ t("common.optional") }})</span>
-            </label>
-            <input v-model="position" type="text" class="input" :placeholder="t('profile.positionPlaceholder')" />
-          </div>
-          <div>
-            <label class="field-label">
-              {{ t("profile.address") }}
-              <span class="field-optional">({{ t("common.optional") }})</span>
-            </label>
-            <input v-model="address" type="text" class="input" :placeholder="t('profile.addressPlaceholder')" />
-          </div>
-        </div>
-        <div class="form-footer">
-          <p v-if="profileMsg" class="form-feedback form-feedback--ok">{{ profileMsg }}</p>
-          <p v-if="profileError" class="form-feedback form-feedback--err">{{ profileError }}</p>
-          <button type="submit" class="btn btn-primary" :disabled="saving">
-            {{ saving ? t("common.saving") : t("profile.updateProfile") }}
-          </button>
-        </div>
-      </form>
-    </div>
 
-    <!-- ── Security ───────────────────────────────────────────── -->
-    <div class="section-group section-group--last">
-      <h2 class="section-title">{{ t("profile.security") }}</h2>
-      <p class="section-subtitle">{{ t("profile.securityDesc") }}</p>
-      <form @submit.prevent="changePassword" class="section-form">
-        <div class="field-full">
-          <label class="field-label">{{ t("profile.currentPassword") }}</label>
-          <input v-model="currentPassword" type="password" class="input" required style="max-width: 24rem" />
+      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+        <div class="px-5 py-4 border-b border-surface-700/40">
+          <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.activeSessions') }}</h3>
         </div>
-        <div class="field-grid">
-          <div>
-            <label class="field-label">{{ t("profile.newPassword") }}</label>
-            <input v-model="newPassword" type="password" class="input" required minlength="8" />
-          </div>
-          <div>
-            <label class="field-label">{{ t("profile.confirmPassword") }}</label>
-            <input v-model="confirmPassword" type="password" class="input" required minlength="8" />
+        <div v-if="sessions.length === 0" class="px-5 py-6 text-center text-sm text-surface-500">No active sessions</div>
+        <div v-else class="divide-y divide-surface-800/40">
+          <div v-for="session in sessions" :key="session.id" class="px-5 py-4 flex items-center gap-4">
+            <div class="w-8 h-8 rounded-lg bg-surface-800 flex items-center justify-center shrink-0">
+              <Monitor class="w-4 h-4 text-surface-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm text-surface-200">{{ parseUserAgent(session.userAgent).browser }} on {{ parseUserAgent(session.userAgent).os }}</p>
+              <p class="text-xs text-surface-500 mt-0.5">{{ session.ipAddress }} · {{ formatDate(session.createdAt) }}</p>
+            </div>
+            <BaseButton variant="ghost" size="sm" @click="handleRevoke(session)">Revoke</BaseButton>
           </div>
         </div>
-        <div class="form-footer">
-          <p v-if="passwordMsg" class="form-feedback form-feedback--ok">{{ passwordMsg }}</p>
-          <p v-if="passwordError" class="form-feedback form-feedback--err">{{ passwordError }}</p>
-          <button type="submit" class="btn btn-primary" :disabled="saving">
-            {{ saving ? t("common.saving") : t("profile.changePassword") }}
-          </button>
-        </div>
-      </form>
-    </div>
+      </div>
 
-  </div>
+      <div v-if="userApps.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+        <div class="px-5 py-4 border-b border-surface-700/40">
+          <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.appAccess') }}</h3>
+        </div>
+        <div class="divide-y divide-surface-800/40">
+          <div v-for="ua in userApps" :key="ua.applicationId" class="px-5 py-4">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-sm font-medium text-surface-200">{{ getAppName(ua.applicationId) }}</p>
+              <BaseBadge :variant="ua.isActive ? 'success' : 'neutral'" size="sm" dot>{{ ua.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
+            </div>
+            <div v-if="consumption[ua.applicationId]?.length" class="flex flex-wrap gap-2 mt-2">
+              <div v-for="agg in consumption[ua.applicationId]" :key="agg.key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30">
+                <span class="text-xs font-mono text-surface-500">{{ agg.key }}: </span>
+                <span class="text-xs font-semibold text-surface-200">{{ Number(agg.total).toLocaleString() }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </AppLayout>
 </template>
-
-<style scoped>
-  /* ── Sections ─────────────────────────────────────────────── */
-  .profile-sections {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .section-group {
-    padding: 2rem 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .section-group--last {
-    border-bottom: none;
-    padding-bottom: 0;
-  }
-
-  .section-group-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1.75rem;
-  }
-
-  .section-title {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .section-subtitle {
-    font-size: 0.8125rem;
-    color: var(--color-text-muted);
-    margin: 0.25rem 0 0;
-  }
-
-  /* ── Avatar preview ───────────────────────────────────────── */
-  .avatar-preview {
-    width: 3.25rem;
-    height: 3.25rem;
-    border-radius: 50%;
-    overflow: hidden;
-    background: var(--color-primary-light);
-    border: 2px solid var(--color-primary-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-
-  .avatar-preview-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .avatar-preview-initial {
-    font-size: 1.125rem;
-    font-weight: 700;
-    color: var(--color-primary);
-  }
-
-  /* ── Form layout ──────────────────────────────────────────── */
-  .section-form {
-    display: flex;
-    flex-direction: column;
-    gap: 1.125rem;
-  }
-
-  .field-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.125rem;
-  }
-
-  @media (min-width: 640px) {
-    .field-grid {
-      grid-template-columns: 1fr 1fr;
-    }
-  }
-
-  .field-full {
-    /* full-width field, no special layout needed */
-  }
-
-  .field-label {
-    display: block;
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--color-text-muted);
-    margin-bottom: 0.375rem;
-  }
-
-  .field-optional {
-    font-size: 0.7rem;
-    margin-left: 0.25rem;
-    opacity: 0.6;
-  }
-
-  /* ── Form footer (feedback + save btn) ───────────────────── */
-  .form-footer {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    flex-wrap: wrap;
-    padding-top: 0.5rem;
-  }
-
-  .form-feedback {
-    font-size: 0.8125rem;
-    margin: 0;
-  }
-
-  .form-feedback--ok {
-    color: var(--color-success);
-  }
-
-  .form-feedback--err {
-    color: var(--color-danger);
-  }
-</style>

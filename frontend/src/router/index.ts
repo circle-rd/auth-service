@@ -1,150 +1,99 @@
-import { createRouter, createWebHistory } from "vue-router";
-import { useAuthStore } from "../stores/auth.js";
+import { createRouter, createWebHistory } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 
-export const router = createRouter({
+const routes = [
+  { path: '/', redirect: '/dashboard' },
+  {
+    path: '/dashboard',
+    name: 'dashboard',
+    component: () => import('@/views/DashboardView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/users',
+    name: 'users',
+    component: () => import('@/views/UsersView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/users/:id',
+    name: 'user-detail',
+    component: () => import('@/views/UserDetailView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/organizations',
+    name: 'organizations',
+    component: () => import('@/views/OrganizationsView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/applications',
+    name: 'applications',
+    component: () => import('@/views/ApplicationsView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/applications/:id',
+    name: 'application-detail',
+    component: () => import('@/views/ApplicationDetailView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/configuration',
+    name: 'configuration',
+    component: () => import('@/views/ConfigurationView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/profile',
+    name: 'profile',
+    component: () => import('@/views/ProfileView.vue'),
+    meta: { requiresAdmin: false },
+  },
+  {
+    path: '/login',
+    name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { requiresAdmin: false, isPublic: true },
+  },
+  {
+    path: '/forbidden',
+    name: 'forbidden',
+    component: () => import('@/views/ForbiddenView.vue'),
+    meta: { requiresAdmin: false, isPublic: true },
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/views/NotFoundView.vue'),
+    meta: { requiresAdmin: false, isPublic: true },
+  },
+];
+
+const router = createRouter({
   history: createWebHistory(),
-  routes: [
-    // Public
-    {
-      path: "/login",
-      component: () => import("../views/LoginView.vue"),
-      meta: { public: true },
-    },
-    {
-      path: "/register",
-      component: () => import("../views/RegisterView.vue"),
-      meta: { public: true },
-    },
-    {
-      path: "/forgot-password",
-      component: () => import("../views/ForgotPasswordView.vue"),
-      meta: { public: true },
-    },
-    {
-      path: "/reset-password",
-      component: () => import("../views/ResetPasswordView.vue"),
-      meta: { public: true },
-    },
-    {
-      path: "/verify-mfa",
-      component: () => import("../views/MfaVerifyView.vue"),
-      meta: { public: true },
-    },
-    {
-      path: "/oauth2/consent",
-      component: () => import("../views/ConsentView.vue"),
-      meta: { public: true },
-    },
-
-    // Protected — User
-    {
-      path: "/",
-      redirect: "/admin",
-    },
-    {
-      path: "/profile",
-      component: () => import("../views/ProfileLayout.vue"),
-      children: [
-        { path: "", component: () => import("../views/ProfileView.vue") },
-        {
-          path: "mfa",
-          component: () => import("../views/MfaSettingsView.vue"),
-        },
-        {
-          path: "sessions",
-          component: () => import("../views/SessionsView.vue"),
-        },
-        {
-          path: "subscription",
-          component: () => import("../views/SubscriptionView.vue"),
-        },
-      ],
-    },
-
-    // Admin
-    {
-      path: "/admin",
-      component: () => import("../views/admin/AdminLayout.vue"),
-      meta: { requireAdmin: true },
-      children: [
-        {
-          path: "",
-          redirect: "/admin/dashboard",
-        },
-        {
-          path: "dashboard",
-          component: () => import("../views/admin/DashboardView.vue"),
-        },
-        {
-          path: "users",
-          component: () => import("../views/admin/UsersView.vue"),
-        },
-        {
-          path: "users/:id",
-          component: () => import("../views/admin/UserDetailView.vue"),
-        },
-        {
-          path: "organizations",
-          component: () => import("../views/admin/OrganizationsView.vue"),
-        },
-        {
-          path: "organizations/:id",
-          component: () => import("../views/admin/OrganizationDetailView.vue"),
-        },
-        {
-          path: "applications",
-          component: () => import("../views/admin/ApplicationsView.vue"),
-        },
-        {
-          path: "applications/:id",
-          component: () => import("../views/admin/ApplicationDetailView.vue"),
-        },
-        {
-          path: "applications/:id/roles",
-          component: () => import("../views/admin/AppRolesView.vue"),
-        },
-        {
-          path: "applications/:id/plans",
-          component: () => import("../views/admin/AppPlansView.vue"),
-        },
-        {
-          path: "applications/:id/users",
-          component: () => import("../views/admin/AppUsersView.vue"),
-        },
-        {
-          path: "applications/:id/usage",
-          component: () => import("../views/admin/AppUsageView.vue"),
-        },
-        {
-          path: "applications/:id/integration",
-          component: () => import("../views/admin/AppIntegrationView.vue"),
-        },
-      ],
-    },
-
-    // Fallback
-    {
-      path: "/:pathMatch(.*)*",
-      redirect: "/login",
-    },
-  ],
+  routes,
 });
 
 router.beforeEach(async (to) => {
-  const authStore = useAuthStore();
+  const auth = useAuthStore();
 
-  if (!authStore.initialized) {
-    await authStore.fetchSession();
+  if (!auth.initialized) {
+    await auth.fetchSession();
   }
 
-  if (!to.meta.public && !authStore.isAuthenticated) {
-    return { path: "/login", query: { redirectTo: to.fullPath } };
+  const isPublic = to.meta.isPublic === true;
+
+  if (!auth.user && !isPublic) {
+    return { name: 'login' };
   }
 
-  if (to.meta.requireAdmin) {
-    const role = authStore.user?.role as string | undefined;
-    if (role !== "admin" && role !== "superadmin") {
-      return { path: "/profile" };
-    }
+  if (auth.user && to.meta.requiresAdmin && !auth.isAdmin()) {
+    return { name: 'forbidden' };
   }
+
+  return true;
 });
+
+export default router;

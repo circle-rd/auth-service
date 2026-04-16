@@ -6,227 +6,171 @@
   <title>Verify your email</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #f8fafc;
-      --surface: #ffffff;
-      --border: #e2e8f0;
-      --text: #0f172a;
-      --text-muted: #64748b;
-      --text-light: #94a3b8;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --primary-light: #eff6ff;
-      --primary-border: #bfdbfe;
-      --danger: #dc2626;
-      --danger-bg: #fef2f2;
-      --danger-border: #fecaca;
-      --success: #16a34a;
-      --success-bg: #f0fdf4;
-      --success-border: #bbf7d0;
-      --shadow-lg: 0 10px 24px -3px rgba(0,0,0,.1), 0 4px 8px -2px rgba(0,0,0,.05);
+      --bg:             #f4f4f5;
+      --surface:        rgba(255,255,255,0.9);
+      --surface-inner:  #f4f4f5;
+      --border:         rgba(212,212,216,0.7);
+      --border-focus:   #2563eb;
+      --text:           #09090b;
+      --text-muted:     #71717a;
+      --text-subtle:    #a1a1aa;
+      --primary:        #2563eb;
+      --primary-hover:  #3b82f6;
+      --primary-glow:   rgba(37,99,235,0.15);
+      --danger:         #ef4444;
+      --danger-bg:      rgba(239,68,68,0.08);
+      --danger-border:  rgba(239,68,68,0.25);
+      --success:        #22c55e;
+      --success-bg:     rgba(34,197,94,0.08);
+      --success-border: rgba(34,197,94,0.25);
+      --radius-sm: 4px; --radius: 7px; --radius-lg: 9px; --radius-xl: 12px;
+      --shadow-lg: 0 8px 24px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #080808;
-        --surface: #111111;
-        --border: rgba(255,255,255,.07);
-        --text: #f1f5f9;
-        --text-muted: #94a3b8;
-        --text-light: #505050;
-        --primary: #3b82f6;
-        --primary-hover: #2563eb;
-        --primary-light: rgba(59,130,246,.1);
-        --primary-border: rgba(59,130,246,.3);
-        --danger: #f87171;
-        --danger-bg: rgba(239,68,68,.1);
-        --danger-border: rgba(239,68,68,.3);
-        --success: #4ade80;
-        --success-bg: rgba(74,222,128,.1);
-        --success-border: rgba(74,222,128,.3);
-        --shadow-lg: 0 10px 24px rgba(0,0,0,.4);
+        --bg:             #09090b;
+        --surface:        rgba(24,24,27,0.6);
+        --surface-inner:  rgba(39,39,42,0.6);
+        --border:         rgba(63,63,70,0.4);
+        --border-focus:   #3b82f6;
+        --text:           #fafafa;
+        --text-muted:     #a1a1aa;
+        --text-subtle:    #52525b;
+        --primary:        #2563eb;
+        --primary-hover:  #3b82f6;
+        --primary-glow:   rgba(59,130,246,0.12);
+        --danger:         #f87171;
+        --danger-bg:      rgba(239,68,68,0.1);
+        --danger-border:  rgba(239,68,68,0.3);
+        --success:        #4ade80;
+        --success-bg:     rgba(34,197,94,0.1);
+        --success-border: rgba(34,197,94,0.3);
+        --shadow-lg: 0 8px 32px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);
       }
     }
-
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
-      font-family: "Inter", system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100svh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem 1rem;
-      -webkit-font-smoothing: antialiased;
+      font-family: "Inter", system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100svh; display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem 1rem; -webkit-font-smoothing: antialiased;
     }
-
-    .auth-container {
-      width: 100%;
-      max-width: 24rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .auth-container { width: 100%; max-width: 22rem; display: flex; flex-direction: column; align-items: center; }
+    .auth-header { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 1.75rem; text-align: center; }
+    .auth-icon {
+      width: 3rem; height: 3rem; border-radius: var(--radius-xl);
+      background: var(--primary); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 20px rgba(37,99,235,0.35); margin-bottom: 0.25rem;
     }
-
-    /* ── Card ─────────────── */
+    .auth-icon svg { width: 1.375rem; height: 1.375rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    .subtitle { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }
     .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 2.5rem 2rem;
-      width: 100%;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-xl); padding: 1.5rem; width: 100%;
       box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
       text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
     }
-
-    /* ── Icon ─────────────── */
-    .icon-wrap {
-      width: 3.5rem;
-      height: 3.5rem;
-      border-radius: 50%;
-      background: var(--primary-light);
-      border: 1px solid var(--primary-border);
-      color: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    .card p { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; }
+    .status-box {
+      border-radius: var(--radius-sm); padding: 0.5625rem 0.75rem;
+      font-size: 0.875rem; margin-bottom: 1rem; display: none;
     }
-    .icon-wrap svg { width: 1.375rem; height: 1.375rem; }
-
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      color: var(--text);
-    }
-
-    p.body-text {
-      font-size: 0.9375rem;
-      color: var(--text-muted);
-      line-height: 1.6;
-    }
-
-    /* ── Status messages ──── */
-    .msg {
-      width: 100%;
-      border-radius: 8px;
-      padding: 0.625rem 0.875rem;
-      font-size: 0.875rem;
-      text-align: left;
-    }
-    .msg-error {
-      background: var(--danger-bg);
-      color: var(--danger);
-      border: 1px solid var(--danger-border);
-    }
-    .msg-success {
-      background: var(--success-bg);
-      color: var(--success);
-      border: 1px solid var(--success-border);
-    }
-
-    /* ── Button ───────────── */
+    .status-box.error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); }
+    .status-box.success { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
     .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      padding: 0.625rem 1.5rem;
-      border-radius: 6px;
-      font-size: 0.9375rem;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      transition: background .15s, opacity .15s;
-      border: 1px solid transparent;
-      line-height: 1.5;
-      margin-top: 0.25rem;
+      display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+      width: 100%; padding: 0.5625rem 1rem; border-radius: var(--radius);
+      font-size: 0.9375rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: background .15s, box-shadow .15s, opacity .15s;
+      border: 1px solid transparent; line-height: 1.5; margin-top: 1.25rem;
     }
-    .btn-primary {
-      background: var(--primary);
-      color: #fff;
-      border-color: var(--primary);
-    }
-    .btn-primary:hover { background: var(--primary-hover); }
-    .btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
-
-    /* ── Footer ───────────── */
-    .auth-footer {
-      margin-top: 1.5rem;
-      text-align: center;
-      font-size: 0.875rem;
-      color: var(--text-muted);
-    }
-    .auth-footer a { color: var(--primary); text-decoration: none; font-weight: 500; }
-    .auth-footer a:hover { text-decoration: underline; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .cooldown-note { margin-top: 0.75rem; font-size: 0.8125rem; color: var(--text-subtle); display: none; }
   </style>
 </head>
 <body>
   <div class="auth-container">
-
-    <div class="card">
-      <div class="icon-wrap" aria-hidden="true">
+    <div class="auth-header">
+      <div class="auth-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="4" width="20" height="16" rx="2"/>
+          <rect width="20" height="16" x="2" y="4" rx="2"/>
           <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
         </svg>
       </div>
-
       <h1>Check your inbox</h1>
-      <p class="body-text">
-        We've sent a verification link to your email address.<br>
-        Click the link to activate your account.
-      </p>
-
-      {{#if ERROR_MESSAGE}}
-      <div class="msg msg-error">{{ERROR_MESSAGE}}</div>
-      {{/if}}
-
-      <div id="status-box"></div>
-
-      <button id="resend-btn" class="btn btn-primary">Resend verification email</button>
+      <p class="subtitle">We've sent a verification link to your email address. Click it to activate your account.</p>
     </div>
 
-    <p class="auth-footer">
-      Already verified? <a href="/login?redirectTo={{REDIRECT_TO}}">Sign in</a>
-    </p>
-
+    <div class="card">
+      <div class="status-box" id="status-box"></div>
+      <p>Didn't receive the email? Click below to resend the verification link.</p>
+      <button type="button" class="btn btn-primary" id="resend-btn">Resend verification email</button>
+      <p class="cooldown-note" id="cooldown-note"></p>
+    </div>
   </div>
 
   <script type="module">
-    const btn = document.getElementById('resend-btn');
-    const statusBox = document.getElementById('status-box');
     const AUTH_URL = '{{AUTH_URL}}';
+    const resendBtn = document.getElementById('resend-btn');
+    const statusBox = document.getElementById('status-box');
+    const cooldownNote = document.getElementById('cooldown-note');
+    let cooldownTimer = null;
 
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.textContent = 'Sending…';
-      statusBox.innerHTML = '';
+    function showStatus(type, message) {
+      statusBox.className = 'status-box ' + type;
+      statusBox.textContent = message;
+      statusBox.style.display = 'block';
+    }
+
+    function startCooldown(seconds) {
+      resendBtn.disabled = true;
+      cooldownNote.style.display = 'block';
+      let remaining = seconds;
+      cooldownNote.textContent = `You can resend in ${remaining}s.`;
+      clearInterval(cooldownTimer);
+      cooldownTimer = setInterval(() => {
+        remaining--;
+        if (remaining <= 0) {
+          clearInterval(cooldownTimer);
+          resendBtn.disabled = false;
+          cooldownNote.style.display = 'none';
+        } else {
+          cooldownNote.textContent = `You can resend in ${remaining}s.`;
+        }
+      }, 1000);
+    }
+
+    resendBtn.addEventListener('click', async () => {
+      statusBox.style.display = 'none';
+      resendBtn.disabled = true;
+      resendBtn.textContent = 'Sending…';
       try {
         const res = await fetch(`${AUTH_URL}/api/auth/send-verification-email`, {
-          method: 'POST',
-          credentials: 'include',
+          method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
-          body: JSON.stringify({ callbackURL: window.location.href }),
         });
-        if (res.ok) {
-          statusBox.innerHTML = '<div class="msg msg-success">Email sent! Check your inbox.</div>';
-        } else {
-          const data = await res.json().catch(() => ({}));
-          statusBox.innerHTML = `<div class="msg msg-error">${data?.error?.message ?? 'Failed to resend.'}</div>`;
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showStatus('error', data?.error?.message ?? 'Failed to send email. Please try again.');
+          resendBtn.disabled = false;
+          resendBtn.textContent = 'Resend verification email';
+          return;
         }
+        showStatus('success', 'Verification email sent! Please check your inbox.');
+        resendBtn.textContent = 'Resend verification email';
+        startCooldown(30);
       } catch {
-        statusBox.innerHTML = '<div class="msg msg-error">Network error. Please try again.</div>';
-      } finally {
-        btn.textContent = 'Resend verification email';
-        // Re-enable after 30 s to prevent spam
-        setTimeout(() => { btn.disabled = false; }, 30_000);
+        showStatus('error', 'A network error occurred. Please try again.');
+        resendBtn.disabled = false;
+        resendBtn.textContent = 'Resend verification email';
       }
     });
   </script>

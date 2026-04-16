@@ -8,7 +8,12 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 const { t } = useI18n();
 const route = useRoute();
 
-const consentCode = route.query.consent_code as string | undefined;
+// @better-auth/oauth-provider redirects to the consent page with all OAuth
+// params signed via HMAC (exp + sig appended). The POST endpoint requires the
+// complete raw query string sent as `oauth_query` so the before-hook can verify
+// the signature and restore the OAuth state for the consent handler.
+const oauthQuery = window.location.search.slice(1);
+
 const clientId = route.query.client_id as string | undefined;
 const scopeParam = route.query.scope as string | undefined;
 
@@ -34,7 +39,7 @@ const submitting = ref(false);
 const submitError = ref('');
 
 onMounted(async () => {
-  if (!clientId) {
+  if (!clientId || !oauthQuery.includes('sig=')) {
     loadError.value = t('consent.invalidRequest');
     loading.value = false;
     return;
@@ -60,11 +65,11 @@ async function respond(accept: boolean) {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accept, consent_code: consentCode }),
+      body: JSON.stringify({ accept, oauth_query: oauthQuery }),
     });
     if (!res.ok) throw new Error();
     const data = await res.json();
-    window.location.href = data.redirectURI;
+    window.location.href = data.url;
   } catch {
     submitError.value = t('consent.submitError');
     submitting.value = false;

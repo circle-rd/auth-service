@@ -123,6 +123,10 @@
     </div>
 
     <div class="card">
+      <!-- Hidden input so the HTML parser decodes &amp; → & before JS reads it.
+           {{OAUTH_QUERY}} is HTML-escaped by templates.ts; inside a raw <script>
+           block, entities are NOT decoded, which would break the HMAC signature. -->
+      <input type="hidden" id="oauth-query" value="{{OAUTH_QUERY}}" />
       <div class="error-box" id="error-box"></div>
       <div class="org-list" id="org-list"></div>
     </div>
@@ -130,7 +134,9 @@
 
   <script type="module">
     const AUTH_URL = '{{AUTH_URL}}';
-    const OAUTH_QUERY = '{{OAUTH_QUERY}}';
+    // .value decodes HTML entities (&amp; → &) which escapeHtml() introduced.
+    // This preserves the exact signed query string for HMAC verification.
+    const OAUTH_QUERY = document.getElementById('oauth-query').value;
     const errorBox = document.getElementById('error-box');
     const orgList = document.getElementById('org-list');
 
@@ -189,17 +195,17 @@
             const d = await setRes.json().catch(() => ({}));
             throw new Error(d?.error?.message ?? 'Failed to select organization.');
           }
-          const contRes = await fetch(`${AUTH_URL}/api/auth/oauth2/continue?${OAUTH_QUERY}`, {
-            method: 'GET', credentials: 'include',
-            headers: { 'Origin': window.location.origin },
-            redirect: 'manual',
+          // POST with oauth_query in body: the @better-auth/oauth-provider before-hook
+          // verifies the HMAC, strips exp+sig, and restores oAuthState so the
+          // continueEndpoint can resume the authorization flow. GET is not supported.
+          const contRes = await fetch(`${AUTH_URL}/api/auth/oauth2/continue`, {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+            body: JSON.stringify({ postLogin: true, oauth_query: OAUTH_QUERY }),
           });
-          if (contRes.type === 'opaqueredirect') {
-            window.location.href = `${AUTH_URL}/api/auth/oauth2/continue?${OAUTH_QUERY}`; return;
-          }
           const cd = await contRes.json().catch(() => ({}));
           if (!contRes.ok) throw new Error(cd?.error?.message ?? 'Authorization failed.');
-          window.location.href = cd.url ?? `${AUTH_URL}/api/auth/oauth2/continue?${OAUTH_QUERY}`;
+          window.location.href = cd.url ?? '/';
         } catch(err) {
           errorBox.textContent = err.message;
           errorBox.style.display = 'block';

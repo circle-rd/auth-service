@@ -296,6 +296,26 @@ export default {
     unauthorized: 'Vous n\'êtes pas autorisé à effectuer cette action.',
     notFound: 'La ressource demandée est introuvable.',
   },
+  consent: {
+    title: 'Demande d\'autorisation',
+    subtitle: '{app} demande l\'accès à votre compte.',
+    permissionsLabel: 'Cette application pourra',
+    allow: 'Autoriser l\'accès',
+    deny: 'Refuser',
+    footer: 'Vous pouvez révoquer l\'accès à tout moment depuis votre profil.',
+    loadError: 'Impossible de charger les détails de l\'application.',
+    submitError: 'Une erreur est survenue. Veuillez réessayer.',
+    invalidRequest: 'Demande d\'autorisation invalide.',
+    scopes: {
+      openid: 'Vérifier votre identité',
+      profile: 'Lire votre profil (nom, avatar)',
+      email: 'Lire votre adresse e-mail',
+      offlineAccess: 'Rester connecté (émettre un jeton de rafraîchissement)',
+      roles: 'Lire vos rôles',
+      permissions: 'Lire vos permissions',
+      features: 'Lire vos fonctionnalités activées',
+    },
+  },
   pages: {
     notFound: {
       title: 'Page introuvable',

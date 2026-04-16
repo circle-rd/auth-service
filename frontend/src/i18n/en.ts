@@ -296,6 +296,26 @@ export default {
     unauthorized: 'You are not authorized to perform this action.',
     notFound: 'The requested resource was not found.',
   },
+  consent: {
+    title: 'Authorization Request',
+    subtitle: '{app} is requesting access to your account.',
+    permissionsLabel: 'This app will be able to',
+    allow: 'Allow Access',
+    deny: 'Deny',
+    footer: 'You can revoke access at any time from your profile.',
+    loadError: 'Failed to load application details.',
+    submitError: 'Something went wrong. Please try again.',
+    invalidRequest: 'Invalid authorization request.',
+    scopes: {
+      openid: 'Verify your identity',
+      profile: 'Read your profile (name, avatar)',
+      email: 'Read your email address',
+      offlineAccess: 'Stay signed in (issue a refresh token)',
+      roles: 'Read your roles',
+      permissions: 'Read your permissions',
+      features: 'Read your enabled features',
+    },
+  },
   pages: {
     notFound: {
       title: 'Page not found',

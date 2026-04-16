@@ -41,6 +41,8 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
       .select({
         allowRegister: applications.allowRegister,
         enabledSocialProviders: applications.enabledSocialProviders,
+        name: applications.name,
+        icon: applications.icon,
       })
       .from(applications)
       .where(eq(applications.slug, clientId))
@@ -61,6 +63,8 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
     return reply.send({
       allowRegister: app.allowRegister,
       enabledSocialProviders,
+      name: app.name,
+      icon: app.icon ?? null,
     });
   });
 }

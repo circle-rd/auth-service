@@ -58,6 +58,12 @@ const routes = [
     meta: { requiresAdmin: false, isPublic: true },
   },
   {
+    path: '/oauth2/consent',
+    name: 'consent',
+    component: () => import('@/views/ConsentView.vue'),
+    meta: { requiresAdmin: false },
+  },
+  {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/ForbiddenView.vue'),

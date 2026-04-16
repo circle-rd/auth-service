@@ -181,8 +181,10 @@
       const redirectTo = form.redirectTo.value || '/';
       const oauthQuery = form.oauthQuery.value;
       try {
-        const body = { email, password, callbackURL: redirectTo };
-        if (oauthQuery) body.oauth_query = oauthQuery;
+        const callbackURL = oauthQuery
+          ? AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery
+          : (redirectTo || '/');
+        const body = { email, password, callbackURL };
         const res = await fetch(`${AUTH_URL}/api/auth/sign-in/email`, {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },

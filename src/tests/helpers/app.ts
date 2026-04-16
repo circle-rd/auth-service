@@ -8,7 +8,7 @@ import { ApiError } from "../../errors.js";
 export function createTestApp(): FastifyInstance {
   const app = Fastify({ logger: false });
 
-  app.setErrorHandler(async (error, _req, reply) => {
+  app.setErrorHandler(async (error: Error, _req, reply) => {
     if (error instanceof ApiError) {
       await reply.status(error.statusCode).send(error.toJSON());
       return;

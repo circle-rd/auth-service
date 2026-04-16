@@ -9,6 +9,7 @@ import {
   userApplications,
   userAppRoles,
   consumptionAggregates,
+  consumptionEntries,
   subscriptionPlans,
   userSubscriptions,
 } from "../../db/schema.js";
@@ -475,14 +476,24 @@ export async function applicationRoutes(
   fastify.delete<{ Params: { id: string; userId: string } }>(
     "/:id/users/:userId",
     async (req, reply) => {
-      await db
-        .delete(userApplications)
-        .where(
-          and(
-            eq(userApplications.userId, req.params.userId),
-            eq(userApplications.applicationId, req.params.id),
-          ),
+      const { id: appId, userId } = req.params;
+      await db.transaction(async (tx) => {
+        await tx.delete(userAppRoles).where(
+          and(eq(userAppRoles.userId, userId), eq(userAppRoles.applicationId, appId)),
         );
+        await tx.delete(userSubscriptions).where(
+          and(eq(userSubscriptions.userId, userId), eq(userSubscriptions.applicationId, appId)),
+        );
+        await tx.delete(consumptionAggregates).where(
+          and(eq(consumptionAggregates.userId, userId), eq(consumptionAggregates.applicationId, appId)),
+        );
+        await tx.delete(consumptionEntries).where(
+          and(eq(consumptionEntries.userId, userId), eq(consumptionEntries.applicationId, appId)),
+        );
+        await tx.delete(userApplications).where(
+          and(eq(userApplications.userId, userId), eq(userApplications.applicationId, appId)),
+        );
+      });
       await reply.status(204).send();
     },
   );

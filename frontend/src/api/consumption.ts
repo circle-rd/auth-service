@@ -9,6 +9,13 @@ export async function getUserConsumption(userId: string, appId: string): Promise
   return apiFetch<{ aggregates: ConsumptionAggregate[] }>(`/consumption/${userId}/${appId}`);
 }
 
+export async function getMyConsumption(appId: string): Promise<{ aggregates: ConsumptionAggregate[] }> {
+  if (USE_MOCK) {
+    return { aggregates: MOCK_CONSUMPTION.filter(c => c.applicationId === appId) };
+  }
+  return apiFetch<{ aggregates: ConsumptionAggregate[] }>(`/user/consumption/${appId}`);
+}
+
 export async function resetConsumption(userId: string, appId: string, key: string): Promise<void> {
   if (USE_MOCK) {
     const idx = MOCK_CONSUMPTION.findIndex(c => c.userId === userId && c.applicationId === appId && c.key === key);

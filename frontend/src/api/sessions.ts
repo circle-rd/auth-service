@@ -22,6 +22,19 @@ export async function listSessions(params: { page?: number; limit?: number } = {
   return apiFetch<SessionsListResponse>(`/admin/sessions?${qs}`);
 }
 
+export interface MySessionsResponse {
+  sessions: Session[]
+  currentSessionId: string
+}
+
+export async function listMySessions(): Promise<MySessionsResponse> {
+  if (USE_MOCK) {
+    return { sessions: MOCK_SESSIONS, currentSessionId: MOCK_SESSIONS[0]?.id ?? '' };
+  }
+  return apiFetch<MySessionsResponse>('/user/sessions');
+}
+
 export async function revokeSession(id: string): Promise<void> {
-  console.log('TODO: Revoke session', id);
+  if (USE_MOCK) return;
+  return apiFetch<void>(`/user/sessions/${id}`, { method: 'DELETE' });
 }

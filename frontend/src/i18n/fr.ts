@@ -241,6 +241,7 @@ export default {
     noConsumption: 'Aucune donnée de consommation',
     expiredSubscription: 'Abonnement expiré',
     expiresAt: 'Expire le',
+    deletedUser: 'Utilisateur supprimé',
   },
   configuration: {
     title: 'Configuration',
@@ -281,6 +282,10 @@ export default {
     totpDisabled: 'TOTP non activé',
     passkeys: 'Passkeys',
     passkeysNote: 'Gérez vos passkeys via les paramètres de sécurité.',
+    saved: 'Profil enregistré',
+    sessionRevoked: 'Session révoquée',
+    current: 'Actuelle',
+    revoke: 'Révoquer',
   },
   errors: {
     USR_002: 'Impossible de supprimer le dernier super-administrateur.',

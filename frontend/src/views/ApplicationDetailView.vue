@@ -256,9 +256,26 @@ async function handleRotate() {
   }
 }
 
-function getUserName(userId: string) { return allUsers.value.find(u => u.id === userId)?.name ?? userId; }
-function getUserEmail(userId: string) { return allUsers.value.find(u => u.id === userId)?.email ?? ''; }
-function getUserImage(userId: string) { return allUsers.value.find(u => u.id === userId)?.image ?? null; }
+function getUserName(userId: string) {
+  // Prefer the denormalised name already in the userApplication row (avoids extra lookup)
+  const ua = appUsers.value.find(u => u.userId === userId);
+  if (ua?.name) return ua.name;
+  if (ua && ua.name === null) return t('appDetail.deletedUser');
+  return allUsers.value.find(u => u.id === userId)?.name ?? t('appDetail.deletedUser');
+}
+function getUserEmail(userId: string) {
+  const ua = appUsers.value.find(u => u.userId === userId);
+  if (ua?.email) return ua.email;
+  if (ua && ua.email === null) return '';
+  return allUsers.value.find(u => u.id === userId)?.email ?? '';
+}
+function getUserImage(userId: string) {
+  return allUsers.value.find(u => u.id === userId)?.image ?? null;
+}
+function isDeletedUser(userId: string) {
+  const ua = appUsers.value.find(u => u.userId === userId);
+  return ua ? ua.name === null : false;
+}
 function getRoleName(roleId: string | null) { return roleId ? roles.value.find(r => r.id === roleId)?.name ?? roleId : t('common.none'); }
 function getPlanName(planId: string | null) { return planId ? plans.value.find(p => p.id === planId)?.name ?? planId : t('common.none'); }
 
@@ -413,10 +430,13 @@ type PKey = typeof PROVIDERS[number];
           <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
             <div v-if="!appUsers.length" class="px-5 py-8 text-center text-sm text-surface-500">No users with access</div>
             <div v-else class="divide-y divide-surface-800/40">
-              <div v-for="ua in appUsers" :key="ua.userId" class="px-5 py-4 flex items-center gap-4 group">
+              <div v-for="ua in appUsers" :key="ua.userId" class="px-5 py-4 flex items-center gap-4 group" :class="{ 'opacity-60': isDeletedUser(ua.userId) }">
                 <UserAvatar :name="getUserName(ua.userId)" :image="getUserImage(ua.userId)" size="sm" />
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-surface-200">{{ getUserName(ua.userId) }}</p>
+                  <div class="flex items-center gap-2">
+                    <p class="text-sm font-medium text-surface-200">{{ getUserName(ua.userId) }}</p>
+                    <BaseBadge v-if="isDeletedUser(ua.userId)" variant="error" size="sm">{{ t('appDetail.deletedUser') }}</BaseBadge>
+                  </div>
                   <p class="text-xs text-surface-500">{{ getUserEmail(ua.userId) }}</p>
                 </div>
                 <div class="flex items-center gap-2">

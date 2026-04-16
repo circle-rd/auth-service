@@ -2,13 +2,10 @@
 import { ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
-import { updateUser } from '@/api/users';
-import { listSessions } from '@/api/sessions';
-import { revokeSession } from '@/api/sessions';
-import { getUserConsumption } from '@/api/consumption';
-import { listApplications } from '@/api/applications';
-import type { Session, UserApplication, ConsumptionAggregate, Application } from '@/types';
-import { getUser } from '@/api/users';
+import { updateMyProfile } from '@/api/users';
+import { listMySessions, revokeSession } from '@/api/sessions';
+import { getMyConsumption } from '@/api/consumption';
+import type { Session, ConsumptionAggregate } from '@/types';
 import { useToast } from '@/composables/useToast';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import AppLayout from '@/components/layout/AppLayout.vue';
@@ -18,13 +15,22 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import { Monitor, CheckCircle, ShieldCheck, Key } from 'lucide-vue-next';
 
+interface SubscriptionEntry {
+  applicationId: string
+  applicationName: string
+  applicationSlug: string
+  applicationIcon: string | null
+  isActive: boolean
+  plan: { id: string; name: string; description: string | null; features: Record<string, unknown>; isDefault: boolean | null } | null
+}
+
 const { t } = useI18n();
 const auth = useAuthStore();
 const toast = useToast();
 
 const sessions = ref<Session[]>([]);
-const userApps = ref<UserApplication[]>([]);
-const applications = ref<Application[]>([]);
+const currentSessionId = ref<string>('');
+const subscriptions = ref<SubscriptionEntry[]>([]);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const saveLoading = ref(false);
 const sessionsLoading = ref(true);
@@ -54,23 +60,24 @@ if (auth.user) {
 onMounted(async () => {
   if (!auth.user) return;
 
-  // Sessions — independent fetch
-  listSessions({ limit: 10 })
+  // Sessions — independent fetch, user-facing (no admin required)
+  listMySessions()
     .then(res => {
-      sessions.value = res.sessions.filter(s => s.userId === auth.user!.id);
+      sessions.value = res.sessions;
+      currentSessionId.value = res.currentSessionId;
     })
     .catch(() => { /* silently ignore */ })
     .finally(() => { sessionsLoading.value = false; });
 
-  // Apps + consumption — independent fetch
-  Promise.all([getUser(auth.user.id), listApplications()])
-    .then(async ([userRes, appsRes]) => {
-      userApps.value = userRes.applications;
-      applications.value = appsRes.applications;
-      for (const ua of userRes.applications) {
+  // Subscriptions + consumption — user-facing endpoints
+  fetch('/api/user/subscription', { credentials: 'include' })
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(async (data: { subscriptions: SubscriptionEntry[] }) => {
+      subscriptions.value = data.subscriptions;
+      for (const sub of data.subscriptions) {
         try {
-          const res = await getUserConsumption(ua.userId, ua.applicationId);
-          consumption.value[ua.applicationId] = res.aggregates;
+          const res = await getMyConsumption(sub.applicationId);
+          consumption.value[sub.applicationId] = res.aggregates;
         } catch { /* silently ignore */ }
       }
     })
@@ -82,7 +89,7 @@ async function handleSave() {
   if (!auth.user) return;
   saveLoading.value = true;
   try {
-    await updateUser(auth.user.id, {
+    await updateMyProfile({
       name: form.value.name,
       phone: form.value.phone || null,
       company: form.value.company || null,
@@ -90,7 +97,12 @@ async function handleSave() {
       address: form.value.address || null,
       image: form.value.image || null,
     });
-    toast.success('Profile updated');
+    // Also update the in-memory store so the header/avatar reflects the new name immediately
+    if (auth.user) {
+      auth.user.name = form.value.name;
+      auth.user.image = form.value.image || null;
+    }
+    toast.success(t('profile.saved'));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to update');
   } finally {
@@ -98,17 +110,18 @@ async function handleSave() {
   }
 }
 
-function getAppName(appId: string) {
-  return applications.value.find(a => a.id === appId)?.name ?? appId;
-}
-
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
 }
 
 async function handleRevoke(session: Session) {
-  await revokeSession(session.id);
-  toast.info('Session revoke is not yet available via API.');
+  try {
+    await revokeSession(session.id);
+    sessions.value = sessions.value.filter(s => s.id !== session.id);
+    toast.success(t('profile.sessionRevoked'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to revoke session');
+  }
 }
 </script>
 
@@ -184,26 +197,32 @@ async function handleRevoke(session: Session) {
               <Monitor class="w-4 h-4 text-surface-400" />
             </div>
             <div class="flex-1 min-w-0">
-              <p class="text-sm text-surface-200">{{ parseUserAgent(session.userAgent).browser }} on {{ parseUserAgent(session.userAgent).os }}</p>
+              <div class="flex items-center gap-2">
+                <p class="text-sm text-surface-200">{{ parseUserAgent(session.userAgent).browser }} on {{ parseUserAgent(session.userAgent).os }}</p>
+                <BaseBadge v-if="session.id === currentSessionId" variant="success" size="sm">{{ t('profile.current') }}</BaseBadge>
+              </div>
               <p class="text-xs text-surface-500 mt-0.5">{{ session.ipAddress }} · {{ formatDate(session.createdAt) }}</p>
             </div>
-            <BaseButton variant="ghost" size="sm" @click="handleRevoke(session)">Revoke</BaseButton>
+            <BaseButton v-if="session.id !== currentSessionId" variant="ghost" size="sm" @click="handleRevoke(session)">{{ t('profile.revoke') }}</BaseButton>
           </div>
         </div>
       </div>
 
-      <div v-if="appsLoading || userApps.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+      <div v-if="appsLoading || subscriptions.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
         <div class="px-5 py-4 border-b border-surface-700/40">
           <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.appAccess') }}</h3>
         </div>
-        <div class="divide-y divide-surface-800/40">
-          <div v-for="ua in userApps" :key="ua.applicationId" class="px-5 py-4">
-            <div class="flex items-center justify-between mb-2">
-              <p class="text-sm font-medium text-surface-200">{{ getAppName(ua.applicationId) }}</p>
-              <BaseBadge :variant="ua.isActive ? 'success' : 'neutral'" size="sm" dot>{{ ua.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
+        <div v-if="appsLoading" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.loading') }}</div>
+        <div v-else class="divide-y divide-surface-800/40">
+          <div v-for="sub in subscriptions" :key="sub.applicationId" class="px-5 py-4">
+            <div class="flex items-center gap-3 mb-2">
+              <img v-if="sub.applicationIcon" :src="sub.applicationIcon" class="w-5 h-5 rounded" />
+              <p class="text-sm font-medium text-surface-200 flex-1">{{ sub.applicationName }}</p>
+              <BaseBadge :variant="sub.isActive ? 'success' : 'neutral'" size="sm" dot>{{ sub.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
+              <BaseBadge v-if="sub.plan" variant="neutral" size="sm">{{ sub.plan.name }}</BaseBadge>
             </div>
-            <div v-if="consumption[ua.applicationId]?.length" class="flex flex-wrap gap-2 mt-2">
-              <div v-for="agg in consumption[ua.applicationId]" :key="agg.key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30">
+            <div v-if="consumption[sub.applicationId]?.length" class="flex flex-wrap gap-2 mt-2">
+              <div v-for="agg in consumption[sub.applicationId]" :key="agg.key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30">
                 <span class="text-xs font-mono text-surface-500">{{ agg.key }}: </span>
                 <span class="text-xs font-semibold text-surface-200">{{ Number(agg.total).toLocaleString() }}</span>
               </div>

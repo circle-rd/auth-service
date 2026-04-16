@@ -7,6 +7,9 @@ import {
   applications,
   userAppRoles,
   appRoles,
+  userSubscriptions,
+  consumptionEntries,
+  consumptionAggregates,
 } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
 import { and, count, eq } from "drizzle-orm";
@@ -236,8 +239,16 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
-    // Delete the user — cascade constraints in auth-schema handle related records
-    await db.delete(userTable).where(eq(userTable.id, req.params.id));
+    // Delete the user — cascade constraints in auth-schema handle BetterAuth-owned records.
+    // Our custom tables store userId as plain text without a FK, so we clean them manually.
+    await db.transaction(async (tx) => {
+      await tx.delete(userAppRoles).where(eq(userAppRoles.userId, req.params.id));
+      await tx.delete(userSubscriptions).where(eq(userSubscriptions.userId, req.params.id));
+      await tx.delete(consumptionAggregates).where(eq(consumptionAggregates.userId, req.params.id));
+      await tx.delete(consumptionEntries).where(eq(consumptionEntries.userId, req.params.id));
+      await tx.delete(userApplications).where(eq(userApplications.userId, req.params.id));
+      await tx.delete(userTable).where(eq(userTable.id, req.params.id));
+    });
 
     await reply.status(204).send();
   });

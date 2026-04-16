@@ -1,5 +1,5 @@
 import { apiFetch, USE_MOCK } from './client';
-import type { Application, ApplicationCreateResponse, UserApplication, AppRole, AppPermission, SubscriptionPlan, SubscriptionPlanPrice, UserSubscription } from '@/types';
+import type { Application, ApplicationCreateResponse, UserApplication, AppRole, AppPermission, SubscriptionPlan, SubscriptionPlanPrice } from '@/types';
 import { MOCK_APPLICATIONS, MOCK_ROLES, MOCK_PERMISSIONS, MOCK_PLANS, MOCK_USER_APPLICATIONS } from '@/mocks/data';
 
 export async function listApplications(): Promise<{ applications: Application[] }> {
@@ -113,17 +113,14 @@ export async function revokeAppAccess(appId: string, userId: string): Promise<vo
   return apiFetch<void>(`/admin/applications/${appId}/users/${userId}`, { method: 'DELETE' });
 }
 
-export async function assignSubscription(appId: string, userId: string, body: { planId: string; expiresAt?: string }): Promise<{ subscription: UserSubscription }> {
-  if (USE_MOCK) {
-    const sub: UserSubscription = { id: crypto.randomUUID(), userId, applicationId: appId, planId: body.planId, expiresAt: body.expiresAt ?? null, isActive: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    return { subscription: sub };
-  }
-  return apiFetch<{ subscription: UserSubscription }>(`/admin/applications/${appId}/users/${userId}/subscription`, { method: 'POST', body: JSON.stringify(body) });
+export async function assignSubscription(appId: string, userId: string, body: { planId: string }): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ subscriptionPlanId: body.planId }) });
 }
 
-export async function removeSubscription(appId: string, userId: string): Promise<void> {
-  if (USE_MOCK) return;
-  return apiFetch<void>(`/admin/applications/${appId}/users/${userId}/subscription`, { method: 'DELETE' });
+export async function removeSubscription(appId: string, userId: string): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ subscriptionPlanId: null }) });
 }
 
 export async function listRoles(appId: string): Promise<{ roles: AppRole[] }> {

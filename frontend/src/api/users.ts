@@ -81,6 +81,23 @@ export async function updateUser(id: string, body: UpdateUserBody): Promise<{ ok
   return apiFetch<{ ok: true }>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
+export interface UpdateMyProfileBody {
+  name?: string
+  phone?: string | null
+  company?: string | null
+  position?: string | null
+  address?: string | null
+  image?: string | null
+}
+
+export async function updateMyProfile(body: UpdateMyProfileBody): Promise<{ ok: true }> {
+  if (USE_MOCK) {
+    // Update the mock current user if it exists in MOCK_USERS
+    return { ok: true };
+  }
+  return apiFetch<{ ok: true }>('/user/profile', { method: 'PATCH', body: JSON.stringify(body) });
+}
+
 export async function deleteUser(id: string): Promise<void> {
   if (USE_MOCK) {
     const idx = MOCK_USERS.findIndex(u => u.id === id);

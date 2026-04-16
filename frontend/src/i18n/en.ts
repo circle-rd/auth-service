@@ -241,6 +241,7 @@ export default {
     noConsumption: 'No consumption data',
     expiredSubscription: 'Subscription expired',
     expiresAt: 'Expires at',
+    deletedUser: 'Deleted user',
   },
   configuration: {
     title: 'Configuration',
@@ -281,6 +282,10 @@ export default {
     totpDisabled: 'TOTP is not enabled',
     passkeys: 'Passkeys',
     passkeysNote: 'Manage your passkeys via the security settings.',
+    saved: 'Profile saved',
+    sessionRevoked: 'Session revoked',
+    current: 'Current',
+    revoke: 'Revoke',
   },
   errors: {
     USR_002: 'Cannot delete the last superadmin.',

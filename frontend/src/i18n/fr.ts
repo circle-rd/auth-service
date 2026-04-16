@@ -6,6 +6,7 @@ export default {
     applications: 'Applications',
     configuration: 'Configuration',
     profile: 'Profil',
+    signOut: 'Se déconnecter',
   },
   common: {
     save: 'Enregistrer',

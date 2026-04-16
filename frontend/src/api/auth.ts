@@ -7,6 +7,11 @@ export interface AuthSession {
   session: Session
 }
 
+export async function signOut(): Promise<void> {
+  if (USE_MOCK) return;
+  await apiFetch('/auth/sign-out', { method: 'POST' });
+}
+
 export async function getSession(): Promise<AuthSession | null> {
   if (USE_MOCK) {
     return {

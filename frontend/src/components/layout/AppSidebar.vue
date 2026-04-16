@@ -3,9 +3,8 @@ import { computed } from 'vue';
 import { useRoute, RouterLink } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
-import UserAvatar from '@/components/ui/UserAvatar.vue';
 import {
-  LayoutDashboard, Users, Building2, AppWindow, Settings, User, Shield, ChevronRight,
+  LayoutDashboard, Users, Building2, AppWindow, Settings, ChevronRight,
 } from 'lucide-vue-next';
 
 const { t } = useI18n();
@@ -18,7 +17,6 @@ const navItems = computed(() => [
   { name: t('nav.organizations'), to: '/organizations', icon: Building2, adminOnly: true },
   { name: t('nav.applications'), to: '/applications', icon: AppWindow, adminOnly: true },
   { name: t('nav.configuration'), to: '/configuration', icon: Settings, adminOnly: true },
-  { name: t('nav.profile'), to: '/profile', icon: User, adminOnly: false },
 ]);
 
 const visibleItems = computed(() =>
@@ -65,15 +63,5 @@ function isActive(to: string) {
         />
       </RouterLink>
     </nav>
-
-    <div v-if="auth.user" class="px-3 pb-4 pt-3 border-t border-surface-800/40">
-      <RouterLink to="/profile" class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-800/60 transition-colors group">
-        <UserAvatar :name="auth.user.name" :image="auth.user.image" size="sm" />
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-surface-200 truncate">{{ auth.user.name }}</p>
-          <p class="text-xs text-surface-500 truncate">{{ auth.user.email }}</p>
-        </div>
-      </RouterLink>
-    </div>
   </aside>
 </template>

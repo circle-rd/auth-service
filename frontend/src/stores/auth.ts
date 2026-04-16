@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import type { User, Session } from '@/types';
-import { getSession } from '@/api/auth';
+import { getSession, signOut as apiSignOut } from '@/api/auth';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
@@ -29,6 +29,16 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function logout() {
+    try {
+      await apiSignOut();
+    } catch {
+      // proceed even if API fails (e.g. session already expired)
+    }
+    user.value = null;
+    session.value = null;
+  }
+
   function isAdmin(): boolean {
     return user.value?.role === 'admin' || user.value?.role === 'superadmin';
   }
@@ -37,5 +47,5 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value?.role === 'superadmin';
   }
 
-  return { user, session, loading, initialized, fetchSession, isAdmin, isSuperAdmin };
+  return { user, session, loading, initialized, fetchSession, logout, isAdmin, isSuperAdmin };
 });

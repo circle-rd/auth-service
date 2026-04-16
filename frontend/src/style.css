@@ -70,6 +70,37 @@
 @layer base {
   * { box-sizing: border-box; }
   html { -webkit-font-smoothing: antialiased; }
+
+  /* Light mode — invert the surface palette so surface-950 = white, surface-50 = black */
+  :root {
+    --color-surface-50:  #09090b;
+    --color-surface-100: #18181b;
+    --color-surface-200: #27272a;
+    --color-surface-300: #3f3f46;
+    --color-surface-400: #52525b;
+    --color-surface-500: #71717a;
+    --color-surface-600: #a1a1aa;
+    --color-surface-700: #d4d4d8;
+    --color-surface-800: #e4e4e7;
+    --color-surface-900: #f4f4f5;
+    --color-surface-950: #fafafa;
+  }
+
+  /* Dark mode — restore original @theme values */
+  :root.dark {
+    --color-surface-50:  #fafafa;
+    --color-surface-100: #f4f4f5;
+    --color-surface-200: #e4e4e7;
+    --color-surface-300: #d4d4d8;
+    --color-surface-400: #a1a1aa;
+    --color-surface-500: #71717a;
+    --color-surface-600: #52525b;
+    --color-surface-700: #3f3f46;
+    --color-surface-800: #27272a;
+    --color-surface-900: #18181b;
+    --color-surface-950: #09090b;
+  }
+
   body { @apply bg-surface-950 text-surface-100 font-sans; }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { @apply bg-transparent; }

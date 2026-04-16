@@ -26,8 +26,9 @@ const sessions = ref<Session[]>([]);
 const userApps = ref<UserApplication[]>([]);
 const applications = ref<Application[]>([]);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
-const loading = ref(true);
 const saveLoading = ref(false);
+const sessionsLoading = ref(true);
+const appsLoading = ref(true);
 
 const form = ref({
   name: '',
@@ -38,22 +39,8 @@ const form = ref({
   image: '',
 });
 
-onMounted(async () => {
-  if (!auth.user) return;
-  const [sessRes, userRes, appsRes] = await Promise.all([
-    listSessions({ limit: 10 }),
-    getUser(auth.user.id),
-    listApplications(),
-  ]);
-  sessions.value = sessRes.sessions.filter(s => s.userId === auth.user!.id);
-  userApps.value = userRes.applications;
-  applications.value = appsRes.applications;
-
-  for (const ua of userRes.applications) {
-    const res = await getUserConsumption(ua.userId, ua.applicationId);
-    consumption.value[ua.applicationId] = res.aggregates;
-  }
-
+// Populate form immediately from store — no API call needed
+if (auth.user) {
   form.value = {
     name: auth.user.name,
     phone: auth.user.phone ?? '',
@@ -62,7 +49,33 @@ onMounted(async () => {
     address: auth.user.address ?? '',
     image: auth.user.image ?? '',
   };
-  loading.value = false;
+}
+
+onMounted(async () => {
+  if (!auth.user) return;
+
+  // Sessions — independent fetch
+  listSessions({ limit: 10 })
+    .then(res => {
+      sessions.value = res.sessions.filter(s => s.userId === auth.user!.id);
+    })
+    .catch(() => { /* silently ignore */ })
+    .finally(() => { sessionsLoading.value = false; });
+
+  // Apps + consumption — independent fetch
+  Promise.all([getUser(auth.user.id), listApplications()])
+    .then(async ([userRes, appsRes]) => {
+      userApps.value = userRes.applications;
+      applications.value = appsRes.applications;
+      for (const ua of userRes.applications) {
+        try {
+          const res = await getUserConsumption(ua.userId, ua.applicationId);
+          consumption.value[ua.applicationId] = res.aggregates;
+        } catch { /* silently ignore */ }
+      }
+    })
+    .catch(() => { /* silently ignore */ })
+    .finally(() => { appsLoading.value = false; });
 });
 
 async function handleSave() {
@@ -163,7 +176,8 @@ async function handleRevoke(session: Session) {
         <div class="px-5 py-4 border-b border-surface-700/40">
           <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.activeSessions') }}</h3>
         </div>
-        <div v-if="sessions.length === 0" class="px-5 py-6 text-center text-sm text-surface-500">No active sessions</div>
+        <div v-if="sessionsLoading" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.loading') }}</div>
+        <div v-else-if="sessions.length === 0" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.noData') }}</div>
         <div v-else class="divide-y divide-surface-800/40">
           <div v-for="session in sessions" :key="session.id" class="px-5 py-4 flex items-center gap-4">
             <div class="w-8 h-8 rounded-lg bg-surface-800 flex items-center justify-center shrink-0">
@@ -178,7 +192,7 @@ async function handleRevoke(session: Session) {
         </div>
       </div>
 
-      <div v-if="userApps.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+      <div v-if="appsLoading || userApps.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
         <div class="px-5 py-4 border-b border-surface-700/40">
           <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.appAccess') }}</h3>
         </div>

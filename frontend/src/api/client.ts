@@ -15,11 +15,15 @@ export class ApiError extends Error {
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `/api${path}`;
+  // Only set Content-Type: application/json when there is actually a body to send.
+  // Sending the header on body-less requests (DELETE, GET) causes Fastify to attempt
+  // JSON parsing of an empty body and return 400 FST_ERR_CTP_EMPTY_JSON_BODY.
+  const hasBody = options?.body != null;
   const response = await fetch(url, {
     ...options,
     credentials: 'include',
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...options?.headers,
     },
   });

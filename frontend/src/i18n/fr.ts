@@ -44,6 +44,7 @@ export default {
     unknown: 'Inconnu',
     optional: 'facultatif',
     required: 'requis',
+    showing: 'Affichage de {from} à {to} sur {total}',
   },
   auth: {
     login: 'Se connecter',
@@ -265,6 +266,7 @@ export default {
     security: 'Sécurité',
     activeSessions: 'Sessions actives',
     appAccess: 'Accès aux applications',
+    organizations: 'Organisations',
     name: 'Nom complet',
     email: 'Adresse e-mail',
     phone: 'Téléphone',

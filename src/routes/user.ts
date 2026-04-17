@@ -8,7 +8,7 @@ import {
   subscriptionPlans,
   consumptionAggregates,
 } from "../db/schema.js";
-import { session as sessionTable, user as userTable } from "../db/auth-schema.js";
+import { session as sessionTable, user as userTable, member as memberTable, organization as organizationTable } from "../db/auth-schema.js";
 import { and, eq, gt } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
@@ -203,6 +203,29 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       await reply.status(204).send();
     },
   );
+
+  // GET /api/user/organizations
+  // Returns the organizations the current user is a member of.
+  fastify.get("/organizations", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+
+    const rows = await db
+      .select({
+        id: organizationTable.id,
+        name: organizationTable.name,
+        slug: organizationTable.slug,
+        logo: organizationTable.logo,
+        createdAt: organizationTable.createdAt,
+        role: memberTable.role,
+      })
+      .from(memberTable)
+      .innerJoin(organizationTable, eq(organizationTable.id, memberTable.organizationId))
+      .where(eq(memberTable.userId, userId))
+      .orderBy(organizationTable.name);
+
+    await reply.send({ organizations: rows });
+  });
 
   // PATCH /api/user/profile
   // Allows any authenticated user to update their own profile fields.

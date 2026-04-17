@@ -44,6 +44,7 @@ export default {
     unknown: 'Unknown',
     optional: 'optional',
     required: 'required',
+    showing: 'Showing {from}–{to} of {total}',
   },
   auth: {
     login: 'Sign In',
@@ -265,6 +266,7 @@ export default {
     security: 'Security',
     activeSessions: 'Active Sessions',
     appAccess: 'Application Access',
+    organizations: 'Organizations',
     name: 'Full name',
     email: 'Email address',
     phone: 'Phone',

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth';
 import { updateMyProfile } from '@/api/users';
 import { listMySessions, revokeSession } from '@/api/sessions';
 import { getMyConsumption } from '@/api/consumption';
+import { getMyOrganizations } from '@/api/organizations';
 import type { Session, ConsumptionAggregate } from '@/types';
 import { useToast } from '@/composables/useToast';
 import { parseUserAgent } from '@/composables/useUserAgent';
@@ -13,7 +14,7 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
-import { Monitor, CheckCircle, ShieldCheck, Key } from 'lucide-vue-next';
+import { Monitor, CheckCircle, ShieldCheck, Key, Building2 } from 'lucide-vue-next';
 
 interface SubscriptionEntry {
   applicationId: string
@@ -32,6 +33,7 @@ const sessions = ref<Session[]>([]);
 const currentSessionId = ref<string>('');
 const subscriptions = ref<SubscriptionEntry[]>([]);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
+const myOrgs = ref<Array<{ id: string; name: string; slug: string; logo: string | null; role: string }>>([]);
 const saveLoading = ref(false);
 const sessionsLoading = ref(true);
 const appsLoading = ref(true);
@@ -68,6 +70,11 @@ onMounted(async () => {
     })
     .catch(() => { /* silently ignore */ })
     .finally(() => { sessionsLoading.value = false; });
+
+  // User organizations — user-facing
+  getMyOrganizations()
+    .then(res => { myOrgs.value = res.organizations; })
+    .catch(() => { /* silently ignore */ });
 
   // Subscriptions + consumption — user-facing endpoints
   fetch('/api/user/subscription', { credentials: 'include' })
@@ -204,6 +211,27 @@ async function handleRevoke(session: Session) {
               <p class="text-xs text-surface-500 mt-0.5">{{ session.ipAddress }} · {{ formatDate(session.createdAt) }}</p>
             </div>
             <BaseButton v-if="session.id !== currentSessionId" variant="ghost" size="sm" @click="handleRevoke(session)">{{ t('profile.revoke') }}</BaseButton>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="myOrgs.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+        <div class="px-5 py-4 border-b border-surface-700/40">
+          <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.organizations') }}</h3>
+        </div>
+        <div class="divide-y divide-surface-800/40">
+          <div v-for="org in myOrgs" :key="org.id" class="px-5 py-3 flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg overflow-hidden shrink-0">
+              <img v-if="org.logo" :src="org.logo" class="w-full h-full object-cover" />
+              <div v-else class="w-full h-full bg-primary-600/20 flex items-center justify-center">
+                <Building2 class="w-4 h-4 text-primary-400" />
+              </div>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-surface-200">{{ org.name }}</p>
+              <p class="text-xs text-surface-500 font-mono">{{ org.slug }}</p>
+            </div>
+            <BaseBadge :variant="org.role === 'owner' ? 'warning' : 'neutral'" size="sm">{{ org.role }}</BaseBadge>
           </div>
         </div>
       </div>

@@ -3,6 +3,9 @@ import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
+import { db } from "../../db/index.js";
+import { organization, member, user as userTable } from "../../db/auth-schema.js";
+import { count, ilike, or, eq, desc, asc, and } from "drizzle-orm";
 
 async function requireAdmin(
   req: FastifyRequest,
@@ -48,12 +51,48 @@ export async function organizationsRoutes(
 ): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
 
-  // GET /api/admin/organizations — list all organizations
+  // GET /api/admin/organizations — list all organizations (Drizzle, paginated, searchable)
   fastify.get("/", async (req, reply) => {
-    const organizations = await auth.api.listOrganizations({
-      headers: fromNodeHeaders(req.headers),
-    });
-    await reply.send({ organizations: organizations ?? [] });
+    const q = req.query as Record<string, string>;
+    const page = Math.max(1, parseInt(q.page ?? "1", 10));
+    const limit = Math.min(100, Math.max(1, parseInt(q.limit ?? "20", 10)));
+    const search = q.search?.trim() || undefined;
+    const sortBy = q.sortBy === "createdAt" || q.sortBy === "slug" ? q.sortBy : "name";
+    const sortOrder = q.sortOrder === "desc" ? "desc" : "asc";
+    const offset = (page - 1) * limit;
+
+    const searchFilter = search
+      ? or(ilike(organization.name, `%${search}%`), ilike(organization.slug, `%${search}%`))
+      : undefined;
+
+    const orderCol =
+      sortBy === "createdAt" ? organization.createdAt
+      : sortBy === "slug" ? organization.slug
+      : organization.name;
+    const orderExpr = sortOrder === "desc" ? desc(orderCol) : asc(orderCol);
+
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select({
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          logo: organization.logo,
+          createdAt: organization.createdAt,
+          metadata: organization.metadata,
+          memberCount: count(member.id),
+        })
+        .from(organization)
+        .leftJoin(member, eq(member.organizationId, organization.id))
+        .where(searchFilter)
+        .groupBy(organization.id)
+        .orderBy(orderExpr)
+        .limit(limit)
+        .offset(offset),
+      db.select({ total: count() }).from(organization).where(searchFilter),
+    ]);
+
+    await reply.send({ organizations: rows, total, page, limit });
   });
 
   // POST /api/admin/organizations — create an organization (server-side, admin only)
@@ -113,18 +152,40 @@ export async function organizationsRoutes(
     }
   });
 
-  // GET /api/admin/organizations/:id/members — list members
+  // GET /api/admin/organizations/:id/members — list members with embedded user data
   fastify.get("/:id/members", async (req, reply) => {
     const { id } = req.params as { id: string };
-    const query = req.query as Record<string, string>;
-    const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "50", 10)));
-    const offset = Math.max(0, parseInt(query.offset ?? "0", 10));
+    const q = req.query as Record<string, string>;
+    const limit = Math.min(100, Math.max(1, parseInt(q.limit ?? "50", 10)));
+    const offset = Math.max(0, parseInt(q.offset ?? "0", 10));
+    const search = q.search?.trim() || undefined;
 
-    const members = await auth.api.listMembers({
-      query: { organizationId: id, limit, offset },
-      headers: fromNodeHeaders(req.headers),
-    });
-    await reply.send({ members: members ?? [] });
+    const searchFilter = search
+      ? or(ilike(userTable.name, `%${search}%`), ilike(userTable.email, `%${search}%`))
+      : undefined;
+
+    const rows = await db
+      .select({
+        id: member.id,
+        organizationId: member.organizationId,
+        userId: member.userId,
+        role: member.role,
+        createdAt: member.createdAt,
+        user: {
+          id: userTable.id,
+          name: userTable.name,
+          email: userTable.email,
+          image: userTable.image,
+        },
+      })
+      .from(member)
+      .innerJoin(userTable, eq(userTable.id, member.userId))
+      .where(and(eq(member.organizationId, id), searchFilter))
+      .orderBy(asc(userTable.name))
+      .limit(limit)
+      .offset(offset);
+
+    await reply.send({ members: rows });
   });
 
   // POST /api/admin/organizations/:id/members — add a member directly (no invite)

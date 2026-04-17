@@ -135,6 +135,7 @@ export interface Organization {
   logo: string | null
   createdAt: string
   metadata: string | null
+  memberCount?: number
   members?: OrganizationMember[]
 }
 

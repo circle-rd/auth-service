@@ -2,9 +2,54 @@ import { apiFetch, USE_MOCK } from './client';
 import type { Organization, OrganizationMember, Invitation } from '@/types';
 import { MOCK_ORGANIZATIONS } from '@/mocks/data';
 
-export async function listOrganizations(): Promise<{ organizations: Organization[] }> {
-  if (USE_MOCK) return { organizations: MOCK_ORGANIZATIONS };
-  return apiFetch<{ organizations: Organization[] }>('/admin/organizations');
+export interface OrganizationsListResponse {
+  organizations: Organization[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface OrganizationsListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  sortBy?: 'name' | 'slug' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
+}
+
+export async function listOrganizations(params: OrganizationsListParams = {}): Promise<OrganizationsListResponse> {
+  if (USE_MOCK) {
+    let orgs = [...MOCK_ORGANIZATIONS];
+    if (params.search) {
+      const s = params.search.toLowerCase();
+      orgs = orgs.filter(o => o.name.toLowerCase().includes(s) || o.slug.toLowerCase().includes(s));
+    }
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const start = (page - 1) * limit;
+    return { organizations: orgs.slice(start, start + limit), total: orgs.length, page, limit };
+  }
+  const qs = new URLSearchParams();
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.search) qs.set('search', params.search);
+  if (params.sortBy) qs.set('sortBy', params.sortBy);
+  if (params.sortOrder) qs.set('sortOrder', params.sortOrder);
+  const query = qs.toString();
+  return apiFetch<OrganizationsListResponse>(`/admin/organizations${query ? `?${query}` : ''}`);
+}
+
+export async function listOrganizationMembers(orgId: string, params: { limit?: number; offset?: number; search?: string } = {}): Promise<{ members: OrganizationMember[] }> {
+  if (USE_MOCK) {
+    const org = MOCK_ORGANIZATIONS.find(o => o.id === orgId);
+    return { members: org?.members ?? [] };
+  }
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.offset) qs.set('offset', String(params.offset));
+  if (params.search) qs.set('search', params.search);
+  const query = qs.toString();
+  return apiFetch<{ members: OrganizationMember[] }>(`/admin/organizations/${orgId}/members${query ? `?${query}` : ''}`);
 }
 
 export async function createOrganization(body: { name: string; slug: string; logo?: string; metadata?: string }): Promise<{ organization: Organization }> {
@@ -65,3 +110,10 @@ export async function cancelInvitation(orgId: string, invitationId: string): Pro
   if (USE_MOCK) return;
   return apiFetch<void>(`/admin/organizations/${orgId}/invitations/${invitationId}`, { method: 'DELETE' });
 }
+
+/** User-facing: returns the orgs the logged-in user is a member of */
+export async function getMyOrganizations(): Promise<{ organizations: Array<Organization & { role: string }> }> {
+  if (USE_MOCK) return { organizations: [] };
+  return apiFetch<{ organizations: Array<Organization & { role: string }> }>('/user/organizations');
+}
+

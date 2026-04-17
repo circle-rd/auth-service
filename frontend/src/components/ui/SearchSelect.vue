@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends { value: string; label: string; sublabel?: string }">
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue';
 import { Search, X, ChevronDown } from 'lucide-vue-next';
 
 const props = withDefaults(defineProps<{
@@ -24,7 +24,7 @@ const emit = defineEmits<{
 const inputEl = ref<HTMLInputElement | null>(null);
 const containerEl = ref<HTMLDivElement | null>(null);
 const query = ref('');
-const options = ref<T[]>([]);
+const options = shallowRef<T[]>([]);
 const loading = ref(false);
 const open = ref(false);
 const selectedLabel = ref('');

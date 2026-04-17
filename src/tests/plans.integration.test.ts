@@ -10,7 +10,7 @@ import {
 import { plansRoutes } from "../routes/admin/plans.js";
 import { createTestApp } from "./helpers/app.js";
 import { db } from "../db/index.js";
-import { applications, subscriptionPlans, userSubscriptions } from "../db/schema.js";
+import { applications, subscriptionPlans, subscriptionPlanPrices, userSubscriptions } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { cleanDb } from "./helpers/db.js";
 import { makeSuperadminSession } from "./helpers/auth.js";
@@ -72,6 +72,23 @@ async function seedPlan(appId: string, name = "basic", isDefault = false) {
     })
     .returning();
   return plan!;
+}
+
+async function seedPrice(
+  planId: string,
+  opts: { name?: string; amount?: string; currency?: string; interval?: string } = {},
+) {
+  const [price] = await db
+    .insert(subscriptionPlanPrices)
+    .values({
+      planId,
+      name: opts.name ?? "monthly",
+      amount: opts.amount ?? "999",
+      currency: opts.currency ?? "usd",
+      interval: opts.interval ?? "month",
+    })
+    .returning();
+  return price!;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -183,5 +200,80 @@ describe("plansRoutes integration", () => {
       url: `/applications/${seeded.id}/plans/${plan.id}`,
     });
     expect(res.statusCode).toBe(204);
+  });
+
+  // ── POST price ─────────────────────────────────────────────────────────
+
+  it("POST price → 400 when amount is negative", async () => {
+    const seeded = await seedApp();
+    const plan = await seedPlan(seeded.id, "pro");
+    asAdmin();
+    const res = await app.inject({
+      method: "POST",
+      url: `/applications/${seeded.id}/plans/${plan.id}/prices`,
+      payload: { name: "monthly", amount: -1, currency: "usd", interval: "month" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe("APP_001");
+  });
+
+  it("POST price → 201 when amount is 0 (free tier)", async () => {
+    const seeded = await seedApp();
+    const plan = await seedPlan(seeded.id, "free");
+    asAdmin();
+    const res = await app.inject({
+      method: "POST",
+      url: `/applications/${seeded.id}/plans/${plan.id}/prices`,
+      payload: { name: "free", amount: 0, currency: "usd", interval: "month" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json<{ price: { amount: string; currency: string } }>();
+    expect(body.price.amount).toBe("0");
+    expect(body.price.currency).toBe("usd");
+  });
+
+  it("POST price → 201 stores interval correctly for one_time", async () => {
+    const seeded = await seedApp();
+    const plan = await seedPlan(seeded.id, "lifetime");
+    asAdmin();
+    const res = await app.inject({
+      method: "POST",
+      url: `/applications/${seeded.id}/plans/${plan.id}/prices`,
+      payload: { name: "lifetime", amount: 9900, currency: "eur", interval: "one_time" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json<{ price: { interval: string; amount: string } }>();
+    expect(body.price.interval).toBe("one_time");
+    expect(body.price.amount).toBe("9900");
+  });
+
+  it("POST price → 404 when plan does not exist", async () => {
+    const seeded = await seedApp();
+    asAdmin();
+    const res = await app.inject({
+      method: "POST",
+      url: `/applications/${seeded.id}/plans/00000000-0000-0000-0000-000000000000/prices`,
+      payload: { name: "monthly", amount: 999, currency: "usd", interval: "month" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe("SUB_001");
+  });
+
+  it("POST plan with metered features → 201 stores features correctly", async () => {
+    const seeded = await seedApp();
+    asAdmin();
+    const features = {
+      apiCalls: { type: "metered", limit: 1000 },
+      storage: { type: "fixed", limit: 5 },
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/applications/${seeded.id}/plans`,
+      payload: { name: "metered-plan", isDefault: false, features },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json<{ plan: { features: unknown; name: string } }>();
+    expect(body.plan.name).toBe("metered-plan");
+    expect(body.plan.features).toMatchObject(features);
   });
 });

@@ -74,6 +74,20 @@ export interface AppPermission {
   createdAt: string
 }
 
+export interface PlanFeatureFixed {
+  usage: false
+  value: string | number | boolean
+}
+
+export interface PlanFeatureMetered {
+  usage: true
+  limit: number // -1 = unlimited
+  unit: string
+  pricePerUnit: number // in smallest currency unit (cents)
+}
+
+export type PlanFeature = PlanFeatureFixed | PlanFeatureMetered
+
 export interface SubscriptionPlan {
   id: string
   applicationId: string

@@ -46,7 +46,7 @@ const createPlanSchema = z.object({
 
 const createPlanPriceSchema = z.object({
   name: z.string().min(1).max(64),
-  amount: z.number().int().positive(), // in smallest currency unit (e.g. cents)
+  amount: z.number().int().min(0), // in smallest currency unit (e.g. cents)
   currency: z.string().length(3).default("usd"),
   interval: z.enum(["month", "year", "one_time"]).default("month"),
 });

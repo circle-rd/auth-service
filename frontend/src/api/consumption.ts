@@ -16,6 +16,22 @@ export async function getMyConsumption(appId: string): Promise<{ aggregates: Con
   return apiFetch<{ aggregates: ConsumptionAggregate[] }>(`/user/consumption/${appId}`);
 }
 
+export async function getMonthlyConsumption(appId: string, year?: number, month?: number): Promise<{ entries: Array<{ userId: string; key: string; total: string }> }> {
+  if (USE_MOCK) {
+    const entries = MOCK_CONSUMPTION
+      .filter(c => c.applicationId === appId)
+      .map(c => ({ userId: c.userId, key: c.key, total: c.total }));
+    return { entries };
+  }
+  const params = new URLSearchParams();
+  if (year !== undefined) params.set('year', String(year));
+  if (month !== undefined) params.set('month', String(month));
+  const qs = params.toString();
+  return apiFetch<{ entries: Array<{ userId: string; key: string; total: string }> }>(
+    `/admin/applications/${appId}/consumption/monthly${qs ? `?${qs}` : ''}`
+  );
+}
+
 export async function resetConsumption(userId: string, appId: string, key: string): Promise<void> {
   if (USE_MOCK) {
     const idx = MOCK_CONSUMPTION.findIndex(c => c.userId === userId && c.applicationId === appId && c.key === key);

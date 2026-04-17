@@ -228,9 +228,9 @@ export async function deletePlan(appId: string, planId: string): Promise<void> {
   return apiFetch<void>(`/admin/applications/${appId}/plans/${planId}`, { method: 'DELETE' });
 }
 
-export async function createPrice(appId: string, planId: string, body: { name: string; amount: string; currency: string; interval: 'month' | 'year' | 'one_time' }): Promise<{ price: SubscriptionPlanPrice }> {
+export async function createPrice(appId: string, planId: string, body: { name: string; amount: number; currency: string; interval: 'month' | 'year' | 'one_time' }): Promise<{ price: SubscriptionPlanPrice }> {
   if (USE_MOCK) {
-    const price: SubscriptionPlanPrice = { id: crypto.randomUUID(), planId, name: body.name, amount: body.amount, currency: body.currency, interval: body.interval, stripePriceId: null, createdAt: new Date().toISOString() };
+    const price: SubscriptionPlanPrice = { id: crypto.randomUUID(), planId, name: body.name, amount: String(body.amount), currency: body.currency, interval: body.interval, stripePriceId: null, createdAt: new Date().toISOString() };
     const plan = MOCK_PLANS.find(p => p.id === planId);
     if (plan) plan.prices.push(price);
     return { price };

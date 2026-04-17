@@ -19,7 +19,8 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code } from 'lucide-vue-next';
+import type { PlanFeature } from '@/types';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -28,7 +29,7 @@ const toast = useToast();
 const services = useServicesStore();
 
 const appId = route.params.id as string;
-const activeTab = ref<'roles' | 'users' | 'plans' | 'integration' | 'consumption'>('roles');
+const activeTab = ref<'roles' | 'users' | 'plans' | 'integration' | 'consumption' | 'financial'>('roles');
 
 const app = ref<Application | null>(null);
 const roles = ref<AppRole[]>([]);
@@ -63,8 +64,10 @@ const selectedMetric = ref<{ userId: string; key: string } | null>(null);
 const roleForm = ref({ name: '', description: '', isDefault: false });
 const permForm = ref({ resource: '', action: 'read' as 'read' | 'write' });
 const userForm = ref({ userId: '', roleId: '' });
-const planForm = ref({ name: '', description: '', isDefault: false, features: '{}' });
+const planForm = ref({ name: '', description: '', isDefault: false });
 const priceForm = ref({ name: '', amount: '', currency: 'eur', interval: 'month' as 'month' | 'year' | 'one_time', planId: '' });
+const editingPlanId = ref<string | null>(null);
+const planFeatureEntries = ref<Array<{ key: string; usage: boolean; value: string; limit: string; unit: string; pricePerUnit: string }>>([]);;
 
 onMounted(async () => {
   await services.fetch();
@@ -195,16 +198,88 @@ async function handleRevokeAccess() {
   }
 }
 
-async function handleCreatePlan() {
+function parseFeature(v: unknown): PlanFeature {
+  if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+    const obj = v as Record<string, unknown>;
+    if (obj.usage === true) {
+      return {
+        usage: true,
+        limit: typeof obj.limit === 'number' ? obj.limit : -1,
+        unit: typeof obj.unit === 'string' ? obj.unit : '',
+        pricePerUnit: typeof obj.pricePerUnit === 'number' ? obj.pricePerUnit : 0,
+      };
+    }
+    // Legacy { value: X } format (from old JSON textarea)
+    if ('value' in obj) {
+      const raw = obj.value;
+      if (typeof raw === 'boolean') return { usage: false, value: raw };
+      if (typeof raw === 'number') return { usage: false, value: raw };
+      return { usage: false, value: String(raw ?? '') };
+    }
+  }
+  if (typeof v === 'boolean') return { usage: false, value: v };
+  if (typeof v === 'number') return { usage: false, value: v };
+  return { usage: false, value: String(v ?? '') };
+}
+
+function isPlanFeatureMetered(v: unknown): v is { usage: true; limit: number; unit: string; pricePerUnit: number } {
+  return v !== null && typeof v === 'object' && !Array.isArray(v) && (v as Record<string, unknown>).usage === true;
+}
+
+function planFeatureParsed(features: Record<string, unknown>): Array<{ key: string; feature: PlanFeature }> {
+  return Object.entries(features).map(([k, v]) => ({ key: k, feature: parseFeature(v) }));
+}
+
+function coerceFeatureValue(v: string): unknown {
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  const n = Number(v);
+  if (!isNaN(n) && v.trim() !== '') return n;
+  return v;
+}
+
+function openEditPlan(plan: SubscriptionPlan) {
+  editingPlanId.value = plan.id;
+  planForm.value = { name: plan.name, description: plan.description ?? '', isDefault: plan.isDefault };
+  planFeatureEntries.value = Object.entries(plan.features).map(([k, v]) => {
+    const parsed = parseFeature(v);
+    if (parsed.usage) {
+      return { key: k, usage: true, value: '', limit: String(parsed.limit), unit: parsed.unit, pricePerUnit: String(parsed.pricePerUnit) };
+    }
+    return { key: k, usage: false, value: String(parsed.value), limit: '-1', unit: '', pricePerUnit: '0' };
+  });
+  showPlanModal.value = true;
+}
+
+function closePlanModal() {
+  showPlanModal.value = false;
+  editingPlanId.value = null;
+  planFeatureEntries.value = [];
+  planForm.value = { name: '', description: '', isDefault: false };
+}
+
+async function handleSavePlan() {
   formLoading.value = true;
   try {
-    let features: Record<string, unknown> = {};
-    try { features = JSON.parse(planForm.value.features); } catch { /* ignore */ }
-    await appsApi.createPlan(appId, { name: planForm.value.name, description: planForm.value.description, isDefault: planForm.value.isDefault, features });
+    const features = Object.fromEntries(
+      planFeatureEntries.value
+        .filter(e => e.key.trim())
+        .map(e => {
+          if (e.usage) {
+            return [e.key.trim(), { usage: true, limit: Number(e.limit) || -1, unit: e.unit, pricePerUnit: Number(e.pricePerUnit) || 0 } as PlanFeature];
+          }
+          return [e.key.trim(), coerceFeatureValue(e.value)];
+        })
+    );
+    if (editingPlanId.value) {
+      await appsApi.updatePlan(appId, editingPlanId.value, { name: planForm.value.name, description: planForm.value.description, isDefault: planForm.value.isDefault, features });
+      toast.success('Plan updated');
+    } else {
+      await appsApi.createPlan(appId, { name: planForm.value.name, description: planForm.value.description, isDefault: planForm.value.isDefault, features });
+      toast.success('Plan created');
+    }
     plans.value = (await appsApi.listPlans(appId)).plans;
-    toast.success('Plan created');
-    showPlanModal.value = false;
-    planForm.value = { name: '', description: '', isDefault: false, features: '{}' };
+    closePlanModal();
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed');
   } finally {
@@ -213,10 +288,10 @@ async function handleCreatePlan() {
 }
 
 async function handleAddPrice() {
-  if (!priceForm.value.planId || !priceForm.value.amount) return;
+  if (!priceForm.value.planId || priceForm.value.amount === '') return;
   formLoading.value = true;
   try {
-    await appsApi.createPrice(appId, priceForm.value.planId, { name: priceForm.value.name, amount: priceForm.value.amount, currency: priceForm.value.currency, interval: priceForm.value.interval });
+    await appsApi.createPrice(appId, priceForm.value.planId, { name: priceForm.value.name, amount: Number(priceForm.value.amount), currency: priceForm.value.currency, interval: priceForm.value.interval });
     plans.value = (await appsApi.listPlans(appId)).plans;
     toast.success('Price added');
     showPriceModal.value = false;
@@ -299,6 +374,7 @@ const tabs = [
   { key: 'plans', label: t('appDetail.plans') },
   { key: 'integration', label: t('appDetail.integration') },
   { key: 'consumption', label: t('appDetail.consumption') },
+  { key: 'financial', label: t('appDetail.financial') },
 ] as const;
 
 const codeExampleJS = computed(() => {
@@ -317,6 +393,57 @@ window.location.href = \`/api/auth/authorize?\${params}\`;`;
 
 const PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type PKey = typeof PROVIDERS[number];
+
+const financialKpis = computed(() => {
+  const subscribedUsers = appUsers.value.filter(u => u.subscriptionPlanId);
+  const activeSubscribers = subscribedUsers.filter(u => u.isActive).length;
+
+  let mrr = 0;
+  const planRevenue: Record<string, { name: string; subscribers: number; monthly: number; currency: string }> = {};
+
+  for (const ua of subscribedUsers) {
+    if (!ua.subscriptionPlanId) continue;
+    const plan = plans.value.find(p => p.id === ua.subscriptionPlanId);
+    if (!plan) continue;
+    const price = plan.prices.find(p => p.interval === 'month');
+    const amount = price ? Number(price.amount) : 0;
+    const currency = price?.currency ?? 'eur';
+    mrr += amount;
+
+    if (!planRevenue[plan.id]) planRevenue[plan.id] = { name: plan.name, subscribers: 0, monthly: 0, currency };
+    planRevenue[plan.id].subscribers += 1;
+    planRevenue[plan.id].monthly += amount;
+  }
+
+  // Aggregate metered usage per feature key
+  const meteredKeys = new Map<string, { unit: string; totalUsage: number; pricePerUnit: number; revenue: number; currency: string }>();
+  for (const plan of plans.value) {
+    const currency = plan.prices.find(p => p.interval === 'month')?.currency ?? 'eur';
+    for (const [key, v] of Object.entries(plan.features)) {
+      if (!isPlanFeatureMetered(v)) continue;
+      const feature = v as { usage: true; limit: number; unit: string; pricePerUnit: number };
+      if (!meteredKeys.has(key)) meteredKeys.set(key, { unit: feature.unit, totalUsage: 0, pricePerUnit: feature.pricePerUnit, revenue: 0, currency });
+      // Sum consumption for users on this plan
+      for (const ua of subscribedUsers.filter(u => u.subscriptionPlanId === plan.id)) {
+        const agg = consumption.value.find(c => c.userId === ua.userId && c.key === key);
+        if (!agg) continue;
+        const total = Number(agg.total);
+        const entry = meteredKeys.get(key)!;
+        entry.totalUsage += total;
+        entry.revenue += total * feature.pricePerUnit;
+      }
+    }
+  }
+
+  return {
+    activeSubscribers,
+    mrr,
+    arr: mrr * 12,
+    currency: Object.values(planRevenue)[0]?.currency ?? 'eur',
+    byPlan: Object.values(planRevenue),
+    meteredUsage: [...meteredKeys.entries()].map(([key, v]) => ({ key, ...v })),
+  };
+});
 </script>
 
 <template>
@@ -468,13 +595,31 @@ type PKey = typeof PROVIDERS[number];
                   </div>
                   <p class="text-xs text-surface-500 mt-1">{{ plan.description }}</p>
                 </div>
-                <button @click="priceForm.planId = plan.id; showPriceModal = true" class="text-xs text-primary-400 hover:text-primary-300 transition-colors">+ Price</button>
+                <div class="flex items-center gap-3">
+                  <button @click="openEditPlan(plan)" class="text-xs text-surface-400 hover:text-surface-200 transition-colors">{{ t('common.edit') }}</button>
+                  <button @click="priceForm.planId = plan.id; showPriceModal = true" class="text-xs text-primary-400 hover:text-primary-300 transition-colors">+ Price</button>
+                </div>
               </div>
 
               <div v-if="Object.keys(plan.features).length" class="mb-3 flex flex-wrap gap-2">
-                <div v-for="[k, v] in Object.entries(plan.features)" :key="k" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30 text-xs">
-                  <span class="text-surface-500 font-mono">{{ k }}: </span>
-                  <span class="text-surface-300 font-semibold">{{ v }}</span>
+                <div v-for="{ key, feature } in planFeatureParsed(plan.features)" :key="key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30 text-xs flex items-center gap-1.5">
+                  <span class="text-surface-500 font-mono">{{ key }}</span>
+                  <template v-if="feature.usage">
+                    <BaseBadge variant="warning" size="sm">{{ t('appDetail.metered') }}</BaseBadge>
+                    <span class="text-amber-300/80">{{ feature.limit === -1 ? '∞' : feature.limit.toLocaleString() }} {{ feature.unit }}</span>
+                    <span v-if="feature.pricePerUnit > 0" class="text-surface-500">· {{ formatPrice(String(feature.pricePerUnit), 'eur') }}/{{ t('appDetail.unit') }}</span>
+                  </template>
+                  <template v-else>
+                    <template v-if="typeof feature.value === 'boolean'">
+                      <BaseBadge :variant="feature.value ? 'success' : 'neutral'" size="sm">{{ feature.value ? t('common.enabled') : t('common.disabled') }}</BaseBadge>
+                    </template>
+                    <template v-else-if="typeof feature.value === 'number'">
+                      <span class="text-surface-100 font-semibold">{{ feature.value.toLocaleString() }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="text-surface-300 font-semibold">{{ feature.value }}</span>
+                    </template>
+                  </template>
                 </div>
               </div>
 
@@ -556,37 +701,108 @@ type PKey = typeof PROVIDERS[number];
 
         <div v-if="activeTab === 'consumption'" class="space-y-4">
           <div v-if="!consumption.length" class="text-center text-sm text-surface-500 py-8">{{ t('appDetail.noConsumption') }}</div>
-          <div v-else class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-            <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead>
-                  <tr class="border-b border-surface-700/40 bg-surface-800/30">
-                    <th class="px-4 py-3 text-left text-xs font-medium text-surface-500 uppercase tracking-wide">User</th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-surface-500 uppercase tracking-wide">Metric</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-surface-500 uppercase tracking-wide">Total</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-surface-500 uppercase tracking-wide">Updated</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-surface-500 uppercase tracking-wide"></th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-surface-800/40">
-                  <tr v-for="agg in consumption" :key="`${agg.userId}-${agg.key}`" class="hover:bg-surface-800/20 transition-colors">
-                    <td class="px-4 py-3">
-                      <div class="flex items-center gap-2">
-                        <UserAvatar :name="getUserName(agg.userId)" :image="getUserImage(agg.userId)" size="xs" />
-                        <span class="text-sm text-surface-300">{{ getUserName(agg.userId) }}</span>
-                      </div>
-                    </td>
-                    <td class="px-4 py-3"><code class="text-xs font-mono text-surface-400 bg-surface-800/50 px-1.5 py-0.5 rounded">{{ agg.key }}</code></td>
-                    <td class="px-4 py-3 text-right"><span class="text-sm font-semibold text-surface-100 tabular-nums">{{ Number(agg.total).toLocaleString() }}</span></td>
-                    <td class="px-4 py-3 text-right"><span class="text-xs text-surface-500">{{ formatDate(agg.updatedAt) }}</span></td>
-                    <td class="px-4 py-3 text-right">
+          <template v-else>
+            <!-- Group by user -->
+            <div v-for="ua in appUsers.filter(u => consumption.some(c => c.userId === u.userId))" :key="ua.userId" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+              <div class="px-5 py-3 border-b border-surface-700/40 flex items-center gap-3 bg-surface-800/30">
+                <UserAvatar :name="getUserName(ua.userId)" :image="getUserImage(ua.userId)" size="xs" />
+                <span class="text-sm font-medium text-surface-200">{{ getUserName(ua.userId) }}</span>
+                <BaseBadge v-if="ua.subscriptionPlanId" variant="primary" size="sm">{{ getPlanName(ua.subscriptionPlanId) }}</BaseBadge>
+              </div>
+              <div class="divide-y divide-surface-800/40">
+                <div v-for="agg in consumption.filter(c => c.userId === ua.userId)" :key="agg.key" class="px-5 py-3">
+                  <div class="flex items-center justify-between mb-1.5">
+                    <div class="flex items-center gap-2">
+                      <code class="text-xs font-mono text-surface-400 bg-surface-800/50 px-1.5 py-0.5 rounded">{{ agg.key }}</code>
+                      <!-- Show unit if this key is a metered feature on user's plan -->
+                      <template v-if="ua.subscriptionPlanId">
+                        <template v-for="plan in plans.filter(p => p.id === ua.subscriptionPlanId)" :key="plan.id">
+                          <template v-if="isPlanFeatureMetered(plan.features[agg.key])">
+                            <span class="text-xs text-surface-500">{{ (plan.features[agg.key] as any).unit }}</span>
+                            <BaseBadge variant="warning" size="sm">{{ t('appDetail.metered') }}</BaseBadge>
+                          </template>
+                        </template>
+                      </template>
+                    </div>
+                    <div class="flex items-center gap-3">
+                      <span class="text-sm font-semibold text-surface-100 tabular-nums">{{ Number(agg.total).toLocaleString() }}</span>
+                      <span class="text-xs text-surface-500">{{ formatDate(agg.updatedAt) }}</span>
                       <button @click="selectedMetric = { userId: agg.userId, key: agg.key }; showResetMetricConfirm = true" class="text-xs text-red-500 hover:text-red-400 transition-colors">{{ t('appDetail.resetMetric') }}</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                    </div>
+                  </div>
+                  <!-- Progress bar if there's a limit -->
+                  <template v-if="ua.subscriptionPlanId">
+                    <template v-for="plan in plans.filter(p => p.id === ua.subscriptionPlanId)" :key="plan.id">
+                      <template v-if="isPlanFeatureMetered(plan.features[agg.key]) && (plan.features[agg.key] as any).limit !== -1">
+                        <div class="h-1.5 rounded-full bg-surface-800 overflow-hidden">
+                          <div
+                            :class="['h-full rounded-full transition-all', Number(agg.total) / (plan.features[agg.key] as any).limit >= 1 ? 'bg-red-500' : Number(agg.total) / (plan.features[agg.key] as any).limit >= 0.8 ? 'bg-amber-500' : 'bg-primary-500']"
+                            :style="{ width: Math.min(100, (Number(agg.total) / (plan.features[agg.key] as any).limit) * 100) + '%' }"
+                          />
+                        </div>
+                        <div class="flex justify-between text-xs text-surface-500 mt-0.5">
+                          <span>{{ Number(agg.total).toLocaleString() }} / {{ (plan.features[agg.key] as any).limit.toLocaleString() }} {{ (plan.features[agg.key] as any).unit }}</span>
+                          <span>{{ Math.round((Number(agg.total) / (plan.features[agg.key] as any).limit) * 100) }}%</span>
+                        </div>
+                      </template>
+                    </template>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div v-if="activeTab === 'financial'" class="space-y-5">
+          <!-- KPI row -->
+          <div class="grid grid-cols-3 gap-4">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+              <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.activeSubscribers') }}</p>
+              <p class="text-2xl font-bold text-surface-100">{{ financialKpis.activeSubscribers }}</p>
+            </div>
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+              <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.mrr') }}</p>
+              <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.mrr), financialKpis.currency) }}</p>
+            </div>
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+              <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.arr') }}</p>
+              <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.arr), financialKpis.currency) }}</p>
             </div>
           </div>
+
+          <div v-if="!financialKpis.activeSubscribers && !plans.length" class="text-center text-sm text-surface-500 py-8">{{ t('appDetail.noFinancialData') }}</div>
+          <template v-else>
+            <!-- Revenue by plan -->
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+              <div class="px-5 py-3 border-b border-surface-700/40 flex items-center gap-2">
+                <TrendingUp class="w-4 h-4 text-surface-400" />
+                <h3 class="text-sm font-semibold text-surface-300">{{ t('appDetail.revenueByPlan') }}</h3>
+              </div>
+              <div v-if="!financialKpis.byPlan.length" class="px-5 py-5 text-sm text-surface-500 text-center">{{ t('appDetail.noFinancialData') }}</div>
+              <div v-else class="divide-y divide-surface-800/40">
+                <div v-for="row in financialKpis.byPlan" :key="row.name" class="px-5 py-3 flex items-center gap-4">
+                  <span class="flex-1 text-sm font-medium text-surface-200">{{ row.name }}</span>
+                  <span class="text-xs text-surface-500">{{ row.subscribers }} {{ t('appDetail.subscribers') }}</span>
+                  <span class="text-sm font-semibold text-surface-100 tabular-nums">{{ formatPrice(String(row.monthly), row.currency) }}/mo</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Metered usage aggregate -->
+            <div v-if="financialKpis.meteredUsage.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+              <div class="px-5 py-3 border-b border-surface-700/40">
+                <h3 class="text-sm font-semibold text-surface-300">{{ t('appDetail.meteredUsage') }}</h3>
+              </div>
+              <div class="divide-y divide-surface-800/40">
+                <div v-for="row in financialKpis.meteredUsage" :key="row.key" class="px-5 py-3 flex items-center gap-4">
+                  <code class="text-xs font-mono text-surface-400 bg-surface-800/50 px-2 py-0.5 rounded w-36 shrink-0">{{ row.key }}</code>
+                  <span class="text-sm text-surface-300 flex-1">{{ row.totalUsage.toLocaleString() }} {{ row.unit }}</span>
+                  <span class="text-xs text-surface-500">{{ formatPrice(String(row.pricePerUnit), row.currency) }}/{{ row.unit }}</span>
+                  <span class="text-sm font-semibold text-surface-100 tabular-nums">{{ formatPrice(String(row.revenue), row.currency) }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
       </template>
     </div>
@@ -625,19 +841,46 @@ type PKey = typeof PROVIDERS[number];
       </template>
     </BaseModal>
 
-    <BaseModal :open="showPlanModal" :title="t('appDetail.createPlan')" @close="showPlanModal = false">
+    <BaseModal :open="showPlanModal" :title="editingPlanId ? t('appDetail.editPlan') : t('appDetail.createPlan')" @close="closePlanModal">
       <div class="space-y-4">
         <BaseInput v-model="planForm.name" label="Name" required />
         <BaseInput v-model="planForm.description" label="Description" />
         <BaseToggle v-model="planForm.isDefault" label="Default plan" />
         <div>
-          <p class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-1.5">Features (JSON)</p>
-          <textarea v-model="planForm.features" rows="4" class="w-full px-3 py-2 text-sm font-mono bg-surface-800 border border-surface-600 rounded-lg text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500/50 resize-none" />
+          <p class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-1.5">{{ t('appDetail.features') }}</p>
+          <div class="space-y-2">
+            <div v-for="(entry, i) in planFeatureEntries" :key="i" class="rounded-xl bg-surface-800/40 border border-surface-700/30 p-3 space-y-2.5">
+              <div class="flex items-center gap-2">
+                <BaseInput v-model="entry.key" placeholder="feature.key" class="flex-1 min-w-0" />
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <span class="text-xs text-surface-400">{{ t('appDetail.metered') }}</span>
+                  <BaseToggle v-model="entry.usage" />
+                </div>
+                <button type="button" @click="planFeatureEntries.splice(i, 1)" class="p-1.5 rounded-lg text-surface-500 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0">
+                  <X class="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <template v-if="entry.usage">
+                <div class="grid grid-cols-3 gap-2">
+                  <BaseInput v-model="entry.limit" :label="t('appDetail.limit')" type="number" placeholder="-1" />
+                  <BaseInput v-model="entry.unit" :label="t('appDetail.unit')" placeholder="tokens" />
+                  <BaseInput v-model="entry.pricePerUnit" :label="t('appDetail.pricePerUnit')" type="number" placeholder="0" />
+                </div>
+                <p class="text-xs text-surface-500">{{ t('appDetail.limitHint') }}</p>
+              </template>
+              <template v-else>
+                <BaseInput v-model="entry.value" :label="t('common.value')" placeholder="true / 100 / text" />
+              </template>
+            </div>
+            <BaseButton variant="ghost" size="sm" @click="planFeatureEntries.push({ key: '', usage: false, value: '', limit: '-1', unit: '', pricePerUnit: '0' })">
+              <Plus class="w-3.5 h-3.5" /> {{ t('appDetail.addFeature') }}
+            </BaseButton>
+          </div>
         </div>
       </div>
       <template #footer>
-        <BaseButton variant="ghost" @click="showPlanModal = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="formLoading" @click="handleCreatePlan">{{ t('common.create') }}</BaseButton>
+        <BaseButton variant="ghost" @click="closePlanModal">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton :loading="formLoading" @click="handleSavePlan">{{ editingPlanId ? t('common.save') : t('common.create') }}</BaseButton>
       </template>
     </BaseModal>
 

@@ -17,6 +17,7 @@ import { healthRoutes } from "./routes/health.js";
 import { applicationRoutes } from "./routes/admin/applications.js";
 import { rolesRoutes } from "./routes/admin/roles.js";
 import { plansRoutes } from "./routes/admin/plans.js";
+import { adminConsumptionRoutes } from "./routes/admin/adminConsumption.js";
 import { usersRoutes } from "./routes/admin/users.js";
 import { sessionsRoutes } from "./routes/admin/sessions.js";
 import { servicesRoutes } from "./routes/admin/services.js";
@@ -287,6 +288,7 @@ await fastify.register(applicationRoutes, {
 });
 await fastify.register(rolesRoutes, { prefix: "/api/admin" });
 await fastify.register(plansRoutes, { prefix: "/api/admin" });
+await fastify.register(adminConsumptionRoutes, { prefix: "/api/admin" });
 await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
 await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
 await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });

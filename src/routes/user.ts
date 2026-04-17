@@ -6,10 +6,11 @@ import {
   userApplications,
   applications,
   subscriptionPlans,
+  subscriptionPlanPrices,
   consumptionAggregates,
 } from "../db/schema.js";
 import { session as sessionTable, user as userTable, member as memberTable, organization as organizationTable } from "../db/auth-schema.js";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
 
@@ -89,6 +90,18 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       )
       .orderBy(applications.name);
 
+    // Fetch prices for all plans referenced by these subscriptions
+    const planIds = rows
+      .map((r) => r.subscriptionPlanId)
+      .filter((id): id is string => id !== null);
+
+    const pricesRows = planIds.length
+      ? await db
+          .select()
+          .from(subscriptionPlanPrices)
+          .where(inArray(subscriptionPlanPrices.planId, planIds))
+      : [];
+
     const subscriptions = rows.map((r) => ({
       applicationId: r.applicationId,
       applicationName: r.appName,
@@ -102,6 +115,18 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
             description: r.planDescription,
             features: r.planFeatures ?? {},
             isDefault: r.planIsDefault,
+            prices: pricesRows
+              .filter((p) => p.planId === r.subscriptionPlanId)
+              .map((p) => ({
+                id: p.id,
+                planId: p.planId,
+                name: p.name,
+                amount: p.amount,
+                currency: p.currency,
+                interval: p.interval as "month" | "year" | "one_time",
+                stripePriceId: p.stripePriceId,
+                createdAt: p.createdAt.toISOString(),
+              })),
           }
         : null,
     }));

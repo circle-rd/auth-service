@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS "applications" (
 	"is_public" boolean DEFAULT false NOT NULL,
 	"url" text,
 	"icon" text,
+	"enabled_social_providers" text[],
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );

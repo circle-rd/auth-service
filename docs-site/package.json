@@ -2,7 +2,7 @@
     "name": "auth-service-docs",
     "version": "1.0.0",
     "private": true,
-    "description": "Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth — multi-app RBAC, MFA, passkeys, and subscription management.",
+    "description": "Auth Service documentation — self-hosted OAuth 2.1 / OIDC identity provider.",
     "scripts": {
         "dev": "nuxt dev",
         "build": "nuxt build",

@@ -1,6 +1,6 @@
 # Auth Service — Roadmap & Gap Analysis
 
-> Generated: 2026-03-28  
+> Generated: 2026-03-28 — Mise à jour: 2026-04-15  
 > Based on: full codebase audit vs [`SPECS.md`](SPECS.md)
 
 ---
@@ -11,16 +11,13 @@ The auth-service is **substantially implemented** and covers the majority of the
 
 **Key gaps** are concentrated in:
 
-1. **Test coverage** — tests are minimal smoke tests; no integration tests against a real DB; coverage target of ≥80% is not met
-2. **Admin dashboard** — calls a non-existent `/api/admin/sessions` endpoint
-3. **Passkey WebAuthn flow** — the frontend sends raw `PublicKeyCredential` objects without the required `@simplewebauthn/browser` serialization
-4. **Error code alignment** — `CONS_004` is used in code but not in SPECS.md; `CONS_004` in SPECS.md maps to "Caller not authorized" but the code uses it for "record not found"
-5. **Missing linting/formatting toolchain** — ESLint, Prettier, Husky, lint-staged are not installed
-6. **Social login providers** — config keys exist but no BetterAuth `socialProvider()` plugins are wired
-7. **`/api/admin/sessions` endpoint** — referenced by the dashboard but never implemented
-8. **`ApplicationFormView`** — SPECS.md §6.3 lists `/admin/applications/new` with `ApplicationFormView`; the implementation uses a modal instead (functionally equivalent but route is missing)
+1. **Test coverage** — unit tests are mocked smoke tests; `vitest.integration.config.ts` is missing; no real DB integration tests; coverage target of ≥80% is not met
+2. **Admin dashboard sessions panel** — the `GET /api/admin/sessions` endpoint is implemented but the frontend reads `data.sessions` while the endpoint returns `data.list`, so the sessions section always shows empty
+3. **Missing linting/formatting toolchain** — ESLint, Prettier, Husky, lint-staged are not installed
+4. **`/admin/applications/new` route** — SPECS.md §6.3 lists this route with `ApplicationFormView`; the implementation uses a modal instead (functionally equivalent but route is missing)
+5. **Per-user `isMfaRequired` enforcement** — combined with `app.isMfaRequired` in `customIdTokenClaims` via `userMustSetupMfa()` ([`src/services/mfa.ts`](src/services/mfa.ts)); blocks OAuth token issuance until the user enables a second factor
 
-Overall project completeness: **~80% of SPECS.md requirements are implemented**.
+Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 
 ---
 
@@ -35,7 +32,7 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 | Email verification                                 | ⚠️ Partial     | ✅ Complete     | `requireEmailVerification: false` — disabled by default                             |
 | Session management                                 | ✅ Complete    | ✅ Complete     | BetterAuth sessions                                                                 |
 | TOTP (2FA)                                         | ✅ Complete    | ✅ Complete     | `twoFactor()` plugin                                                                |
-| Passkey / YubiKey                                  | ⚠️ Partial     | 🐛 Broken       | Backend OK; frontend missing WebAuthn serialization                                 |
+| Passkey / YubiKey                                  | ✅ Complete    | ✅ Complete     | Registration + authentication use `@simplewebauthn/browser`                         |
 | OAuth 2.1 Authorization Code + PKCE                | ✅ Complete    | ✅ Complete     | `oauthProvider()` plugin                                                            |
 | Consent screen                                     | ✅ Complete    | ✅ Complete     | [`frontend/src/views/ConsentView.vue`](frontend/src/views/ConsentView.vue)          |
 | Refresh token (`offline_access`)                   | ✅ Complete    | ✅ N/A          | `oauthRefreshToken` table managed by BetterAuth                                     |
@@ -52,7 +49,8 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 | Subscription plans CRUD                            | ✅ Complete    | ✅ Complete     | [`src/routes/admin/plans.ts`](src/routes/admin/plans.ts)                            |
 | Plan price tiers                                   | ✅ Complete    | ✅ Complete     | `subscriptionPlanPrices` table + Stripe integration                                 |
 | Assign/revoke user subscription                    | ✅ Complete    | ✅ Complete     | `POST/DELETE /api/admin/applications/:id/users/:userId/subscription`                |
-| Auto-assign default plan                           | ✅ Complete    | ✅ N/A          | [`src/routes/admin/applications.ts:94`](src/routes/admin/applications.ts:94)        |
+| Auto-assign default plan on access grant           | ✅ Complete    | ✅ N/A          | [`src/services/claims.ts`](src/services/claims.ts) — fires on grant + auto-provision |
+| Auto-assign default role on access grant           | ✅ Complete    | ✅ N/A          | [`src/services/claims.ts`](src/services/claims.ts) — fires on grant + auto-provision |
 | Consumption tracking (POST)                        | ✅ Complete    | ✅ N/A          | [`src/routes/consumption.ts:72`](src/routes/consumption.ts:72)                      |
 | Consumption aggregates (GET)                       | ✅ Complete    | ✅ Complete     | Admin + user-facing views                                                           |
 | Consumption reset (DELETE, admin)                  | ✅ Complete    | ❌ Missing      | Backend exists; no frontend UI to reset                                             |
@@ -61,16 +59,16 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 | Admin user create                                  | ✅ Complete    | ✅ Complete     | [`UserCreateModal.vue`](frontend/src/components/admin/UserCreateModal.vue)          |
 | Admin user disable/enable                          | ✅ Complete    | ✅ Complete     | ban/unban via BetterAuth                                                            |
 | Force MFA for user                                 | ✅ Complete    | ✅ Complete     | `isMfaRequired` field                                                               |
-| Admin dashboard                                    | ⚠️ Partial     | 🐛 Broken       | Calls non-existent `/api/admin/sessions` endpoint                                   |
+| Admin dashboard                                    | ✅ Complete    | 🐛 Broken       | Endpoint exists; frontend reads `data.sessions` but response uses `data.list`       |
 | User profile (name, password, avatar)              | ✅ Complete    | ✅ Complete     | [`ProfileView.vue`](frontend/src/views/ProfileView.vue)                             |
 | Extended profile fields (phone, company, etc.)     | ✅ Complete    | ✅ Complete     | Additional fields in auth schema                                                    |
 | Sessions view (list + revoke)                      | ✅ Complete    | ✅ Complete     | [`SessionsView.vue`](frontend/src/views/SessionsView.vue)                           |
 | Subscription view (user-facing)                    | ✅ Complete    | ✅ Complete     | [`SubscriptionView.vue`](frontend/src/views/SubscriptionView.vue)                   |
-| MFA settings (TOTP)                                | ✅ Complete    | ✅ Complete     | [`MfaSettingsView.vue`](frontend/src/views/MfaSettingsView.vue)                     |
-| MFA settings (passkeys)                            | ⚠️ Partial     | 🐛 Broken       | Registration flow missing WebAuthn serialization                                    |
+| MFA settings (TOTP)                                | ✅ Complete    | ✅ Complete     | [`MfaSetupModal.vue`](frontend/src/components/profile/MfaSetupModal.vue), [`MfaDisableModal.vue`](frontend/src/components/profile/MfaDisableModal.vue), [`MfaBackupCodesModal.vue`](frontend/src/components/profile/MfaBackupCodesModal.vue) |
+| MFA settings (passkeys)                            | ✅ Complete    | ✅ Complete     | `@simplewebauthn/browser` used in registration + authentication flows               |
 | Integration guide (OAuth code snippets)            | ✅ Complete    | ✅ Complete     | [`AppIntegrationView.vue`](frontend/src/views/admin/AppIntegrationView.vue)         |
 | Stripe integration                                 | ⚠️ Partial     | ⚠️ Partial      | Product/price creation works; no webhook handler                                    |
-| Social login providers                             | ❌ Missing     | ❌ Missing      | Config keys exist; no `socialProvider()` plugins                                    |
+| Social login providers                             | ✅ Complete    | ✅ Complete     | Google + GitHub wired; per-app config via [`AppProvidersTab.vue`](frontend/src/components/admin/AppProvidersTab.vue) |
 | Light/dark mode toggle                             | ✅ Complete    | ✅ Complete     | [`AppNav.vue`](frontend/src/components/AppNav.vue) + CSS vars                       |
 | i18n (EN + FR)                                     | ✅ Complete    | ✅ Complete     | [`frontend/src/locales/`](frontend/src/locales/)                                    |
 | Error code registry                                | ✅ Complete    | ✅ Complete     | [`src/errors.ts`](src/errors.ts)                                                    |
@@ -97,11 +95,13 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 - ✅ **Authorization Code + PKCE flow** — `oauthProvider()` from `@better-auth/oauth-provider` ([`src/auth.ts:109`](src/auth.ts:109))
 - ✅ **Discovery endpoints** — `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server` served at root ([`src/index.ts:104`](src/index.ts:104))
 - ✅ **JWKS endpoint** — `/api/auth/jwks` served by BetterAuth `jwt()` plugin
-- ✅ **Custom claims injection** — `customIdTokenClaims` and `customUserInfoClaims` hooks call [`getUserClaims()`](src/services/claims.ts:24)
-- ✅ **User access gate** — `customIdTokenClaims` throws `FORBIDDEN` if user has no active `userApplication` record ([`src/auth.ts:128`](src/auth.ts:128))
+- ✅ **Custom claims injection** — `customIdTokenClaims` and `customAccessTokenClaims` hooks call [`getUserClaims()`](src/services/claims.ts)
+- ✅ **User access gate** — `customIdTokenClaims` throws `FORBIDDEN` if user has no active `userApplications` record ([`src/auth.ts`](src/auth.ts))
+- ✅ **Auto-provision** — on first token exchange for `isPublic` or `allowRegister` apps, a `userApplications` row is inserted and the default role + plan are assigned ([`src/auth.ts`](src/auth.ts), [`src/services/claims.ts`](src/services/claims.ts))
 - ✅ **Consent screen** — `/oauth2/consent` route with [`ConsentView.vue`](frontend/src/views/ConsentView.vue)
 - ✅ **Refresh tokens** — `offline_access` scope; `oauthRefreshToken` table managed by BetterAuth
-- ⚠️ **`disabledPaths`** — SPECS.md says `disabledPaths: ["/token"]`; code has `disabledPaths: ["/token"]` ([`src/auth.ts:37`](src/auth.ts:37)) — correct.
+- ✅ **`disabledPaths`** — `disabledPaths: ["/token"]` ([`src/auth.ts`](src/auth.ts)) — correct.
+- ✅ **App-level MFA enforcement** — `customIdTokenClaims` checks `app.isMfaRequired` and throws `FORBIDDEN` if the user has not enabled 2FA ([`src/auth.ts`](src/auth.ts))
 
 #### 1.3 Session Management
 
@@ -131,7 +131,8 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 - ✅ **Get user detail** — includes app access + per-app roles ([`src/routes/admin/users.ts:102`](src/routes/admin/users.ts:102))
 - ✅ **Update user** — name, role, isMfaRequired ([`src/routes/admin/users.ts:156`](src/routes/admin/users.ts:156))
 - ✅ **Disable/enable** — ban/unban via BetterAuth ([`src/routes/admin/users.ts:186`](src/routes/admin/users.ts:186))
-- ❌ **Delete user** — SPECS.md §7.4 does not list DELETE, but SPECS.md §13 has `USR_002: Cannot delete the last superadmin` — implies deletion should exist. No `DELETE /api/admin/users/:id` endpoint is implemented.
+- ✅ **Delete user** — `DELETE /api/admin/users/:id` is implemented ([`src/routes/admin/users.ts`](src/routes/admin/users.ts)); cascades via FK; prevents self-deletion.
+- ⚠️ **Last-superadmin guard** — `USR_002` error code is defined but `DELETE /api/admin/users/:id` does not verify that deleting the target would not remove the last superadmin.
 
 #### 2.3 Extended Profile Fields
 
@@ -182,10 +183,11 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 - ✅ **Plan price tiers** — `POST/DELETE /api/admin/applications/:appId/plans/:planId/prices` ([`src/routes/admin/plans.ts:235`](src/routes/admin/plans.ts:235)) — **beyond spec**
 - ✅ **Assign subscription** — `POST /api/admin/applications/:appId/users/:userId/subscription` ([`src/routes/admin/plans.ts:327`](src/routes/admin/plans.ts:327))
 - ✅ **Revoke subscription** — `DELETE /api/admin/applications/:appId/users/:userId/subscription` ([`src/routes/admin/plans.ts:392`](src/routes/admin/plans.ts:392))
-- ✅ **Default plan auto-assign** — when granting user access ([`src/routes/admin/applications.ts:94`](src/routes/admin/applications.ts:94))
-- ✅ **Features claim** — `features` scope returns plan's JSON features; empty `{}` if no plan ([`src/services/claims.ts:100`](src/services/claims.ts:100))
-- ✅ **Expiry check** — expired subscriptions return `{}` for features ([`src/services/claims.ts:122`](src/services/claims.ts:122))
-- ⚠️ **`isDefault` uniqueness** — PATCH plan does not exclude the current plan when resetting `isDefault = false` ([`src/routes/admin/plans.ts:174`](src/routes/admin/plans.ts:174)); the comment acknowledges this but the exclusion is missing — could briefly set all plans to non-default including the one being updated.
+- ✅ **Default plan auto-assign** — when granting user access (`POST /api/admin/applications/:appId/users`) and on auto-provision at first token exchange ([`src/services/claims.ts`](src/services/claims.ts))
+- ✅ **Default role auto-assign** — same trigger points as default plan ([`src/services/claims.ts`](src/services/claims.ts))
+- ✅ **Features claim** — `features` scope returns plan's JSON features; empty `{}` if no plan ([`src/services/claims.ts`](src/services/claims.ts))
+- ✅ **Expiry check** — expired subscriptions return `{}` for features ([`src/services/claims.ts`](src/services/claims.ts))
+- ✅ **`isDefault` uniqueness** — PATCH plan correctly excludes the plan being updated when resetting others to `isDefault = false`, using `ne(subscriptionPlans.id, req.params.planId)` ([`src/routes/admin/plans.ts`](src/routes/admin/plans.ts))
 
 #### 4.2 Stripe Integration
 
@@ -207,29 +209,27 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 
 ### 5. MFA (Multi-Factor Authentication)
 
-#### 5.1 TOTP
+#### 5.1 TOTP — Phase 1 ✅ Complete
 
 - ✅ **Enable** — `POST /api/auth/two-factor/enable` with password confirmation
-- ✅ **QR code** — TOTP URI returned; frontend generates QR via external API (`api.qrserver.com`) ([`MfaSettingsView.vue:66`](frontend/src/views/MfaSettingsView.vue:66))
+- ✅ **QR code** — TOTP URI rendered locally via the `qrcode` library (no external dependency) in [`MfaSetupModal.vue`](frontend/src/components/profile/MfaSetupModal.vue)
 - ✅ **Verify** — `POST /api/auth/two-factor/verify-totp`
-- ✅ **Backup codes** — returned on first verify; regeneration via `POST /api/auth/two-factor/generate-backup-codes`
-- ✅ **Disable** — `POST /api/auth/two-factor/disable`
-- ✅ **MFA during login** — `twoFactorRequired: true` response handled in [`LoginView.vue:27`](frontend/src/views/LoginView.vue:27); redirects to [`MfaVerifyView.vue`](frontend/src/views/MfaVerifyView.vue)
-- ⚠️ **QR code dependency** — uses external `api.qrserver.com` service; should use a local library (e.g. `qrcode`) for production/offline use
+- ✅ **Backup codes** — returned at activation; downloadable as `.txt`; regenerated via `POST /api/auth/two-factor/generate-backup-codes` in [`MfaBackupCodesModal.vue`](frontend/src/components/profile/MfaBackupCodesModal.vue)
+- ✅ **Disable** — `POST /api/auth/two-factor/disable` via [`MfaDisableModal.vue`](frontend/src/components/profile/MfaDisableModal.vue)
+- ✅ **MFA during login** — `{ twoFactorRedirect: true }` handled in the auth store; UI swaps to [`MfaChallengeForm.vue`](frontend/src/components/auth/MfaChallengeForm.vue) on the same `/login` route
+- ✅ **YubiKey support** — covered by registering the YubiKey OATH-TOTP slot via Yubico Authenticator / YubiKey Manager
 
-#### 5.2 Passkey / YubiKey
+#### 5.2 Passkey / YubiKey FIDO2 — Phase 2 (planned)
 
-- ✅ **Backend** — `@better-auth/passkey` plugin registered ([`src/auth.ts:72`](src/auth.ts:72)); `passkey` table in schema ([`src/db/auth-schema.ts:119`](src/db/auth-schema.ts:119))
-- ✅ **List passkeys** — `GET /api/auth/passkey/list-user-passkeys`
-- ✅ **Delete passkey** — `DELETE /api/auth/passkey/:id`
-- 🐛 **Registration flow broken** — [`MfaSettingsView.vue:177`](frontend/src/views/MfaSettingsView.vue:177) calls `navigator.credentials.create({ publicKey: options })` directly and then sends the raw `PublicKeyCredential` object to the server. WebAuthn credentials must be serialized using `@simplewebauthn/browser`'s `startRegistration()` helper before sending. The raw `PublicKeyCredential` is not JSON-serializable and will fail.
-- 🐛 **Authentication flow broken** — [`MfaVerifyView.vue:39`](frontend/src/views/MfaVerifyView.vue:39) calls `POST /api/auth/passkey/authenticate` without a request body; the WebAuthn authentication ceremony requires calling `navigator.credentials.get()` with challenge options first, then sending the signed assertion.
+- ⏸️ **Deferred**. BetterAuth's passkey plugin currently exposes passkeys as the **primary** authenticator only (passwordless), not as a true second factor. The Profile UI shows a "Coming soon" badge. A dedicated passkey-as-second-factor flow will be designed in Phase 2.
+- ℹ️ **Today** — FIDO2 hardware keys can already be used as a second factor by enrolling them as a TOTP slot (Phase 1).
 
-#### 5.3 Admin Force MFA
+#### 5.3 Admin Force MFA — ✅ Complete
 
-- ✅ **Backend** — `PATCH /api/admin/users/:id` with `{ isMfaRequired: true }` ([`src/routes/admin/users.ts:171`](src/routes/admin/users.ts:171))
-- ✅ **Frontend** — toggle in [`UserDetailView.vue:77`](frontend/src/views/admin/UserDetailView.vue:77)
-- ⚠️ **Enforcement** — `isMfaRequired` is stored but BetterAuth does not automatically enforce it during login; custom middleware would be needed to check this field and redirect to MFA setup if not configured
+- ✅ **Backend** — `PATCH /api/admin/users/:id` with `{ isMfaRequired: true }` ([`src/routes/admin/users.ts`](src/routes/admin/users.ts))
+- ✅ **Frontend** — toggle in [`UserDetailView.vue`](frontend/src/views/admin/UserDetailView.vue)
+- ✅ **Per-user enforcement** — `userMustSetupMfa(user, appRequiresMfa)` in [`src/services/mfa.ts`](src/services/mfa.ts) is invoked from `customIdTokenClaims`; OAuth token issuance is blocked with `AUTH_004` until the user enables a second factor. The auth-service UI itself remains accessible so the user can complete setup; the Security tab surfaces a banner driven by `auth.mfaSetupRequired`.
+- ✅ **Per-app enforcement** — same helper combines `app.isMfaRequired` and `user.isMfaRequired`
 
 ---
 
@@ -242,10 +242,11 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 
 #### 6.2 Dashboard
 
-- 🐛 **Sessions KPI broken** — [`DashboardView.vue:34`](frontend/src/views/admin/DashboardView.vue:34) calls `GET /api/admin/sessions?limit=10` which does not exist in the backend. The sessions section will always show empty/zero.
+- 🐛 **Sessions panel broken** — [`DashboardView.vue`](frontend/src/views/admin/DashboardView.vue) calls `GET /api/admin/sessions?limit=10` and reads `data.sessions`, but the endpoint ([`src/routes/admin/sessions.ts`](src/routes/admin/sessions.ts)) returns `{ total, list, page, limit }`. Because `data.sessions` is always `undefined`, it falls back to `[]`. The sessions KPI and recent-sessions table always show 0/empty.
+  - **Fix**: rename `list` → `sessions` in the endpoint response.
 - ✅ **Users KPI** — calls `GET /api/admin/users?page=1&limit=1` — works
 - ✅ **Applications KPI** — calls `GET /api/admin/applications` — works
-- ❌ **`GET /api/admin/sessions`** — endpoint not implemented in backend
+- ✅ **`GET /api/admin/sessions`** — implemented in [`src/routes/admin/sessions.ts`](src/routes/admin/sessions.ts); registered at `/api/admin/sessions` in [`src/index.ts`](src/index.ts)
 
 #### 6.3 Users Management
 
@@ -306,20 +307,22 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 | `GET /health`                                                   | ✅          |                                          |
 | `GET /.well-known/openid-configuration`                         | ✅          |                                          |
 | `GET /.well-known/oauth-authorization-server`                   | ✅          |                                          |
-| `GET /api/admin/sessions`                                       | ❌          | Referenced by dashboard; not implemented |
+| `GET /api/admin/sessions`                                       | ✅          | Implemented; frontend reads wrong field (`sessions` vs `list`) |
+| `DELETE /api/admin/users/:id`                                   | ✅          | Implemented; no last-superadmin guard (`USR_002`)  |
 
 #### 7.2 Error Handling
 
 - ✅ **`ApiError` class** — [`src/errors.ts`](src/errors.ts) with all error codes from SPECS.md §13
-- ✅ **Global error handler** — [`src/index.ts:143`](src/index.ts:143) catches `ApiError` and Fastify validation errors
-- ⚠️ **`CONS_004` mismatch** — SPECS.md §13 defines `CONS_004` as "Caller not authorized (requires client_credentials)" with HTTP 403; code defines it as "Consumption record not found" with HTTP 404 ([`src/errors.ts:85`](src/errors.ts:85)). The "caller not authorized" case uses `AUTH_001` instead.
-- ⚠️ **`USR_003`** — SPECS.md §13 does not define `USR_003`; code adds it as "Invalid user data" ([`src/errors.ts:92`](src/errors.ts:92)) — extra code, not a problem.
+- ✅ **Global error handler** — [`src/index.ts`](src/index.ts) catches `ApiError` and Fastify validation errors
+- ✅ **`CONS_004`** — correctly defined as "Caller not authorized (requires client_credentials)" with HTTP 403 ([`src/errors.ts`](src/errors.ts)), matching SPECS.md §13
+- ⚠️ **`USR_003`** — SPECS.md §13 does not define `USR_003`; code adds it as "Invalid user data" ([`src/errors.ts`](src/errors.ts)) — extra code, not a problem.
+- ⚠️ **`ORG_00x` codes** — ORG error codes (ORG_001–ORG_004) exist in [`src/errors.ts`](src/errors.ts) for the organization feature; beyond SPECS.md scope but consistent with the `organization()` plugin in use.
 
 #### 7.3 Consumption Authentication
 
-- ✅ **Bearer token** — `verifyAccessToken` called for `client_credentials` tokens ([`src/routes/consumption.ts:44`](src/routes/consumption.ts:44))
-- ✅ **Session fallback** — admin/superadmin sessions also accepted ([`src/routes/consumption.ts:53`](src/routes/consumption.ts:53))
-- ⚠️ **`verifyAccessToken` cast** — uses `(auth.api as any).verifyAccessToken` ([`src/routes/consumption.ts:45`](src/routes/consumption.ts:45)) — `any` cast with comment; acceptable per SPECS.md §12.1 exception rule
+- ✅ **Bearer token** — `verifyAccessToken` called for `client_credentials` tokens ([`src/routes/consumption.ts`](src/routes/consumption.ts))
+- ✅ **Session fallback** — admin/superadmin sessions also accepted ([`src/routes/consumption.ts`](src/routes/consumption.ts))
+- ⚠️ **`verifyAccessToken` cast** — uses `(auth.api as any).verifyAccessToken` ([`src/routes/consumption.ts`](src/routes/consumption.ts)) — `any` cast with comment; acceptable per SPECS.md §12.1 exception rule
 
 ---
 
@@ -335,15 +338,16 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 #### 8.2 TypeScript
 
 - ✅ **`strict: true`** — in `tsconfig.json`
-- ⚠️ **`any` usage** — two instances with inline comments ([`src/routes/consumption.ts:44`](src/routes/consumption.ts:44), [`src/auth.ts:125`](src/auth.ts:125)) — compliant with SPECS.md §12.1 exception rule
+- ⚠️ **`any` usage** — two instances with inline comments ([`src/routes/consumption.ts`](src/routes/consumption.ts), [`src/auth.ts`](src/auth.ts)) — compliant with SPECS.md §12.1 exception rule
 
 #### 8.3 Testing
 
-- ⚠️ **Unit tests exist** — health, consumption, applications, plans, roles, users, claims all have test files
-- 🐛 **Tests are smoke tests only** — all DB calls are mocked; no real DB integration tests
+- ✅ **Unit tests exist** — health, consumption, applications, plans, roles, users, claims all have test files
+- ⚠️ **Unit tests are smoke tests only** — all DB calls are mocked; no real DB integration tests
+- ✅ **E2E test infrastructure** — Playwright suite under [`tests/e2e/`](tests/e2e/) with Docker Compose stack (postgres, auth-service, seed container, testapp). Scripts: `test:e2e`, `test:e2e:ui`, `test:e2e:docker`
 - ❌ **`pnpm test:integration`** — references `vitest.integration.config.ts` which does not exist
 - ❌ **Coverage target** — SPECS.md §12.4 requires ≥80% on `src/routes/` and `src/services/`; current tests are too shallow to meet this
-- ❌ **BetterAuth plugin hook tests** — SPECS.md §12.4 requires integration tests for plugin hooks; none exist
+- ❌ **BetterAuth plugin hook integration tests** — SPECS.md §12.4 requires integration tests for plugin hooks; none exist (e2e tests cover the auth flow end-to-end but not individual hooks in isolation)
 
 #### 8.4 Linting & Formatting
 
@@ -362,31 +366,23 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 
 ## Missing Features (Priority Ordered)
 
-1. **🔴 `GET /api/admin/sessions` endpoint** — Dashboard is broken without it. Implement a paginated sessions list endpoint using BetterAuth's admin API or direct DB query. Referenced in [`DashboardView.vue:34`](frontend/src/views/admin/DashboardView.vue:34).
+1. **🔴 Dashboard sessions field mismatch** — `GET /api/admin/sessions` is implemented and returns `{ total, list, page, limit }`, but [`DashboardView.vue`](frontend/src/views/admin/DashboardView.vue) reads `data.sessions`. Rename `list` → `sessions` in the endpoint response ([`src/routes/admin/sessions.ts`](src/routes/admin/sessions.ts)), or update the frontend to read `data.list`.
 
-2. **🔴 Passkey WebAuthn frontend fix** — [`MfaSettingsView.vue`](frontend/src/views/MfaSettingsView.vue) and [`MfaVerifyView.vue`](frontend/src/views/MfaVerifyView.vue) need `@simplewebauthn/browser` integration for proper credential serialization. The current implementation will fail at runtime.
+2. **🟠 Integration test suite** — Create `vitest.integration.config.ts` and write real DB integration tests. The `pnpm test:integration` script references a file that does not exist. SPECS.md §12.4 requires ≥80% coverage.
 
-3. **🟠 Integration test suite** — Create `vitest.integration.config.ts` and write real DB integration tests. The `pnpm test:integration` script is broken. SPECS.md §12.4 requires ≥80% coverage.
+3. **🟠 ESLint + Prettier + Husky** — Install and configure per SPECS.md §12.5. Add `eslint.config.js`, `.prettierrc`, and Husky pre-commit hooks.
 
-4. **🟠 ESLint + Prettier + Husky** — Install and configure per SPECS.md §12.5. Add `eslint.config.js`, `.prettierrc`, and Husky pre-commit hooks.
+4. **🟡 Per-user `isMfaRequired` enforcement** — The per-user flag is admin-settable via `PATCH /api/admin/users/:id` but has no effect on the sign-in flow. Add a BetterAuth hook that checks this field and blocks login or redirects to MFA setup. Note: per-app MFA enforcement is already implemented in `customIdTokenClaims`.
 
-5. **🟠 `CONS_004` error code alignment** — Fix the mismatch: SPECS.md defines `CONS_004` as "Caller not authorized (403)"; code uses it for "record not found (404)". Rename the existing `CONS_004` to `CONS_005` and add the correct `CONS_004`.
+5. **🟡 Stripe webhook handler** — `POST /stripe/webhook` to handle `customer.subscription.updated`, `invoice.payment_failed`, etc. Required for production billing.
 
-6. **🟡 `isMfaRequired` enforcement** — The field is stored but not enforced during login. Add a BetterAuth hook or middleware that checks `isMfaRequired` and forces MFA setup if the user hasn't configured it.
+6. **🟡 Last-superadmin guard on user deletion** — `DELETE /api/admin/users/:id` is implemented but does not prevent deleting the last superadmin. `USR_002` error code is defined and ready to use.
 
-7. **🟡 Stripe webhook handler** — `POST /stripe/webhook` to handle `customer.subscription.updated`, `invoice.payment_failed`, etc. Required for production billing.
+7. **🟢 `/admin/applications/new` route** — SPECS.md §6.3 lists this route. Currently handled by a modal on the list page; add the route as an alias or dedicated page.
 
-8. **🟡 Delete user endpoint** — `DELETE /api/admin/users/:id` with superadmin protection (error `USR_002`). The error code exists but the endpoint does not.
+8. **🟢 User detail plan name display** — [`UserDetailView.vue`](frontend/src/views/admin/UserDetailView.vue) shows a truncated UUID for the subscription plan; fetch and display the plan name instead.
 
-9. **🟡 QR code local generation** — Replace external `api.qrserver.com` dependency with a local `qrcode` npm package for TOTP QR codes.
-
-10. **🟢 Social login providers** — Wire `socialProvider()` plugins for Google, GitHub, LinkedIn, Microsoft, Apple when their env vars are set. Config keys already exist in [`src/config.ts:33`](src/config.ts:33).
-
-11. **🟢 `/admin/applications/new` route** — SPECS.md §6.3 lists this route. Currently handled by a modal; add the route as an alias or dedicated page.
-
-12. **🟢 User detail plan name display** — [`UserDetailView.vue:300`](frontend/src/views/admin/UserDetailView.vue:300) shows truncated plan UUID; fetch and display plan name instead.
-
-13. **🟢 `isDefault` PATCH bug fix** — [`src/routes/admin/plans.ts:174`](src/routes/admin/plans.ts:174) resets all plans to `isDefault = false` including the one being updated; add `ne(subscriptionPlans.id, req.params.planId)` to the WHERE clause.
+9. **🟢 Social providers — LinkedIn, Microsoft, Apple** — Google and GitHub are wired in `auth.ts`. The remaining three providers referenced in `config.ts` can be added to `socialProviders` when their env vars are set.
 
 ---
 
@@ -394,42 +390,30 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 
 ### 🐛 Critical
 
-1. **Admin dashboard sessions panel** — `GET /api/admin/sessions` does not exist. The "Active sessions" KPI and "Recent sessions" table in [`DashboardView.vue`](frontend/src/views/admin/DashboardView.vue) will always show 0/empty.
-   - **Fix**: Implement `GET /api/admin/sessions` in a new route file or add to `usersRoutes`.
-
-2. **Passkey registration** — [`MfaSettingsView.vue:177`](frontend/src/views/MfaSettingsView.vue:177) passes raw `PublicKeyCredential` to `JSON.stringify()` which produces `{}` (credentials are not JSON-serializable). The server will receive an empty object.
-   - **Fix**: Install `@simplewebauthn/browser` and use `startRegistration(options)` → send the result.
-
-3. **Passkey authentication** — [`MfaVerifyView.vue:39`](frontend/src/views/MfaVerifyView.vue:39) calls `POST /api/auth/passkey/authenticate` with no body. The WebAuthn ceremony requires fetching challenge options first, calling `navigator.credentials.get()`, then sending the signed assertion.
-   - **Fix**: Use `@simplewebauthn/browser`'s `startAuthentication()` flow.
+1. **Admin dashboard sessions panel** — `GET /api/admin/sessions` is implemented and returns `{ total, list }`. The frontend (`DashboardView.vue`) reads `data.sessions` which is always `undefined`, falling back to `[]`. The sessions KPI and recent-sessions table always display 0/empty.
+   - **Fix**: Rename `list` → `sessions` in the `GET /api/admin/sessions` response body in [`src/routes/admin/sessions.ts`](src/routes/admin/sessions.ts).
 
 ### 🐛 Non-Critical
 
-4. **`isDefault` plan PATCH** — When updating a plan to `isDefault: true`, all plans (including the one being updated) are first set to `false`, then the update sets it back to `true`. This is correct in outcome but the intermediate state could cause issues under concurrent requests.
-   - **Fix**: Add `ne(subscriptionPlans.id, req.params.planId)` to the reset WHERE clause in [`src/routes/admin/plans.ts:178`](src/routes/admin/plans.ts:178).
-
-5. **`CONS_004` error code** — Code uses `CONS_004` for "record not found" but SPECS.md §13 defines it as "Caller not authorized (403)". This is a semantic mismatch that will confuse frontend i18n.
-   - **Fix**: Rename existing `CONS_004` → `CONS_005`; add `CONS_004` for the authorization case.
-
-6. **Superadmin bootstrap role cast** — [`src/bootstrap.ts:43`](src/bootstrap.ts:43) uses `role: "superadmin" as "admin"` to bypass TypeScript type checking. If BetterAuth changes its type definitions, this will silently break.
+2. **Superadmin bootstrap role cast** — [`src/bootstrap.ts`](src/bootstrap.ts) uses `role: "superadmin" as "admin"` to bypass TypeScript type checking. If BetterAuth changes its type definitions, this will silently break.
    - **Fix**: Use a type assertion comment or extend the BetterAuth type to include `"superadmin"`.
 
-7. **`isMfaRequired` not enforced** — The field is stored and displayed but has no effect on the login flow. A user with `isMfaRequired: true` who hasn't set up MFA can still log in without MFA.
-   - **Fix**: Add a BetterAuth `onRequest` hook or middleware that checks this field post-authentication.
+3. **Passkeys as a true second factor (Phase 2)** — BetterAuth's passkey plugin currently only supports passkeys as the primary authenticator. The Profile UI marks the passkey row as "Coming soon". FIDO2 keys can be used today via their OATH-TOTP slot.
+   - **Fix**: Add a BetterAuth `onRequest` hook or middleware that checks the user's `isMfaRequired` field post-authentication and redirects to MFA setup if needed.
+
+4. **Last-superadmin guard missing from user deletion** — `DELETE /api/admin/users/:id` is implemented but does not verify the target is not the last superadmin. `USR_002` error code exists and is ready to use.
+   - **Fix**: Before deleting, count users with `role = 'superadmin'`; if the target is a superadmin and count ≤ 1, throw `ERR.USR_002()`.
 
 ---
 
 ## Recommended Sprint Plan
 
-### Sprint 1 — Critical Bug Fixes (1 week)
+### Sprint 1 — Remaining Bug Fixes (1–2 days)
 
-**Goal**: Fix all broken features so the service is fully functional.
+**Goal**: Fix the last broken feature so the service is fully functional.
 
-- [ ] Fix passkey registration: install `@simplewebauthn/browser`, update [`MfaSettingsView.vue`](frontend/src/views/MfaSettingsView.vue) registration flow
-- [ ] Fix passkey authentication: update [`MfaVerifyView.vue`](frontend/src/views/MfaVerifyView.vue) authentication flow
-- [ ] Implement `GET /api/admin/sessions` endpoint (paginated, with user info join)
-- [ ] Fix `isDefault` plan PATCH WHERE clause in [`src/routes/admin/plans.ts`](src/routes/admin/plans.ts)
-- [ ] Fix `CONS_004` error code alignment in [`src/errors.ts`](src/errors.ts)
+- [ ] Fix dashboard sessions field mismatch: rename `list` → `sessions` in `GET /api/admin/sessions` response ([`src/routes/admin/sessions.ts`](src/routes/admin/sessions.ts))
+- [ ] Add last-superadmin guard to `DELETE /api/admin/users/:id` ([`src/routes/admin/users.ts`](src/routes/admin/users.ts))
 
 ### Sprint 2 — Test Coverage (1 week)
 
@@ -443,7 +427,7 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 - [ ] Write integration tests for `src/routes/admin/roles.ts`
 - [ ] Write integration tests for `src/routes/admin/users.ts`
 - [ ] Write integration tests for `src/services/claims.ts` (roles, permissions, features claims)
-- [ ] Write integration tests for BetterAuth plugin hooks (customIdTokenClaims access gate)
+- [ ] Write integration tests for BetterAuth plugin hooks (`customIdTokenClaims` access gate, auto-provision + default role/plan assignment)
 
 ### Sprint 3 — Code Quality & Toolchain (3 days)
 
@@ -457,19 +441,17 @@ Overall project completeness: **~80% of SPECS.md requirements are implemented**.
 
 ### Sprint 4 — MFA Enforcement & UX Polish (3 days)
 
-**Goal**: Make `isMfaRequired` actually enforce MFA; polish minor UX issues.
+**Goal**: Enforce per-user MFA flag; polish minor UX issues.
 
-- [ ] Implement `isMfaRequired` enforcement in login flow (BetterAuth hook or middleware)
-- [ ] Replace `api.qrserver.com` with local `qrcode` package for TOTP QR generation
-- [ ] Fix user detail view to show plan name instead of UUID
-- [ ] Add `DELETE /api/admin/users/:id` endpoint with superadmin protection
+- [ ] Implement per-user `isMfaRequired` enforcement in login flow (BetterAuth hook or middleware)
+- [ ] Fix user detail view to show plan name instead of truncated UUID ([`UserDetailView.vue`](frontend/src/views/admin/UserDetailView.vue))
 
 ### Sprint 5 — Extended Features (1 week)
 
-**Goal**: Add missing features from SPECS.md.
+**Goal**: Add remaining features from SPECS.md.
 
 - [ ] Implement Stripe webhook handler (`POST /stripe/webhook`)
-- [ ] Wire social login providers (Google, GitHub) when env vars are set
+- [ ] Add LinkedIn, Microsoft, Apple social providers to `auth.ts` when env vars are set
 - [ ] Add `/admin/applications/new` route (or confirm modal approach is acceptable)
 - [ ] Add email verification toggle (make `requireEmailVerification` configurable via env var)
 

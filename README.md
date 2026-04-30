@@ -2,7 +2,7 @@
 
 Self-hosted OAuth 2.1 / OIDC identity provider built on [BetterAuth](https://better-auth.com) v1.5.6.
 
-Features: email/password auth, MFA (TOTP + YubiKey FIDO2), multi-app RBAC, subscription plans with feature flags, consumption tracking, and an embedded Vue 3 admin SPA.
+Features: email/password auth, MFA (TOTP + YubiKey FIDO2), multi-app RBAC, subscription plans with feature flags, consumption tracking, **organization management** (multi-tenant ready), and an embedded Vue 3 admin SPA.
 
 ---
 
@@ -42,6 +42,7 @@ auth-service/
 │       ├── consumption.ts    # Consumption tracking API
 │       └── admin/
 │           ├── applications.ts
+│           ├── organizations.ts   # Organization CRUD + member & invitation management
 │           ├── roles.ts
 │           ├── plans.ts
 │           └── users.ts
@@ -130,6 +131,13 @@ Frontend: <http://localhost:5173> (proxied to the backend at 3001)
 | `GET/PATCH`        | `/api/admin/users`                          | User list / update                                       |
 | `POST`             | `/api/admin/users/:id/disable`              | Ban user                                                 |
 | `POST`             | `/api/admin/users/:id/enable`               | Unban user                                               |
+| `GET/POST`         | `/api/admin/organizations`                  | List / create organizations                              |
+| `GET/DELETE`       | `/api/admin/organizations/:id`              | Get / delete an organization                             |
+| `GET/POST`         | `/api/admin/organizations/:id/members`      | List members / add a member directly                     |
+| `DELETE`           | `/api/admin/organizations/:id/members/:uid` | Remove a member                                          |
+| `PATCH`            | `/api/admin/organizations/:id/members/:mid/role` | Update a member's role                              |
+| `GET/POST`         | `/api/admin/organizations/:id/invitations`  | List invitations / send an invitation by email           |
+| `DELETE`           | `/api/admin/organizations/:id/invitations/:iid` | Cancel a pending invitation                         |
 | `POST`             | `/api/consumption`                          | Record consumption (client_credentials token)            |
 | `GET`              | `/api/consumption/:userId/:appId`           | Get aggregates for user+app                              |
 | `DELETE`           | `/api/consumption/:userId/:appId/:key`      | Reset a counter                                          |
@@ -143,6 +151,37 @@ Frontend: <http://localhost:5173> (proxied to the backend at 3001)
 | `/api/auth/oauth2/userinfo`                  | UserInfo endpoint      |
 | `/api/auth/.well-known/openid-configuration` | Discovery document     |
 | `/api/auth/jwks`                             | JSON Web Key Set       |
+
+---
+
+## Organization management
+
+auth-service includes first-class support for **organizations** (companies / tenants) powered by the BetterAuth `organization()` plugin.
+
+### Purpose
+
+The organization model is designed for a **two-tier distribution chain**:
+
+| Tier | Actor | Role |
+|------|-------|------|
+| 1 | **Reseller / distributor** | Creates and owns organizations representing their end-clients |
+| 2 | **Integrator** | Is a member of one or more organizations; manages IT resources scoped to those organizations |
+
+Each organization has a unique `slug` (used as its stable identifier) and optional `logo` + `metadata`. Members are assigned one of three roles: `owner`, `admin`, or `member`.
+
+### The `org_id` claim
+
+When a client requests the `org` scope during an OAuth2 authorization flow, the access token issued by auth-service contains an `org_id` claim set to the user's active organization ID (`session.activeOrganizationId`). Backend services can use this claim to:
+
+- Scope database queries to the organization's data
+- Enforce CASL (`@lagarde-cyber/acl`) abilities with `{ org_id }` conditions
+- Isolate resources between tenants
+
+### Admin operations
+
+Only users with role `admin` or `superadmin` can create organizations. Member management (add, remove, change role) and invitation flows (invite by email, cancel) are also admin-only operations accessible via the `/api/admin/organizations/*` routes.
+
+Regular users can belong to multiple organizations as members but cannot create them.
 
 ---
 

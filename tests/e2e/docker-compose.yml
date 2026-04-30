@@ -1,0 +1,101 @@
+# e2e test stack
+# Usage:  docker compose -f tests/e2e/docker-compose.yml up --wait
+#
+#   postgres      — isolated test database (port 5434 on host)
+#   auth-service  — built from repo root, port 3001
+#   testapp       — OIDC RP fixture app, port 3000
+#   setup         — seed script (runs once then exits)
+#
+# Shared volume "credentials" carries clientId/clientSecret + fixtures.json
+# from the setup container to the testapp + Playwright host runner.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: auth_e2e
+      POSTGRES_PASSWORD: auth_e2e_pass
+      POSTGRES_DB: auth_e2e
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_e2e -d auth_e2e"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  auth-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      PORT: "3001"
+      HOST: "0.0.0.0"
+      NODE_ENV: "test"
+      DATABASE_URL: "postgres://auth_e2e:auth_e2e_pass@postgres:5432/auth_e2e"
+      BETTER_AUTH_SECRET: "e2e-test-secret-at-least-16-chars"
+      BETTER_AUTH_URL: "http://localhost:3001"
+      ADMIN_EMAIL: "admin@test.local"
+      ADMIN_PASSWORD: "AdminPass1!"
+      CORS_ORIGINS: "http://localhost:3000,http://testapp:3000"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  testapp:
+    build:
+      context: ./testapp
+      dockerfile: Dockerfile
+    environment:
+      PORT: "3000"
+      AUTH_SERVICE_URL: "http://localhost:3001"
+      AUTH_SERVICE_INTERNAL_URL: "http://auth-service:3001"
+      APP_SLUG: "test-app"
+      REDIRECT_URI: "http://localhost:3000/callback"
+      CREDENTIALS_PATH: "/shared/credentials.json"
+    ports:
+      - "3000:3000"
+    volumes:
+      - credentials:/shared
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  setup:
+    build:
+      context: ./setup
+      dockerfile: Dockerfile
+    environment:
+      AUTH_SERVICE_INTERNAL_URL: "http://auth-service:3001"
+      ADMIN_EMAIL: "admin@test.local"
+      ADMIN_PASSWORD: "AdminPass1!"
+      APP_SLUG: "test-app"
+      REDIRECT_URI: "http://localhost:3000/callback"
+      CREDENTIALS_PATH: "/shared/credentials.json"
+      FIXTURES_PATH: "/shared/fixtures.json"
+    volumes:
+      - credentials:/shared
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  credentials:

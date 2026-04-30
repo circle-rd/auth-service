@@ -31,6 +31,7 @@ export const applications = pgTable(
     isPublic: boolean("is_public").notNull().default(false),
     url: text("url"),
     icon: text("icon"),
+    enabledSocialProviders: text("enabled_social_providers").array(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

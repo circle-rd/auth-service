@@ -11,6 +11,10 @@ const envSchema = z.object({
   BETTER_AUTH_SECRET: z.string().min(16),
   BETTER_AUTH_URL: z.string().url(),
 
+  // Display name used as TOTP issuer in authenticator apps and as BetterAuth
+  // appName. Falls back to a sensible default when unset.
+  APP_NAME: z.string().min(1).default("CIRCLE Auth"),
+
   DATABASE_URL: z.string().url(),
 
   ADMIN_EMAIL: z.string().email().optional(),
@@ -72,6 +76,7 @@ export const config = {
     secret: parsed.data.BETTER_AUTH_SECRET,
     url: parsed.data.BETTER_AUTH_URL,
   },
+  appName: parsed.data.APP_NAME,
   db: {
     url: parsed.data.DATABASE_URL,
   },

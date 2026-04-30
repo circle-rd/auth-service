@@ -217,40 +217,67 @@ The `features` claim is only populated when the scope `features` is included in 
 
 - MFA enabled **optionally by the user** from their profile
 - Once enabled, applies to **all applications** the user has access to
-- An admin can force MFA activation for a user
-- Multiple factors can be registered simultaneously
+- Admins can force MFA per user (`user.is_mfa_required`) or per application (`applications.is_mfa_required`)
+- A user with a forced flag who has not yet enabled a second factor can still sign in to the auth-service UI to complete the setup, but OAuth/OIDC token issuance for downstream apps requiring MFA is blocked until setup is complete (`AUTH_004`)
 
-### 4.2 TOTP — Authenticator App
+### 4.2 TOTP — Authenticator App (Phase 1 — implemented)
 
-Plugin: `twoFactor()` from `better-auth/plugins`
+Plugin: `twoFactor({ issuer: config.appName })` from `better-auth/plugins`
 
-- Compatible with Google Authenticator, Authy, Bitwarden Authenticator
-- Activation: QR code generation (TOTP URI), first code verification
-- Backup codes generated and encrypted at activation
-- Can be disabled from the user profile
+- Compatible with Google Authenticator, 1Password, Authy, Bitwarden, **YubiKey OATH-TOTP slots** (via Yubico Authenticator / YubiKey Manager)
+- Activation: QR code rendered locally with the `qrcode` library from the `otpauth://` URI; first code verification before the secret is committed
+- 10 backup codes generated at activation, displayed once, downloadable as a `.txt` file; the user must explicitly confirm they have saved them
+- Backup codes can be regenerated at any time from the profile (invalidates the previous batch)
+- Can be disabled from the user profile after re-confirming the password
 
-### 4.3 Passkey / YubiKey
+### 4.3 Passkey / YubiKey FIDO2 (Phase 2 — planned)
 
 Plugin: `@better-auth/passkey`
 
 - Protocol: **FIDO2 / WebAuthn** (compatible with all YubiKey 5+, third-party FIDO2 keys)
-- Usable as:
-  - **Second factor** (after email/password) — replaces TOTP
-  - **Primary authentication** (passwordless) — optional, configurable by admin
-- Multiple hardware keys can be registered per user
-- Each key can be named (e.g. "YubiKey desk", "YubiKey backup")
-- Individual keys can be revoked
+- Status: **deferred to Phase 2**. The Profile UI surfaces a "Coming soon" badge.
+- BetterAuth's passkey plugin currently only supports passkeys as the **primary** authenticator (passwordless). To use a FIDO2 hardware key as a true second factor today, configure it as an **OATH-TOTP** slot and register it via Phase 1 (TOTP) above.
 
-### 4.4 MFA Flow during Login
+### 4.4 MFA Flow during Login (auth-service UI)
 
 ```
 POST /api/auth/sign-in/email
-  → If MFA enabled: response { twoFactorRequired: true }
-  → Frontend redirects to /verify-mfa
-  → User selects factor (TOTP code OR YubiKey touch)
-  → POST /api/auth/two-factor/verify-totp OR /api/auth/passkey/authenticate
-  → Session created → OAuth 2.1 flow continues
+  → If TOTP enabled: response { twoFactorRedirect: true, twoFactorMethods: ['totp'] }
+     and a temporary 2FA cookie is set
+  → Frontend keeps the user on /login and swaps to the MfaChallengeForm
+  → User enters the 6-digit code (or toggles "Use a backup code")
+  → POST /api/auth/two-factor/verify-totp  OR  /api/auth/two-factor/verify-backup-code
+  → Real session cookie issued → OAuth 2.1 flow resumes via `redirectTo`
 ```
+
+### 4.5 MFA enforcement at OAuth token issuance
+
+Per-app and per-user MFA flags are combined in `src/services/mfa.ts`:
+
+```ts
+userMustSetupMfa(user, appRequiresMfa) === !user.twoFactorEnabled
+                                          && (appRequiresMfa || user.isMfaRequired)
+```
+
+When this returns true at token issuance, the OAuth `customIdTokenClaims` hook throws `AUTH_004 (mfa_setup_required)`, prompting the client app to redirect the user to `/profile?tab=security` to complete setup.
+
+### 4.6 Endpoints (BetterAuth-provided)
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/api/auth/two-factor/enable` | POST | Returns `{ totpURI, backupCodes }` (requires password) |
+| `/api/auth/two-factor/disable` | POST | Disables TOTP (requires password) |
+| `/api/auth/two-factor/verify-totp` | POST | Consumes the 2FA cookie and issues the session |
+| `/api/auth/two-factor/verify-backup-code` | POST | Same, with a single-use backup code |
+| `/api/auth/two-factor/generate-backup-codes` | POST | Rotates the backup codes (requires password) |
+
+### 4.7 Frontend components
+
+- `frontend/src/components/profile/MfaSetupModal.vue` — 4-step wizard (password → QR scan → verify → backup codes)
+- `frontend/src/components/profile/MfaDisableModal.vue` — destructive flow with password confirmation
+- `frontend/src/components/profile/MfaBackupCodesModal.vue` — backup code regeneration
+- `frontend/src/components/auth/MfaChallengeForm.vue` — login-time challenge with TOTP / backup-code toggle
+- All strings live under the `mfa.*` namespace in `frontend/src/i18n/{en,fr}.ts`
 
 ---
 

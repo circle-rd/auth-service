@@ -58,6 +58,6 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
       .limit(limit)
       .offset(offset);
 
-    await reply.send({ total, list, page, limit });
+    await reply.send({ total, sessions: list, page, limit });
   });
 }

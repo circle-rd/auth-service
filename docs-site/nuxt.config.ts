@@ -9,11 +9,11 @@ export default defineNuxtConfig({
   llms: {
     title: "Auth Service",
     description:
-      "Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth — multi-app RBAC, MFA, passkeys, and subscription management.",
+      "Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth. Multi-app RBAC, MFA, subscription plans, and consumption tracking.",
     full: {
       title: "Auth Service — Complete Documentation",
       description:
-        "Complete documentation for Auth Service, a self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth v1.5. Covers installation, configuration, application management, per-app RBAC, subscription plans, consumption tracking, Stripe billing integration, and the full REST API reference.",
+        "Complete documentation for auth-service, a self-hosted OAuth 2.1 / OIDC identity provider. Covers deployment, configuration, application management, RBAC, subscription plans, organization support, consumption tracking, and the full REST API reference.",
     },
   },
 });

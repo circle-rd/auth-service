@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Test Fixture App</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 1rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.1);
+      padding: 2rem;
+      width: 100%;
+      max-width: 640px;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 1.5rem; }
+    button {
+      padding: .55rem 1.4rem; font-size: .95rem;
+      border: none; border-radius: 6px; cursor: pointer; font-weight: 500;
+    }
+    .btn-primary { background: #0070f3; color: #fff; }
+    .btn-secondary { background: #eee; color: #333; }
+    pre {
+      background: #f0f0f0; padding: 1rem; border-radius: 6px;
+      font-size: .82rem; white-space: pre-wrap; word-break: break-all;
+      margin-top: 1rem;
+    }
+    .actions { display: flex; gap: .75rem; margin-top: 1.25rem; }
+    #status { margin-top: .75rem; font-size: .9rem; color: #666; }
+    #error { color: #c62828; background: #fce8e8; padding: .7rem 1rem;
+             border-radius: 6px; margin-top: 1rem; font-size: .9rem; display: none; }
+  </style>
+</head>
+<body>
+  <!-- CONFIG_PLACEHOLDER -->
+  <div class="card">
+    <h1>Test Fixture App</h1>
+    <div id="logged-out" style="display:none">
+      <button class="btn-primary" id="login-btn" data-testid="login-btn">Sign in</button>
+    </div>
+    <div id="logged-in" style="display:none">
+      <pre id="claims" data-testid="claims">Loading…</pre>
+      <div class="actions">
+        <button class="btn-secondary" id="logout-btn" data-testid="logout-btn">Logout</button>
+        <button class="btn-secondary" id="refresh-me-btn">Refresh</button>
+      </div>
+    </div>
+    <div id="status" data-testid="status">Checking session…</div>
+    <div id="error" data-testid="error"></div>
+  </div>
+
+  <script type="module">
+    const cfg = window.__CONFIG__;
+    const AUTH_URL = cfg.authServiceUrl;
+    const APP_SLUG = cfg.appSlug;
+    const REDIRECT_URI = cfg.redirectUri;
+
+    // PKCE helpers
+    function randomBase64url(n) {
+      const arr = crypto.getRandomValues(new Uint8Array(n));
+      return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+    async function sha256base64url(plain) {
+      const enc = new TextEncoder().encode(plain);
+      const digest = await crypto.subtle.digest('SHA-256', enc);
+      return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      el.style.display = 'block';
+      el.textContent = msg;
+    }
+
+    async function checkSession() {
+      const res = await fetch('/api/me', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('logged-out').style.display = 'none';
+        document.getElementById('logged-in').style.display = 'block';
+        document.getElementById('claims').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('status').textContent = 'Signed in as ' + (data.email ?? data.sub);
+      } else {
+        document.getElementById('logged-out').style.display = 'block';
+        document.getElementById('logged-in').style.display = 'none';
+        document.getElementById('status').textContent = 'Not signed in';
+      }
+    }
+
+    async function startLogin() {
+      const verifier = randomBase64url(48);
+      const challenge = await sha256base64url(verifier);
+      const state = randomBase64url(16);
+      sessionStorage.setItem('pkce_verifier', verifier);
+      sessionStorage.setItem('pkce_state', state);
+
+      const params = new URLSearchParams({
+        response_type: 'code',
+        client_id: APP_SLUG,
+        redirect_uri: REDIRECT_URI,
+        scope: 'openid profile email roles',
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        state,
+      });
+      window.location.href = `${AUTH_URL}/api/auth/oauth2/authorize?${params}`;
+    }
+
+    async function handleCallback() {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const state = params.get('state');
+      const savedState = sessionStorage.getItem('pkce_state');
+      const verifier = sessionStorage.getItem('pkce_verifier');
+
+      if (!code) return;
+
+      if (state !== savedState) {
+        showError('State mismatch — possible CSRF');
+        return;
+      }
+
+      sessionStorage.removeItem('pkce_verifier');
+      sessionStorage.removeItem('pkce_state');
+
+      const res = await fetch('/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, code_verifier: verifier, redirect_uri: REDIRECT_URI }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showError(data?.error_description ?? data?.error ?? 'Token exchange failed');
+        return;
+      }
+
+      // Persist the session cookie via the /api/session endpoint
+      if (data.__sid) {
+        await fetch('/api/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ sid: data.__sid }),
+        });
+      }
+
+      // Clean up URL and show claims
+      history.replaceState(null, '', '/');
+      await checkSession();
+    }
+
+    document.getElementById('login-btn').addEventListener('click', startLogin);
+    document.getElementById('logout-btn').addEventListener('click', () => {
+      window.location.href = '/logout';
+    });
+    document.getElementById('refresh-me-btn').addEventListener('click', checkSession);
+
+    // Init
+    if (window.location.pathname === '/callback') {
+      await handleCallback();
+    } else {
+      await checkSession();
+    }
+  </script>
+</body>
+</html>

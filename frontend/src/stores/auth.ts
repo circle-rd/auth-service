@@ -1,48 +1,47 @@
-import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { defineStore } from 'pinia';
+import { computed, ref } from 'vue';
+import type { User, Session, MfaMethod } from '@/types';
+import {
+  getSession,
+  signOut as apiSignOut,
+  signInEmail as apiSignInEmail,
+  verifyTotp as apiVerifyTotp,
+  verifyBackupCode as apiVerifyBackupCode,
+} from '@/api/auth';
 
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  role?: string;
-  image?: string | null;
-  emailVerified?: boolean;
-  createdAt?: string;
-  phone?: string | null;
-  company?: string | null;
-  position?: string | null;
-  address?: string | null;
-}
-
-interface Session {
-  user: User;
-  session: {
-    id: string;
-    expiresAt: string;
-  };
-}
-
-export const useAuthStore = defineStore("auth", () => {
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref<User | null>(null);
   const session = ref<Session | null>(null);
-  const initialized = ref(false);
   const loading = ref(false);
+  const initialized = ref(false);
 
-  const isAuthenticated = computed(() => session.value !== null);
-  const user = computed(() => session.value?.user ?? null);
+  // ── MFA challenge state ──────────────────────────────────────────────────
+  // Set when sign-in returns `twoFactorRedirect: true`. The view layer
+  // should swap to the MFA challenge form until the user verifies a code.
+  const mfaPending = ref(false);
+  const mfaMethods = ref<MfaMethod[]>([]);
 
-  async function fetchSession(): Promise<void> {
+  // Indicates the signed-in user must enable a second factor before being
+  // allowed to use any downstream application. The auth-service UI itself
+  // remains accessible so the user can complete the setup flow.
+  const mfaSetupRequired = computed<boolean>(() => {
+    if (!user.value) return false;
+    return Boolean(user.value.isMfaRequired) && !user.value.twoFactorEnabled;
+  });
+
+  async function fetchSession() {
     loading.value = true;
     try {
-      const res = await fetch("/api/auth/get-session", {
-        credentials: "include",
-      });
-      if (res.ok) {
-        session.value = (await res.json()) as Session;
+      const result = await getSession();
+      if (result) {
+        user.value = result.user;
+        session.value = result.session;
       } else {
+        user.value = null;
         session.value = null;
       }
     } catch {
+      user.value = null;
       session.value = null;
     } finally {
       loading.value = false;
@@ -50,69 +49,83 @@ export const useAuthStore = defineStore("auth", () => {
     }
   }
 
-  async function signIn(email: string, password: string): Promise<void> {
-    const res = await fetch("/api/auth/sign-in/email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email, password }),
-    });
-    const data = (await res.json()) as
-      | Session
-      | { twoFactorRequired: boolean }
-      | { error: { code: string; message: string } };
-
-    if (!res.ok) {
-      const err = data as { error: { code: string; message: string } };
-      throw new Error(err.error?.message ?? "Sign-in failed");
+  async function signInEmail(email: string, password: string): Promise<void> {
+    const result = await apiSignInEmail(email, password);
+    if (result.twoFactorRedirect) {
+      mfaPending.value = true;
+      mfaMethods.value = result.twoFactorMethods ?? ['totp'];
+      return;
     }
-
-    if ("twoFactorRequired" in data && data.twoFactorRequired) {
-      // Redirect to MFA screen — router guard will handle this
-      throw new Error("MFA_REQUIRED");
-    }
-
-    session.value = data as Session;
+    await fetchSession();
   }
 
-  async function signOut(): Promise<void> {
-    await fetch("/api/auth/sign-out", {
-      method: "POST",
-      credentials: "include",
-    });
+  async function verifyMfaTotp(code: string): Promise<void> {
+    await apiVerifyTotp(code);
+    // Refresh the session BEFORE flipping `mfaPending`, otherwise the login
+    // view would unmount the challenge form mid-promise and re-render the
+    // email/password form for a frame, which the user perceives as a
+    // "redirect back to login". The view layer is responsible for calling
+    // `clearMfaPending()` after it has navigated away from /login.
+    await fetchSession();
+    if (!user.value) {
+      throw new Error('Session was not established. Please try signing in again.');
+    }
+  }
+
+  async function verifyMfaBackupCode(code: string): Promise<void> {
+    await apiVerifyBackupCode(code);
+    await fetchSession();
+    if (!user.value) {
+      throw new Error('Session was not established. Please try signing in again.');
+    }
+  }
+
+  function clearMfaPending(): void {
+    mfaPending.value = false;
+    mfaMethods.value = [];
+  }
+
+  function cancelMfa(): void {
+    mfaPending.value = false;
+    mfaMethods.value = [];
+  }
+
+  async function logout() {
+    try {
+      await apiSignOut();
+    } catch {
+      // proceed even if API fails (e.g. session already expired)
+    }
+    user.value = null;
     session.value = null;
+    mfaPending.value = false;
+    mfaMethods.value = [];
   }
 
-  async function register(
-    email: string,
-    password: string,
-    name: string,
-  ): Promise<void> {
-    const res = await fetch("/api/auth/sign-up/email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ email, password, name }),
-    });
-    const data = (await res.json()) as
-      | Session
-      | { error: { code: string; message: string } };
-    if (!res.ok) {
-      const err = data as { error: { code: string; message: string } };
-      throw new Error(err.error?.message ?? "Registration failed");
-    }
-    session.value = data as Session;
+  function isAdmin(): boolean {
+    return user.value?.role === 'admin' || user.value?.role === 'superadmin';
+  }
+
+  function isSuperAdmin(): boolean {
+    return user.value?.role === 'superadmin';
   }
 
   return {
-    session,
-    initialized,
-    loading,
-    isAuthenticated,
     user,
+    session,
+    loading,
+    initialized,
+    mfaPending,
+    mfaMethods,
+    mfaSetupRequired,
     fetchSession,
-    signIn,
-    signOut,
-    register,
+    signInEmail,
+    verifyMfaTotp,
+    verifyMfaBackupCode,
+    clearMfaPending,
+    cancelMfa,
+    logout,
+    isAdmin,
+    isSuperAdmin,
   };
 });

@@ -6,14 +6,20 @@ import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
 import * as customSchema from "./db/schema.js";
 import * as authSchema from "./db/auth-schema.js";
-import { applications } from "./db/schema.js";
-import { eq } from "drizzle-orm";
+import { applications, userApplications } from "./db/schema.js";
+import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
-import { getUserClaims, userHasAppAccessBySlug } from "./services/claims.js";
+import {
+  getUserClaims,
+  userHasAppAccessBySlug,
+  assignDefaultRoleIfNeeded,
+  assignDefaultPlanIfNeeded,
+} from "./services/claims.js";
 import {
   sendResetPasswordEmail,
   sendVerificationEmail,
 } from "./services/email.js";
+import { userMustSetupMfa } from "./services/mfa.js";
 import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
@@ -22,6 +28,17 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
   baseURL: config.betterAuth.url,
+  // Used as the default TOTP issuer (shown in authenticator apps) and as a
+  // display name in other BetterAuth contexts.
+  appName: config.appName,
+  // Silence startup self-check warnings for well-known OIDC discovery endpoints.
+  // Both /.well-known/openid-configuration and /.well-known/oauth-authorization-server
+  // are served correctly via /api/auth/.well-known/* — BetterAuth's HTTP check fires
+  // before the server is listening, producing false-positive warnings.
+  silenceWarnings: {
+    oauthAuthServerConfig: true,
+    openidConfig: true,
+  },
   // Let BetterAuth trust all configured CORS origins
   trustedOrigins: config.cors.origins,
   // Enable cross-subdomain cookies when SESSION_DOMAIN is configured (e.g. "example.com")
@@ -93,7 +110,7 @@ export const auth = betterAuth({
     // Without this, createIdToken falls back to ctx.context.baseURL which
     // BetterAuth computes as `${baseURL}/api/auth`, causing iss/issuer mismatch.
     jwt({ jwt: { issuer: config.betterAuth.url } }),
-    twoFactor(),
+    twoFactor({ issuer: config.appName }),
     passkey(),
     // Organization support — only admins/superadmins can create orgs via admin API.
     // Regular users can be members of orgs but cannot create them.
@@ -163,45 +180,97 @@ export const auth = betterAuth({
         "org",
       ],
       // Inject roles, permissions, features, and org_id into id_token.
-      // Also gates token issuance: throws FORBIDDEN if user has no access to the app
-      // or if the application requires MFA and the user has not enabled it.
+      // Also gates token issuance:
+      //   - throws FORBIDDEN when the user has no access AND the app is neither
+      //     public nor open to registration
+      //   - auto-provisions a userApplications row for new users on public apps
+      //     or apps with allowRegister=true (their first token exchange)
       customIdTokenClaims: async ({ user, scopes, metadata }) => {
         // metadata.clientId is stored in oauthClient.metadata and equals applications.slug
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
         if (clientId) {
-          const hasAccess = await userHasAppAccessBySlug(user.id, clientId);
-          if (!hasAccess) {
-            throw new APIError("FORBIDDEN", {
-              message: "User not authorized for this application",
-            });
-          }
-
-          // Enforce MFA when the application requires it.
-          // Look up the application by slug to check isMfaRequired.
+          // Single query: resolve app + check access in one round-trip
           const [app] = await db
-            .select({ isMfaRequired: applications.isMfaRequired })
+            .select({
+              id: applications.id,
+              isPublic: applications.isPublic,
+              allowRegister: applications.allowRegister,
+              isMfaRequired: applications.isMfaRequired,
+            })
             .from(applications)
             .where(eq(applications.slug, clientId))
             .limit(1);
 
-          if (app?.isMfaRequired) {
-            const userRecord = user as Record<string, unknown>;
-            const hasMfaEnabled = Boolean(userRecord.twoFactorEnabled);
-            if (!hasMfaEnabled) {
-              // User has not set up MFA but the application requires it.
+          if (!app) {
+            throw new APIError("FORBIDDEN", {
+              message: "Application not found",
+            });
+          }
+
+          const hasAccess = await userHasAppAccessBySlug(user.id, clientId);
+          if (!hasAccess) {
+            // Distinguish "never had access" from "explicitly revoked" (isActive: false).
+            // A revoked row must not be re-activated by auto-provisioning.
+            const [existingRow] = await db
+              .select({ isActive: userApplications.isActive })
+              .from(userApplications)
+              .where(
+                and(
+                  eq(userApplications.userId, user.id),
+                  eq(userApplications.applicationId, app.id),
+                ),
+              )
+              .limit(1);
+
+            if (existingRow) {
+              // Row exists but isActive is false → access explicitly revoked.
               throw new APIError("FORBIDDEN", {
-                message:
-                  "This application requires MFA. Please enable two-factor authentication in your profile before continuing.",
+                message: "User access has been revoked for this application",
               });
             }
-            // If MFA is enabled, the twoFactor plugin's sign-in hook already
-            // enforced verification during login — no additional check needed here.
+
+            if (app.isPublic || app.allowRegister) {
+              // Auto-provision: insert a userApplications row so subsequent calls
+              // find the user as an active member of this application.
+              await db
+                .insert(userApplications)
+                .values({
+                  userId: user.id,
+                  applicationId: app.id,
+                  isActive: true,
+                })
+                .onConflictDoNothing();
+              await assignDefaultRoleIfNeeded(user.id, app.id);
+              await assignDefaultPlanIfNeeded(user.id, app.id);
+            } else {
+              throw new APIError("FORBIDDEN", {
+                message: "User not authorized for this application",
+              });
+            }
           }
+
+          // Enforce MFA when the application requires it OR when the user has
+          // been individually flagged as MFA-required by an admin. The OAuth
+          // token cannot be issued until the user enables a second factor.
+          if (
+            userMustSetupMfa(
+              user as Record<string, unknown>,
+              Boolean(app.isMfaRequired),
+            )
+          ) {
+            throw new APIError("FORBIDDEN", {
+              message:
+                "MFA is required for this account. Please enable two-factor authentication in your profile before continuing.",
+            });
+          }
+          // If MFA is enabled, the twoFactor plugin's sign-in hook already
+          // enforced verification during login — no additional check needed here.
         }
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
+          company: (user as Record<string, unknown>).company as string | null | undefined,
         });
       },
       // Inject claims into the OAuth2 access token JWT (verified by ioserver-oidc).
@@ -219,6 +288,7 @@ export const auth = betterAuth({
         const claims = await getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
+          company: (user as Record<string, unknown>).company as string | null | undefined,
         });
         // Inject org_id when the client requested the "org" scope and a
         // reference (activeOrganizationId) was captured during the postLogin flow.
@@ -236,6 +306,7 @@ export const auth = betterAuth({
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
+          company: (user as Record<string, unknown>).company as string | null | undefined,
         });
       },
       // When the "org" scope is requested: after login, determine whether we need

@@ -187,7 +187,7 @@ describe("userRoutes — GET /subscription", () => {
     const res = await app.inject({ method: "GET", url: "/subscription" });
     expect(res.statusCode).toBe(200);
     const body = res.json<{
-      subscriptions: Array<{ plan: { prices: unknown[] } | null }>();
+      subscriptions: Array<{ plan: { prices: unknown[] } | null }>;
     }>();
     expect(body.subscriptions[0]!.plan?.prices).toHaveLength(0);
   });

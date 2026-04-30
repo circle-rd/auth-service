@@ -15,6 +15,10 @@ const envSchema = z.object({
   // appName. Falls back to a sensible default when unset.
   APP_NAME: z.string().min(1).default("CIRCLE Auth"),
 
+  // Optional logo URL displayed in the UI (sidebar, login, consent). When unset,
+  // the frontend falls back to the bundled default logo.
+  APP_LOGO_URL: z.string().url().optional(),
+
   DATABASE_URL: z.string().url(),
 
   ADMIN_EMAIL: z.string().email().optional(),
@@ -77,6 +81,7 @@ export const config = {
     url: parsed.data.BETTER_AUTH_URL,
   },
   appName: parsed.data.APP_NAME,
+  appLogoUrl: parsed.data.APP_LOGO_URL,
   db: {
     url: parsed.data.DATABASE_URL,
   },

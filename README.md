@@ -231,6 +231,8 @@ Add a reverse proxy (Traefik, nginx, Caddy) in front of it for TLS termination.
 | `ADMIN_EMAIL`        | no       | Superadmin email — created at first boot          |
 | `ADMIN_PASSWORD`     | no       | Superadmin password                               |
 | `CORS_ORIGINS`       | no       | Comma-separated allowed origins                   |
+| `APP_NAME`           | no       | Display name in UI + TOTP issuer (default: `CIRCLE Auth`) |
+| `APP_LOGO_URL`       | no       | Logo URL for UI + favicon (falls back to default) |
 | `SMTP_HOST`          | no       | SMTP server (email features disabled if empty)    |
 | `SMTP_PORT`          | no       | SMTP port (default: 587)                          |
 | `SMTP_USER`          | no       | SMTP username                                     |

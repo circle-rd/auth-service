@@ -1,5 +1,5 @@
 import { apiFetch, USE_MOCK } from './client';
-import type { User, UserApplication } from '@/types';
+import type { User, UserApplicationDetail } from '@/types';
 import { MOCK_USERS, MOCK_USER_APPLICATIONS } from '@/mocks/data';
 
 export interface UsersListResponse {
@@ -11,7 +11,7 @@ export interface UsersListResponse {
 
 export interface UserDetailResponse {
   user: User
-  applications: UserApplication[]
+  applications: UserApplicationDetail[]
 }
 
 export interface CreateUserBody {
@@ -58,7 +58,10 @@ export async function getUser(id: string): Promise<UserDetailResponse> {
   if (USE_MOCK) {
     const user = MOCK_USERS.find(u => u.id === id);
     if (!user) throw new Error('User not found');
-    return { user, applications: MOCK_USER_APPLICATIONS.filter(a => a.userId === id) };
+    const apps: UserApplicationDetail[] = MOCK_USER_APPLICATIONS
+      .filter(a => a.userId === id)
+      .map(a => ({ id: a.applicationId, name: a.name ?? a.applicationId, slug: a.applicationId, icon: null, isActive: a.isActive, subscriptionPlanId: a.subscriptionPlanId, roles: a.roleId ? [{ id: a.roleId, name: a.roleId }] : [] }));
+    return { user, applications: apps };
   }
   return apiFetch<UserDetailResponse>(`/admin/users/${id}`);
 }

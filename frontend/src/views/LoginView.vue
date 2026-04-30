@@ -3,7 +3,8 @@ import { ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
-import { Shield, LogIn } from 'lucide-vue-next';
+import { LogIn } from 'lucide-vue-next';
+import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import MfaChallengeForm from '@/components/auth/MfaChallengeForm.vue';
@@ -72,8 +73,8 @@ if (import.meta.env.VITE_USE_MOCK === 'true') {
     </div>
     <div class="w-full max-w-sm relative">
       <div class="flex flex-col items-center mb-8">
-        <div class="w-12 h-12 rounded-2xl bg-primary-600 flex items-center justify-center shadow-xl shadow-primary-900/40 mb-4">
-          <Shield class="w-6 h-6 text-white" />
+        <div class="w-12 h-12 rounded-2xl bg-primary-600 flex items-center justify-center shadow-xl shadow-primary-900/40 mb-4 overflow-hidden">
+          <AppLogo :size="24" icon-class="text-white" />
         </div>
         <h1 class="text-xl font-semibold text-surface-100">{{ t('auth.loginTitle') }}</h1>
         <p class="text-sm text-surface-500 mt-1">

@@ -4,8 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { getUser } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
-import { listApplications } from '@/api/applications';
-import type { User, UserApplication, ConsumptionAggregate, Application } from '@/types';
+import type { User, UserApplicationDetail, ConsumptionAggregate } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
@@ -17,8 +16,7 @@ const route = useRoute();
 const router = useRouter();
 
 const user = ref<User | null>(null);
-const userApps = ref<UserApplication[]>([]);
-const applications = ref<Application[]>([]);
+const userApps = ref<UserApplicationDetail[]>([]);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const loading = ref(true);
 
@@ -26,26 +24,22 @@ const userId = route.params.id as string;
 
 onMounted(async () => {
   try {
-    const [userRes, appsRes] = await Promise.all([
-      getUser(userId),
-      listApplications(),
-    ]);
+    const userRes = await getUser(userId);
     user.value = userRes.user;
     userApps.value = userRes.applications;
-    applications.value = appsRes.applications;
 
     for (const ua of userRes.applications) {
-      const res = await getUserConsumption(ua.userId, ua.applicationId);
-      consumption.value[ua.applicationId] = res.aggregates;
+      try {
+        const res = await getUserConsumption(userId, ua.id);
+        consumption.value[ua.id] = res.aggregates;
+      } catch {
+        consumption.value[ua.id] = [];
+      }
     }
   } finally {
     loading.value = false;
   }
 });
-
-function getAppName(appId: string) {
-  return applications.value.find(a => a.id === appId)?.name ?? appId;
-}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -127,19 +121,25 @@ function roleBadgeVariant(role: string | null) {
             No application access
           </div>
           <div v-else class="divide-y divide-surface-800/40">
-            <div v-for="ua in userApps" :key="ua.applicationId" class="px-5 py-4">
+            <div v-for="ua in userApps" :key="ua.id" class="px-5 py-4">
               <div class="flex items-start justify-between">
-                <div>
-                  <p class="text-sm font-medium text-surface-200">{{ getAppName(ua.applicationId) }}</p>
-                  <div class="flex items-center gap-2 mt-1">
-                    <BaseBadge :variant="ua.isActive ? 'success' : 'neutral'" size="sm" dot>{{ ua.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
-                    <span v-if="ua.roleId" class="text-xs text-surface-500">Role: {{ ua.roleId }}</span>
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-lg overflow-hidden shrink-0 bg-surface-800 flex items-center justify-center">
+                    <img v-if="ua.icon" :src="ua.icon" class="w-full h-full object-cover" />
+                    <span v-else class="text-xs font-bold text-surface-400">{{ ua.name[0].toUpperCase() }}</span>
+                  </div>
+                  <div>
+                    <p class="text-sm font-medium text-surface-200">{{ ua.name }}</p>
+                    <div class="flex items-center gap-2 mt-1 flex-wrap">
+                      <BaseBadge :variant="ua.isActive ? 'success' : 'neutral'" size="sm" dot>{{ ua.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
+                      <span v-for="r in ua.roles" :key="r.id" class="text-xs text-surface-500">{{ r.name }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-              <div v-if="consumption[ua.applicationId]?.length" class="mt-3 flex flex-wrap gap-3">
+              <div v-if="consumption[ua.id]?.length" class="mt-3 flex flex-wrap gap-3">
                 <div
-                  v-for="agg in consumption[ua.applicationId]"
+                  v-for="agg in consumption[ua.id]"
                   :key="agg.key"
                   class="px-3 py-1.5 rounded-lg bg-surface-800/60 border border-surface-700/30"
                 >

@@ -144,6 +144,16 @@ export interface UserApplication {
   roleId: string | null
 }
 
+export interface UserApplicationDetail {
+  id: string
+  name: string
+  slug: string
+  icon: string | null
+  isActive: boolean
+  subscriptionPlanId: string | null
+  roles: { id: string; name: string }[]
+}
+
 export interface UserSubscription {
   id: string
   userId: string

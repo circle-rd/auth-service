@@ -3,7 +3,10 @@ import { createPinia } from "pinia";
 import App from "./App.vue";
 import router from "./router";
 import { i18n } from "./i18n";
+import { useAppBranding } from "./composables/useAppBranding";
 import "./style.css";
+
+void useAppBranding().load();
 
 const app = createApp(App);
 app.use(createPinia());

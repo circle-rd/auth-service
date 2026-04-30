@@ -71,6 +71,10 @@ const createAppSchema = z.object({
   redirectUris: z.array(z.string().min(1)).default([]),
   url: z.string().url().optional().nullable(),
   icon: z.string().optional().nullable(),
+  enabledSocialProviders: z
+    .array(z.enum(["google", "github", "linkedin", "microsoft", "apple"]))
+    .nullable()
+    .optional(),
 });
 
 const updateAppSchema = createAppSchema.partial().omit({ slug: true, isPublic: true });
@@ -139,6 +143,7 @@ export async function applicationRoutes(
           redirectUris: data.redirectUris,
           url: data.url,
           icon: data.icon,
+          enabledSocialProviders: data.enabledSocialProviders ?? null,
         })
         .returning();
 

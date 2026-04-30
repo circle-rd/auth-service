@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useUsersStore } from '@/stores/users';
-import { createUser, updateUser } from '@/api/users';
+import { createUser, disableUser, enableUser } from '@/api/users';
 import { useToast } from '@/composables/useToast';
 import { useDebounce } from '@/composables/useDebounce';
 import type { User } from '@/types';
@@ -17,7 +17,7 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye } from 'lucide-vue-next';
+import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2 } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const router = useRouter();
@@ -33,6 +33,7 @@ const page = ref(1);
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
 const showDeleteConfirm = ref(false);
+const showDisableConfirm = ref(false);
 const deleteLoading = ref(false);
 const actionLoading = ref(false);
 const deleteError = ref('');
@@ -149,7 +150,7 @@ async function handleDelete() {
 async function handleUnban(user: User) {
   actionLoading.value = true;
   try {
-    await updateUser(user.id, { banned: false, banReason: null, banExpires: null });
+    await enableUser(user.id);
     await store.updateUser(user.id, { banned: false });
     toast.success('User unbanned');
   } catch (err) {
@@ -160,9 +161,59 @@ async function handleUnban(user: User) {
   }
 }
 
+function openDisable(user: User) {
+  selectedUser.value = user;
+  showDisableConfirm.value = true;
+  actionMenuUser.value = null;
+}
+
+async function handleDisable() {
+  if (!selectedUser.value) return;
+  actionLoading.value = true;
+  try {
+    await disableUser(selectedUser.value.id);
+    await store.updateUser(selectedUser.value.id, { banned: true });
+    toast.success('User disabled');
+    showDisableConfirm.value = false;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed to disable user');
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
+
+const menuPos = ref({ top: 0, left: 0 });
+const MENU_WIDTH = 176; // w-44
+
+function toggleMenu(user: User, event: MouseEvent) {
+  if (actionMenuUser.value === user.id) {
+    actionMenuUser.value = null;
+    return;
+  }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  menuPos.value = {
+    top: rect.bottom + 4,
+    left: Math.max(8, rect.right - MENU_WIDTH),
+  };
+  actionMenuUser.value = user.id;
+}
+
+function onMenuScroll() {
+  if (actionMenuUser.value) actionMenuUser.value = null;
+}
+
+onMounted(() => {
+  window.addEventListener('scroll', onMenuScroll, true);
+  window.addEventListener('resize', onMenuScroll);
+});
+onUnmounted(() => {
+  window.removeEventListener('scroll', onMenuScroll, true);
+  window.removeEventListener('resize', onMenuScroll);
+});
 
 const createModalTags = computed(() => {
   const tags: Array<{ label: string; variant: 'error' | 'warning' | 'neutral' }> = [];
@@ -260,25 +311,27 @@ const editModalTags = computed(() => {
           </td>
           <td class="px-4 py-3 text-right">
             <div class="flex items-center justify-end gap-1">
-              <button @click="router.push(`/users/${user.id}`)" class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors">
-                <Eye class="w-4 h-4" />
-              </button>
               <div class="relative">
                 <button
-                  @click="actionMenuUser = actionMenuUser === user.id ? null : user.id"
+                  @click.stop="toggleMenu(user, $event)"
                   class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors"
                 >
                   <MoreHorizontal class="w-4 h-4" />
                 </button>
-                <div
-                  v-if="actionMenuUser === user.id"
-                  class="absolute right-0 top-full mt-1 w-44 bg-surface-800 border border-surface-700/50 rounded-xl shadow-xl z-20 overflow-hidden animate-slide-up"
-                  v-click-outside="() => actionMenuUser = null"
-                >
-                  <button @click="openEdit(user)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50">{{ t('users.editUser') }}</button>
-                  <button v-if="user.banned" @click="handleUnban(user)" class="w-full text-left px-3 py-2.5 text-sm text-emerald-400 hover:bg-surface-700/50">{{ t('users.unban') }}</button>
-                  <button @click="openDelete(user)" class="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-surface-700/50">{{ t('users.deleteUser') }}</button>
-                </div>
+                <Teleport to="body">
+                  <div
+                    v-if="actionMenuUser === user.id"
+                    :style="{ position: 'fixed', top: `${menuPos.top}px`, left: `${menuPos.left}px` }"
+                    class="w-44 bg-surface-800 border border-surface-700/50 rounded-xl shadow-xl z-[100] overflow-hidden animate-slide-up"
+                    v-click-outside="() => actionMenuUser = null"
+                  >
+                    <button @click="router.push(`/users/${user.id}`); actionMenuUser = null;" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Eye class="w-4 h-4" />{{ t('common.view') }}</button>
+                    <button @click="openEdit(user)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Pencil class="w-4 h-4" />{{ t('users.editUser') }}</button>
+                    <button v-if="user.banned" @click="handleUnban(user)" class="w-full text-left px-3 py-2.5 text-sm text-emerald-400 hover:bg-surface-700/50 flex items-center gap-2"><CheckCircle2 class="w-4 h-4" />{{ t('users.enable') }}</button>
+                    <button v-else @click="openDisable(user)" class="w-full text-left px-3 py-2.5 text-sm text-amber-400 hover:bg-surface-700/50 flex items-center gap-2"><Ban class="w-4 h-4" />{{ t('users.disable') }}</button>
+                    <button @click="openDelete(user)" class="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-surface-700/50 flex items-center gap-2"><Trash2 class="w-4 h-4" />{{ t('users.deleteUser') }}</button>
+                  </div>
+                </Teleport>
               </div>
             </div>
           </td>
@@ -355,6 +408,16 @@ const editModalTags = computed(() => {
       :loading="deleteLoading"
       @confirm="handleDelete"
       @cancel="showDeleteConfirm = false"
+    />
+
+    <ConfirmDialog
+      :open="showDisableConfirm"
+      :title="t('users.disable')"
+      :message="t('users.confirmDisable')"
+      :confirm-label="t('users.disable')"
+      :loading="actionLoading"
+      @confirm="handleDisable"
+      @cancel="showDisableConfirm = false"
     />
   </AppLayout>
 </template>

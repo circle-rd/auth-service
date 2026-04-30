@@ -22,18 +22,32 @@ services:
       PORT: ${PORT:-3001}
       HOST: ${HOST:-0.0.0.0}
       NODE_ENV: production
+
       # Override DATABASE_URL to use the docker-internal hostname
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+
+      # Branding (displayed in UI + used as TOTP issuer)
+      APP_NAME: ${APP_NAME:-CIRCLE Auth}
+      APP_LOGO_URL: ${APP_LOGO_URL:-}
+
+      # SMTP settings for email notifications
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+
+      # Social provider credentials (optional)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     depends_on:

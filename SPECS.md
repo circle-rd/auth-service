@@ -866,6 +866,7 @@ Format: `{DOMAIN}_{3-digit number}`
 | APP_003 | 409  | Application slug already exists               |
 | APP_004 | 400  | Cannot delete application with active users   |
 | APP_005 | 403  | User does not have access to this application |
+| APP_006 | 403  | Social provider not enabled for this application |
 
 ### PERM — Roles & Permissions
 
@@ -895,6 +896,7 @@ Format: `{DOMAIN}_{3-digit number}`
 | CONS_002 | 400  | Value must be a finite number                       |
 | CONS_003 | 404  | User+application combination not found              |
 | CONS_004 | 403  | Caller not authorized (requires client_credentials) |
+| CONS_005 | 400  | Invalid path parameters (must be valid UUIDs)       |
 
 ### USR — User Management (admin)
 
@@ -903,6 +905,31 @@ Format: `{DOMAIN}_{3-digit number}`
 | USR_001 | 404  | User not found                  |
 | USR_002 | 409  | Cannot delete the superadmin    |
 | USR_003 | 400  | Cannot disable your own account |
+
+### ORG — Organizations (admin)
+
+| Code    | HTTP | Description                          |
+| ------- | ---- | ------------------------------------ |
+| ORG_001 | 400  | Invalid organization data            |
+| ORG_002 | 404  | Organization not found               |
+| ORG_003 | 409  | Organization slug already exists     |
+
+### Additional notes
+
+- `applications.enabledSocialProviders`: `null` = inherit globally enabled
+  providers; `[]` = disable all social providers for the app; non-empty array =
+  allow-list of provider IDs. The `credential` provider is always allowed.
+- `APP_NAME` (env) — display name shown in the UI sidebar, login & consent
+  pages, and used as the TOTP issuer in authenticator apps. Defaults to
+  `CIRCLE Auth`.
+- `APP_LOGO_URL` (env, optional) — absolute URL of a logo image displayed in
+  the sidebar, login & consent pages and used as the favicon. Falls back to a
+  bundled default Shield icon when unset.
+- `PATCH /api/admin/organizations/:id` — partial update for an existing
+  organization. Body: any subset of `{ name, slug, logo, metadata }`. Returns
+  `409` (`ORG_003`) on slug conflict and `404` (`ORG_002`) when the
+  organization does not exist.
+
 
 ### SRV — Server / Internal
 

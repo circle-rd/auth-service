@@ -53,6 +53,8 @@ export const ERR = {
     new ApiError(400, "APP_004", msg),
   APP_005: (msg = "User does not have access to this application") =>
     new ApiError(403, "APP_005", msg),
+  APP_006: (msg = "Social provider not enabled for this application") =>
+    new ApiError(403, "APP_006", msg),
 
   // ── PERM ──────────────────────────────────────────────────────────────────
   PERM_001: (msg = "Invalid permission format") =>
@@ -84,6 +86,8 @@ export const ERR = {
     new ApiError(404, "CONS_003", msg),
   CONS_004: (msg = "Caller not authorized (requires client_credentials)") =>
     new ApiError(403, "CONS_004", msg),
+  CONS_005: (msg = "Invalid consumption identifier", details?: unknown) =>
+    new ApiError(400, "CONS_005", msg, details),
 
   // ── USR ───────────────────────────────────────────────────────────────────
   USR_001: (msg = "User not found") => new ApiError(404, "USR_001", msg),

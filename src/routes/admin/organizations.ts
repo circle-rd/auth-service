@@ -36,6 +36,17 @@ const createOrgSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+const updateOrgSchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/).optional(),
+    logo: z.string().url().optional(),
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .refine((d) => Object.keys(d).length > 0, {
+    message: "At least one field must be provided",
+  });
+
 const addMemberSchema = z.object({
   userId: z.string().min(1),
   role: z.enum(["owner", "admin", "member"]).default("member"),
@@ -150,6 +161,54 @@ export async function organizationsRoutes(
       const msg = e instanceof Error ? e.message : "Failed to delete organization";
       throw ERR.ORG_001(msg);
     }
+  });
+
+  // PATCH /api/admin/organizations/:id — update an organization
+  fastify.patch("/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parsed = updateOrgSchema.safeParse(req.body);
+    if (!parsed.success)
+      throw ERR.ORG_003("Invalid organization data", parsed.error.flatten());
+
+    const existing = await db
+      .select({ id: organization.id })
+      .from(organization)
+      .where(eq(organization.id, id))
+      .limit(1);
+    if (existing.length === 0) throw ERR.ORG_001();
+
+    const data = parsed.data;
+    if (data.slug) {
+      const conflict = await db
+        .select({ id: organization.id })
+        .from(organization)
+        .where(and(eq(organization.slug, data.slug)))
+        .limit(1);
+      if (conflict.length > 0 && conflict[0].id !== id) throw ERR.ORG_002();
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (data.name !== undefined) updates.name = data.name;
+    if (data.slug !== undefined) updates.slug = data.slug;
+    if (data.logo !== undefined) updates.logo = data.logo;
+    if (data.metadata !== undefined)
+      updates.metadata = JSON.stringify(data.metadata);
+
+    const [updated] = await db
+      .update(organization)
+      .set(updates)
+      .where(eq(organization.id, id))
+      .returning();
+
+    await reply.send({
+      organization: {
+        ...updated,
+        metadata:
+          updated.metadata && typeof updated.metadata === "string"
+            ? JSON.parse(updated.metadata)
+            : updated.metadata,
+      },
+    });
   });
 
   // GET /api/admin/organizations/:id/members — list members with embedded user data

@@ -6,10 +6,13 @@ import { useAuthStore } from '@/stores/auth';
 import {
   LayoutDashboard, Users, Building2, AppWindow, Settings, ChevronRight,
 } from 'lucide-vue-next';
+import AppLogo from '@/components/branding/AppLogo.vue';
+import { useAppBranding } from '@/composables/useAppBranding';
 
 const { t } = useI18n();
 const route = useRoute();
 const auth = useAuthStore();
+const { branding } = useAppBranding();
 
 const navItems = computed(() => [
   { name: t('nav.dashboard'), to: '/dashboard', icon: LayoutDashboard, adminOnly: true },
@@ -31,11 +34,11 @@ function isActive(to: string) {
 <template>
   <aside class="w-64 shrink-0 h-full flex flex-col bg-surface-950/60 backdrop-blur-xl border-r border-surface-800/50">
     <div class="px-5 py-6 flex items-center gap-3 border-b border-surface-800/40">
-      <div class="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shadow-lg shadow-primary-900/40">
-        <Shield class="w-4 h-4 text-white" />
+      <div class="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shadow-lg shadow-primary-900/40 overflow-hidden">
+        <AppLogo :size="16" icon-class="text-white" />
       </div>
       <div>
-        <p class="text-sm font-semibold text-surface-100">Auth Service</p>
+        <p class="text-sm font-semibold text-surface-100">{{ branding.appName }}</p>
         <p class="text-xs text-surface-500">Admin Panel</p>
       </div>
     </div>

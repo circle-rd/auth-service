@@ -34,6 +34,8 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({
         allowRegister: true,
         enabledSocialProviders: globalProviders,
+        appName: config.appName,
+        logoUrl: config.appLogoUrl ?? null,
       });
     }
 
@@ -65,6 +67,8 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
       enabledSocialProviders,
       name: app.name,
       icon: app.icon ?? null,
+      appName: config.appName,
+      logoUrl: config.appLogoUrl ?? null,
     });
   });
 }

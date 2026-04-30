@@ -28,7 +28,7 @@ async function handleLogout() {
 </script>
 
 <template>
-  <header class="h-16 shrink-0 flex items-center justify-between px-6 border-b border-surface-800/40 bg-surface-950/40 backdrop-blur-xl">
+  <header class="relative z-40 h-16 shrink-0 flex items-center justify-between px-6 border-b border-surface-800/40 bg-surface-950/40 backdrop-blur-xl">
     <div>
       <h1 v-if="title" class="text-base font-semibold text-surface-100">{{ title }}</h1>
       <p v-if="subtitle" class="text-xs text-surface-500">{{ subtitle }}</p>
@@ -90,9 +90,9 @@ async function handleLogout() {
               <button
                 type="button"
                 @click="handleLogout"
-                class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-300 hover:bg-surface-800/60 hover:text-surface-100 transition-colors"
+                class="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
               >
-                <LogOut class="w-4 h-4 shrink-0 text-surface-500" />
+                <LogOut class="w-4 h-4 shrink-0" />
                 {{ t('nav.signOut') }}
               </button>
             </div>

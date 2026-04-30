@@ -25,6 +25,15 @@ const postConsumptionSchema = z.object({
   value: z.number().finite("value must be a finite number"),
 });
 
+const userAppParamsSchema = z.object({
+  userId: z.string().uuid(),
+  applicationId: z.string().uuid(),
+});
+
+const userAppKeyParamsSchema = userAppParamsSchema.extend({
+  key: z.string().min(1).max(64).regex(CONSUMPTION_KEY_RE),
+});
+
 /**
  * Authenticate requests to the consumption endpoint.
  * Accepts both:
@@ -151,6 +160,9 @@ export async function consumptionRoutes(
     "/:userId/:applicationId",
     { preHandler: requireConsumptionAuth },
     async (req, reply) => {
+      const parsed = userAppParamsSchema.safeParse(req.params);
+      if (!parsed.success)
+        throw ERR.CONS_005("Invalid consumption identifier", parsed.error.flatten());
       const rows = await db
         .select({
           key: consumptionAggregates.key,
@@ -160,8 +172,8 @@ export async function consumptionRoutes(
         .from(consumptionAggregates)
         .where(
           and(
-            eq(consumptionAggregates.userId, req.params.userId),
-            eq(consumptionAggregates.applicationId, req.params.applicationId),
+            eq(consumptionAggregates.userId, parsed.data.userId),
+            eq(consumptionAggregates.applicationId, parsed.data.applicationId),
           ),
         );
 
@@ -176,6 +188,9 @@ export async function consumptionRoutes(
     "/:userId/:applicationId/:key",
     { preHandler: requireConsumptionAuth },
     async (req, reply) => {
+      const parsed = userAppKeyParamsSchema.safeParse(req.params);
+      if (!parsed.success)
+        throw ERR.CONS_005("Invalid consumption identifier", parsed.error.flatten());
       const [row] = await db
         .select({
           key: consumptionAggregates.key,
@@ -185,9 +200,9 @@ export async function consumptionRoutes(
         .from(consumptionAggregates)
         .where(
           and(
-            eq(consumptionAggregates.userId, req.params.userId),
-            eq(consumptionAggregates.applicationId, req.params.applicationId),
-            eq(consumptionAggregates.key, req.params.key),
+            eq(consumptionAggregates.userId, parsed.data.userId),
+            eq(consumptionAggregates.applicationId, parsed.data.applicationId),
+            eq(consumptionAggregates.key, parsed.data.key),
           ),
         )
         .limit(1);
@@ -222,13 +237,16 @@ export async function consumptionRoutes(
       },
     },
     async (req, reply) => {
+      const parsed = userAppKeyParamsSchema.safeParse(req.params);
+      if (!parsed.success)
+        throw ERR.CONS_005("Invalid consumption identifier", parsed.error.flatten());
       await db
         .delete(consumptionAggregates)
         .where(
           and(
-            eq(consumptionAggregates.userId, req.params.userId),
-            eq(consumptionAggregates.applicationId, req.params.applicationId),
-            eq(consumptionAggregates.key, req.params.key),
+            eq(consumptionAggregates.userId, parsed.data.userId),
+            eq(consumptionAggregates.applicationId, parsed.data.applicationId),
+            eq(consumptionAggregates.key, parsed.data.key),
           ),
         );
 
@@ -236,9 +254,9 @@ export async function consumptionRoutes(
         .delete(consumptionEntries)
         .where(
           and(
-            eq(consumptionEntries.userId, req.params.userId),
-            eq(consumptionEntries.applicationId, req.params.applicationId),
-            eq(consumptionEntries.key, req.params.key),
+            eq(consumptionEntries.userId, parsed.data.userId),
+            eq(consumptionEntries.applicationId, parsed.data.applicationId),
+            eq(consumptionEntries.key, parsed.data.key),
           ),
         );
 

@@ -2,7 +2,8 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { Shield, Check, X } from 'lucide-vue-next';
+import { Check, X } from 'lucide-vue-next';
+import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 
 const { t } = useI18n();
@@ -96,7 +97,7 @@ async function respond(accept: boolean) {
       <!-- Load error -->
       <div v-else-if="loadError" class="flex flex-col items-center text-center gap-4">
         <div class="w-12 h-12 rounded-2xl bg-surface-800 border border-surface-700/60 flex items-center justify-center">
-          <Shield class="w-6 h-6 text-surface-400" />
+          <AppLogo :size="24" icon-class="text-surface-400" />
         </div>
         <p class="text-sm text-red-400">{{ loadError }}</p>
       </div>
@@ -113,9 +114,9 @@ async function respond(accept: boolean) {
           </div>
           <div
             v-else
-            class="w-14 h-14 rounded-2xl bg-primary-600 flex items-center justify-center shadow-xl shadow-primary-900/40 mb-4"
+            class="w-14 h-14 rounded-2xl bg-primary-600 flex items-center justify-center shadow-xl shadow-primary-900/40 mb-4 overflow-hidden"
           >
-            <Shield class="w-7 h-7 text-white" />
+            <AppLogo :size="28" icon-class="text-white" />
           </div>
           <h1 class="text-xl font-semibold text-surface-100">{{ t('consent.title') }}</h1>
           <p class="text-sm text-surface-400 mt-1 text-center">

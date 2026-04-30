@@ -5,6 +5,19 @@
 
 ---
 
+## Recently Shipped
+
+- `PATCH /api/admin/organizations/:id` — partial org update (name/slug/logo/metadata) with slug-conflict detection (`ORG_003`).
+- Consumption path-parameter validation — `GET`/`DELETE` endpoints reject non-UUID ids with `CONS_005` (400) instead of 500.
+- Per-application social-provider gate — `applications.enabledSocialProviders` is honored at OAuth token-issuance time; non-allowed providers receive `APP_006` (403).
+- `ApplicationFormModal` — extracted shared create/edit modal; `ApplicationsView` kebab now exposes Edit + Activate/Deactivate + Rotate + Delete actions on a clickable card.
+- Users disable/enable kebab actions — wired to `POST /admin/users/:id/disable|enable` with a session-revocation confirm dialog.
+- `UserDetailView` consumption fix — uses `userId` (route param) + `application.id` from the user-detail response; new `UserApplicationDetail` shape preserves the existing `UserApplication` type for `listAppUsers`.
+- Env-driven branding — `APP_NAME` + `APP_LOGO_URL` surfaced via `/api/app-config`; `useAppBranding()` composable + `<AppLogo />` component drive sidebar, login & consent screens and dynamic favicon.
+- Header polish — Sign Out is now red, header gets `relative z-40` so the avatar dropdown is no longer clipped by the dashboard `<main>` overflow.
+
+---
+
 ## Executive Summary
 
 The auth-service is **substantially implemented** and covers the majority of the SPECS.md requirements. The backend is well-structured with Fastify + BetterAuth v1.5+, the OAuth 2.1 / OIDC provider is wired up correctly, and the Vue 3 frontend covers all major user-facing flows. The core authentication pipeline (email/password, MFA, passkeys, OAuth 2.1 Authorization Code + PKCE, consent screen, OIDC claims injection) is fully functional.

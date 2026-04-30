@@ -20,6 +20,7 @@ import {
   sendVerificationEmail,
 } from "./services/email.js";
 import { userMustSetupMfa } from "./services/mfa.js";
+import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
@@ -197,6 +198,7 @@ export const auth = betterAuth({
               isPublic: applications.isPublic,
               allowRegister: applications.allowRegister,
               isMfaRequired: applications.isMfaRequired,
+              enabledSocialProviders: applications.enabledSocialProviders,
             })
             .from(applications)
             .where(eq(applications.slug, clientId))
@@ -266,6 +268,26 @@ export const auth = betterAuth({
           }
           // If MFA is enabled, the twoFactor plugin's sign-in hook already
           // enforced verification during login — no additional check needed here.
+
+          // Per-app social provider gate. If the application restricts the set
+          // of allowed social providers and the user's primary linked account
+          // is not in that list, deny token issuance.
+          {
+            const accounts = await db
+              .select({ providerId: authSchema.account.providerId })
+              .from(authSchema.account)
+              .where(eq(authSchema.account.userId, user.id));
+            // A user is allowed if at least one of their linked accounts is permitted.
+            const allowed = accounts.some((a) =>
+              isSocialProviderAllowed(app.enabledSocialProviders, a.providerId),
+            );
+            if (accounts.length > 0 && !allowed) {
+              throw new APIError("FORBIDDEN", {
+                message:
+                  "Social provider not enabled for this application",
+              });
+            }
+          }
         }
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,

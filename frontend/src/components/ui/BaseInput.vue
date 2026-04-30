@@ -8,6 +8,8 @@ defineProps<{
   type?: string;
   disabled?: boolean;
   required?: boolean;
+  inputmode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
+  autocomplete?: string;
 }>();
 
 const emit = defineEmits<{
@@ -27,6 +29,8 @@ const emit = defineEmits<{
       :placeholder="placeholder"
       :disabled="disabled"
       :required="required"
+      :inputmode="inputmode"
+      :autocomplete="autocomplete"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
       :class="[
         'w-full rounded-lg px-3 py-2 text-sm bg-surface-800 border transition-all duration-150',

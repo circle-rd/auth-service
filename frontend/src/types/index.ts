@@ -31,6 +31,27 @@ export interface Session {
   activeOrganizationId: string | null
 }
 
+export interface MfaSetupResult {
+  totpURI: string
+  backupCodes: string[]
+}
+
+export interface MfaBackupCodesResult {
+  backupCodes: string[]
+}
+
+export type MfaMethod = 'totp' | 'otp'
+
+export interface MfaChallengeState {
+  pending: boolean
+  methods: MfaMethod[]
+}
+
+export interface SignInResult {
+  twoFactorRedirect?: boolean
+  twoFactorMethods?: MfaMethod[]
+}
+
 export interface Application {
   id: string
   name: string

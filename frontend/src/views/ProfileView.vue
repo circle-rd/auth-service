@@ -14,7 +14,10 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
-import { Monitor, CheckCircle, ShieldCheck, Key, Building2, Receipt } from 'lucide-vue-next';
+import MfaSetupModal from '@/components/profile/MfaSetupModal.vue';
+import MfaDisableModal from '@/components/profile/MfaDisableModal.vue';
+import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
+import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw } from 'lucide-vue-next';
 
 interface SubscriptionPlanPrice {
   id: string
@@ -176,6 +179,11 @@ async function handleRevoke(session: Session) {
     toast.error(err instanceof Error ? err.message : 'Failed to revoke session');
   }
 }
+
+// ── MFA modal state ────────────────────────────────────────────────────────
+const showSetupMfa = ref(false);
+const showDisableMfa = ref(false);
+const showRegenerateBackup = ref(false);
 </script>
 
 <template>
@@ -230,36 +238,89 @@ async function handleRevoke(session: Session) {
 
     <!-- Security tab -->
     <div v-if="activeTab === 'security'" class="space-y-5">
-      <!-- 2FA + Passkeys -->
+      <!-- MFA setup-required banner -->
+      <div
+        v-if="auth.mfaSetupRequired"
+        class="rounded-2xl bg-amber-500/10 border border-amber-500/30 p-4 flex items-start gap-3"
+      >
+        <ShieldAlert class="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+        <div class="flex-1">
+          <p class="text-sm font-medium text-amber-200">{{ t('mfa.banner.requiredTitle') }}</p>
+          <p class="text-xs text-amber-200/80 mt-0.5">{{ t('mfa.banner.requiredBody') }}</p>
+        </div>
+        <BaseButton variant="primary" size="sm" @click="showSetupMfa = true">
+          {{ t('mfa.banner.requiredAction') }}
+        </BaseButton>
+      </div>
+
+      <!-- TOTP authenticator -->
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
         <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-4">{{ t('profile.security') }}</h3>
         <div class="space-y-3">
-          <div class="flex items-center justify-between py-3 border-b border-surface-800/40">
-            <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center">
+          <div class="flex items-center justify-between gap-4 py-3 border-b border-surface-800/40">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center shrink-0">
                 <ShieldCheck class="w-4 h-4 text-primary-400" />
               </div>
-              <div>
-                <p class="text-sm font-medium text-surface-200">{{ t('profile.totp') }}</p>
-                <p class="text-xs text-surface-500 mt-0.5">{{ auth.user?.twoFactorEnabled ? t('profile.totpEnabled') : t('profile.totpDisabled') }}</p>
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-surface-200">{{ t('mfa.totp.title') }}</p>
+                <p class="text-xs text-surface-500 mt-0.5">
+                  {{ auth.user?.twoFactorEnabled ? t('mfa.totp.enabledDesc') : t('mfa.totp.disabledDesc') }}
+                </p>
               </div>
             </div>
-            <CheckCircle v-if="auth.user?.twoFactorEnabled" class="w-5 h-5 text-emerald-400" />
-            <BaseBadge v-else variant="neutral">Not set</BaseBadge>
+            <div class="flex items-center gap-2 shrink-0">
+              <template v-if="auth.user?.twoFactorEnabled">
+                <BaseBadge variant="success" size="sm" dot>{{ t('common.enabled') }}</BaseBadge>
+                <BaseButton variant="outline" size="sm" @click="showDisableMfa = true">
+                  {{ t('mfa.totp.disable') }}
+                </BaseButton>
+              </template>
+              <template v-else>
+                <BaseBadge variant="neutral" size="sm">{{ t('common.disabled') }}</BaseBadge>
+                <BaseButton variant="primary" size="sm" @click="showSetupMfa = true">
+                  {{ t('mfa.totp.enable') }}
+                </BaseButton>
+              </template>
+            </div>
           </div>
-          <div class="flex items-center justify-between py-3">
-            <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center">
+
+          <!-- Backup codes — visible only when TOTP is enabled -->
+          <div v-if="auth.user?.twoFactorEnabled" class="flex items-center justify-between gap-4 py-3 border-b border-surface-800/40">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center shrink-0">
+                <RefreshCw class="w-4 h-4 text-surface-400" />
+              </div>
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-surface-200">{{ t('mfa.backupCodes.label') }}</p>
+                <p class="text-xs text-surface-500 mt-0.5">{{ t('mfa.backupCodes.cardDesc') }}</p>
+              </div>
+            </div>
+            <BaseButton variant="outline" size="sm" @click="showRegenerateBackup = true">
+              {{ t('mfa.backupCodes.regenerateAction') }}
+            </BaseButton>
+          </div>
+
+          <!-- Passkeys — Phase 2 -->
+          <div class="flex items-center justify-between gap-4 py-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center shrink-0">
                 <Key class="w-4 h-4 text-surface-400" />
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-sm font-medium text-surface-200">{{ t('profile.passkeys') }}</p>
-                <p class="text-xs text-surface-500 mt-0.5">{{ t('profile.passkeysNote') }}</p>
+                <p class="text-xs text-surface-500 mt-0.5">{{ t('mfa.passkeys.comingSoonDesc') }}</p>
               </div>
             </div>
+            <BaseBadge variant="neutral" size="sm">{{ t('mfa.passkeys.comingSoon') }}</BaseBadge>
           </div>
         </div>
       </div>
+
+      <!-- MFA modals -->
+      <MfaSetupModal :open="showSetupMfa" @close="showSetupMfa = false" @success="showSetupMfa = false" />
+      <MfaDisableModal :open="showDisableMfa" @close="showDisableMfa = false" @success="showDisableMfa = false" />
+      <MfaBackupCodesModal :open="showRegenerateBackup" @close="showRegenerateBackup = false" />
 
       <!-- Active sessions -->
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">

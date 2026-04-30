@@ -15,7 +15,7 @@ The auth-service is **substantially implemented** and covers the majority of the
 2. **Admin dashboard sessions panel** — the `GET /api/admin/sessions` endpoint is implemented but the frontend reads `data.sessions` while the endpoint returns `data.list`, so the sessions section always shows empty
 3. **Missing linting/formatting toolchain** — ESLint, Prettier, Husky, lint-staged are not installed
 4. **`/admin/applications/new` route** — SPECS.md §6.3 lists this route with `ApplicationFormView`; the implementation uses a modal instead (functionally equivalent but route is missing)
-5. **Per-user `isMfaRequired` enforcement** — the per-user flag is stored and admin-settable but is not enforced at login; only the per-app `isMfaRequired` flag is enforced (at token exchange)
+5. **Per-user `isMfaRequired` enforcement** — combined with `app.isMfaRequired` in `customIdTokenClaims` via `userMustSetupMfa()` ([`src/services/mfa.ts`](src/services/mfa.ts)); blocks OAuth token issuance until the user enables a second factor
 
 Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 
@@ -64,7 +64,7 @@ Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 | Extended profile fields (phone, company, etc.)     | ✅ Complete    | ✅ Complete     | Additional fields in auth schema                                                    |
 | Sessions view (list + revoke)                      | ✅ Complete    | ✅ Complete     | [`SessionsView.vue`](frontend/src/views/SessionsView.vue)                           |
 | Subscription view (user-facing)                    | ✅ Complete    | ✅ Complete     | [`SubscriptionView.vue`](frontend/src/views/SubscriptionView.vue)                   |
-| MFA settings (TOTP)                                | ✅ Complete    | ✅ Complete     | [`MfaSettingsView.vue`](frontend/src/views/MfaSettingsView.vue)                     |
+| MFA settings (TOTP)                                | ✅ Complete    | ✅ Complete     | [`MfaSetupModal.vue`](frontend/src/components/profile/MfaSetupModal.vue), [`MfaDisableModal.vue`](frontend/src/components/profile/MfaDisableModal.vue), [`MfaBackupCodesModal.vue`](frontend/src/components/profile/MfaBackupCodesModal.vue) |
 | MFA settings (passkeys)                            | ✅ Complete    | ✅ Complete     | `@simplewebauthn/browser` used in registration + authentication flows               |
 | Integration guide (OAuth code snippets)            | ✅ Complete    | ✅ Complete     | [`AppIntegrationView.vue`](frontend/src/views/admin/AppIntegrationView.vue)         |
 | Stripe integration                                 | ⚠️ Partial     | ⚠️ Partial      | Product/price creation works; no webhook handler                                    |
@@ -209,30 +209,27 @@ Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 
 ### 5. MFA (Multi-Factor Authentication)
 
-#### 5.1 TOTP
+#### 5.1 TOTP — Phase 1 ✅ Complete
 
 - ✅ **Enable** — `POST /api/auth/two-factor/enable` with password confirmation
-- ✅ **QR code** — TOTP URI returned; frontend generates QR via external API (`api.qrserver.com`) ([`MfaSettingsView.vue:66`](frontend/src/views/MfaSettingsView.vue:66))
+- ✅ **QR code** — TOTP URI rendered locally via the `qrcode` library (no external dependency) in [`MfaSetupModal.vue`](frontend/src/components/profile/MfaSetupModal.vue)
 - ✅ **Verify** — `POST /api/auth/two-factor/verify-totp`
-- ✅ **Backup codes** — returned on first verify; regeneration via `POST /api/auth/two-factor/generate-backup-codes`
-- ✅ **Disable** — `POST /api/auth/two-factor/disable`
-- ✅ **MFA during login** — `twoFactorRequired: true` response handled in [`LoginView.vue:27`](frontend/src/views/LoginView.vue:27); redirects to [`MfaVerifyView.vue`](frontend/src/views/MfaVerifyView.vue)
-- ⚠️ **QR code dependency** — uses external `api.qrserver.com` service; should use a local library (e.g. `qrcode`) for production/offline use
+- ✅ **Backup codes** — returned at activation; downloadable as `.txt`; regenerated via `POST /api/auth/two-factor/generate-backup-codes` in [`MfaBackupCodesModal.vue`](frontend/src/components/profile/MfaBackupCodesModal.vue)
+- ✅ **Disable** — `POST /api/auth/two-factor/disable` via [`MfaDisableModal.vue`](frontend/src/components/profile/MfaDisableModal.vue)
+- ✅ **MFA during login** — `{ twoFactorRedirect: true }` handled in the auth store; UI swaps to [`MfaChallengeForm.vue`](frontend/src/components/auth/MfaChallengeForm.vue) on the same `/login` route
+- ✅ **YubiKey support** — covered by registering the YubiKey OATH-TOTP slot via Yubico Authenticator / YubiKey Manager
 
-#### 5.2 Passkey / YubiKey
+#### 5.2 Passkey / YubiKey FIDO2 — Phase 2 (planned)
 
-- ✅ **Backend** — `@better-auth/passkey` plugin registered ([`src/auth.ts`](src/auth.ts)); `passkey` table in schema ([`src/db/auth-schema.ts`](src/db/auth-schema.ts))
-- ✅ **List passkeys** — `GET /api/auth/passkey/list-user-passkeys`
-- ✅ **Delete passkey** — `DELETE /api/auth/passkey/:id`
-- ✅ **Registration flow** — [`MfaSettingsView.vue`](frontend/src/views/MfaSettingsView.vue) fetches options from `/api/auth/passkey/generate-register-options`, calls `startRegistration({ optionsJSON })` from `@simplewebauthn/browser`, then posts the serialized attestation to `/api/auth/passkey/register`
-- ✅ **Authentication flow** — [`MfaVerifyView.vue`](frontend/src/views/MfaVerifyView.vue) fetches options from `/api/auth/passkey/generate-authenticate-options`, calls `startAuthentication({ optionsJSON })`, then posts the signed assertion to `/api/auth/passkey/verify-authentication`
+- ⏸️ **Deferred**. BetterAuth's passkey plugin currently exposes passkeys as the **primary** authenticator only (passwordless), not as a true second factor. The Profile UI shows a "Coming soon" badge. A dedicated passkey-as-second-factor flow will be designed in Phase 2.
+- ℹ️ **Today** — FIDO2 hardware keys can already be used as a second factor by enrolling them as a TOTP slot (Phase 1).
 
-#### 5.3 Admin Force MFA
+#### 5.3 Admin Force MFA — ✅ Complete
 
 - ✅ **Backend** — `PATCH /api/admin/users/:id` with `{ isMfaRequired: true }` ([`src/routes/admin/users.ts`](src/routes/admin/users.ts))
 - ✅ **Frontend** — toggle in [`UserDetailView.vue`](frontend/src/views/admin/UserDetailView.vue)
-- ⚠️ **Per-user enforcement** — the per-user `isMfaRequired` flag is stored and admin-settable but is not enforced during the sign-in flow. A user with `isMfaRequired: true` who has not set up MFA can still log in.
-- ✅ **Per-app enforcement** — the per-application `isMfaRequired` flag is enforced: `customIdTokenClaims` blocks token issuance with `FORBIDDEN` if the app requires MFA and the user has not enabled `twoFactorEnabled` ([`src/auth.ts`](src/auth.ts))
+- ✅ **Per-user enforcement** — `userMustSetupMfa(user, appRequiresMfa)` in [`src/services/mfa.ts`](src/services/mfa.ts) is invoked from `customIdTokenClaims`; OAuth token issuance is blocked with `AUTH_004` until the user enables a second factor. The auth-service UI itself remains accessible so the user can complete setup; the Security tab surfaces a banner driven by `auth.mfaSetupRequired`.
+- ✅ **Per-app enforcement** — same helper combines `app.isMfaRequired` and `user.isMfaRequired`
 
 ---
 
@@ -401,7 +398,7 @@ Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 2. **Superadmin bootstrap role cast** — [`src/bootstrap.ts`](src/bootstrap.ts) uses `role: "superadmin" as "admin"` to bypass TypeScript type checking. If BetterAuth changes its type definitions, this will silently break.
    - **Fix**: Use a type assertion comment or extend the BetterAuth type to include `"superadmin"`.
 
-3. **Per-user `isMfaRequired` not enforced at login** — The per-user flag is stored and admin-settable but has no effect on the login flow. A user with `isMfaRequired: true` who has not set up MFA can still sign in. (Per-app `isMfaRequired` is enforced at token exchange in `customIdTokenClaims`.)
+3. **Passkeys as a true second factor (Phase 2)** — BetterAuth's passkey plugin currently only supports passkeys as the primary authenticator. The Profile UI marks the passkey row as "Coming soon". FIDO2 keys can be used today via their OATH-TOTP slot.
    - **Fix**: Add a BetterAuth `onRequest` hook or middleware that checks the user's `isMfaRequired` field post-authentication and redirects to MFA setup if needed.
 
 4. **Last-superadmin guard missing from user deletion** — `DELETE /api/admin/users/:id` is implemented but does not verify the target is not the last superadmin. `USR_002` error code exists and is ready to use.

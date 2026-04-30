@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
 import { Shield, LogIn } from 'lucide-vue-next';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import MfaChallengeForm from '@/components/auth/MfaChallengeForm.vue';
 
 const { t } = useI18n();
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 
 const email = ref('');
@@ -16,29 +18,43 @@ const password = ref('');
 const loading = ref(false);
 const error = ref('');
 
+function nextRoute(): string {
+  // Preserve a `redirectTo` query param so OAuth flows (which carry signed
+  // params via `?client_id=...&sig=...`) resume after a successful sign-in.
+  const redirect = route.query.redirectTo;
+  if (typeof redirect === 'string' && redirect.startsWith('/')) return redirect;
+  return '/dashboard';
+}
+
 async function handleLogin() {
   if (!email.value || !password.value) return;
   loading.value = true;
   error.value = '';
   try {
-    const res = await fetch('/api/auth/sign-in/email', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value, password: password.value }),
-    });
-    if (!res.ok) {
-      error.value = 'Invalid credentials';
+    await auth.signInEmail(email.value, password.value);
+    if (auth.mfaPending) {
+      // The MfaChallengeForm component now drives the second step.
       return;
     }
-    await auth.fetchSession();
     if (auth.user) {
-      await router.push('/dashboard');
+      await router.push(nextRoute());
+    } else {
+      error.value = t('auth.invalidCredentials');
     }
-  } catch {
-    error.value = 'Network error';
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : t('auth.invalidCredentials');
   } finally {
     loading.value = false;
+  }
+}
+
+async function handleMfaVerified() {
+  if (auth.user) {
+    // Navigate FIRST, then clear the MFA-pending flag. Clearing it before
+    // navigation would unmount the challenge form before the router push
+    // completes, briefly re-rendering the email/password form.
+    await router.push(nextRoute());
+    auth.clearMfaPending();
   }
 }
 
@@ -60,30 +76,38 @@ if (import.meta.env.VITE_USE_MOCK === 'true') {
           <Shield class="w-6 h-6 text-white" />
         </div>
         <h1 class="text-xl font-semibold text-surface-100">{{ t('auth.loginTitle') }}</h1>
-        <p class="text-sm text-surface-500 mt-1">{{ t('auth.loginSubtitle') }}</p>
+        <p class="text-sm text-surface-500 mt-1">
+          {{ auth.mfaPending ? t('mfa.challenge.subtitle') : t('auth.loginSubtitle') }}
+        </p>
       </div>
 
-      <form @submit.prevent="handleLogin" class="bg-surface-900/60 backdrop-blur-sm border border-surface-700/40 rounded-2xl p-6 space-y-4 shadow-xl">
-        <BaseInput
-          v-model="email"
-          :label="t('auth.email')"
-          type="email"
-          placeholder="admin@example.com"
-          required
-        />
-        <BaseInput
-          v-model="password"
-          :label="t('auth.password')"
-          type="password"
-          placeholder="••••••••"
-          required
-        />
-        <p v-if="error" class="text-sm text-red-400 text-center">{{ error }}</p>
-        <BaseButton type="submit" class="w-full" :loading="loading" size="lg">
-          <LogIn class="w-4 h-4" />
-          {{ t('auth.login') }}
-        </BaseButton>
-      </form>
+      <div class="bg-surface-900/60 backdrop-blur-sm border border-surface-700/40 rounded-2xl p-6 shadow-xl">
+        <MfaChallengeForm v-if="auth.mfaPending" @verified="handleMfaVerified" />
+
+        <form v-else @submit.prevent="handleLogin" class="space-y-4">
+          <BaseInput
+            v-model="email"
+            :label="t('auth.email')"
+            type="email"
+            placeholder="admin@example.com"
+            autocomplete="username"
+            required
+          />
+          <BaseInput
+            v-model="password"
+            :label="t('auth.password')"
+            type="password"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required
+          />
+          <p v-if="error" class="text-sm text-red-400 text-center">{{ error }}</p>
+          <BaseButton type="submit" class="w-full" :loading="loading" size="lg">
+            <LogIn class="w-4 h-4" />
+            {{ t('auth.login') }}
+          </BaseButton>
+        </form>
+      </div>
     </div>
   </div>
 </template>

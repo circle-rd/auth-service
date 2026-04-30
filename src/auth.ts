@@ -19,6 +19,7 @@ import {
   sendResetPasswordEmail,
   sendVerificationEmail,
 } from "./services/email.js";
+import { userMustSetupMfa } from "./services/mfa.js";
 import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
@@ -27,6 +28,9 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
   baseURL: config.betterAuth.url,
+  // Used as the default TOTP issuer (shown in authenticator apps) and as a
+  // display name in other BetterAuth contexts.
+  appName: config.appName,
   // Silence startup self-check warnings for well-known OIDC discovery endpoints.
   // Both /.well-known/openid-configuration and /.well-known/oauth-authorization-server
   // are served correctly via /api/auth/.well-known/* — BetterAuth's HTTP check fires
@@ -106,7 +110,7 @@ export const auth = betterAuth({
     // Without this, createIdToken falls back to ctx.context.baseURL which
     // BetterAuth computes as `${baseURL}/api/auth`, causing iss/issuer mismatch.
     jwt({ jwt: { issuer: config.betterAuth.url } }),
-    twoFactor(),
+    twoFactor({ issuer: config.appName }),
     passkey(),
     // Organization support — only admins/superadmins can create orgs via admin API.
     // Regular users can be members of orgs but cannot create them.
@@ -246,20 +250,22 @@ export const auth = betterAuth({
             }
           }
 
-          // Enforce MFA when the application requires it.
-          if (app.isMfaRequired) {
-            const userRecord = user as Record<string, unknown>;
-            const hasMfaEnabled = Boolean(userRecord.twoFactorEnabled);
-            if (!hasMfaEnabled) {
-              // User has not set up MFA but the application requires it.
-              throw new APIError("FORBIDDEN", {
-                message:
-                  "This application requires MFA. Please enable two-factor authentication in your profile before continuing.",
-              });
-            }
-            // If MFA is enabled, the twoFactor plugin's sign-in hook already
-            // enforced verification during login — no additional check needed here.
+          // Enforce MFA when the application requires it OR when the user has
+          // been individually flagged as MFA-required by an admin. The OAuth
+          // token cannot be issued until the user enables a second factor.
+          if (
+            userMustSetupMfa(
+              user as Record<string, unknown>,
+              Boolean(app.isMfaRequired),
+            )
+          ) {
+            throw new APIError("FORBIDDEN", {
+              message:
+                "MFA is required for this account. Please enable two-factor authentication in your profile before continuing.",
+            });
           }
+          // If MFA is enabled, the twoFactor plugin's sign-in hook already
+          // enforced verification during login — no additional check needed here.
         }
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,

@@ -27,6 +27,8 @@ const SCOPE_LABELS: Record<string, { key: string }> = {
   profile:        { key: 'consent.scopes.profile' },
   email:          { key: 'consent.scopes.email' },
   offline_access: { key: 'consent.scopes.offlineAccess' },
+  role:           { key: 'consent.scopes.role' },
+  company:        { key: 'consent.scopes.company' },
   roles:          { key: 'consent.scopes.roles' },
   permissions:    { key: 'consent.scopes.permissions' },
   features:       { key: 'consent.scopes.features' },

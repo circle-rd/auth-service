@@ -27,7 +27,7 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
-const SCOPES = ['openid', 'profile', 'email', 'offline_access'];
+const SCOPES = ['openid', 'profile', 'email', 'offline_access', 'role', 'company', 'features'];
 const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type ProviderKey = (typeof ALL_PROVIDERS)[number];
 
@@ -42,7 +42,7 @@ const form = ref({
   skipConsent: false,
   isMfaRequired: false,
   allowRegister: true,
-  allowedScopes: ['openid', 'profile', 'email'] as string[],
+  allowedScopes: ['openid', 'profile', 'email', 'role', 'company', 'features'] as string[],
   redirectUris: [''] as string[],
   enabledSocialProviders: null as string[] | null,
 });
@@ -51,10 +51,25 @@ function slugify(name: string) {
   return name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
+// Track the last auto-generated redirect URI to detect manual overrides
+const lastAutoRedirectUri = ref('');
+
 watch(
   () => form.value.name,
   (name) => {
     if (!isEdit.value) form.value.slug = slugify(name);
+  },
+);
+
+watch(
+  () => form.value.url,
+  (url) => {
+    if (isEdit.value) return;
+    const candidate = url ? url.replace(/\/$/, '') + '/callback' : '';
+    if (form.value.redirectUris[0] === '' || form.value.redirectUris[0] === lastAutoRedirectUri.value) {
+      form.value.redirectUris[0] = candidate;
+      lastAutoRedirectUri.value = candidate;
+    }
   },
 );
 
@@ -89,6 +104,7 @@ watch(
           : null,
       };
     } else {
+      lastAutoRedirectUri.value = '';
       form.value = {
         name: '',
         slug: '',
@@ -100,7 +116,7 @@ watch(
         skipConsent: false,
         isMfaRequired: false,
         allowRegister: true,
-        allowedScopes: ['openid', 'profile', 'email'],
+        allowedScopes: ['openid', 'profile', 'email', 'role', 'company', 'features'],
         redirectUris: [''],
         enabledSocialProviders: null,
       };

@@ -422,6 +422,8 @@ export default {
       profile: 'Lire votre profil (nom, avatar)',
       email: 'Lire votre adresse e-mail',
       offlineAccess: 'Rester connecté (émettre un jeton de rafraîchissement)',
+      role: 'Lire votre rôle',
+      company: 'Lire vos appartenances aux organisations',
       roles: 'Lire vos rôles',
       permissions: 'Lire vos permissions',
       features: 'Lire vos fonctionnalités activées',

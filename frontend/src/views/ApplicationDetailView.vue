@@ -361,9 +361,6 @@ function formatPrice(amount: string, currency: string) {
 
 function formatDate(iso: string) { return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }); }
 
-const userOptions = computed(() => allUsers.value.map(u => ({ value: u.id, label: `${u.name} (${u.email})` })));
-const roleOptions = computed(() => roles.value.map(r => ({ value: r.id, label: r.name })));
-
 async function loadUserOptions(search: string) {
   const res = await listUsers({ search: search || undefined, limit: 10 });
   return res.users.map(u => ({ value: u.id, label: u.name ?? u.email, sublabel: u.email }));

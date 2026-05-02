@@ -18,10 +18,12 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2 } from 'lucide-vue-next';
+import { useAuthStore } from '@/stores/auth';
 
 const { t } = useI18n();
 const router = useRouter();
 const store = useUsersStore();
+const auth = useAuthStore();
 const toast = useToast();
 
 const search = ref('');
@@ -40,8 +42,8 @@ const deleteError = ref('');
 const selectedUser = ref<User | null>(null);
 const actionMenuUser = ref<string | null>(null);
 
-const createForm = ref({ name: '', email: '', password: '', role: 'user' as 'user' | 'admin' | 'superadmin' });
-const editForm = ref({ name: '', role: 'user' as 'user' | 'admin' | 'superadmin', isMfaRequired: undefined as boolean | undefined });
+const createForm = ref({ name: '', email: '', password: '', role: 'user' as 'user' | 'admin' });
+const editForm = ref({ name: '', role: 'user' as 'user' | 'admin', isMfaRequired: undefined as boolean | undefined });
 const formLoading = ref(false);
 const formError = ref('');
 
@@ -83,9 +85,19 @@ function roleBadgeVariant(role: string | null) {
   return 'neutral' as const;
 }
 
+// Role options for create/edit: superadmin is never assignable via UI (env-only).
+// Only superadmins can see and assign the admin role.
+const assignableRoleOptions = computed(() => {
+  const opts: { value: string; label: string }[] = [{ value: 'user', label: t('users.user') }];
+  if (auth.isSuperAdmin()) opts.push({ value: 'admin', label: t('users.admin') });
+  return opts;
+});
+
 function openEdit(user: User) {
   selectedUser.value = user;
-  editForm.value = { name: user.name, role: (user.role ?? 'user') as 'user' | 'admin' | 'superadmin', isMfaRequired: user.isMfaRequired ?? undefined };
+  // If target is superadmin, show as read-only (role won't be in assignable options)
+  const role = (user.role === 'admin' ? 'admin' : 'user') as 'user' | 'admin';
+  editForm.value = { name: user.name, role, isMfaRequired: user.isMfaRequired ?? undefined };
   showEditModal.value = true;
   actionMenuUser.value = null;
 }
@@ -108,7 +120,7 @@ async function handleCreate() {
     await createUser(createForm.value);
     toast.success('User created successfully');
     showCreateModal.value = false;
-    createForm.value = { name: '', email: '', password: '', role: 'user' };
+    createForm.value = { name: '', email: '', password: '', role: 'user' as 'user' | 'admin' };
     await loadUsers();
   } catch (err) {
     formError.value = err instanceof Error ? err.message : 'Failed to create user';
@@ -364,7 +376,7 @@ const editModalTags = computed(() => {
         <BaseSelect
           v-model="createForm.role"
           :label="t('users.role')"
-          :options="[{ value: 'user', label: t('users.user') }, { value: 'admin', label: t('users.admin') }, { value: 'superadmin', label: t('users.superadmin') }]"
+          :options="assignableRoleOptions"
         />
         <p v-if="formError" class="text-sm text-red-400">{{ formError }}</p>
       </form>
@@ -390,7 +402,8 @@ const editModalTags = computed(() => {
         <BaseSelect
           v-model="editForm.role"
           :label="t('users.role')"
-          :options="[{ value: 'user', label: t('users.user') }, { value: 'admin', label: t('users.admin') }, { value: 'superadmin', label: t('users.superadmin') }]"
+          :options="assignableRoleOptions"
+          :disabled="selectedUser?.role === 'superadmin'"
         />
         <p v-if="formError" class="text-sm text-red-400">{{ formError }}</p>
       </form>

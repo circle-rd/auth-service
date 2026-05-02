@@ -230,14 +230,14 @@ onUnmounted(() => {
 const createModalTags = computed(() => {
   const tags: Array<{ label: string; variant: 'error' | 'warning' | 'neutral' }> = [];
   const role = createForm.value.role;
-  tags.push({ label: role === 'superadmin' ? t('users.superadmin') : role === 'admin' ? t('users.admin') : t('users.user'), variant: role === 'superadmin' ? 'error' : role === 'admin' ? 'warning' : 'neutral' });
+  tags.push({ label: role === 'admin' ? t('users.admin') : t('users.user'), variant: role === 'admin' ? 'warning' : 'neutral' });
   return tags;
 });
 
 const editModalTags = computed(() => {
   const tags: Array<{ label: string; variant: 'error' | 'warning' | 'neutral' }> = [];
   const role = editForm.value.role;
-  tags.push({ label: role === 'superadmin' ? t('users.superadmin') : role === 'admin' ? t('users.admin') : t('users.user'), variant: role === 'superadmin' ? 'error' : role === 'admin' ? 'warning' : 'neutral' });
+  tags.push({ label: role === 'admin' ? t('users.admin') : t('users.user'), variant: role === 'admin' ? 'warning' : 'neutral' });
   return tags;
 });
 </script>

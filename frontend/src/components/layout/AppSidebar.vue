@@ -34,9 +34,10 @@ function isActive(to: string) {
 <template>
   <aside class="w-64 shrink-0 h-full flex flex-col bg-surface-950/60 backdrop-blur-xl border-r border-surface-800/50">
     <div class="px-5 py-6 flex items-center gap-3 border-b border-surface-800/40">
-      <div class="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shadow-lg shadow-primary-900/40 overflow-hidden">
+      <div v-if="!branding.logoUrl" class="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shadow-lg shadow-primary-900/40 overflow-hidden">
         <AppLogo :size="16" icon-class="text-white" />
       </div>
+      <AppLogo v-else :size="32" icon-class="text-white" />
       <div>
         <p class="text-sm font-semibold text-surface-100">{{ branding.appName }}</p>
         <p class="text-xs text-surface-500">Admin Panel</p>

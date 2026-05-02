@@ -422,6 +422,8 @@ export default {
       profile: 'Read your profile (name, avatar)',
       email: 'Read your email address',
       offlineAccess: 'Stay signed in (issue a refresh token)',
+      role: 'Read your role',
+      company: 'Read your organization memberships',
       roles: 'Read your roles',
       permissions: 'Read your permissions',
       features: 'Read your enabled features',

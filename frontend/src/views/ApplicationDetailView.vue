@@ -15,6 +15,7 @@ import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
+import SearchSelect from '@/components/ui/SearchSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
@@ -360,8 +361,17 @@ function formatPrice(amount: string, currency: string) {
 
 function formatDate(iso: string) { return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }); }
 
-const userOptions = computed(() => allUsers.value.map(u => ({ value: u.id, label: `${u.name} (${u.email})` })));
-const roleOptions = computed(() => roles.value.map(r => ({ value: r.id, label: r.name })));
+async function loadUserOptions(search: string) {
+  const res = await listUsers({ search: search || undefined, limit: 10 });
+  return res.users.map(u => ({ value: u.id, label: u.name ?? u.email, sublabel: u.email }));
+}
+
+function loadRoleOptions(search: string) {
+  const lower = search.toLowerCase();
+  const filtered = roles.value.filter(r => !search || r.name.toLowerCase().includes(lower));
+  const items = filtered.map(r => ({ value: r.id, label: r.name }));
+  return Promise.resolve([{ value: '', label: t('common.none') }, ...items]);
+}
 const intervalOptions = [
   { value: 'month', label: t('appDetail.month') },
   { value: 'year', label: t('appDetail.year') },
@@ -477,42 +487,44 @@ const financialKpis = computed(() => {
 
       <template v-else>
         <div v-if="activeTab === 'roles'" class="space-y-5">
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-            <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.roles') }}</h3>
-              <BaseButton size="sm" @click="showRoleModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createRole') }}</BaseButton>
-            </div>
-            <div v-if="!roles.length" class="px-5 py-8 text-center text-sm text-surface-500">No roles yet</div>
-            <div v-else class="divide-y divide-surface-800/40">
-              <div v-for="role in roles" :key="role.id" class="px-5 py-4 flex items-center gap-4 group">
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <p class="text-sm font-medium text-surface-200">{{ role.name }}</p>
-                    <BaseBadge v-if="role.isDefault" variant="primary" size="sm">default</BaseBadge>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+              <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.roles') }}</h3>
+                <BaseButton size="sm" @click="showRoleModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createRole') }}</BaseButton>
+              </div>
+              <div v-if="!roles.length" class="px-5 py-8 text-center text-sm text-surface-500">No roles yet</div>
+              <div v-else class="divide-y divide-surface-800/40">
+                <div v-for="role in roles" :key="role.id" class="px-5 py-4 flex items-center gap-4 group">
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <p class="text-sm font-medium text-surface-200">{{ role.name }}</p>
+                      <BaseBadge v-if="role.isDefault" variant="primary" size="sm">default</BaseBadge>
+                    </div>
+                    <p class="text-xs text-surface-500 mt-0.5">{{ role.description ?? '—' }}</p>
                   </div>
-                  <p class="text-xs text-surface-500 mt-0.5">{{ role.description ?? '—' }}</p>
+                  <span class="text-xs text-surface-500">{{ role.permissionIds.length }} permissions</span>
+                  <button @click="selectedRoleId = role.id; showDeleteRoleConfirm = true" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all">
+                    <Trash2 class="w-4 h-4" />
+                  </button>
                 </div>
-                <span class="text-xs text-surface-500">{{ role.permissionIds.length }} permissions</span>
-                <button @click="selectedRoleId = role.id; showDeleteRoleConfirm = true" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all">
-                  <Trash2 class="w-4 h-4" />
-                </button>
               </div>
             </div>
-          </div>
 
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-            <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.permissions') }}</h3>
-              <BaseButton size="sm" @click="showPermModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createPermission') }}</BaseButton>
-            </div>
-            <div v-if="!permissions.length" class="px-5 py-8 text-center text-sm text-surface-500">No permissions yet</div>
-            <div v-else class="divide-y divide-surface-800/40">
-              <div v-for="perm in permissions" :key="perm.id" class="px-5 py-3 flex items-center gap-4 group">
-                <code class="flex-1 text-sm font-mono text-surface-300">{{ perm.resource }}:<span :class="perm.action === 'write' ? 'text-amber-400' : 'text-emerald-400'">{{ perm.action }}</span></code>
-                <span class="text-xs text-surface-600">{{ formatDate(perm.createdAt) }}</span>
-                <button @click="selectedPermId = perm.id; showDeletePermConfirm = true" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all">
-                  <Trash2 class="w-4 h-4" />
-                </button>
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+              <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
+                <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.permissions') }}</h3>
+                <BaseButton size="sm" @click="showPermModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createPermission') }}</BaseButton>
+              </div>
+              <div v-if="!permissions.length" class="px-5 py-8 text-center text-sm text-surface-500">No permissions yet</div>
+              <div v-else class="divide-y divide-surface-800/40">
+                <div v-for="perm in permissions" :key="perm.id" class="px-5 py-3 flex items-center gap-4 group">
+                  <code class="flex-1 text-sm font-mono text-surface-300">{{ perm.resource }}:<span :class="perm.action === 'write' ? 'text-amber-400' : 'text-emerald-400'">{{ perm.action }}</span></code>
+                  <span class="text-xs text-surface-600">{{ formatDate(perm.createdAt) }}</span>
+                  <button @click="selectedPermId = perm.id; showDeletePermConfirm = true" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all">
+                    <Trash2 class="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -832,8 +844,8 @@ const financialKpis = computed(() => {
 
     <BaseModal :open="showUserModal" :title="t('appDetail.grantAccess')" @close="showUserModal = false">
       <div class="space-y-4">
-        <BaseSelect v-model="userForm.userId" label="User" :options="userOptions" placeholder="Select a user" />
-        <BaseSelect v-model="userForm.roleId" label="Role" :options="roleOptions" placeholder="Default role" />
+        <SearchSelect v-model="userForm.userId" label="User" :load-options="loadUserOptions" placeholder="Search users…" required />
+        <SearchSelect v-model="userForm.roleId" label="Role" :load-options="loadRoleOptions" placeholder="Search roles…" />
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="showUserModal = false">{{ t('common.cancel') }}</BaseButton>

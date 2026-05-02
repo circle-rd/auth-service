@@ -8,11 +8,13 @@ import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import MfaChallengeForm from '@/components/auth/MfaChallengeForm.vue';
+import { useAppBranding } from '@/composables/useAppBranding';
 
 const { t } = useI18n();
 const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
+const { branding } = useAppBranding();
 
 const email = ref('');
 const password = ref('');
@@ -73,9 +75,12 @@ if (import.meta.env.VITE_USE_MOCK === 'true') {
     </div>
     <div class="w-full max-w-sm relative">
       <div class="flex flex-col items-center mb-8">
-        <div class="w-12 h-12 rounded-2xl bg-primary-600 flex items-center justify-center shadow-xl shadow-primary-900/40 mb-4 overflow-hidden">
-          <AppLogo :size="24" icon-class="text-white" />
-        </div>
+          <div v-if="!branding.logoUrl" class="w-12 h-12 rounded-2xl bg-primary-600 flex items-center justify-center shadow-xl shadow-primary-900/40 mb-4 overflow-hidden">
+            <AppLogo :size="24" icon-class="text-white" />
+          </div>
+          <div v-else class="mb-4">
+            <AppLogo :size="64" icon-class="text-white" />
+          </div>
         <h1 class="text-xl font-semibold text-surface-100">{{ t('auth.loginTitle') }}</h1>
         <p class="text-sm text-surface-500 mt-1">
           {{ auth.mfaPending ? t('mfa.challenge.subtitle') : t('auth.loginSubtitle') }}

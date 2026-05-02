@@ -151,16 +151,14 @@ export async function organizationsRoutes(
   // DELETE /api/admin/organizations/:id — delete an organization
   fastify.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    try {
-      await auth.api.deleteOrganization({
-        body: { organizationId: id },
-        headers: fromNodeHeaders(req.headers),
-      });
-      await reply.status(204).send();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to delete organization";
-      throw ERR.ORG_001(msg);
-    }
+    const existing = await db
+      .select({ id: organization.id })
+      .from(organization)
+      .where(eq(organization.id, id))
+      .limit(1);
+    if (existing.length === 0) throw ERR.ORG_001();
+    await db.delete(organization).where(eq(organization.id, id));
+    await reply.status(204).send();
   });
 
   // PATCH /api/admin/organizations/:id — update an organization
@@ -271,16 +269,16 @@ export async function organizationsRoutes(
   // DELETE /api/admin/organizations/:id/members/:userId — remove a member
   fastify.delete("/:id/members/:userId", async (req, reply) => {
     const { id, userId } = req.params as { id: string; userId: string };
-    try {
-      await auth.api.removeMember({
-        body: { memberIdOrEmail: userId, organizationId: id },
-        headers: fromNodeHeaders(req.headers),
-      });
-      await reply.status(204).send();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to remove member";
-      throw ERR.ORG_004(msg);
-    }
+    const existing = await db
+      .select({ id: member.id })
+      .from(member)
+      .where(and(eq(member.organizationId, id), eq(member.userId, userId)))
+      .limit(1);
+    if (existing.length === 0) throw ERR.ORG_004();
+    await db
+      .delete(member)
+      .where(and(eq(member.organizationId, id), eq(member.userId, userId)));
+    await reply.status(204).send();
   });
 
   // PATCH /api/admin/organizations/:id/members/:memberId/role — update member role

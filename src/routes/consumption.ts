@@ -38,21 +38,38 @@ const userAppKeyParamsSchema = userAppParamsSchema.extend({
  * Authenticate requests to the consumption endpoint.
  * Accepts both:
  * 1. A valid BetterAuth session (admin users calling from frontend)
- * 2. A Bearer access token issued via client_credentials grant
+ * 2. A Bearer access token issued via client_credentials grant — bound to a
+ *    specific application (the token's `sub` must match the app slug).
+ *
+ * Returns the application slug extracted from the Bearer token, or null when
+ * authenticated via admin session (session-based callers can act on any app).
  */
 async function requireConsumptionAuth(
   req: FastifyRequest,
   reply: FastifyReply,
-): Promise<void> {
+): Promise<{ tokenAppSlug: string | null }> {
   const authHeader = req.headers.authorization;
 
   if (authHeader?.startsWith("Bearer ")) {
-    // Let BetterAuth verify the access token
     const token = authHeader.slice(7);
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BetterAuth API is dynamic
       const verified = await (auth.api as any).verifyAccessToken?.({ token });
-      if (verified) return;
+      if (verified) {
+        // Decode the JWT payload to extract the client identifier.
+        // For client_credentials tokens, `sub` holds the OAuth client ID (= app slug).
+        // We do NOT skip signature verification — verifyAccessToken already did it.
+        const [, payloadB64] = token.split(".");
+        const payload = payloadB64
+          ? JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf-8"))
+          : null;
+        // sub is set to the client_id for machine-to-machine tokens.
+        const tokenAppSlug =
+          payload && typeof payload.sub === "string" && !payload.sub.includes("@")
+            ? (payload.sub as string)
+            : null;
+        return { tokenAppSlug };
+      }
     } catch {
       // Fall through to session check
     }
@@ -66,10 +83,11 @@ async function requireConsumptionAuth(
     const role = (session.user as Record<string, unknown>).role as
       | string
       | undefined;
-    if (role === "admin" || role === "superadmin") return;
+    if (role === "admin" || role === "superadmin") return { tokenAppSlug: null };
   }
 
   await reply.status(403).send(ERR.CONS_004().toJSON());
+  return { tokenAppSlug: null }; // unreachable after send, satisfies TypeScript
 }
 
 export async function consumptionRoutes(
@@ -78,8 +96,11 @@ export async function consumptionRoutes(
   // POST /api/consumption
   fastify.post(
     "/",
-    { preHandler: requireConsumptionAuth },
+    {},
     async (req, reply) => {
+      const { tokenAppSlug } = await requireConsumptionAuth(req, reply);
+      if (reply.sent) return;
+
       const parsed = postConsumptionSchema.safeParse(req.body);
       if (!parsed.success) {
         const issues = parsed.error.issues;
@@ -91,6 +112,19 @@ export async function consumptionRoutes(
       }
 
       const { userId, applicationId, key, value } = parsed.data;
+
+      // When authenticated via Bearer token, verify the token belongs to this application.
+      // This prevents a client from reporting consumption for a different application.
+      if (tokenAppSlug !== null) {
+        const [app] = await db
+          .select({ slug: applications.slug })
+          .from(applications)
+          .where(eq(applications.id, applicationId))
+          .limit(1);
+        if (!app || app.slug !== tokenAppSlug) {
+          throw ERR.AUTH_001("Token is not authorized for this application");
+        }
+      }
 
       // Verify user ↔ app relationship exists
       const [access] = await db
@@ -158,11 +192,27 @@ export async function consumptionRoutes(
   // GET /api/consumption/:userId/:applicationId
   fastify.get<{ Params: { userId: string; applicationId: string } }>(
     "/:userId/:applicationId",
-    { preHandler: requireConsumptionAuth },
+    {},
     async (req, reply) => {
+      const { tokenAppSlug } = await requireConsumptionAuth(req, reply);
+      if (reply.sent) return;
+
       const parsed = userAppParamsSchema.safeParse(req.params);
       if (!parsed.success)
         throw ERR.CONS_005("Invalid consumption identifier", parsed.error.flatten());
+
+      // Enforce token-app binding for M2M token callers
+      if (tokenAppSlug !== null) {
+        const [app] = await db
+          .select({ slug: applications.slug })
+          .from(applications)
+          .where(eq(applications.id, parsed.data.applicationId))
+          .limit(1);
+        if (!app || app.slug !== tokenAppSlug) {
+          throw ERR.AUTH_001("Token is not authorized for this application");
+        }
+      }
+
       const rows = await db
         .select({
           key: consumptionAggregates.key,
@@ -186,11 +236,27 @@ export async function consumptionRoutes(
     Params: { userId: string; applicationId: string; key: string };
   }>(
     "/:userId/:applicationId/:key",
-    { preHandler: requireConsumptionAuth },
+    {},
     async (req, reply) => {
+      const { tokenAppSlug } = await requireConsumptionAuth(req, reply);
+      if (reply.sent) return;
+
       const parsed = userAppKeyParamsSchema.safeParse(req.params);
       if (!parsed.success)
         throw ERR.CONS_005("Invalid consumption identifier", parsed.error.flatten());
+
+      // Enforce token-app binding for M2M token callers
+      if (tokenAppSlug !== null) {
+        const [app] = await db
+          .select({ slug: applications.slug })
+          .from(applications)
+          .where(eq(applications.id, parsed.data.applicationId))
+          .limit(1);
+        if (!app || app.slug !== tokenAppSlug) {
+          throw ERR.AUTH_001("Token is not authorized for this application");
+        }
+      }
+
       const [row] = await db
         .select({
           key: consumptionAggregates.key,

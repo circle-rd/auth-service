@@ -126,18 +126,11 @@ export const auth = betterAuth({
       defaultRole: "user",
       roles: {
         user: role({}),
+        // Admins can list/get/create users and manage sessions, but CANNOT set roles
+        // or change passwords via the native BetterAuth admin API. Those operations
+        // go through our custom routes which enforce the role hierarchy.
         admin: role({
-          user: [
-            "create",
-            "list",
-            "set-role",
-            "ban",
-            "impersonate",
-            "delete",
-            "set-password",
-            "get",
-            "update",
-          ],
+          user: ["create", "list", "ban", "impersonate", "delete", "get", "update"],
           session: ["list", "revoke", "delete"],
         }),
         superadmin: role({

@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import staticFiles from "@fastify/static";
+import rateLimit from "@fastify/rate-limit";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import {
   oauthProviderOpenIdConfigMetadata,
@@ -49,6 +50,55 @@ await fastify.register(cors, {
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 });
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// Applied globally to all Fastify-managed routes (/api/admin/*, /api/user/*, etc.).
+// BetterAuth routes (/api/auth/*) are handled in the onRequest hook below and
+// are rate-limited separately with a stricter per-IP token-bucket.
+await fastify.register(rateLimit, {
+  global: true,
+  max: 200,
+  timeWindow: "1 minute",
+  keyGenerator: (req) =>
+    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
+    req.ip,
+});
+
+// Strict in-memory rate limiter for sensitive BetterAuth endpoints.
+// Uses a sliding-window counter per IP. Not suitable for multi-instance
+// deployments (use Redis-backed rate limiting there).
+const AUTH_RATE_PATHS = [
+  "/api/auth/sign-in/email",
+  "/api/auth/sign-in/social",
+  "/api/auth/forget-password",
+  "/api/auth/reset-password",
+  "/api/auth/sign-up/email",
+  "/api/auth/two-factor/verify-totp",
+  "/api/auth/two-factor/verify-backup-code",
+];
+const AUTH_RATE_MAX = 10;    // attempts
+const AUTH_RATE_WINDOW = 60_000; // 1 minute in ms
+
+const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkAuthRateLimit(ip: string): boolean {
+  const now = Date.now();
+  let bucket = authRateBuckets.get(ip);
+  if (!bucket || now >= bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + AUTH_RATE_WINDOW };
+    authRateBuckets.set(ip, bucket);
+  }
+  bucket.count += 1;
+  return bucket.count <= AUTH_RATE_MAX;
+}
+
+// Evict stale buckets every 5 minutes to prevent unbounded memory growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, bucket] of authRateBuckets) {
+    if (now >= bucket.resetAt) authRateBuckets.delete(ip);
+  }
+}, 5 * 60_000).unref();
 
 // ── Static frontend (built Vue SPA) ──────────────────────────────────────────
 const frontendDist = join(__dirname, "..", "frontend-dist");
@@ -129,7 +179,15 @@ for (const { path, page } of authPageRoutes) {
       return reply.status(404).send({ error: "Not found" });
     }
 
-    const redirectTo = query.redirectTo ?? query.next ?? "/";
+    // Sanitize redirectTo to prevent open-redirect attacks.
+    // Only allow relative paths starting with a single slash.
+    const rawRedirect = query.redirectTo ?? query.next ?? "/";
+    const redirectTo =
+      typeof rawRedirect === "string" &&
+      rawRedirect.startsWith("/") &&
+      !rawRedirect.startsWith("//")
+        ? rawRedirect
+        : "/";
     // When BetterAuth's oauthProvider initiates the login, it signs all OAuth
     // params (including client_id + sig). Pass the raw query string back to the
     // template so the sign-in form can include it as `oauth_query` in the body,
@@ -271,6 +329,21 @@ fastify.addHook("onRequest", (req, reply, done) => {
       reply.raw.end();
       return;
     }
+
+    // Rate-limit sensitive auth endpoints
+    const urlPath = req.url.split("?")[0] ?? "";
+    if (AUTH_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))) {
+      const ip =
+        (req.headers["x-forwarded-for"] as string | undefined)
+          ?.split(",")[0]
+          ?.trim() ?? req.socket.remoteAddress ?? "unknown";
+      if (!checkAuthRateLimit(ip)) {
+        reply.raw.writeHead(429, { "Content-Type": "application/json" });
+        reply.raw.end(JSON.stringify({ error: "Too many requests", code: "RATE_LIMITED" }));
+        return;
+      }
+    }
+
     reply.hijack();
     betterAuthHandler(req.raw, reply.raw);
   } else {

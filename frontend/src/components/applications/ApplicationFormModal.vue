@@ -27,7 +27,7 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
-const SCOPES = ['openid', 'profile', 'email', 'offline_access', 'role', 'company', 'features'];
+const SCOPES = ['openid', 'profile', 'email', 'offline_access', 'roles', 'permissions', 'features', 'org'];
 const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type ProviderKey = (typeof ALL_PROVIDERS)[number];
 
@@ -42,7 +42,7 @@ const form = ref({
   skipConsent: false,
   isMfaRequired: false,
   allowRegister: true,
-  allowedScopes: ['openid', 'profile', 'email', 'role', 'company', 'features'] as string[],
+  allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'] as string[],
   redirectUris: [''] as string[],
   enabledSocialProviders: null as string[] | null,
 });
@@ -116,7 +116,7 @@ watch(
         skipConsent: false,
         isMfaRequired: false,
         allowRegister: true,
-        allowedScopes: ['openid', 'profile', 'email', 'role', 'company', 'features'],
+        allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'],
         redirectUris: [''],
         enabledSocialProviders: null,
       };

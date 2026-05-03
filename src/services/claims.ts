@@ -9,7 +9,7 @@ import {
   subscriptionPlans,
   userApplications,
 } from "../db/schema.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 interface UserClaims {
   roles?: string[];
@@ -87,22 +87,21 @@ export async function getUserClaims(
           appPermissions,
           eq(appRolePermissions.permissionId, appPermissions.id),
         )
-        .where(
-          roleIds.length === 1
-            ? eq(appRolePermissions.roleId, roleIds[0]!)
-            : and(...roleIds.map((id) => eq(appRolePermissions.roleId, id))),
-        );
+        .where(inArray(appRolePermissions.roleId, roleIds));
 
-      // Build unique permission strings (resource or resource.action for writes)
-      const permSet = new Set<string>();
+      // Aggregate permissions across all roles: write supersedes read.
+      // If a user has read on a resource via one role and write via another,
+      // only the write permission is kept.
+      const resourceActions = new Map<string, string>();
       for (const p of permsRows) {
-        if (p.action === "write") {
-          permSet.add(`${p.resource}.write`);
-        } else {
-          permSet.add(p.resource);
+        const current = resourceActions.get(p.resource);
+        if (!current || p.action === "write") {
+          resourceActions.set(p.resource, p.action);
         }
       }
-      claims.permissions = [...permSet];
+      claims.permissions = [...resourceActions.entries()].map(([resource, action]) =>
+        action === "write" ? `${resource}.write` : resource,
+      );
     } else if (needsPermissions) {
       claims.permissions = [];
     }

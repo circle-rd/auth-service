@@ -1,1 +1,0 @@
-ALTER TABLE "applications" ADD COLUMN "enabled_social_providers" text[];

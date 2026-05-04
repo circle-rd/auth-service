@@ -202,7 +202,7 @@ export default {
     overrideProviders: 'Remplacer les fournisseurs',
     metadata: 'Métadonnées (JWT client_attrs)',
     metadataDescription:
-      'Paires clé/valeur spécifiques à l’application, exposées aux services consommateurs via le champ JWT `client_attrs`. Utilisées par exemple par les ACL EMQX via ${client_attrs.agent_owner}.',
+      "Paires clé/valeur spécifiques à l’application, exposées aux services consommateurs via le champ JWT 'client_attrs'. Utilisées par exemple par les ACL EMQX via {'${client_attrs.agent_owner}'}.",
     metadataEmpty: 'Aucune métadonnée. Ajoutez une entrée pour injecter des claims personnalisés dans les tokens.',
     metadataKeyPlaceholder: 'clé (identifiant)',
     metadataValuePlaceholder: 'valeur (chaîne)',

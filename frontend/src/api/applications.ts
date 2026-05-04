@@ -30,6 +30,14 @@ export interface CreateApplicationBody {
   url?: string
   icon?: string
   enabledSocialProviders?: string[] | null
+  /**
+   * Free-form per-application metadata. Stored as a flat string→string map
+   * and surfaced inside the JWT under the `client_attrs` field for resource
+   * servers (e.g. EMQX uses `client_attrs.NAME` in its ACL placeholders).
+   * Reserved JWT claim names (sub, iss, aud, exp, etc.) are rejected
+   * server-side; keys must be valid identifiers.
+   */
+  metadata?: Record<string, string>
 }
 
 export async function createApplication(body: CreateApplicationBody): Promise<ApplicationCreateResponse> {
@@ -49,6 +57,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       url: body.url ?? null,
       icon: body.icon ?? null,
       enabledSocialProviders: body.enabledSocialProviders ?? null,
+      metadata: body.metadata ?? {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

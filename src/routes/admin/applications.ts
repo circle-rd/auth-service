@@ -34,6 +34,45 @@ function hashClientSecret(secret: string): string {
   return createHash("sha256").update(secret).digest().toString("base64url");
 }
 
+/**
+ * Reserved JWT claim names that MUST NOT be overridden via per-application
+ * metadata. These are managed by the OAuth provider itself.
+ */
+const RESERVED_JWT_CLAIMS = new Set([
+  "sub",
+  "aud",
+  "iss",
+  "exp",
+  "iat",
+  "nbf",
+  "jti",
+  "scope",
+  "scopes",
+  "azp",
+  "client_id",
+  "token_type",
+  "auth_time",
+  "acr",
+  "amr",
+]);
+
+/**
+ * Zod schema for the `metadata` field on applications. Values are restricted
+ * to strings because they are surfaced to resource servers via the JWT
+ * `client_attrs` field, whose contract requires string-typed entries (see
+ * EMQX 5 JWT authn / client attributes spec). Keep keys to safe identifiers.
+ */
+const metadataSchema = z
+  .record(z.string().max(256))
+  .refine(
+    (m) => Object.keys(m).every((k) => !RESERVED_JWT_CLAIMS.has(k)),
+    { message: "metadata keys must not collide with reserved JWT claims" },
+  )
+  .refine(
+    (m) => Object.keys(m).every((k) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)),
+    { message: "metadata keys must be valid identifiers (letters, digits, underscore)" },
+  );
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 
 async function requireAdmin(
@@ -81,6 +120,7 @@ const createAppSchema = z.object({
     .array(z.enum(["google", "github", "linkedin", "microsoft", "apple"]))
     .nullable()
     .optional(),
+  metadata: metadataSchema.optional().default({}),
 });
 
 const updateAppSchema = createAppSchema.partial().omit({ slug: true, isPublic: true });
@@ -150,6 +190,7 @@ export async function applicationRoutes(
           url: data.url,
           icon: data.icon,
           enabledSocialProviders: data.enabledSocialProviders ?? null,
+          metadata: data.metadata ?? {},
         })
         .returning();
 

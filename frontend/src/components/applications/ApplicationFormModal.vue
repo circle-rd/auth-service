@@ -45,7 +45,15 @@ const form = ref({
   allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'] as string[],
   redirectUris: [''] as string[],
   enabledSocialProviders: null as string[] | null,
+  // Metadata is edited as an ordered list of key/value pairs in the UI;
+  // we serialize back to a plain Record<string, string> on submit. Keys must
+  // be valid identifiers (server enforces /^[a-zA-Z_][a-zA-Z0-9_]*$/) and
+  // both keys/values are strings (EMQX `client_attrs` contract).
+  metadata: [] as Array<{ key: string; value: string }>,
 });
+
+// Validate identifier-style keys client-side (server enforces too).
+const METADATA_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 function slugify(name: string) {
   return name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -102,6 +110,10 @@ watch(
         enabledSocialProviders: a.enabledSocialProviders
           ? [...a.enabledSocialProviders]
           : null,
+        metadata: Object.entries(a.metadata ?? {}).map(([key, value]) => ({
+          key,
+          value: String(value),
+        })),
       };
     } else {
       lastAutoRedirectUri.value = '';
@@ -119,6 +131,7 @@ watch(
         allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'],
         redirectUris: [''],
         enabledSocialProviders: null,
+        metadata: [],
       };
     }
   },
@@ -179,9 +192,46 @@ function removeRedirectUri(i: number) {
   form.value.redirectUris.splice(i, 1);
 }
 
+function addMetadataEntry() {
+  form.value.metadata.push({ key: '', value: '' });
+}
+function removeMetadataEntry(i: number) {
+  form.value.metadata.splice(i, 1);
+}
+function isMetadataKeyValid(key: string): boolean {
+  return key === '' || METADATA_KEY_RE.test(key);
+}
+const metadataDuplicateKeys = computed<Set<string>>(() => {
+  const seen = new Map<string, number>();
+  for (const { key } of form.value.metadata) {
+    if (!key) continue;
+    seen.set(key, (seen.get(key) ?? 0) + 1);
+  }
+  return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k));
+});
+const metadataHasError = computed(() => {
+  if (metadataDuplicateKeys.value.size > 0) return true;
+  return form.value.metadata.some(
+    ({ key, value }) =>
+      // Empty rows are silently dropped on submit, but a row with only one
+      // side filled is an error.
+      (key === '' && value !== '') || (key !== '' && !METADATA_KEY_RE.test(key)),
+  );
+});
+
 async function submit() {
   if (!form.value.name) return;
   if (!isEdit.value && !form.value.slug) return;
+  if (metadataHasError.value) {
+    toast.error(t('applications.metadataInvalid'));
+    return;
+  }
+  // Drop empty rows; collapse to a plain Record<string, string>.
+  const metadata: Record<string, string> = {};
+  for (const { key, value } of form.value.metadata) {
+    if (!key) continue;
+    metadata[key] = value;
+  }
   loading.value = true;
   try {
     const body = {
@@ -196,6 +246,7 @@ async function submit() {
       allowedScopes: form.value.allowedScopes,
       redirectUris: form.value.redirectUris.filter(Boolean),
       enabledSocialProviders: form.value.enabledSocialProviders,
+      metadata,
     };
     if (isEdit.value && props.application) {
       const res = await updateApplication(props.application.id, body);
@@ -351,6 +402,69 @@ async function submit() {
             </button>
           </div>
         </div>
+      </div>
+
+      <!--
+        Metadata: per-application key/value pairs that AuthService injects
+        into JWTs under the `client_attrs` field. Used by resource servers
+        such as EMQX (ACL via `${client_attrs.NAME}` placeholders).
+        Keys must be valid identifiers (server-enforced), values are strings.
+      -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
+            {{ t('applications.metadata') }}
+          </p>
+          <button
+            type="button"
+            @click="addMetadataEntry"
+            class="text-xs text-primary-400 hover:text-primary-300 transition-colors font-medium"
+          >
+            + {{ t('applications.addMetadataEntry') }}
+          </button>
+        </div>
+        <p class="text-xs text-surface-500 mb-2">
+          {{ t('applications.metadataDescription') }}
+        </p>
+        <div v-if="form.metadata.length === 0" class="text-xs text-surface-600 italic py-1">
+          {{ t('applications.metadataEmpty') }}
+        </div>
+        <div v-else class="space-y-2">
+          <div
+            v-for="(entry, i) in form.metadata"
+            :key="i"
+            class="flex gap-2"
+          >
+            <input
+              v-model="entry.key"
+              :placeholder="t('applications.metadataKeyPlaceholder')"
+              :class="[
+                'w-1/3 px-3 py-2 text-sm bg-surface-800/80 border rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all font-mono',
+                isMetadataKeyValid(entry.key) && !metadataDuplicateKeys.has(entry.key)
+                  ? 'border-surface-700/60'
+                  : 'border-red-500/60',
+              ]"
+            />
+            <input
+              v-model="entry.value"
+              :placeholder="t('applications.metadataValuePlaceholder')"
+              class="flex-1 px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
+            />
+            <button
+              type="button"
+              @click="removeMetadataEntry(i)"
+              class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        <p
+          v-if="metadataDuplicateKeys.size > 0"
+          class="text-xs text-red-400 mt-2"
+        >
+          {{ t('applications.metadataDuplicateKey') }}
+        </p>
       </div>
     </form>
     <template #footer>

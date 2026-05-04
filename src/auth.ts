@@ -26,6 +26,50 @@ import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
 
+/**
+ * Reserved JWT claim names (mirror of admin route validation). Any per-app
+ * metadata key matching one of these is silently dropped at injection time as
+ * a defence-in-depth measure: even if an admin bypassed the input validator,
+ * we never let user-provided values shadow OAuth-managed claims.
+ */
+const RESERVED_JWT_CLAIMS = new Set([
+  "sub", "aud", "iss", "exp", "iat", "nbf", "jti",
+  "scope", "scopes", "azp", "client_id", "token_type",
+  "auth_time", "acr", "amr", "client_attrs",
+]);
+
+/**
+ * Resolve and sanitise the per-application metadata for a given client slug,
+ * returning a JWT fragment of the shape `{ client_attrs: { ... } }` ready to
+ * be merged into the access / id / userinfo token.
+ *
+ * The fragment is empty (no `client_attrs` field at all) when the slug is
+ * missing, the application does not exist, or its metadata is empty — so we
+ * never emit a noisy empty object.
+ *
+ * String-typed values only: this matches EMQX 5's JWT → client_attrs contract
+ * ("both keys and values must be of string type"), which is the de-facto
+ * convention for resource servers that consume per-client attributes.
+ */
+async function getApplicationMetadataClaims(
+  clientId: string | undefined,
+): Promise<Record<string, unknown>> {
+  if (!clientId) return {};
+  const [row] = await db
+    .select({ metadata: applications.metadata })
+    .from(applications)
+    .where(eq(applications.slug, clientId))
+    .limit(1);
+  const meta = (row?.metadata ?? {}) as Record<string, unknown>;
+  const attrs: Record<string, string> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (RESERVED_JWT_CLAIMS.has(k)) continue;
+    if (typeof v === "string") attrs[k] = v;
+  }
+  if (Object.keys(attrs).length === 0) return {};
+  return { client_attrs: attrs };
+}
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
@@ -284,15 +328,19 @@ export const auth = betterAuth({
             }
           }
         }
-        return getUserClaims(user.id, clientId, scopes, {
-          email: (user as Record<string, unknown>).email as string | null | undefined,
-          emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-          name: (user as Record<string, unknown>).name as string | null | undefined,
-          company: (user as Record<string, unknown>).company as string | null | undefined,
-          image: (user as Record<string, unknown>).image as string | null | undefined,
-          phone: (user as Record<string, unknown>).phone as string | null | undefined,
-          updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
-        });
+        return {
+          ...(await getUserClaims(user.id, clientId, scopes, {
+            email: (user as Record<string, unknown>).email as string | null | undefined,
+            emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
+            name: (user as Record<string, unknown>).name as string | null | undefined,
+            company: (user as Record<string, unknown>).company as string | null | undefined,
+            image: (user as Record<string, unknown>).image as string | null | undefined,
+            phone: (user as Record<string, unknown>).phone as string | null | undefined,
+            updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+          })),
+          // Per-app metadata claims (additive; reserved keys are filtered).
+          ...(await getApplicationMetadataClaims(clientId)),
+        };
       },
       // `customIdTokenClaims` only affects the ID token; this callback is what
       // puts roles/permissions/features/email/name/org_id in the Bearer JWT that
@@ -301,10 +349,14 @@ export const auth = betterAuth({
       // `referenceId` is the org ID stored at consent time via postLogin flow.
       // `metadata.clientId` holds the OAuth client slug (application slug).
       customAccessTokenClaims: async ({ user, scopes, metadata, referenceId }) => {
-        // `user` is null for client_credentials grants (machine-to-machine)
-        if (!user) return {};
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
+        // Per-app metadata is injected for BOTH user-bound and
+        // client_credentials grants under the JWT `client_attrs` field. For
+        // machine-to-machine tokens this is the sole source of custom claims
+        // (no user → no roles/permissions/features).
+        const appAttrs = await getApplicationMetadataClaims(clientId);
+        if (!user) return appAttrs;
         const claims = await getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
@@ -319,7 +371,7 @@ export const auth = betterAuth({
         if (scopes.includes("org") && referenceId) {
           (claims as Record<string, unknown>).org_id = referenceId;
         }
-        return claims;
+        return { ...claims, ...appAttrs };
       },
       // Same data in /oauth2/userinfo response.
       // clientId is read from the access token's azp (authorized party) claim.
@@ -327,15 +379,18 @@ export const auth = betterAuth({
         const clientId = (jwt as Record<string, unknown>)?.azp as
           | string
           | undefined;
-        return getUserClaims(user.id, clientId, scopes, {
-          email: (user as Record<string, unknown>).email as string | null | undefined,
-          emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-          name: (user as Record<string, unknown>).name as string | null | undefined,
-          company: (user as Record<string, unknown>).company as string | null | undefined,
-          image: (user as Record<string, unknown>).image as string | null | undefined,
-          phone: (user as Record<string, unknown>).phone as string | null | undefined,
-          updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
-        });
+        return {
+          ...(await getUserClaims(user.id, clientId, scopes, {
+            email: (user as Record<string, unknown>).email as string | null | undefined,
+            emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
+            name: (user as Record<string, unknown>).name as string | null | undefined,
+            company: (user as Record<string, unknown>).company as string | null | undefined,
+            image: (user as Record<string, unknown>).image as string | null | undefined,
+            phone: (user as Record<string, unknown>).phone as string | null | undefined,
+            updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+          })),
+          ...(await getApplicationMetadataClaims(clientId)),
+        };
       },
       // When the "org" scope is requested: after login, determine whether we need
       // to redirect the user to the org-selection page (postLogin flow).

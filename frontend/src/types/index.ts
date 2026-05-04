@@ -67,6 +67,7 @@ export interface Application {
   url: string | null
   icon: string | null
   enabledSocialProviders: string[] | null
+  metadata: Record<string, string>
   createdAt: string
   updatedAt: string
 }

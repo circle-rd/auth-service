@@ -27,7 +27,7 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
-const SCOPES = ['openid', 'profile', 'email', 'offline_access', 'roles', 'permissions', 'features', 'org'];
+const SCOPES = ['openid', 'profile', 'email', 'phone', 'offline_access', 'roles', 'permissions', 'features', 'org'];
 const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type ProviderKey = (typeof ALL_PROVIDERS)[number];
 

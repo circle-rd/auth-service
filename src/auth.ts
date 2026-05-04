@@ -334,7 +334,9 @@ export const auth = betterAuth({
           image: (user as Record<string, unknown>).image as string | null | undefined,
           phone: (user as Record<string, unknown>).phone as string | null | undefined,
           updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
-        }); after login, determine whether we need
+        });
+      },
+      // When the "org" scope is requested: after login, determine whether we need
       // to redirect the user to the org-selection page (postLogin flow).
       postLogin: {
         page: "/select-org",

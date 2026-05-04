@@ -202,7 +202,7 @@ export default {
     overrideProviders: 'Override providers',
     metadata: 'Metadata (JWT client_attrs)',
     metadataDescription:
-      'Per-application key/value pairs surfaced to resource servers via the JWT `client_attrs` field. Used for example by EMQX ACL placeholders such as ${client_attrs.agent_owner}.',
+      "Per-application key/value pairs surfaced to resource servers via the JWT 'client_attrs' field. Used for example by EMQX ACL placeholders such as {'${client_attrs.agent_owner}'}.",
     metadataEmpty: 'No metadata. Add an entry to attach custom claims to issued tokens.',
     metadataKeyPlaceholder: 'key (identifier)',
     metadataValuePlaceholder: 'value (string)',

@@ -114,6 +114,14 @@ const createAppSchema = z.object({
   allowRegister: z.boolean().default(true),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().min(1)).default([]),
+  // OIDC RP-Initiated Logout 1.0. When true, the client is allowed to call
+  // /oauth2/end-session to terminate the AuthService SSO session. Required
+  // for proper federated logout — without it, browsers retain the cookie and
+  // silently re-authenticate the same user on the next /authorize round-trip.
+  enableEndSession: z.boolean().default(true),
+  // Whitelist of URLs that may be passed as `post_logout_redirect_uri` to
+  // the end-session endpoint. Empty array = no post-logout redirect allowed.
+  postLogoutRedirectUris: z.array(z.string().url()).default([]),
   url: z.string().url().optional().nullable(),
   icon: z.string().optional().nullable(),
   enabledSocialProviders: z
@@ -207,6 +215,8 @@ export async function applicationRoutes(
         skipConsent: data.skipConsent,
         scopes: data.allowedScopes,
         redirectUris: data.redirectUris,
+        enableEndSession: data.enableEndSession,
+        postLogoutRedirectUris: data.postLogoutRedirectUris,
         public: data.isPublic || null,
         tokenEndpointAuthMethod: data.isPublic ? "none" : null,
         requirePKCE: data.isPublic ? true : null,
@@ -332,9 +342,20 @@ export async function applicationRoutes(
       .where(eq(applications.id, req.params.id))
       .limit(1);
 
+    // `enableEndSession` and `postLogoutRedirectUris` live exclusively on the
+    // BetterAuth `oauthClient` row, not on `applications` \u2014 strip them before
+    // updating the application table.
+    const {
+      enableEndSession: _ees,
+      postLogoutRedirectUris: _plru,
+      ...applicationData
+    } = parsed.data;
+    void _ees;
+    void _plru;
+
     const [app] = await db
       .update(applications)
-      .set({ ...parsed.data, updatedAt: new Date() })
+      .set({ ...applicationData, updatedAt: new Date() })
       .where(eq(applications.id, req.params.id))
       .returning();
     if (!app) throw ERR.APP_002();
@@ -362,6 +383,10 @@ export async function applicationRoutes(
       oauthUpdate.skipConsent = parsed.data.skipConsent;
     if (parsed.data.redirectUris !== undefined)
       oauthUpdate.redirectUris = parsed.data.redirectUris;
+    if (parsed.data.enableEndSession !== undefined)
+      oauthUpdate.enableEndSession = parsed.data.enableEndSession;
+    if (parsed.data.postLogoutRedirectUris !== undefined)
+      oauthUpdate.postLogoutRedirectUris = parsed.data.postLogoutRedirectUris;
 
     if (Object.keys(oauthUpdate).length > 0) {
       await db

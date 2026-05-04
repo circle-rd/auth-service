@@ -58,14 +58,18 @@ async function normalizeMigrationHistory(migrationsFolder: string): Promise<void
     )) as { tbl: string | null }[];
     if (!check[0]?.tbl) return;
 
-    // Stale entries confirmed — replace with the current migration set.
+    // Stale entries confirmed — this is a pre-consolidation DB whose tables
+    // already match `0000_initial_schema.sql`. Mark ONLY the consolidated
+    // baseline as applied, then let drizzle's `migrate()` apply every
+    // subsequent migration normally. Inserting all expected hashes here
+    // would falsely mark NEW migrations as applied and skip their DDL.
+    const baseline = expectedMigrations[0];
+    if (!baseline) return;
     await db.execute(sql`DELETE FROM drizzle.__drizzle_migrations`);
-    for (const migration of expectedMigrations) {
-      await db.execute(
-        sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-            VALUES (${migration.hash}, ${migration.folderMillis})`,
-      );
-    }
+    await db.execute(
+      sql`INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+          VALUES (${baseline.hash}, ${baseline.folderMillis})`,
+    );
   } catch {
     // drizzle schema / table does not exist yet — fresh install, nothing to do.
   }

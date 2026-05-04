@@ -23,7 +23,12 @@ const BUILTIN_TEMPLATES_DIR = join(
   "default",
 );
 
-type PageName = "login" | "register" | "verify-email" | "select-org";
+type PageName =
+  | "login"
+  | "register"
+  | "verify-email"
+  | "select-org"
+  | "two-factor";
 
 export interface TemplateVars {
   actionUrl: string;

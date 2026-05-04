@@ -62,6 +62,7 @@
       background: var(--primary); color: #fff;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 8px 20px rgba(37,99,235,0.35); margin-bottom: 0.25rem;
+      transition: transform .4s cubic-bezier(.4,0,.2,1);
     }
     .auth-icon svg { width: 1.375rem; height: 1.375rem; }
     h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
@@ -71,7 +72,24 @@
       border-radius: var(--radius-xl); padding: 1.5rem; width: 100%;
       box-shadow: var(--shadow-lg);
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      overflow: hidden;
     }
+
+    /* ── Slide-in viewport ─────────────────────────────────────────────── */
+    .slider-viewport { overflow: hidden; width: 100%; }
+    .slider {
+      display: flex; width: 200%;
+      transition: transform .45s cubic-bezier(.4,0,.2,1);
+    }
+    .slider > .step { flex: 0 0 50%; min-width: 0; }
+    /* A small inner padding so focus rings aren't clipped by overflow:hidden */
+    .slider > .step > .step-inner { padding: 2px; }
+    .slider.step-mfa { transform: translateX(-50%); }
+    @media (prefers-reduced-motion: reduce) {
+      .slider { transition: none; }
+      .auth-icon { transition: none; }
+    }
+
     .form-group { margin-bottom: 1rem; }
     label {
       display: block; font-size: 0.8125rem; font-weight: 500;
@@ -100,6 +118,11 @@
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-primary:hover:not(:disabled) { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent; color: var(--text-muted);
+      border: 1px solid var(--border); margin-top: .5rem;
+    }
+    .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border-focus); }
     .error-box {
       background: var(--danger-bg); color: var(--danger);
       border: 1px solid var(--danger-border); border-radius: var(--radius-sm);
@@ -125,39 +148,141 @@
     .btn-social:hover:not(:disabled) { border-color: var(--border-focus); }
     .btn-social:disabled { opacity: .5; cursor: not-allowed; }
     .btn-social svg { flex-shrink: 0; }
+
+    /* ── OTP (6 digits split 3+3) ───────────────────────────────────────── */
+    .otp-group {
+      display: flex; align-items: center; justify-content: center;
+      gap: .5rem; margin: .25rem 0 .25rem;
+    }
+    .otp-group .otp-sep {
+      width: 1rem; height: 1px; background: var(--border);
+      flex-shrink: 0;
+    }
+    .otp-block { display: flex; gap: .4rem; }
+    .otp-input {
+      width: 2.5rem; height: 3rem;
+      text-align: center;
+      font-size: 1.25rem; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      padding: 0;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface-inner); color: var(--text);
+      outline: none; transition: border-color .15s, box-shadow .15s, transform .12s;
+    }
+    .otp-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--primary-glow); }
+    .otp-input.is-filled { border-color: var(--primary); }
+    .otp-group.is-error .otp-input {
+      border-color: var(--danger-border);
+      animation: otp-shake .35s cubic-bezier(.36,.07,.19,.97);
+    }
+    @keyframes otp-shake {
+      10%,90% { transform: translateX(-1px); }
+      20%,80% { transform: translateX(2px); }
+      30%,50%,70% { transform: translateX(-4px); }
+      40%,60% { transform: translateX(4px); }
+    }
+    .mfa-mode-switch {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: .875rem; font-size: .8125rem;
+    }
+    .mfa-mode-switch button {
+      background: none; border: none; padding: 0; cursor: pointer;
+      font: inherit; color: var(--text-muted);
+    }
+    .mfa-mode-switch button:hover { color: var(--text); }
+    .mfa-mode-switch button.primary { color: var(--primary); }
+    .mfa-mode-switch button.primary:hover { color: var(--primary-hover); }
+    .backup-input {
+      width: 100%; text-align: center; letter-spacing: .1em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1rem;
+    }
   </style>
 </head>
 <body>
   <div class="auth-container">
     <div class="auth-header">
-      <div class="auth-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <div class="auth-icon" id="auth-icon" aria-hidden="true">
+        <!-- shield icon for login; swapped to a lock when MFA step is shown -->
+        <svg id="icon-login" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
+        <svg id="icon-mfa" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
       </div>
-      <h1>Welcome back</h1>
-      <p class="subtitle">Sign in to your account to continue.</p>
+      <h1 id="title">Welcome back</h1>
+      <p class="subtitle" id="subtitle">Sign in to your account to continue.</p>
     </div>
 
     <div class="card">
       <div class="error-box" id="error-box">{{ERROR_MESSAGE}}</div>
-      <form id="login-form">
-        <input type="hidden" name="redirectTo" value="{{REDIRECT_TO}}" />
-        <input type="hidden" name="oauthQuery"  value="{{OAUTH_QUERY}}" />
-        <div class="form-group">
-          <label for="email">Email</label>
-          <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
-        </div>
-        <div class="form-group">
-          <div class="label-row">
-            <label for="password">Password</label>
-            <a class="label-link" href="/forgot-password">Forgot password?</a>
+
+      <div class="slider-viewport">
+        <div class="slider" id="slider">
+          <!-- ── Step 1: credentials ─────────────────────────────────── -->
+          <div class="step" aria-hidden="false">
+            <div class="step-inner">
+              <form id="login-form">
+                <input type="hidden" name="redirectTo" value="{{REDIRECT_TO}}" />
+                <input type="hidden" name="oauthQuery"  value="{{OAUTH_QUERY}}" />
+                <div class="form-group">
+                  <label for="email">Email</label>
+                  <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required />
+                </div>
+                <div class="form-group">
+                  <div class="label-row">
+                    <label for="password">Password</label>
+                    <a class="label-link" href="/forgot-password">Forgot password?</a>
+                  </div>
+                  <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+                </div>
+                <button type="submit" class="btn btn-primary" id="submit-btn">Sign in</button>
+              </form>
+              <div id="social-section"></div>
+            </div>
           </div>
-          <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+
+          <!-- ── Step 2: MFA challenge ───────────────────────────────── -->
+          <div class="step" aria-hidden="true">
+            <div class="step-inner">
+              <!-- TOTP (6 digits split 3+3) -->
+              <form id="totp-form" novalidate>
+                <label style="text-align:center; margin-bottom:.75rem;">Enter your 6-digit code</label>
+                <div class="otp-group" id="otp-group" role="group" aria-label="One-time password, 6 digits">
+                  <div class="otp-block">
+                    <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" aria-label="Digit 1" />
+                    <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 2" />
+                    <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 3" />
+                  </div>
+                  <span class="otp-sep" aria-hidden="true"></span>
+                  <div class="otp-block">
+                    <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 4" />
+                    <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 5" />
+                    <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 6" />
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary" id="totp-submit">Verify</button>
+              </form>
+
+              <!-- Backup code fallback (hidden by default) -->
+              <form id="backup-form" style="display:none" novalidate>
+                <div class="form-group" style="margin-top:.25rem">
+                  <label for="backup-code">Backup code</label>
+                  <input class="backup-input" id="backup-code" type="text" autocomplete="one-time-code" placeholder="xxxx-xxxx" required />
+                </div>
+                <button type="submit" class="btn btn-primary" id="backup-submit">Verify</button>
+              </form>
+
+              <div class="mfa-mode-switch">
+                <button type="button" id="toggle-mode" class="primary">Use a backup code</button>
+                <button type="button" id="cancel-mfa">Cancel</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <button type="submit" class="btn btn-primary" id="submit-btn">Sign in</button>
-      </form>
-      <div id="social-section"></div>
+      </div>
     </div>
 
     <p class="auth-footer" id="register-footer">
@@ -166,10 +291,19 @@
   </div>
 
   <script type="module">
-    const form = document.getElementById('login-form');
-    const errorBox = document.getElementById('error-box');
-    const submitBtn = document.getElementById('submit-btn');
     const AUTH_URL = '{{AUTH_URL}}';
+
+    const slider      = document.getElementById('slider');
+    const errorBox    = document.getElementById('error-box');
+    const title       = document.getElementById('title');
+    const subtitle    = document.getElementById('subtitle');
+    const iconLogin   = document.getElementById('icon-login');
+    const iconMfa     = document.getElementById('icon-mfa');
+    const registerFtr = document.getElementById('register-footer');
+
+    // ── Step 1: sign-in form ──────────────────────────────────────────
+    const form      = document.getElementById('login-form');
+    const submitBtn = document.getElementById('submit-btn');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -185,22 +319,224 @@
           ? AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery
           : (redirectTo || '/');
         const body = { email, password, callbackURL };
-        const res = await fetch(`${AUTH_URL}/api/auth/sign-in/email`, {
+        const res = await fetch(AUTH_URL + '/api/auth/sign-in/email', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
           body: JSON.stringify(body),
         });
-        const data = await res.json();
-        if (!res.ok) { errorBox.textContent = data?.error?.message ?? 'Authentication failed.'; return; }
-        if (data?.url) { window.location.href = data.url; }
-        else if (redirectTo.startsWith('/api/') || redirectTo.startsWith('http')) { window.location.href = redirectTo; }
-        else { window.location.href = redirectTo || '/'; }
-      } catch { errorBox.textContent = 'A network error occurred. Please try again.'; }
-      finally { submitBtn.disabled = false; submitBtn.textContent = 'Sign in'; }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          errorBox.textContent = data?.error?.message ?? 'Authentication failed.';
+          return;
+        }
+        // MFA required → slide to step 2 instead of navigating away.
+        if (data?.twoFactorRedirect) {
+          showMfaStep();
+          return;
+        }
+        if (data?.url) {
+          window.location.href = data.url;
+        } else if (redirectTo.startsWith('/api/') || redirectTo.startsWith('http')) {
+          window.location.href = redirectTo;
+        } else {
+          window.location.href = redirectTo || '/';
+        }
+      } catch {
+        errorBox.textContent = 'A network error occurred. Please try again.';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign in';
+      }
     });
 
-    if ('{{ALLOW_REGISTER}}' !== 'true') document.getElementById('register-footer')?.remove();
+    if ('{{ALLOW_REGISTER}}' !== 'true') registerFtr?.remove();
 
+    // ── Step 2: MFA challenge ────────────────────────────────────────
+    const otpGroup   = document.getElementById('otp-group');
+    const otpInputs  = Array.from(otpGroup.querySelectorAll('.otp-input'));
+    const totpForm   = document.getElementById('totp-form');
+    const totpSubmit = document.getElementById('totp-submit');
+    const backupForm = document.getElementById('backup-form');
+    const backupSub  = document.getElementById('backup-submit');
+    const backupInp  = document.getElementById('backup-code');
+    const toggleBtn  = document.getElementById('toggle-mode');
+    const cancelBtn  = document.getElementById('cancel-mfa');
+
+    let mfaMode = 'totp'; // 'totp' | 'backup'
+
+    function showMfaStep() {
+      errorBox.textContent = '';
+      title.textContent = 'Two-factor authentication';
+      subtitle.textContent = 'Enter the code from your authenticator app.';
+      iconLogin.style.display = 'none';
+      iconMfa.style.display = '';
+      registerFtr?.style && (registerFtr.style.display = 'none');
+      slider.classList.add('step-mfa');
+      // Focus first OTP input after slide animation completes.
+      setTimeout(() => otpInputs[0]?.focus(), 300);
+    }
+
+    function showLoginStep() {
+      errorBox.textContent = '';
+      title.textContent = 'Welcome back';
+      subtitle.textContent = 'Sign in to your account to continue.';
+      iconLogin.style.display = '';
+      iconMfa.style.display = 'none';
+      if (registerFtr && '{{ALLOW_REGISTER}}' === 'true') registerFtr.style.display = '';
+      slider.classList.remove('step-mfa');
+      resetOtp();
+      backupInp.value = '';
+      switchMode('totp');
+    }
+
+    function resetOtp() {
+      otpInputs.forEach(i => { i.value = ''; i.classList.remove('is-filled'); });
+      otpGroup.classList.remove('is-error');
+    }
+
+    function otpValue() {
+      return otpInputs.map(i => i.value).join('');
+    }
+
+    function markFilled() {
+      otpInputs.forEach(i => i.classList.toggle('is-filled', !!i.value));
+    }
+
+    // Digit input handling: auto-advance, auto-submit on last digit.
+    otpInputs.forEach((input, idx) => {
+      input.addEventListener('input', (e) => {
+        // Keep only the last digit typed (handles Android IMEs returning >1 char).
+        const raw = (e.target.value || '').replace(/\D/g, '');
+        input.value = raw.slice(-1);
+        markFilled();
+        if (input.value && idx < otpInputs.length - 1) {
+          otpInputs[idx + 1].focus();
+        }
+        if (otpValue().length === 6) {
+          submitTotp();
+        }
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !input.value && idx > 0) {
+          otpInputs[idx - 1].focus();
+          otpInputs[idx - 1].value = '';
+          markFilled();
+          e.preventDefault();
+        } else if (e.key === 'ArrowLeft' && idx > 0) {
+          otpInputs[idx - 1].focus(); e.preventDefault();
+        } else if (e.key === 'ArrowRight' && idx < otpInputs.length - 1) {
+          otpInputs[idx + 1].focus(); e.preventDefault();
+        }
+      });
+      input.addEventListener('paste', (e) => {
+        const text = (e.clipboardData || window.clipboardData)?.getData('text') ?? '';
+        const digits = text.replace(/\D/g, '').slice(0, 6);
+        if (!digits) return;
+        e.preventDefault();
+        otpInputs.forEach((inp, i) => { inp.value = digits[i] ?? ''; });
+        markFilled();
+        const nextIdx = Math.min(digits.length, otpInputs.length - 1);
+        otpInputs[nextIdx].focus();
+        if (digits.length === 6) submitTotp();
+      });
+    });
+
+    totpForm.addEventListener('submit', (e) => { e.preventDefault(); submitTotp(); });
+    backupForm.addEventListener('submit', (e) => { e.preventDefault(); submitBackup(); });
+
+    async function submitTotp() {
+      const code = otpValue();
+      if (code.length !== 6) return;
+      totpSubmit.disabled = true;
+      totpSubmit.textContent = 'Verifying…';
+      errorBox.textContent = '';
+      try {
+        const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-totp', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body: JSON.stringify({ code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          otpGroup.classList.add('is-error');
+          errorBox.textContent = data?.error?.message ?? 'Invalid code. Please try again.';
+          // Clear and refocus so the user can retry without manual clearing.
+          setTimeout(() => { resetOtp(); otpInputs[0].focus(); }, 400);
+          return;
+        }
+        redirectAfterMfa(data);
+      } catch {
+        errorBox.textContent = 'A network error occurred. Please try again.';
+      } finally {
+        totpSubmit.disabled = false;
+        totpSubmit.textContent = 'Verify';
+      }
+    }
+
+    async function submitBackup() {
+      const code = backupInp.value.trim();
+      if (!code) return;
+      backupSub.disabled = true;
+      backupSub.textContent = 'Verifying…';
+      errorBox.textContent = '';
+      try {
+        const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-backup-code', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body: JSON.stringify({ code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          errorBox.textContent = data?.error?.message ?? 'Invalid backup code.';
+          return;
+        }
+        redirectAfterMfa(data);
+      } catch {
+        errorBox.textContent = 'A network error occurred. Please try again.';
+      } finally {
+        backupSub.disabled = false;
+        backupSub.textContent = 'Verify';
+      }
+    }
+
+    // After successful MFA, BetterAuth returns the same payload shape as a
+    // normal sign-in: either `{ url }` (OAuth redirect) or a session object.
+    function redirectAfterMfa(data) {
+      const redirectTo = form.redirectTo.value || '/';
+      const oauthQuery = form.oauthQuery.value;
+      if (data?.url) { window.location.href = data.url; return; }
+      if (oauthQuery) {
+        window.location.href = AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery;
+        return;
+      }
+      window.location.href = redirectTo || '/';
+    }
+
+    function switchMode(next) {
+      mfaMode = next;
+      errorBox.textContent = '';
+      if (next === 'backup') {
+        totpForm.style.display = 'none';
+        backupForm.style.display = '';
+        toggleBtn.textContent = 'Use authenticator code';
+        setTimeout(() => backupInp.focus(), 50);
+      } else {
+        totpForm.style.display = '';
+        backupForm.style.display = 'none';
+        toggleBtn.textContent = 'Use a backup code';
+        setTimeout(() => otpInputs[0]?.focus(), 50);
+      }
+    }
+
+    toggleBtn.addEventListener('click', () => switchMode(mfaMode === 'totp' ? 'backup' : 'totp'));
+    cancelBtn.addEventListener('click', () => {
+      // Best-effort: clear BetterAuth's temporary 2FA cookie by signing out.
+      fetch(AUTH_URL + '/api/auth/sign-out', { method: 'POST', credentials: 'include' })
+        .catch(() => {})
+        .finally(() => showLoginStep());
+    });
+
+    // ── Social providers (login step) ────────────────────────────────
     const PROVIDER_CONFIG = {
       google:    { label: 'Continue with Google',    icon: '<svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>' },
       github:    { label: 'Continue with GitHub',    icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>' },
@@ -224,7 +560,7 @@
           const oq = form.oauthQuery.value; const rd = form.redirectTo.value || '/';
           const callbackURL = oq ? AUTH_URL + '/api/auth/oauth2/authorize?' + oq : rd;
           try {
-            const res = await fetch(`${AUTH_URL}/api/auth/sign-in/social`, {
+            const res = await fetch(AUTH_URL + '/api/auth/sign-in/social', {
               method: 'POST', credentials: 'include',
               headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
               body: JSON.stringify({ provider, callbackURL }),

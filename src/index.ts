@@ -117,11 +117,17 @@ if (existsSync(frontendDist)) {
 // fall through to the Vue SPA index.html when no template is found.
 const authPageRoutes: Array<{
   path: string;
-  page: "login" | "register" | "verify-email";
+  page: "login" | "register" | "verify-email" | "two-factor";
 }> = [
   { path: "/login", page: "login" },
   { path: "/register", page: "register" },
   { path: "/verify-email", page: "verify-email" },
+  // Standalone MFA challenge page. Normally the login template drives the
+  // TOTP prompt inline (via the `twoFactorRedirect` response from
+  // /api/auth/sign-in/email), but this route is needed when the user
+  // reloads mid-flow, bookmarks the MFA step, or integrators prefer a
+  // dedicated page.
+  { path: "/two-factor", page: "two-factor" },
 ] as const;
 
 for (const { path, page } of authPageRoutes) {

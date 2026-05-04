@@ -32,6 +32,12 @@ export const applications = pgTable(
     url: text("url"),
     icon: text("icon"),
     enabledSocialProviders: text("enabled_social_providers").array(),
+    // Free-form per-application metadata. Stored as a flat string→string map
+    // and surfaced inside the JWT under the `client_attrs` field (per EMQX 5
+    // / RFC-style client attribute convention). Resource servers reference
+    // entries via placeholders such as ${client_attrs.agent_owner}. Reserved
+    // OIDC/OAuth claim names are filtered out at injection time.
+    metadata: jsonb("metadata").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

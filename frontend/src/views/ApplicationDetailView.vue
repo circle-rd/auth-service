@@ -387,18 +387,133 @@ const tabs = [
   { key: 'financial', label: t('appDetail.financial') },
 ] as const;
 
-const codeExampleJS = computed(() => {
+const activeCodeTab = ref<'typescript' | 'python' | 'ioserver'>('typescript');
+
+// Auth-service URL = origin of this SPA (same server)
+const authServiceUrl = computed(() => window.location.origin);
+
+const codeExampleTS = computed(() => {
   if (!app.value) return '';
   const redirectUri = app.value.redirectUris[0] ?? 'https://your-app.com/callback';
-  return `const params = new URLSearchParams({
-  response_type: 'code',
-  client_id: '${app.value.slug}',
-  redirect_uri: '${redirectUri}',
-  scope: '${app.value.allowedScopes.join(' ')}',
-  code_challenge_method: 'S256',
-  code_challenge: await generateCodeChallenge(codeVerifier),
+  const audience = app.value.url ?? 'https://your-app.com';
+  const scope = app.value.allowedScopes.join(' ');
+  return `import * as oauth from 'oauth4webapi';
+
+const issuer = new URL('${authServiceUrl.value}');
+const as = await oauth.discoveryRequest(issuer).then(r => oauth.processDiscoveryResponse(issuer, r));
+
+const client: oauth.Client = { client_id: '${app.value.slug}' };
+
+// 1. Build authorization URL (PKCE + RFC 8707 resource)
+const codeVerifier = oauth.generateRandomCodeVerifier();
+const codeChallenge = await oauth.calculatePKCECodeChallenge(codeVerifier);
+
+const authUrl = new URL(as.authorization_endpoint!);
+authUrl.searchParams.set('client_id', '${app.value.slug}');
+authUrl.searchParams.set('response_type', 'code');
+authUrl.searchParams.set('redirect_uri', '${redirectUri}');
+authUrl.searchParams.set('scope', '${scope}');
+authUrl.searchParams.set('resource', '${audience}');  // RFC 8707
+authUrl.searchParams.set('code_challenge', codeChallenge);
+authUrl.searchParams.set('code_challenge_method', 'S256');
+authUrl.searchParams.set('state', oauth.generateRandomState());
+
+window.location.href = authUrl.toString();
+
+// 2. Exchange code for tokens (in your /callback handler)
+const currentUrl = new URL(window.location.href);
+const params = oauth.validateAuthResponse(as, client, currentUrl, expectedState);
+const response = await oauth.authorizationCodeGrantRequest(
+  as, client, oauth.None(), params,
+  '${redirectUri}', codeVerifier,
+  { additionalParameters: new URLSearchParams({ resource: '${audience}' }) },
+);
+const tokens = await oauth.processAuthorizationCodeResponse(as, client, response);
+console.log(tokens.access_token);`;
 });
-window.location.href = \`/api/auth/authorize?\${params}\`;`;
+
+const codeExamplePython = computed(() => {
+  if (!app.value) return '';
+  const redirectUri = app.value.redirectUris[0] ?? 'https://your-app.com/callback';
+  const audience = app.value.url ?? 'https://your-app.com';
+  const scope = app.value.allowedScopes.join(' ');
+  return `from authlib.integrations.requests_client import OAuth2Session
+import secrets, hashlib, base64
+
+client_id = '${app.value.slug}'
+redirect_uri = '${redirectUri}'
+scope = '${scope}'
+resource = '${audience}'  # RFC 8707
+
+# PKCE helpers
+verifier = secrets.token_urlsafe(64)
+challenge = base64.urlsafe_b64encode(
+    hashlib.sha256(verifier.encode()).digest()
+).rstrip(b'=').decode()
+
+client = OAuth2Session(
+    client_id, scope=scope, redirect_uri=redirect_uri,
+    code_challenge_method='S256',
+)
+
+# 1. Redirect user to authorization URL
+authorization_endpoint = '${authServiceUrl.value}/api/auth/oauth2/authorize'
+uri, state = client.create_authorization_url(
+    authorization_endpoint,
+    code_verifier=verifier,
+    resource=resource,
+)
+print('Redirect to:', uri)
+
+# 2. Exchange code for tokens (after callback)
+token_endpoint = '${authServiceUrl.value}/api/auth/oauth2/token'
+tokens = client.fetch_token(
+    token_endpoint,
+    authorization_response=callback_url,
+    code_verifier=verifier,
+    resource=resource,
+)
+print(tokens['access_token'])`;
+});
+
+const codeExampleIOServer = computed(() => {
+  if (!app.value) return '';
+  const audience = app.value.url ?? 'https://your-app.com';
+  return `# .env
+AUTH_SERVICE_URL=${authServiceUrl.value}
+AUTH_SERVICE_APP_SLUG=${app.value.slug}
+AUTH_SERVICE_AUDIENCE=${audience}  # JWT aud claim = resource URL
+
+# --- src/index.ts ---
+import {
+  OidcConfigManager,
+  OidcHttpMiddleware,
+  OidcSocketMiddleware,
+} from 'ioserver-oidc';
+
+// Register the OIDC config manager (reads env vars above)
+server.addManager({ name: 'oidcConfig', manager: OidcConfigManager });
+
+// Protect HTTP routes
+server.addController({
+  name: 'api',
+  controller: ApiController,
+  middlewares: [OidcHttpMiddleware],
+  prefix: '/api',
+});
+
+// Protect Socket.IO namespaces
+server.addService({
+  name: 'events',
+  service: EventService,
+  middlewares: [OidcSocketMiddleware],
+});
+
+// Inside a controller/service handler:
+// request.sub         → OIDC subject (stable user ID)
+// request.roles       → string[]  (from \'roles\' scope)
+// request.permissions → string[]  (from \'permissions\' scope)
+// request.features    → object    (from \'features\' scope)`;
 });
 
 const PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
@@ -652,6 +767,8 @@ const financialKpis = computed(() => {
         </div>
 
         <div v-if="activeTab === 'integration' && app" class="space-y-5 max-w-2xl">
+
+          <!-- ── Credentials ────────────────────────────────────────────── -->
           <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 space-y-4">
             <CopyField :value="app.slug" :label="t('appDetail.clientId')" />
             <div v-if="!app.isPublic" class="space-y-2">
@@ -663,6 +780,23 @@ const financialKpis = computed(() => {
                 </BaseButton>
               </div>
             </div>
+            <CopyField
+              v-if="app.url"
+              :value="app.url"
+              label="Resource / Audience"
+            />
+            <div v-else class="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+              <span class="shrink-0 mt-0.5">⚠</span>
+              <span>No application URL configured — the <code class="font-mono bg-amber-500/10 px-1 rounded">resource</code> parameter (RFC 8707) is required to receive JWT access tokens. Set the URL in the application settings.</span>
+            </div>
+            <CopyField
+              :value="`${authServiceUrl}/api/auth/jwks`"
+              label="JWKS URI"
+            />
+            <CopyField
+              :value="`${authServiceUrl}/api/auth/.well-known/openid-configuration`"
+              label="Discovery Endpoint"
+            />
             <div>
               <p class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-2">{{ t('appDetail.redirectUris') }}</p>
               <div class="space-y-1.5">
@@ -677,14 +811,65 @@ const financialKpis = computed(() => {
             </div>
           </div>
 
+          <!-- ── Code Examples ──────────────────────────────────────────── -->
           <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
-            <div class="flex items-center gap-2 mb-3">
+            <div class="flex items-center gap-2 mb-4">
               <Code class="w-4 h-4 text-primary-400" />
               <p class="text-sm font-semibold text-surface-200">{{ t('appDetail.codeSnippet') }}</p>
             </div>
-            <pre class="bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 overflow-x-auto border border-surface-800/50 leading-relaxed">{{ codeExampleJS }}</pre>
+            <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
+              <button
+                v-for="tab in [{ key: 'typescript', label: 'TypeScript' }, { key: 'python', label: 'Python' }, { key: 'ioserver', label: 'IOServer' }]"
+                :key="tab.key"
+                @click="activeCodeTab = tab.key as 'typescript' | 'python' | 'ioserver'"
+                :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
+              >{{ tab.label }}</button>
+            </div>
+            <pre class="bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 overflow-x-auto border border-surface-800/50 leading-relaxed whitespace-pre">{{ activeCodeTab === 'typescript' ? codeExampleTS : activeCodeTab === 'python' ? codeExamplePython : codeExampleIOServer }}</pre>
+            <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
+            <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
+            <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
           </div>
 
+          <!-- ── Scopes & Claims ────────────────────────────────────────── -->
+          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+            <p class="text-sm font-semibold text-surface-200 mb-3">Scopes &amp; Claims</p>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="border-b border-surface-800/40">
+                    <th class="text-left py-2 pr-4 text-surface-500 font-medium w-32">Scope</th>
+                    <th class="text-left py-2 pr-4 text-surface-500 font-medium w-24">Type</th>
+                    <th class="text-left py-2 text-surface-500 font-medium">Claims returned</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-surface-800/30">
+                  <tr v-for="row in [
+                    { scope: 'openid', type: 'Standard OIDC', claims: 'sub, iss, aud, exp, iat, jti', active: app.allowedScopes.includes('openid') },
+                    { scope: 'profile', type: 'Standard OIDC', claims: 'name, picture, company*, updated_at', active: app.allowedScopes.includes('profile') },
+                    { scope: 'email', type: 'Standard OIDC', claims: 'email, email_verified', active: app.allowedScopes.includes('email') },
+                    { scope: 'phone', type: 'Standard OIDC', claims: 'phone_number', active: app.allowedScopes.includes('phone') },
+                    { scope: 'offline_access', type: 'Standard OIDC', claims: '(enables refresh token)', active: app.allowedScopes.includes('offline_access') },
+                    { scope: 'roles', type: 'Custom', claims: 'roles[]', active: app.allowedScopes.includes('roles') },
+                    { scope: 'permissions', type: 'Custom', claims: 'permissions[]', active: app.allowedScopes.includes('permissions') },
+                    { scope: 'features', type: 'Custom', claims: 'features{}, plan', active: app.allowedScopes.includes('features') },
+                    { scope: 'org', type: 'Custom', claims: 'org_id', active: app.allowedScopes.includes('org') },
+                  ]" :key="row.scope">
+                    <td class="py-2 pr-4">
+                      <code :class="['font-mono px-1.5 py-0.5 rounded text-xs', row.active ? 'bg-primary-600/15 text-primary-300' : 'bg-surface-800/50 text-surface-500']">{{ row.scope }}</code>
+                    </td>
+                    <td class="py-2 pr-4">
+                      <BaseBadge :variant="row.type === 'Standard OIDC' ? 'success' : 'neutral'" size="sm">{{ row.type }}</BaseBadge>
+                    </td>
+                    <td class="py-2 text-surface-400 font-mono">{{ row.claims }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="mt-2 text-xs text-surface-600">* <code class="font-mono">company</code> is a proprietary claim inside the standard <code class="font-mono">profile</code> scope.</p>
+            </div>
+          </div>
+
+          <!-- ── Social Providers ───────────────────────────────────────── -->
           <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
             <p class="text-sm font-semibold text-surface-200 mb-3">{{ t('appDetail.socialProviders') }}</p>
             <div class="space-y-2">

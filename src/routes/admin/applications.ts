@@ -22,6 +22,12 @@ import { and, eq } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { randomBytes, createHash } from "node:crypto";
+import {
+  addAudience,
+  removeAudience,
+  addCorsOrigin,
+  removeCorsOrigin,
+} from "../../runtime-config.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -251,6 +257,13 @@ export async function applicationRoutes(
     // Secret shown once — not persisted in plaintext. Public clients have no secret.
     if (rawSecret) response.clientSecret = rawSecret;
 
+    // Register the app URL as a valid OAuth audience and CORS origin immediately.
+    // This takes effect on the next request — no server restart required.
+    if (data.url) {
+      addAudience(data.url);
+      addCorsOrigin(data.url);
+    }
+
     await reply.status(201).send(response);
   });
 
@@ -271,12 +284,33 @@ export async function applicationRoutes(
     if (!parsed.success)
       throw ERR.APP_001("Invalid data", parsed.error.flatten());
 
+    // Fetch the current URL before applying the update so we can diff it.
+    const [before] = await db
+      .select({ url: applications.url })
+      .from(applications)
+      .where(eq(applications.id, req.params.id))
+      .limit(1);
+
     const [app] = await db
       .update(applications)
       .set({ ...parsed.data, updatedAt: new Date() })
       .where(eq(applications.id, req.params.id))
       .returning();
     if (!app) throw ERR.APP_002();
+
+    // Sync runtime-config when the URL field changes.
+    if (parsed.data.url !== undefined && parsed.data.url !== before?.url) {
+      // Remove old audience/origin if it was set
+      if (before?.url) {
+        removeAudience(before.url);
+        removeCorsOrigin(before.url);
+      }
+      // Add new audience/origin if one was provided
+      if (parsed.data.url) {
+        addAudience(parsed.data.url);
+        addCorsOrigin(parsed.data.url);
+      }
+    }
 
     // Sync relevant fields to the BetterAuth oauthClient table
     const oauthUpdate: Partial<typeof oauthClient.$inferInsert> = {};
@@ -304,11 +338,17 @@ export async function applicationRoutes(
     const [deleted] = await db
       .delete(applications)
       .where(eq(applications.id, req.params.id))
-      .returning({ id: applications.id, slug: applications.slug });
+      .returning({ id: applications.id, slug: applications.slug, url: applications.url });
     if (!deleted) throw ERR.APP_002();
 
     // Remove the oauthClient row (cascades to tokens/consents in BetterAuth tables)
     await db.delete(oauthClient).where(eq(oauthClient.clientId, deleted.slug));
+
+    // Remove the URL from runtime-config.
+    if (deleted.url) {
+      removeAudience(deleted.url);
+      removeCorsOrigin(deleted.url);
+    }
 
     await reply.status(204).send();
   });

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Two-factor authentication</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:             #f4f4f5;
+      --surface:        rgba(255,255,255,0.9);
+      --surface-inner:  #f4f4f5;
+      --border:         rgba(212,212,216,0.7);
+      --border-focus:   #2563eb;
+      --text:           #09090b;
+      --text-muted:     #71717a;
+      --text-subtle:    #a1a1aa;
+      --primary:        #2563eb;
+      --primary-hover:  #3b82f6;
+      --primary-glow:   rgba(37,99,235,0.15);
+      --danger:         #ef4444;
+      --danger-bg:      rgba(239,68,68,0.08);
+      --danger-border:  rgba(239,68,68,0.25);
+      --radius-sm: 4px; --radius: 7px; --radius-lg: 9px; --radius-xl: 12px;
+      --shadow-lg: 0 8px 24px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:             #09090b;
+        --surface:        rgba(24,24,27,0.6);
+        --surface-inner:  rgba(39,39,42,0.6);
+        --border:         rgba(63,63,70,0.4);
+        --border-focus:   #3b82f6;
+        --text:           #fafafa;
+        --text-muted:     #a1a1aa;
+        --text-subtle:    #52525b;
+        --primary:        #2563eb;
+        --primary-hover:  #3b82f6;
+        --primary-glow:   rgba(59,130,246,0.12);
+        --danger:         #f87171;
+        --danger-bg:      rgba(239,68,68,0.1);
+        --danger-border:  rgba(239,68,68,0.3);
+        --shadow-lg: 0 8px 32px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100svh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem 1rem;
+      -webkit-font-smoothing: antialiased;
+    }
+    .auth-container { width: 100%; max-width: 22rem; display: flex; flex-direction: column; align-items: center; }
+    .auth-header { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 1.75rem; text-align: center; }
+    .auth-icon {
+      width: 3rem; height: 3rem; border-radius: var(--radius-xl);
+      background: var(--primary); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 20px rgba(37,99,235,0.35); margin-bottom: 0.25rem;
+    }
+    .auth-icon svg { width: 1.375rem; height: 1.375rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    .subtitle { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-xl); padding: 1.5rem; width: 100%;
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    label {
+      display: block; font-size: 0.8125rem; font-weight: 500;
+      color: var(--text-muted); margin-bottom: 0.375rem;
+    }
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+      width: 100%; padding: 0.5625rem 1rem; border-radius: var(--radius);
+      font-size: 0.9375rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: background .15s, box-shadow .15s, opacity .15s;
+      border: 1px solid transparent; line-height: 1.5; margin-top: 1.25rem;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error-box {
+      background: var(--danger-bg); color: var(--danger);
+      border: 1px solid var(--danger-border); border-radius: var(--radius-sm);
+      padding: 0.5625rem 0.75rem; font-size: 0.875rem; margin-bottom: 1rem;
+    }
+    .error-box:empty { display: none; }
+
+    /* ── OTP (6 digits split 3+3) ─────────────────────────────────────── */
+    .otp-group {
+      display: flex; align-items: center; justify-content: center;
+      gap: .5rem; margin: .25rem 0 .25rem;
+    }
+    .otp-group .otp-sep { width: 1rem; height: 1px; background: var(--border); flex-shrink: 0; }
+    .otp-block { display: flex; gap: .4rem; }
+    .otp-input {
+      width: 2.5rem; height: 3rem;
+      text-align: center;
+      font-size: 1.25rem; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      padding: 0;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface-inner); color: var(--text);
+      outline: none; transition: border-color .15s, box-shadow .15s, transform .12s;
+    }
+    .otp-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--primary-glow); }
+    .otp-input.is-filled { border-color: var(--primary); }
+    .otp-group.is-error .otp-input {
+      border-color: var(--danger-border);
+      animation: otp-shake .35s cubic-bezier(.36,.07,.19,.97);
+    }
+    @keyframes otp-shake {
+      10%,90% { transform: translateX(-1px); }
+      20%,80% { transform: translateX(2px); }
+      30%,50%,70% { transform: translateX(-4px); }
+      40%,60% { transform: translateX(4px); }
+    }
+    .mfa-mode-switch {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: .875rem; font-size: .8125rem;
+    }
+    .mfa-mode-switch button {
+      background: none; border: none; padding: 0; cursor: pointer;
+      font: inherit; color: var(--text-muted);
+    }
+    .mfa-mode-switch button:hover { color: var(--text); }
+    .mfa-mode-switch button.primary { color: var(--primary); }
+    .mfa-mode-switch button.primary:hover { color: var(--primary-hover); }
+    .backup-input {
+      width: 100%; text-align: center; letter-spacing: .1em;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1rem;
+      padding: 0.5625rem 0.75rem;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface-inner); color: var(--text); outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .backup-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--primary-glow); }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-header">
+      <div class="auth-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <h1>Two-factor authentication</h1>
+      <p class="subtitle" id="subtitle">Enter the code from your authenticator app.</p>
+    </div>
+
+    <div class="card">
+      <div class="error-box" id="error-box">{{ERROR_MESSAGE}}</div>
+
+      <form id="totp-form" novalidate>
+        <input type="hidden" id="redirectTo" value="{{REDIRECT_TO}}" />
+        <input type="hidden" id="oauthQuery" value="{{OAUTH_QUERY}}" />
+        <label style="text-align:center; margin-bottom:.75rem;">Enter your 6-digit code</label>
+        <div class="otp-group" id="otp-group" role="group" aria-label="One-time password, 6 digits">
+          <div class="otp-block">
+            <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" aria-label="Digit 1" />
+            <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 2" />
+            <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 3" />
+          </div>
+          <span class="otp-sep" aria-hidden="true"></span>
+          <div class="otp-block">
+            <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 4" />
+            <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 5" />
+            <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" aria-label="Digit 6" />
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" id="totp-submit">Verify</button>
+      </form>
+
+      <form id="backup-form" style="display:none" novalidate>
+        <div style="margin-top:.25rem">
+          <label for="backup-code" style="text-align:center; margin-bottom:.75rem;">Backup code</label>
+          <input class="backup-input" id="backup-code" type="text" autocomplete="one-time-code" placeholder="xxxx-xxxx" required />
+        </div>
+        <button type="submit" class="btn btn-primary" id="backup-submit">Verify</button>
+      </form>
+
+      <div class="mfa-mode-switch">
+        <button type="button" id="toggle-mode" class="primary">Use a backup code</button>
+        <a href="{{LOGIN_URL}}" style="color: var(--text-muted); text-decoration: none;">Back to sign in</a>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    const AUTH_URL = '{{AUTH_URL}}';
+
+    const errorBox   = document.getElementById('error-box');
+    const otpGroup   = document.getElementById('otp-group');
+    const otpInputs  = Array.from(otpGroup.querySelectorAll('.otp-input'));
+    const totpForm   = document.getElementById('totp-form');
+    const totpSubmit = document.getElementById('totp-submit');
+    const backupForm = document.getElementById('backup-form');
+    const backupSub  = document.getElementById('backup-submit');
+    const backupInp  = document.getElementById('backup-code');
+    const toggleBtn  = document.getElementById('toggle-mode');
+    const redirectTo = document.getElementById('redirectTo').value || '/';
+    const oauthQuery = document.getElementById('oauthQuery').value;
+
+    let mfaMode = 'totp';
+
+    function resetOtp() {
+      otpInputs.forEach(i => { i.value = ''; i.classList.remove('is-filled'); });
+      otpGroup.classList.remove('is-error');
+    }
+    function otpValue() { return otpInputs.map(i => i.value).join(''); }
+    function markFilled() { otpInputs.forEach(i => i.classList.toggle('is-filled', !!i.value)); }
+
+    otpInputs.forEach((input, idx) => {
+      input.addEventListener('input', (e) => {
+        const raw = (e.target.value || '').replace(/\D/g, '');
+        input.value = raw.slice(-1);
+        markFilled();
+        if (input.value && idx < otpInputs.length - 1) otpInputs[idx + 1].focus();
+        if (otpValue().length === 6) submitTotp();
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !input.value && idx > 0) {
+          otpInputs[idx - 1].focus();
+          otpInputs[idx - 1].value = '';
+          markFilled();
+          e.preventDefault();
+        } else if (e.key === 'ArrowLeft' && idx > 0) {
+          otpInputs[idx - 1].focus(); e.preventDefault();
+        } else if (e.key === 'ArrowRight' && idx < otpInputs.length - 1) {
+          otpInputs[idx + 1].focus(); e.preventDefault();
+        }
+      });
+      input.addEventListener('paste', (e) => {
+        const text = (e.clipboardData || window.clipboardData)?.getData('text') ?? '';
+        const digits = text.replace(/\D/g, '').slice(0, 6);
+        if (!digits) return;
+        e.preventDefault();
+        otpInputs.forEach((inp, i) => { inp.value = digits[i] ?? ''; });
+        markFilled();
+        const nextIdx = Math.min(digits.length, otpInputs.length - 1);
+        otpInputs[nextIdx].focus();
+        if (digits.length === 6) submitTotp();
+      });
+    });
+
+    // Autofocus first input on load
+    setTimeout(() => otpInputs[0]?.focus(), 50);
+
+    totpForm.addEventListener('submit', (e) => { e.preventDefault(); submitTotp(); });
+    backupForm.addEventListener('submit', (e) => { e.preventDefault(); submitBackup(); });
+
+    async function submitTotp() {
+      const code = otpValue();
+      if (code.length !== 6) return;
+      totpSubmit.disabled = true; totpSubmit.textContent = 'Verifying…';
+      errorBox.textContent = '';
+      try {
+        const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-totp', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body: JSON.stringify({ code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          otpGroup.classList.add('is-error');
+          errorBox.textContent = data?.error?.message ?? 'Invalid code. Please try again.';
+          setTimeout(() => { resetOtp(); otpInputs[0].focus(); }, 400);
+          return;
+        }
+        redirectAfter(data);
+      } catch {
+        errorBox.textContent = 'A network error occurred. Please try again.';
+      } finally {
+        totpSubmit.disabled = false; totpSubmit.textContent = 'Verify';
+      }
+    }
+
+    async function submitBackup() {
+      const code = backupInp.value.trim();
+      if (!code) return;
+      backupSub.disabled = true; backupSub.textContent = 'Verifying…';
+      errorBox.textContent = '';
+      try {
+        const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-backup-code', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body: JSON.stringify({ code }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          errorBox.textContent = data?.error?.message ?? 'Invalid backup code.';
+          return;
+        }
+        redirectAfter(data);
+      } catch {
+        errorBox.textContent = 'A network error occurred. Please try again.';
+      } finally {
+        backupSub.disabled = false; backupSub.textContent = 'Verify';
+      }
+    }
+
+    function redirectAfter(data) {
+      if (data?.url) { window.location.href = data.url; return; }
+      if (oauthQuery) {
+        window.location.href = AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery;
+        return;
+      }
+      window.location.href = redirectTo || '/';
+    }
+
+    function switchMode(next) {
+      mfaMode = next;
+      errorBox.textContent = '';
+      if (next === 'backup') {
+        totpForm.style.display = 'none';
+        backupForm.style.display = '';
+        toggleBtn.textContent = 'Use authenticator code';
+        setTimeout(() => backupInp.focus(), 50);
+      } else {
+        totpForm.style.display = '';
+        backupForm.style.display = 'none';
+        toggleBtn.textContent = 'Use a backup code';
+        setTimeout(() => otpInputs[0]?.focus(), 50);
+      }
+    }
+
+    toggleBtn.addEventListener('click', () => switchMode(mfaMode === 'totp' ? 'backup' : 'totp'));
+  </script>
+</body>
+</html>

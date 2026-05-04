@@ -31,6 +31,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+      OAUTH_VALID_AUDIENCES: ${OAUTH_VALID_AUDIENCES:-}
 
       # Branding (displayed in UI + used as TOTP issuer)
       APP_NAME: ${APP_NAME:-CIRCLE Auth}

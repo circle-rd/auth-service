@@ -15,9 +15,18 @@ interface UserClaims {
   roles?: string[];
   permissions?: string[];
   features?: Record<string, unknown>;
-  email?: string;
+  // Standard OIDC profile scope claims
   name?: string;
-  company?: string;
+  picture?: string;
+  updated_at?: number;
+  company?: string;         // Proprietary claim within profile scope
+  // Standard OIDC email scope claims
+  email?: string;
+  email_verified?: boolean;
+  // Standard OIDC phone scope claim
+  phone_number?: string;
+  // features scope extras
+  plan?: string;            // Human-readable plan name
 }
 
 /**
@@ -28,15 +37,34 @@ export async function getUserClaims(
   userId: string,
   applicationSlug: string | undefined,
   scopes: string[],
-  profile?: { email?: string | null; name?: string | null; company?: string | null },
+  profile?: {
+    email?: string | null;
+    emailVerified?: boolean | null;
+    name?: string | null;
+    company?: string | null;
+    image?: string | null;
+    phone?: string | null;
+    updatedAt?: Date | null;
+  },
 ): Promise<UserClaims> {
   const claims: UserClaims = {};
 
   // Profile claims come directly from the token — no DB lookup needed
   if (profile) {
-    if (scopes.includes("email") && profile.email) claims.email = profile.email;
-    if (scopes.includes("profile") && profile.name) claims.name = profile.name;
-    if (scopes.includes("profile") && profile.company) claims.company = profile.company;
+    if (scopes.includes("email")) {
+      if (profile.email) claims.email = profile.email;
+      if (profile.emailVerified !== null && profile.emailVerified !== undefined)
+        claims.email_verified = profile.emailVerified;
+    }
+    if (scopes.includes("profile")) {
+      if (profile.name) claims.name = profile.name;
+      if (profile.company) claims.company = profile.company;
+      if (profile.image) claims.picture = profile.image;
+      if (profile.updatedAt) claims.updated_at = Math.floor(profile.updatedAt.getTime() / 1000);
+    }
+    if (scopes.includes("phone") && profile.phone) {
+      claims.phone_number = profile.phone;
+    }
   }
 
   if (!applicationSlug) return claims;
@@ -111,6 +139,7 @@ export async function getUserClaims(
     const [sub] = await db
       .select({
         features: subscriptionPlans.features,
+        planName: subscriptionPlans.name,
         expiresAt: userSubscriptions.expiresAt,
         isActive: userSubscriptions.isActive,
       })
@@ -134,6 +163,8 @@ export async function getUserClaims(
       claims.features = expired
         ? {}
         : ((sub.features as Record<string, unknown>) ?? {});
+      // Always include the plan name so clients can gate on tier without parsing features JSON
+      if (!expired) claims.plan = sub.planName;
     } else {
       claims.features = {};
     }

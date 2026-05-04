@@ -14,6 +14,11 @@ import { config } from "./config.js";
 import { auth } from "./auth.js";
 import { bootstrap } from "./bootstrap.js";
 import { runMigrations } from "./migrate.js";
+import {
+  corsOrigins,
+  addAudience,
+  addCorsOrigin,
+} from "./runtime-config.js";
 import { healthRoutes } from "./routes/health.js";
 import { applicationRoutes } from "./routes/admin/applications.js";
 import { rolesRoutes } from "./routes/admin/roles.js";
@@ -31,7 +36,7 @@ import { ApiError } from "./errors.js";
 import { renderAuthPage } from "./services/templates.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
-import { eq } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -45,8 +50,14 @@ const fastify = Fastify({
 });
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
+// corsOrigins is seeded at startup (see start()) from CORS_ORIGINS env and
+// all application URLs in the DB, then kept in sync on app CRUD operations.
 await fastify.register(cors, {
-  origin: config.cors.origins,
+  origin: (origin, callback) => {
+    // Allow requests with no Origin header (server-to-server, curl, etc.)
+    if (!origin) return callback(null, true);
+    callback(null, corsOrigins.has(origin));
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 });
@@ -117,11 +128,17 @@ if (existsSync(frontendDist)) {
 // fall through to the Vue SPA index.html when no template is found.
 const authPageRoutes: Array<{
   path: string;
-  page: "login" | "register" | "verify-email";
+  page: "login" | "register" | "verify-email" | "two-factor";
 }> = [
   { path: "/login", page: "login" },
   { path: "/register", page: "register" },
   { path: "/verify-email", page: "verify-email" },
+  // Standalone MFA challenge page. Normally the login template drives the
+  // TOTP prompt inline (via the `twoFactorRedirect` response from
+  // /api/auth/sign-in/email), but this route is needed when the user
+  // reloads mid-flow, bookmarks the MFA step, or integrators prefer a
+  // dedicated page.
+  { path: "/two-factor", page: "two-factor" },
 ] as const;
 
 for (const { path, page } of authPageRoutes) {
@@ -311,7 +328,7 @@ const betterAuthHandler = toNodeHandler(auth);
 fastify.addHook("onRequest", (req, reply, done) => {
   if (req.url?.startsWith("/api/auth/")) {
     const origin = req.headers.origin;
-    if (origin && (config.cors.origins as string[]).includes(origin)) {
+    if (origin && corsOrigins.has(origin)) {
       reply.raw.setHeader("Access-Control-Allow-Origin", origin);
       reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
       reply.raw.setHeader(
@@ -448,6 +465,23 @@ async function start(): Promise<void> {
       await runMigrations();
     }
     await bootstrap();
+
+    // ── Seed runtime-config from env vars (static seed, backward-compat) ─────
+    for (const o of config.cors.origins) addCorsOrigin(o);
+    for (const aud of config.oauthProvider.validAudiences) addAudience(aud);
+
+    // ── Seed runtime-config from DB — all app URLs ─────────────────────
+    // Pulls every application that has a URL configured so the server starts
+    // with the correct audiences/origins without any env variable restart.
+    const appRows = await db
+      .select({ url: applications.url })
+      .from(applications)
+      .where(isNotNull(applications.url));
+    for (const { url } of appRows) {
+      addAudience(url);
+      addCorsOrigin(url);
+    }
+
     await fastify.listen({ port: config.port, host: config.host });
     fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
   } catch (err) {

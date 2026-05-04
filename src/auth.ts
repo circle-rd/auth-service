@@ -9,6 +9,7 @@ import * as authSchema from "./db/auth-schema.js";
 import { applications, userApplications } from "./db/schema.js";
 import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
+import { trustedOrigins, validAudiences } from "./runtime-config.js";
 import {
   getUserClaims,
   userHasAppAccessBySlug,
@@ -40,8 +41,9 @@ export const auth = betterAuth({
     oauthAuthServerConfig: true,
     openidConfig: true,
   },
-  // Let BetterAuth trust all configured CORS origins
-  trustedOrigins: config.cors.origins,
+  // Live mutable list — seeded from env + DB app URLs at startup,
+  // updated on application create/update/delete without restart.
+  trustedOrigins: trustedOrigins,
   // Enable cross-subdomain cookies when SESSION_DOMAIN is configured (e.g. "example.com")
   ...(config.session.domain
     ? {
@@ -153,17 +155,17 @@ export const auth = betterAuth({
     oauthProvider({
       loginPage: "/login",
       consentPage: "/oauth2/consent",
-      // Valid resource server audiences for JWT access tokens (RFC 8707).
-      // When empty, BetterAuth defaults to the base URL as the audience.
-      // Clients must include `resource=<url>` in auth/token requests to
-      // receive a JWT; without it they receive an opaque token instead.
-      ...(config.oauthProvider.validAudiences.length > 0
-        ? { validAudiences: config.oauthProvider.validAudiences }
-        : {}),
+      // Live mutable list of valid resource server audiences (RFC 8707).
+      // Seeded from OAUTH_VALID_AUDIENCES env + all app.url values at startup.
+      // Updated in-place on application CRUD — no restart needed.
+      // @better-auth/oauth-provider spreads this into a new Set per request,
+      // so mutations are reflected immediately.
+      validAudiences: validAudiences,
       scopes: [
         "openid",
         "profile",
         "email",
+        "phone",
         "offline_access",
         "roles",
         "permissions",
@@ -284,11 +286,14 @@ export const auth = betterAuth({
         }
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
+          emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
           company: (user as Record<string, unknown>).company as string | null | undefined,
+          image: (user as Record<string, unknown>).image as string | null | undefined,
+          phone: (user as Record<string, unknown>).phone as string | null | undefined,
+          updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
         });
       },
-      // Inject claims into the OAuth2 access token JWT (verified by ioserver-oidc).
       // `customIdTokenClaims` only affects the ID token; this callback is what
       // puts roles/permissions/features/email/name/org_id in the Bearer JWT that
       // the resource server (MCP-Central, CyPlate, etc.) receives and verifies.
@@ -302,8 +307,12 @@ export const auth = betterAuth({
           ?.clientId as string | undefined;
         const claims = await getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
+          emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
           company: (user as Record<string, unknown>).company as string | null | undefined,
+          image: (user as Record<string, unknown>).image as string | null | undefined,
+          phone: (user as Record<string, unknown>).phone as string | null | undefined,
+          updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
         });
         // Inject org_id when the client requested the "org" scope and a
         // reference (activeOrganizationId) was captured during the postLogin flow.
@@ -320,8 +329,12 @@ export const auth = betterAuth({
           | undefined;
         return getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
+          emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
           name: (user as Record<string, unknown>).name as string | null | undefined,
           company: (user as Record<string, unknown>).company as string | null | undefined,
+          image: (user as Record<string, unknown>).image as string | null | undefined,
+          phone: (user as Record<string, unknown>).phone as string | null | undefined,
+          updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
         });
       },
       // When the "org" scope is requested: after login, determine whether we need

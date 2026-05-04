@@ -293,6 +293,7 @@ export const auth = betterAuth({
           phone: (user as Record<string, unknown>).phone as string | null | undefined,
           updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
         });
+      },
       // `customIdTokenClaims` only affects the ID token; this callback is what
       // puts roles/permissions/features/email/name/org_id in the Bearer JWT that
       // the resource server (MCP-Central, CyPlate, etc.) receives and verifies.

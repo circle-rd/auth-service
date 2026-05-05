@@ -70,12 +70,6 @@ export interface TemplateVars {
    * Omitted (empty string) when allowRegister is false.
    */
   registerUrl?: string;
-  /**
-   * Base URL prepended to asset paths inside templates (e.g. logos,
-   * backgrounds). Surfaced as {{ASSETS_BASE}}. Empty string by default,
-   * which lets templates use relative `./assets/...` paths.
-   */
-  assetsBase?: string;
 }
 
 /**
@@ -164,10 +158,6 @@ export function renderAuthPage(
     .replace(
       /\{\{REGISTER_URL\}\}/g,
       escapeHtml(vars.registerUrl ?? "/register"),
-    )
-    .replace(
-      /\{\{ASSETS_BASE\}\}/g,
-      escapeHtml((vars.assetsBase ?? "").replace(/\/$/, "")),
     );
 }
 

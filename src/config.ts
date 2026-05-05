@@ -37,13 +37,6 @@ const envSchema = z.object({
   // per-application (mount a volume at this path in Docker)
   TEMPLATES_DIR: z.string().optional(),
 
-  // Base URL prepended to template asset paths (logos, backgrounds, ...).
-  // Surfaced in templates as {{ASSETS_BASE}}. Empty string means "use
-  // relative paths". Set this to e.g. https://app.example.com so identity
-  // pages can load brand assets directly from the consuming application
-  // without bundling an `assets/` directory alongside the templates.
-  TEMPLATES_ASSETS_BASE: z.string().default(""),
-
   // OAuth 2.1 resource server audiences — comma-separated list of valid `aud`
   // values that the oauthProvider will put in JWT access tokens.
   // Clients must send `resource=<url>` matching one of these values to obtain
@@ -114,7 +107,6 @@ export const config = {
     webhookSecret: parsed.data.STRIPE_WEBHOOK_SECRET,
   },
   templatesDir: parsed.data.TEMPLATES_DIR ?? null,
-  templatesAssetsBase: parsed.data.TEMPLATES_ASSETS_BASE.replace(/\/$/, ""),
   oauthProvider: {
     // Parsed list of valid audience URLs for JWT access tokens.
     // When set, clients must include `resource=<url>` in their auth requests

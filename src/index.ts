@@ -66,13 +66,31 @@ await fastify.register(cors, {
 // Applied globally to all Fastify-managed routes (/api/admin/*, /api/user/*, etc.).
 // BetterAuth routes (/api/auth/*) are handled in the onRequest hook below and
 // are rate-limited separately with a stricter per-IP token-bucket.
+//
+// Exemptions:
+//   - /api/auth/oauth2/token   client-credentials / authorization-code grants
+//                              are authenticated by client_secret or PKCE; a
+//                              single SSO login or a misbehaving M2M loop
+//                              can otherwise lock out the consuming service's
+//                              public IP.
+//   - /api/auth/jwks           public keyset polled by EMQX every hour.
+//   - /api/auth/.well-known/*  OIDC discovery, also polled by clients.
+const RATE_LIMIT_EXEMPT_PATHS = [
+  "/api/auth/oauth2/token",
+  "/api/auth/jwks",
+  "/api/auth/.well-known/",
+];
 await fastify.register(rateLimit, {
   global: true,
-  max: 200,
+  max: 600,
   timeWindow: "1 minute",
   keyGenerator: (req) =>
     (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
     req.ip,
+  allowList: (req) => {
+    const url = req.url ?? "";
+    return RATE_LIMIT_EXEMPT_PATHS.some((p) => url.startsWith(p));
+  },
 });
 
 // Strict in-memory rate limiter for sensitive BetterAuth endpoints.

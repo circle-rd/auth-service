@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS "applications" (
 	"url" text,
 	"icon" text,
 	"enabled_social_providers" text[],
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -270,7 +271,8 @@ CREATE TABLE IF NOT EXISTS "two_factor" (
 	"id" text PRIMARY KEY NOT NULL,
 	"secret" text NOT NULL,
 	"backup_codes" text NOT NULL,
-	"user_id" text NOT NULL
+	"user_id" text NOT NULL,
+	"verified" boolean DEFAULT true
 );
 
 CREATE TABLE IF NOT EXISTS "user" (

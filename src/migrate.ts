@@ -12,32 +12,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * Probes that detect whether a post-baseline migration's effects are already
  * present in the database. Used when the DB predates the consolidated 0000
  * baseline AND already has subsequent DDL (e.g. an env that was hand-patched
- * or restored from a `pg_dump` taken after 0001 ran). For each tag, the SQL
- * must return a non-empty result iff the migration is effectively applied.
+ * or restored from a `pg_dump` taken after a later migration ran). For each
+ * tag, the SQL must return a non-empty result iff the migration is
+ * effectively applied.
  *
  * Add a new entry here whenever a migration introduces a uniquely detectable
  * change AND there is a chance some environment received that change outside
- * the drizzle migrator. Migrations that ship after a clean baseline do not
- * need a probe.
+ * the drizzle migrator (manual `ALTER`, `db:push`, hotfix, restored dump…).
+ * Migrations that ship after a clean baseline and only ever run through this
+ * runner do not need a probe.
  */
-const POST_BASELINE_PROBES: { tag: string; probe: ReturnType<typeof sql> }[] = [
-  {
-    tag: "0001_green_warpath",
-    probe: sql`SELECT 1
-               FROM information_schema.columns
-               WHERE table_schema = 'public'
-                 AND table_name = 'applications'
-                 AND column_name = 'metadata'`,
-  },
-  {
-    tag: "0002_add_two_factor_verified",
-    probe: sql`SELECT 1
-               FROM information_schema.columns
-               WHERE table_schema = 'public'
-                 AND table_name = 'two_factor'
-                 AND column_name = 'verified'`,
-  },
-];
+const POST_BASELINE_PROBES: { tag: string; probe: ReturnType<typeof sql> }[] = [];
 
 /**
  * Ensures `__drizzle_migrations` is consistent with the migrations folder.

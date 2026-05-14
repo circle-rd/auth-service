@@ -362,6 +362,16 @@ Coverage drops below threshold block the CI pipeline.
 Never modify an existing migration file that has already been applied to any
 environment. Add a new migration instead.
 
+> **Pre-production exception** — until the first production deployment, the
+> consolidated baseline `0000_initial_schema.sql` is treated as malleable: a
+> column added during this period may be inlined into the baseline rather
+> than shipped as a delta. Doing so requires (a) deleting any post-baseline
+> migrations + their snapshots in `drizzle/meta/`, (b) re-running
+> `pnpm db:generate` so drizzle-kit produces a fresh `0000_snapshot.json`
+> matching the schema TS, and (c) recreating every deployed database from
+> scratch. **After the first production deploy this is forbidden** —
+> migrations become immutable history.
+
 ### Migration runner and history reconciliation
 
 `src/migrate.ts` runs before the Fastify server boots and reconciles the

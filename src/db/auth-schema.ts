@@ -162,6 +162,14 @@ export const twoFactor = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    /**
+     * Whether this 2FA secret has been confirmed by the user with a successful
+     * TOTP verification. Required by better-auth >=1.6 — the totp/verify-totp
+     * endpoint flips this to `true` on first successful match. Defaults to
+     * `true` to keep pre-existing rows (created before the column existed)
+     * functional after migration.
+     */
+    verified: boolean("verified").default(true),
   },
   (table) => [
     index("twoFactor_secret_idx").on(table.secret),

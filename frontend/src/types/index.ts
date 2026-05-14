@@ -68,6 +68,10 @@ export interface Application {
   icon: string | null
   enabledSocialProviders: string[] | null
   metadata: Record<string, string>
+  /** OIDC RP-Initiated Logout 1.0 — mirrors `oauth_client.enable_end_session`. */
+  enableEndSession: boolean
+  /** Whitelist for `post_logout_redirect_uri` on the end-session endpoint. */
+  postLogoutRedirectUris: string[]
   createdAt: string
   updatedAt: string
 }

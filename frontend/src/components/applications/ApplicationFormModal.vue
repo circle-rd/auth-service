@@ -45,6 +45,10 @@ const form = ref({
   allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'] as string[],
   redirectUris: [''] as string[],
   enabledSocialProviders: null as string[] | null,
+  // OIDC RP-Initiated Logout (1.0). Off by default — only opt in if the
+  // application actually needs to terminate the central SSO session.
+  enableEndSession: false,
+  postLogoutRedirectUris: [] as string[],
   // Metadata is edited as an ordered list of key/value pairs in the UI;
   // we serialize back to a plain Record<string, string> on submit. Keys must
   // be valid identifiers (server enforces /^[a-zA-Z_][a-zA-Z0-9_]*$/) and
@@ -110,6 +114,10 @@ watch(
         enabledSocialProviders: a.enabledSocialProviders
           ? [...a.enabledSocialProviders]
           : null,
+        enableEndSession: a.enableEndSession ?? false,
+        postLogoutRedirectUris: a.postLogoutRedirectUris
+          ? [...a.postLogoutRedirectUris]
+          : [],
         metadata: Object.entries(a.metadata ?? {}).map(([key, value]) => ({
           key,
           value: String(value),
@@ -131,6 +139,8 @@ watch(
         allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'],
         redirectUris: [''],
         enabledSocialProviders: null,
+        enableEndSession: false,
+        postLogoutRedirectUris: [],
         metadata: [],
       };
     }
@@ -192,6 +202,13 @@ function removeRedirectUri(i: number) {
   form.value.redirectUris.splice(i, 1);
 }
 
+function addPostLogoutRedirectUri() {
+  form.value.postLogoutRedirectUris.push('');
+}
+function removePostLogoutRedirectUri(i: number) {
+  form.value.postLogoutRedirectUris.splice(i, 1);
+}
+
 function addMetadataEntry() {
   form.value.metadata.push({ key: '', value: '' });
 }
@@ -246,6 +263,8 @@ async function submit() {
       allowedScopes: form.value.allowedScopes,
       redirectUris: form.value.redirectUris.filter(Boolean),
       enabledSocialProviders: form.value.enabledSocialProviders,
+      enableEndSession: form.value.enableEndSession,
+      postLogoutRedirectUris: form.value.postLogoutRedirectUris.filter(Boolean),
       metadata,
     };
     if (isEdit.value && props.application) {
@@ -309,6 +328,11 @@ async function submit() {
           <BaseToggle v-model="form.skipConsent" :label="t('applications.skipConsent')" />
           <BaseToggle v-model="form.isMfaRequired" :label="t('applications.isMfaRequired')" />
           <BaseToggle v-model="form.allowRegister" :label="t('applications.allowRegister')" />
+          <BaseToggle
+            v-model="form.enableEndSession"
+            :label="t('applications.enableEndSession')"
+            :description="t('applications.enableEndSessionHint')"
+          />
         </div>
       </div>
 
@@ -396,6 +420,50 @@ async function submit() {
             <button
               type="button"
               @click="removeRedirectUri(i)"
+              class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!--
+        Post-logout redirect URIs: whitelist for OIDC RP-Initiated Logout.
+        Only consulted when `enableEndSession` is on. AuthService matches the
+        incoming `post_logout_redirect_uri` against this list as plain string
+        equality — query strings included.
+      -->
+      <div v-if="form.enableEndSession">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
+            {{ t('applications.postLogoutRedirectUris') }}
+          </p>
+          <button
+            type="button"
+            @click="addPostLogoutRedirectUri"
+            class="text-xs text-primary-400 hover:text-primary-300 transition-colors font-medium"
+          >
+            + {{ t('applications.addPostLogoutRedirectUri') }}
+          </button>
+        </div>
+        <p class="text-xs text-surface-500 mb-2">
+          {{ t('applications.postLogoutRedirectUrisHint') }}
+        </p>
+        <div class="space-y-2">
+          <div
+            v-for="(_, i) in form.postLogoutRedirectUris"
+            :key="i"
+            class="flex gap-2"
+          >
+            <input
+              v-model="form.postLogoutRedirectUris[i]"
+              placeholder="https://your-app.com/"
+              class="flex-1 px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
+            />
+            <button
+              type="button"
+              @click="removePostLogoutRedirectUri(i)"
               class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
             >
               ✕

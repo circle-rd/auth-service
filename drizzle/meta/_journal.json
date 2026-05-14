@@ -15,6 +15,13 @@
       "when": 1777905152125,
       "tag": "0001_green_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778747610882,
+      "tag": "0002_add_two_factor_verified",
+      "breakpoints": true
     }
   ]
 }

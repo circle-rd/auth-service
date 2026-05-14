@@ -46,6 +46,8 @@ export interface Application {
   url: string | null
   icon: string | null
   enabledSocialProviders: string[] | null
+  enableEndSession: boolean
+  postLogoutRedirectUris: string[]
   createdAt: string
   updatedAt: string
 }

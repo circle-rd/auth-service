@@ -18,7 +18,7 @@ import {
   assignDefaultPlanIfNeeded,
 } from "../../services/claims.js";
 import { oauthClient, user as userTable } from "../../db/auth-schema.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -32,6 +32,85 @@ import {
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
   return createHash("sha256").update(secret).digest().toString("base64url");
+}
+
+/**
+ * `enableEndSession` and `postLogoutRedirectUris` live on the BetterAuth
+ * `oauth_client` table, not on `applications`. The admin UI needs them in
+ * every payload that exposes an application, so we fetch them by `clientId`
+ * (= application slug) and merge them into the response.
+ */
+interface OauthClientView {
+  enableEndSession: boolean;
+  postLogoutRedirectUris: string[];
+}
+
+async function fetchOauthClientView(
+  slug: string,
+): Promise<OauthClientView> {
+  const [row] = await db
+    .select({
+      enableEndSession: oauthClient.enableEndSession,
+      postLogoutRedirectUris: oauthClient.postLogoutRedirectUris,
+    })
+    .from(oauthClient)
+    .where(eq(oauthClient.clientId, slug))
+    .limit(1);
+  return {
+    // Historical rows may have `enable_end_session = NULL`; treat absence as
+    // disabled so the API never silently exposes a feature the operator did
+    // not opt into.
+    enableEndSession: row?.enableEndSession ?? false,
+    postLogoutRedirectUris: row?.postLogoutRedirectUris ?? [],
+  };
+}
+
+async function fetchOauthClientViews(
+  slugs: string[],
+): Promise<Map<string, OauthClientView>> {
+  if (slugs.length === 0) return new Map();
+  const rows = await db
+    .select({
+      clientId: oauthClient.clientId,
+      enableEndSession: oauthClient.enableEndSession,
+      postLogoutRedirectUris: oauthClient.postLogoutRedirectUris,
+    })
+    .from(oauthClient)
+    .where(inArray(oauthClient.clientId, slugs));
+  return new Map(
+    rows.map((r) => [
+      r.clientId,
+      {
+        enableEndSession: r.enableEndSession ?? false,
+        postLogoutRedirectUris: r.postLogoutRedirectUris ?? [],
+      },
+    ]),
+  );
+}
+
+function mergeOauthView<T extends { slug: string }>(
+  app: T,
+  view: OauthClientView,
+): T & OauthClientView {
+  return { ...app, ...view };
+}
+
+/**
+ * Compute the effective `postLogoutRedirectUris` whitelist at create time.
+ * If the operator did not provide any but supplied a `url`, seed it with the
+ * canonical root URL (`${url}/`). This matches the most common SPA pattern
+ * (BFF redirects the browser back to the app root after logout) and avoids a
+ * silent post-logout failure where AuthService destroys the SSO session but
+ * fails to redirect because no entry matches.
+ */
+function effectivePostLogoutRedirectUris(
+  postLogoutRedirectUris: string[],
+  url: string | null | undefined,
+): string[] {
+  if (postLogoutRedirectUris.length > 0) return postLogoutRedirectUris;
+  if (!url) return [];
+  const root = url.replace(/\/?$/, "/");
+  return [root];
 }
 
 /**
@@ -157,7 +236,14 @@ export async function applicationRoutes(
       .select()
       .from(applications)
       .orderBy(applications.createdAt);
-    await reply.send({ applications: rows });
+    const views = await fetchOauthClientViews(rows.map((r) => r.slug));
+    const enriched = rows.map((r) =>
+      mergeOauthView(
+        r,
+        views.get(r.slug) ?? { enableEndSession: false, postLogoutRedirectUris: [] },
+      ),
+    );
+    await reply.send({ applications: enriched });
   });
 
   // POST /api/admin/applications
@@ -216,7 +302,10 @@ export async function applicationRoutes(
         scopes: data.allowedScopes,
         redirectUris: data.redirectUris,
         enableEndSession: data.enableEndSession,
-        postLogoutRedirectUris: data.postLogoutRedirectUris,
+        postLogoutRedirectUris: effectivePostLogoutRedirectUris(
+          data.postLogoutRedirectUris,
+          data.url,
+        ),
         public: data.isPublic || null,
         tokenEndpointAuthMethod: data.isPublic ? "none" : null,
         requirePKCE: data.isPublic ? true : null,
@@ -302,7 +391,13 @@ export async function applicationRoutes(
     void userRole;
 
     const response: Record<string, unknown> = {
-      application: app,
+      application: mergeOauthView(app!, {
+        enableEndSession: data.enableEndSession,
+        postLogoutRedirectUris: effectivePostLogoutRedirectUris(
+          data.postLogoutRedirectUris,
+          data.url,
+        ),
+      }),
       clientId: data.slug,
     };
     // Secret shown once — not persisted in plaintext. Public clients have no secret.
@@ -326,7 +421,8 @@ export async function applicationRoutes(
       .where(eq(applications.id, req.params.id))
       .limit(1);
     if (!app) throw ERR.APP_002();
-    await reply.send({ application: app });
+    const view = await fetchOauthClientView(app.slug);
+    await reply.send({ application: mergeOauthView(app, view) });
   });
 
   // PATCH /api/admin/applications/:id
@@ -395,7 +491,8 @@ export async function applicationRoutes(
         .where(eq(oauthClient.clientId, app.slug));
     }
 
-    await reply.send({ application: app });
+    const view = await fetchOauthClientView(app.slug);
+    await reply.send({ application: mergeOauthView(app, view) });
   });
 
   // DELETE /api/admin/applications/:id

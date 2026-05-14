@@ -30,6 +30,10 @@ export interface CreateApplicationBody {
   url?: string
   icon?: string
   enabledSocialProviders?: string[] | null
+  /** Allow this client to call /oauth2/end-session (RP-Initiated Logout). */
+  enableEndSession?: boolean
+  /** Strict whitelist for `post_logout_redirect_uri` on /oauth2/end-session. */
+  postLogoutRedirectUris?: string[]
   /**
    * Free-form per-application metadata. Stored as a flat string→string map
    * and surfaced inside the JWT under the `client_attrs` field for resource
@@ -57,6 +61,8 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       url: body.url ?? null,
       icon: body.icon ?? null,
       enabledSocialProviders: body.enabledSocialProviders ?? null,
+      enableEndSession: body.enableEndSession ?? false,
+      postLogoutRedirectUris: body.postLogoutRedirectUris ?? [],
       metadata: body.metadata ?? {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

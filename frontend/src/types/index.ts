@@ -16,6 +16,17 @@ export interface User {
   company: string | null
   position: string | null
   address: string | null
+  /** ISO timestamp of the most recent OAuth token issuance. Null when the user has never logged in. */
+  lastLoginAt?: string | null
+  /** Applications the user currently has active access to. Populated by /admin/users. */
+  applications?: UserAppSummary[]
+}
+
+export interface UserAppSummary {
+  id: string
+  name: string
+  slug: string
+  icon: string | null
 }
 
 export interface Session {
@@ -29,6 +40,10 @@ export interface Session {
   userId: string
   impersonatedBy: string | null
   activeOrganizationId: string | null
+  /** Enriched user identity (populated by /admin/sessions). */
+  user?: { id: string; name: string | null; email: string | null; image: string | null }
+  /** Applications this user has logged into during the session lifespan. */
+  applications?: UserAppSummary[]
 }
 
 export interface MfaSetupResult {
@@ -146,7 +161,25 @@ export interface UserApplication {
   createdAt: string
   name: string | null
   email: string | null
+  image?: string | null
   roleId: string | null
+  /** Most recent login of this user to this application. */
+  lastLoginAt?: string | null
+}
+
+export interface LoginHistoryEntry {
+  id: string
+  loggedAt: string
+  ipAddress: string | null
+  userAgent: string | null
+  sessionId: string | null
+}
+
+export interface LoginHistoryResponse {
+  entries: LoginHistoryEntry[]
+  total: number
+  page: number
+  limit: number
 }
 
 export interface UserApplicationDetail {

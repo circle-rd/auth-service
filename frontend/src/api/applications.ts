@@ -1,5 +1,5 @@
 import { apiFetch, USE_MOCK } from './client';
-import type { Application, ApplicationCreateResponse, UserApplication, AppRole, AppPermission, SubscriptionPlan, SubscriptionPlanPrice } from '@/types';
+import type { Application, ApplicationCreateResponse, UserApplication, AppRole, AppPermission, SubscriptionPlan, SubscriptionPlanPrice, LoginHistoryResponse } from '@/types';
 import { MOCK_APPLICATIONS, MOCK_ROLES, MOCK_PERMISSIONS, MOCK_PLANS, MOCK_USER_APPLICATIONS } from '@/mocks/data';
 
 export async function listApplications(): Promise<{ applications: Application[] }> {
@@ -99,6 +99,16 @@ export async function rotateSecret(id: string): Promise<{ clientSecret: string }
 export async function listAppUsers(appId: string): Promise<{ users: UserApplication[] }> {
   if (USE_MOCK) return { users: MOCK_USER_APPLICATIONS.filter(u => u.applicationId === appId) };
   return apiFetch<{ users: UserApplication[] }>(`/admin/applications/${appId}/users`);
+}
+
+export async function getUserLoginHistory(appId: string, userId: string, params: { page?: number; limit?: number } = {}): Promise<LoginHistoryResponse> {
+  if (USE_MOCK) {
+    return { entries: [], total: 0, page: params.page ?? 1, limit: params.limit ?? 20 };
+  }
+  const qs = new URLSearchParams();
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return apiFetch<LoginHistoryResponse>(`/admin/applications/${appId}/users/${userId}/history?${qs}`);
 }
 
 export async function grantAppAccess(appId: string, body: { userId: string; roleId?: string }): Promise<{ access: UserApplication }> {

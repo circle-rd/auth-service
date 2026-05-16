@@ -17,7 +17,9 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import AppIconStack from '@/components/ui/AppIconStack.vue';
 import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2 } from 'lucide-vue-next';
+import type { ColumnDef } from '@/types/data-table';
 import { useAuthStore } from '@/stores/auth';
 
 const { t } = useI18n();
@@ -198,6 +200,22 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 
+function formatLastLogin(iso: string | null | undefined): string {
+  if (!iso) return t('users.never');
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+}
+
+const userColumns = computed<ColumnDef<User>[]>(() => [
+  { key: 'name', label: t('users.columns.name'), field: 'name', sortable: true },
+  { key: 'role', label: t('users.columns.role'), field: 'role', sortable: true, responsive: 'md' },
+  { key: 'applications', label: t('users.columns.applications'), responsive: 'lg', accessor: (r) => r.applications?.length ?? 0 },
+  { key: 'lastLogin', label: t('users.columns.lastLogin'), field: 'lastLoginAt', sortable: true, responsive: 'lg' },
+  { key: 'verified', label: t('users.columns.verified'), field: 'emailVerified', responsive: 'xl' },
+  { key: 'mfa', label: t('users.columns.mfa'), field: 'twoFactorEnabled', responsive: 'xl' },
+  { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true, responsive: 'xl' },
+  { key: 'actions', label: t('users.columns.actions'), align: 'right' },
+]);
+
 const menuPos = ref({ top: 0, left: 0 });
 const MENU_WIDTH = 176; // w-44
 
@@ -264,16 +282,15 @@ const editModalTags = computed(() => {
         </BaseButton>
       </div>
 
-      <DataTable :loading="store.loading" :empty="!store.loading && filteredUsers.length === 0" :skeleton-cols="6">
-        <template #head>
-          <th class="px-4 py-3 text-left text-xs font-medium text-surface-500 uppercase tracking-wide">{{ t('users.name') }}</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-surface-500 uppercase tracking-wide hidden md:table-cell">{{ t('users.role') }}</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-surface-500 uppercase tracking-wide hidden lg:table-cell">{{ t('users.verified') }}</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-surface-500 uppercase tracking-wide hidden lg:table-cell">{{ t('users.mfa') }}</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-surface-500 uppercase tracking-wide hidden xl:table-cell">{{ t('users.createdAt') }}</th>
-          <th class="px-4 py-3 text-right text-xs font-medium text-surface-500 uppercase tracking-wide">{{ t('common.actions') }}</th>
-        </template>
-
+      <DataTable
+        :columns="userColumns"
+        :items="filteredUsers"
+        :loading="store.loading"
+        :empty="!store.loading && filteredUsers.length === 0"
+        :row-key="(u: User) => u.id"
+        enable-column-visibility
+        enable-density-toggle
+      >
         <template #empty>
           <EmptyState :title="t('users.noUsers')" :message="t('users.noUsersMessage')">
             <template #action>
@@ -285,69 +302,76 @@ const editModalTags = computed(() => {
           </EmptyState>
         </template>
 
-        <tr
-          v-for="user in filteredUsers"
-          :key="user.id"
-          class="border-b border-surface-800/40 last:border-0 hover:bg-surface-800/20 transition-colors"
-        >
-          <td class="px-4 py-3">
-            <div class="flex items-center gap-3">
-              <UserAvatar :name="user.name" :image="user.image" size="sm" />
-              <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                  <p class="text-sm font-medium text-surface-200 truncate">{{ user.name }}</p>
-                  <BaseBadge v-if="user.banned" variant="error" size="sm">{{ t('users.banned') }}</BaseBadge>
-                </div>
-                <p class="text-xs text-surface-500 truncate">{{ user.email }}</p>
+        <template #cell-name="{ row }">
+          <div class="flex items-center gap-3">
+            <UserAvatar :name="(row as User).name" :image="(row as User).image" size="sm" />
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <p class="text-sm font-medium text-surface-200 truncate">{{ (row as User).name }}</p>
+                <BaseBadge v-if="(row as User).banned" variant="error" size="sm">{{ t('users.banned') }}</BaseBadge>
               </div>
+              <p class="text-xs text-surface-500 truncate">{{ (row as User).email }}</p>
             </div>
-          </td>
-          <td class="px-4 py-3 hidden md:table-cell">
-            <BaseBadge :variant="roleBadgeVariant(user.role)">
-              <ShieldAlert v-if="user.role === 'superadmin'" class="w-3 h-3" />
-              <Shield v-else-if="user.role === 'admin'" class="w-3 h-3" />
-              <UserIcon v-else class="w-3 h-3" />
-              {{ user.role ? t(`users.${user.role}`) : t('users.user') }}
-            </BaseBadge>
-          </td>
-          <td class="px-4 py-3 hidden lg:table-cell">
-            <CheckCircle v-if="user.emailVerified" class="w-4 h-4 text-emerald-400" />
-            <XCircle v-else class="w-4 h-4 text-surface-600" />
-          </td>
-          <td class="px-4 py-3 hidden lg:table-cell">
-            <CheckCircle v-if="user.twoFactorEnabled" class="w-4 h-4 text-emerald-400" />
-            <XCircle v-else class="w-4 h-4 text-surface-600" />
-          </td>
-          <td class="px-4 py-3 hidden xl:table-cell">
-            <span class="text-xs text-surface-500">{{ formatDate(user.createdAt) }}</span>
-          </td>
-          <td class="px-4 py-3 text-right">
-            <div class="flex items-center justify-end gap-1">
-              <div class="relative">
-                <button
-                  @click.stop="toggleMenu(user, $event)"
-                  class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors"
+          </div>
+        </template>
+
+        <template #cell-role="{ row }">
+          <BaseBadge :variant="roleBadgeVariant((row as User).role)">
+            <ShieldAlert v-if="(row as User).role === 'superadmin'" class="w-3 h-3" />
+            <Shield v-else-if="(row as User).role === 'admin'" class="w-3 h-3" />
+            <UserIcon v-else class="w-3 h-3" />
+            {{ (row as User).role ? t(`users.${(row as User).role}`) : t('users.user') }}
+          </BaseBadge>
+        </template>
+
+        <template #cell-applications="{ row }">
+          <AppIconStack :apps="(row as User).applications ?? []" />
+        </template>
+
+        <template #cell-lastLogin="{ row }">
+          <span class="text-xs text-surface-500">{{ formatLastLogin((row as User).lastLoginAt) }}</span>
+        </template>
+
+        <template #cell-verified="{ row }">
+          <CheckCircle v-if="(row as User).emailVerified" class="w-4 h-4 text-emerald-400" />
+          <XCircle v-else class="w-4 h-4 text-surface-600" />
+        </template>
+
+        <template #cell-mfa="{ row }">
+          <CheckCircle v-if="(row as User).twoFactorEnabled" class="w-4 h-4 text-emerald-400" />
+          <XCircle v-else class="w-4 h-4 text-surface-600" />
+        </template>
+
+        <template #cell-createdAt="{ row }">
+          <span class="text-xs text-surface-500">{{ formatDate((row as User).createdAt) }}</span>
+        </template>
+
+        <template #cell-actions="{ row }">
+          <div class="flex items-center justify-end gap-1">
+            <div class="relative">
+              <button
+                @click.stop="toggleMenu(row as User, $event)"
+                class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors"
+              >
+                <MoreHorizontal class="w-4 h-4" />
+              </button>
+              <Teleport to="body">
+                <div
+                  v-if="actionMenuUser === (row as User).id"
+                  :style="{ position: 'fixed', top: `${menuPos.top}px`, left: `${menuPos.left}px` }"
+                  class="w-44 bg-surface-800 border border-surface-700/50 rounded-xl shadow-xl z-[100] overflow-hidden animate-slide-up"
+                  v-click-outside="() => actionMenuUser = null"
                 >
-                  <MoreHorizontal class="w-4 h-4" />
-                </button>
-                <Teleport to="body">
-                  <div
-                    v-if="actionMenuUser === user.id"
-                    :style="{ position: 'fixed', top: `${menuPos.top}px`, left: `${menuPos.left}px` }"
-                    class="w-44 bg-surface-800 border border-surface-700/50 rounded-xl shadow-xl z-[100] overflow-hidden animate-slide-up"
-                    v-click-outside="() => actionMenuUser = null"
-                  >
-                    <button @click="router.push(`/users/${user.id}`); actionMenuUser = null;" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Eye class="w-4 h-4" />{{ t('common.view') }}</button>
-                    <button @click="openEdit(user)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Pencil class="w-4 h-4" />{{ t('users.editUser') }}</button>
-                    <button v-if="user.banned" @click="handleUnban(user)" class="w-full text-left px-3 py-2.5 text-sm text-emerald-400 hover:bg-surface-700/50 flex items-center gap-2"><CheckCircle2 class="w-4 h-4" />{{ t('users.enable') }}</button>
-                    <button v-else @click="openDisable(user)" class="w-full text-left px-3 py-2.5 text-sm text-amber-400 hover:bg-surface-700/50 flex items-center gap-2"><Ban class="w-4 h-4" />{{ t('users.disable') }}</button>
-                    <button @click="openDelete(user)" class="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-surface-700/50 flex items-center gap-2"><Trash2 class="w-4 h-4" />{{ t('users.deleteUser') }}</button>
-                  </div>
-                </Teleport>
-              </div>
+                  <button @click="router.push(`/users/${(row as User).id}`); actionMenuUser = null;" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Eye class="w-4 h-4" />{{ t('common.view') }}</button>
+                  <button @click="openEdit(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Pencil class="w-4 h-4" />{{ t('users.editUser') }}</button>
+                  <button v-if="(row as User).banned" @click="handleUnban(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-emerald-400 hover:bg-surface-700/50 flex items-center gap-2"><CheckCircle2 class="w-4 h-4" />{{ t('users.enable') }}</button>
+                  <button v-else @click="openDisable(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-amber-400 hover:bg-surface-700/50 flex items-center gap-2"><Ban class="w-4 h-4" />{{ t('users.disable') }}</button>
+                  <button @click="openDelete(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-surface-700/50 flex items-center gap-2"><Trash2 class="w-4 h-4" />{{ t('users.deleteUser') }}</button>
+                </div>
+              </Teleport>
             </div>
-          </td>
-        </tr>
+          </div>
+        </template>
       </DataTable>
 
       <div v-if="store.total > 20" class="flex items-center justify-between text-sm text-surface-500">

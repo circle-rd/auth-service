@@ -10,9 +10,10 @@ import {
   userSubscriptions,
   consumptionEntries,
   consumptionAggregates,
+  loginHistory,
 } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, inArray, max } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 
@@ -83,8 +84,79 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       },
     });
 
+    // Enrich each user with the list of applications they have access to and
+    // a fallback lastLoginAt (the user.lastLoginAt column is denormalised in
+    // recordLogin()). One grouped query per dimension keeps this O(1) round
+    // trips regardless of the page size.
+    const userIds = users.users.map((u) => u.id);
+    const appsByUser = new Map<
+      string,
+      { id: string; name: string; slug: string; icon: string | null }[]
+    >();
+    const lastLoginByUser = new Map<string, Date>();
+    if (userIds.length > 0) {
+      const accessRows = await db
+        .select({
+          userId: userApplications.userId,
+          id: applications.id,
+          name: applications.name,
+          slug: applications.slug,
+          icon: applications.icon,
+        })
+        .from(userApplications)
+        .innerJoin(
+          applications,
+          eq(userApplications.applicationId, applications.id),
+        )
+        .where(
+          and(
+            inArray(userApplications.userId, userIds),
+            eq(userApplications.isActive, true),
+          ),
+        );
+      for (const row of accessRows) {
+        const list = appsByUser.get(row.userId) ?? [];
+        list.push({
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          icon: row.icon,
+        });
+        appsByUser.set(row.userId, list);
+      }
+
+      const lastLogins = await db
+        .select({
+          userId: loginHistory.userId,
+          lastLoginAt: max(loginHistory.loggedAt),
+        })
+        .from(loginHistory)
+        .where(inArray(loginHistory.userId, userIds))
+        .groupBy(loginHistory.userId);
+      for (const r of lastLogins) {
+        if (r.lastLoginAt) lastLoginByUser.set(r.userId, r.lastLoginAt);
+      }
+    }
+
+    const enriched = users.users.map((u) => {
+      const denormalised = (u as unknown as Record<string, unknown>)
+        .lastLoginAt as Date | string | null | undefined;
+      const fromHistory = lastLoginByUser.get(u.id) ?? null;
+      const denormalisedDate =
+        denormalised instanceof Date
+          ? denormalised
+          : typeof denormalised === "string"
+            ? new Date(denormalised)
+            : null;
+      return {
+        ...u,
+        applications: appsByUser.get(u.id) ?? [],
+        lastLoginAt: denormalisedDate ?? fromHistory,
+      };
+    });
+
     await reply.send({
-      users: users.users,
+      users: enriched,
       total: users.total,
       page,
       limit,

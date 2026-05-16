@@ -1,0 +1,2466 @@
+
+> auth-service@0.1.24 test /home/user/Documents/Developments/Circle/auth-service
+> vitest run
+
+
+ RUN  v3.2.4 /home/user/Documents/Developments/Circle/auth-service
+
+ ❯ src/services/templates.test.ts (11 tests | 1 failed) 34ms
+   ✓ renderAuthPage > variable substitution > substitutes all standard variables 9ms
+   × renderAuthPage > variable substitution > renders empty OAUTH_QUERY when oauthQuery is not provided 13ms
+     → expected '<!DOCTYPE html>\n<html lang="en">\n<h…' to contain 'name="oauthQuery" value=""'
+   ✓ renderAuthPage > variable substitution > renders OAUTH_QUERY when oauthQuery is provided 1ms
+   ✓ renderAuthPage > variable substitution > HTML-escapes oauthQuery special characters 1ms
+   ✓ renderAuthPage > variable substitution > renders empty ERROR_MESSAGE when errorMessage is not provided 1ms
+   ✓ renderAuthPage > variable substitution > renders errorMessage when provided 1ms
+   ✓ renderAuthPage > register page > includes oauthQuery hidden input 1ms
+   ✓ renderAuthPage > per-application template override > falls back to built-in template when appSlug has no override 1ms
+   ✓ renderAuthPage > allowRegister substitution > renders ALLOW_REGISTER as 'true' when allowRegister is true 1ms
+   ✓ renderAuthPage > allowRegister substitution > renders ALLOW_REGISTER as 'false' when allowRegister is false 1ms
+   ✓ renderAuthPage > allowRegister substitution > defaults ALLOW_REGISTER to 'true' when allowRegister is omitted 1ms
+ ❯ src/routes/health.test.ts (1 test | 1 failed) 56ms
+   × GET /health > returns 200 with status ok 39ms
+     → expected 'undefined' to be 'string' // Object.is equality
+ ✓ src/routes/admin/roles.test.ts (9 tests) 113ms
+ ✓ src/routes/admin/stats.test.ts (9 tests) 86ms
+ ✓ src/routes/admin/organizations.test.ts (7 tests) 53ms
+ ✓ src/routes/admin/applications.test.ts (12 tests) 60ms
+ ✓ src/routes/admin/users.test.ts (8 tests) 71ms
+ ✓ src/services/mfa.test.ts (6 tests) 10ms
+ ✓ src/services/social-providers.test.ts (4 tests) 7ms
+ ✓ src/routes/admin/adminConsumption.test.ts (8 tests) 70ms
+stderr | src/tests/roles.integration.test.ts
+[2m2026-05-16T23:11:42.705Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:42.706Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+ ✓ src/routes/admin/plans.test.ts (11 tests) 121ms
+stderr | src/tests/applications.integration.test.ts
+[2m2026-05-16T23:11:42.943Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:42.945Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+ ❯ src/tests/roles.integration.test.ts (7 tests | 7 failed) 83ms
+   × rolesRoutes integration > 401 when not authenticated 26ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × rolesRoutes integration > GET roles → empty list 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × rolesRoutes integration > POST role → creates role 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × rolesRoutes integration > POST role → 409 on duplicate name in same app 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × rolesRoutes integration > POST role → new isDefault demotes existing default 16ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × rolesRoutes integration > DELETE role → 400 when role is assigned to users 9ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × rolesRoutes integration > DELETE role → 204 when role has no users 7ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+stderr | src/tests/adminConsumption.integration.test.ts
+[2m2026-05-16T23:11:43.003Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:43.004Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+stderr | src/tests/users.integration.test.ts
+[2m2026-05-16T23:11:43.040Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:43.042Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+stderr | src/tests/plans.integration.test.ts
+[2m2026-05-16T23:11:43.059Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:43.060Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+stderr | src/tests/userSubscription.integration.test.ts
+[2m2026-05-16T23:11:43.114Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:43.115Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+stderr | src/tests/consumption.integration.test.ts
+[2m2026-05-16T23:11:43.132Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:43.133Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+stderr | src/tests/sessions.integration.test.ts
+[2m2026-05-16T23:11:43.163Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/oauth-authorization-server' exists. Upon completion, clear with silenceWarnings.oauthAuthServerConfig.
+[2m2026-05-16T23:11:43.164Z[0m [33mWARN[0m [1m[Better Auth]:[0m Please ensure '/.well-known/openid-configuration' exists. Upon completion, clear with silenceWarnings.openidConfig.
+
+ ❯ src/tests/applications.integration.test.ts (8 tests | 8 failed) 80ms
+   × applicationRoutes integration > 401 when not authenticated 28ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × applicationRoutes integration > GET / → returns empty list initially 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × applicationRoutes integration > POST / → creates an application with default roles and plan 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × applicationRoutes integration > POST / → 409 on duplicate slug 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × applicationRoutes integration > POST / → public app has no clientSecret 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × applicationRoutes integration > POST / auto-assigns superadmins to new app 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × applicationRoutes integration > DELETE /:id → removes the application 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × applicationRoutes integration > GET /:id → 404 for unknown application 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ src/tests/adminConsumption.integration.test.ts (8 tests | 8 failed) 80ms
+   × adminConsumptionRoutes integration > 401 when not authenticated 36ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × adminConsumptionRoutes integration > 403 when not admin 5ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × adminConsumptionRoutes integration > 400 when year query param is invalid 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × adminConsumptionRoutes integration > 400 when month is out of valid range 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × adminConsumptionRoutes integration > 404 when app does not exist 6ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × adminConsumptionRoutes integration > 200 with empty entries when no consumption data 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × adminConsumptionRoutes integration > 200 aggregates entries grouped by userId and key for the requested month 5ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × adminConsumptionRoutes integration > 200 excludes entries from other months 1ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ✓ src/services/claims.test.ts (7 tests) 8ms
+ ❯ src/tests/users.integration.test.ts (8 tests | 8 failed) 47ms
+   × Admin — usersRoutes integration > GET / → 401 when not authenticated 18ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × Admin — usersRoutes integration > GET / → 403 for regular user 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × Admin — usersRoutes integration > GET / → returns paginated users via auth.api.listUsers 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × Admin — usersRoutes integration > DELETE /:id → 400 USR_002 when deleting the last superadmin 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × Admin — usersRoutes integration > DELETE /:id → 204 when deleting a superadmin while another exists 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × Admin — usersRoutes integration > DELETE /:id → 204 when deleting a normal user 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × Admin — usersRoutes integration > DELETE /:id → 400 USR_003 when admin tries to delete themselves 1ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × Admin — usersRoutes integration > DELETE /:id → 404 when user not found 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ✓ src/routes/consumption.test.ts (3 tests) 32ms
+ ❯ src/tests/plans.integration.test.ts (12 tests | 12 failed) 109ms
+   × plansRoutes integration > 401 when not authenticated 27ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > GET plans → 404 when application does not exist 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > GET plans → empty list 1ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > POST plan → creates plan 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > POST plan → new isDefault demotes existing default 6ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > DELETE plan → 400 when plan has active subscribers 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > DELETE plan → 204 when no active subscribers 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > POST price → 400 when amount is negative 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > POST price → 201 when amount is 0 (free tier) 8ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > POST price → 201 stores interval correctly for one_time 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > POST price → 404 when plan does not exist 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × plansRoutes integration > POST plan with metered features → 201 stores features correctly 35ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ src/tests/userSubscription.integration.test.ts (7 tests | 7 failed) 65ms
+   × userRoutes — GET /subscription > 401 when not authenticated 28ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × userRoutes — GET /subscription > 200 with empty subscriptions when user has no app access 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × userRoutes — GET /subscription > 200 with plan null when user has access but no plan assigned 8ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × userRoutes — GET /subscription > 200 with plan details when subscription plan is assigned 5ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × userRoutes — GET /subscription > 200 includes prices array in plan when prices exist 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × userRoutes — GET /subscription > 200 prices array is empty when plan has no prices 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × userRoutes — GET /subscription > 200 includes metered features in plan 1ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ src/tests/consumption.integration.test.ts (9 tests | 9 failed) 71ms
+   × consumptionRoutes integration > POST / → 403 when not authenticated 22ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > POST / → 404 when user+app relationship not found 2ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > POST / → creates consumption entry and aggregate 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > POST / → accumulates on subsequent calls 12ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > POST / → 400 on invalid key format 5ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > GET /:userId/:applicationId → returns all aggregates 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > GET /:userId/:applicationId/:key → returns single aggregate 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > GET /:userId/:applicationId/:key → 404 when not found 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × consumptionRoutes integration > DELETE /:userId/:applicationId/:key → removes aggregate and entries 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ src/tests/sessions.integration.test.ts (5 tests | 5 failed) 56ms
+   × GET /api/admin/sessions — sessions integration > 401 when not authenticated 26ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × GET /api/admin/sessions — sessions integration > returns empty list when no active sessions 3ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × GET /api/admin/sessions — sessions integration > returns only active sessions, excludes expired ones 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × GET /api/admin/sessions — sessions integration > paginates correctly 7ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+   × GET /api/admin/sessions — sessions integration > response contains the `sessions` key (not `list`) 4ms
+     → Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ✓ src/services/login-history.test.ts (3 tests) 7ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 66 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/health.test.ts > GET /health > returns 200 with status ok
+AssertionError: expected 'undefined' to be 'string' // Object.is equality
+
+Expected: [32m"string"[39m
+Received: [31m"undefined"[39m
+
+ ❯ src/routes/health.test.ts:20:33
+     18|     const body = JSON.parse(res.body);
+     19|     expect(body.status).toBe("ok");
+     20|     expect(typeof body.version).toBe("string");
+       |                                 ^
+     21|   });
+     22| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/66]⎯
+
+ FAIL  src/services/templates.test.ts > renderAuthPage > variable substitution > renders empty OAUTH_QUERY when oauthQuery is not provided
+AssertionError: expected '<!DOCTYPE html>\n<html lang="en">\n<h…' to contain 'name="oauthQuery" value=""'
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- name="oauthQuery" value=""[39m
+[31m+ <!DOCTYPE html>[39m
+[31m+ <html lang="en">[39m
+[31m+ <head>[39m
+[31m+   <meta charset="UTF-8" />[39m
+[31m+   <meta name="viewport" content="width=device-width, initial-scale=1" />[39m
+[31m+   <title>Sign in</title>[39m
+[31m+   <link rel="preconnect" href="https://fonts.googleapis.com" />[39m
+[31m+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />[39m
+[31m+   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />[39m
+[31m+   <style>[39m
+[31m+     :root {[39m
+[31m+       --bg:             #f4f4f5;[39m
+[31m+       --surface:        rgba(255,255,255,0.9);[39m
+[31m+       --surface-inner:  #f4f4f5;[39m
+[31m+       --border:         rgba(212,212,216,0.7);[39m
+[31m+       --border-focus:   #2563eb;[39m
+[31m+       --text:           #09090b;[39m
+[31m+       --text-muted:     #71717a;[39m
+[31m+       --text-subtle:    #a1a1aa;[39m
+[31m+       --primary:        #2563eb;[39m
+[31m+       --primary-hover:  #3b82f6;[39m
+[31m+       --primary-glow:   rgba(37,99,235,0.15);[39m
+[31m+       --danger:         #ef4444;[39m
+[31m+       --danger-bg:      rgba(239,68,68,0.08);[39m
+[31m+       --danger-border:  rgba(239,68,68,0.25);[39m
+[31m+       --radius-sm: 4px; --radius: 7px; --radius-lg: 9px; --radius-xl: 12px;[39m
+[31m+       --shadow-lg: 0 8px 24px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);[39m
+[31m+     }[39m
+[31m+     @media (prefers-color-scheme: dark) {[39m
+[31m+       :root {[39m
+[31m+         --bg:             #09090b;[39m
+[31m+         --surface:        rgba(24,24,27,0.6);[39m
+[31m+         --surface-inner:  rgba(39,39,42,0.6);[39m
+[31m+         --border:         rgba(63,63,70,0.4);[39m
+[31m+         --border-focus:   #3b82f6;[39m
+[31m+         --text:           #fafafa;[39m
+[31m+         --text-muted:     #a1a1aa;[39m
+[31m+         --text-subtle:    #52525b;[39m
+[31m+         --primary:        #2563eb;[39m
+[31m+         --primary-hover:  #3b82f6;[39m
+[31m+         --primary-glow:   rgba(59,130,246,0.12);[39m
+[31m+         --danger:         #f87171;[39m
+[31m+         --danger-bg:      rgba(239,68,68,0.1);[39m
+[31m+         --danger-border:  rgba(239,68,68,0.3);[39m
+[31m+         --shadow-lg: 0 8px 32px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);[39m
+[31m+       }[39m
+[31m+     }[39m
+[31m+     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }[39m
+[31m+     body {[39m
+[31m+       font-family: "Inter", system-ui, sans-serif;[39m
+[31m+       background: var(--bg);[39m
+[31m+       color: var(--text);[39m
+[31m+       min-height: 100svh;[39m
+[31m+       display: flex; align-items: center; justify-content: center;[39m
+[31m+       padding: 1.5rem 1rem;[39m
+[31m+       -webkit-font-smoothing: antialiased;[39m
+[31m+     }[39m
+[31m+     .auth-container { width: 100%; max-width: 22rem; display: flex; flex-direction: column; align-items: center; }[39m
+[31m+     .auth-header { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 1.75rem; text-align: center; }[39m
+[31m+     .auth-icon {[39m
+[31m+       width: 3rem; height: 3rem; border-radius: var(--radius-xl);[39m
+[31m+       background: var(--primary); color: #fff;[39m
+[31m+       display: flex; align-items: center; justify-content: center;[39m
+[31m+       box-shadow: 0 8px 20px rgba(37,99,235,0.35); margin-bottom: 0.25rem;[39m
+[31m+       transition: transform .4s cubic-bezier(.4,0,.2,1);[39m
+[31m+     }[39m
+[31m+     .auth-icon svg { width: 1.375rem; height: 1.375rem; }[39m
+[31m+     h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }[39m
+[31m+     .subtitle { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }[39m
+[31m+     .card {[39m
+[31m+       background: var(--surface); border: 1px solid var(--border);[39m
+[31m+       border-radius: var(--radius-xl); padding: 1.5rem; width: 100%;[39m
+[31m+       box-shadow: var(--shadow-lg);[39m
+[31m+       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);[39m
+[31m+       overflow: hidden;[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     /* ── Slide-in viewport ─────────────────────────────────────────────── */[39m
+[31m+     .slider-viewport { overflow: hidden; width: 100%; }[39m
+[31m+     .slider {[39m
+[31m+       display: flex; width: 200%;[39m
+[31m+       transition: transform .45s cubic-bezier(.4,0,.2,1);[39m
+[31m+     }[39m
+[31m+     .slider > .step { flex: 0 0 50%; min-width: 0; }[39m
+[31m+     /* A small inner padding so focus rings aren't clipped by overflow:hidden */[39m
+[31m+     .slider > .step > .step-inner { padding: 2px; }[39m
+[31m+     .slider.step-mfa { transform: translateX(-50%); }[39m
+[31m+     @media (prefers-reduced-motion: reduce) {[39m
+[31m+       .slider { transition: none; }[39m
+[31m+       .auth-icon { transition: none; }[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     .form-group { margin-bottom: 1rem; }[39m
+[31m+     label {[39m
+[31m+       display: block; font-size: 0.8125rem; font-weight: 500;[39m
+[31m+       color: var(--text-muted); margin-bottom: 0.375rem;[39m
+[31m+     }[39m
+[31m+     .label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.375rem; }[39m
+[31m+     .label-row label { margin-bottom: 0; }[39m
+[31m+     .label-link { font-size: 0.8125rem; color: var(--primary); text-decoration: none; font-weight: 500; }[39m
+[31m+     .label-link:hover { color: var(--primary-hover); }[39m
+[31m+     input[type="email"], input[type="password"], input[type="text"] {[39m
+[31m+       width: 100%; padding: 0.5625rem 0.75rem;[39m
+[31m+       border: 1px solid var(--border); border-radius: var(--radius);[39m
+[31m+       font-size: 0.9375rem; font-family: inherit;[39m
+[31m+       color: var(--text); background: var(--surface-inner);[39m
+[31m+       outline: none; transition: border-color .15s, box-shadow .15s; line-height: 1.5;[39m
+[31m+     }[39m
+[31m+     input::placeholder { color: var(--text-subtle); }[39m
+[31m+     input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--primary-glow); }[39m
+[31m+     .btn {[39m
+[31m+       display: flex; align-items: center; justify-content: center; gap: 0.5rem;[39m
+[31m+       width: 100%; padding: 0.5625rem 1rem; border-radius: var(--radius);[39m
+[31m+       font-size: 0.9375rem; font-weight: 600; font-family: inherit;[39m
+[31m+       cursor: pointer; transition: background .15s, box-shadow .15s, opacity .15s;[39m
+[31m+       border: 1px solid transparent; line-height: 1.5; margin-top: 1.25rem;[39m
+[31m+     }[39m
+[31m+     .btn-primary { background: var(--primary); color: #fff; }[39m
+[31m+     .btn-primary:hover:not(:disabled) { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }[39m
+[31m+     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }[39m
+[31m+     .btn-ghost {[39m
+[31m+       background: transparent; color: var(--text-muted);[39m
+[31m+       border: 1px solid var(--border); margin-top: .5rem;[39m
+[31m+     }[39m
+[31m+     .btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border-focus); }[39m
+[31m+     .error-box {[39m
+[31m+       background: var(--danger-bg); color: var(--danger);[39m
+[31m+       border: 1px solid var(--danger-border); border-radius: var(--radius-sm);[39m
+[31m+       padding: 0.5625rem 0.75rem; font-size: 0.875rem; margin-bottom: 1rem;[39m
+[31m+     }[39m
+[31m+     .error-box:empty { display: none; }[39m
+[31m+     .auth-footer { margin-top: 1.25rem; text-align: center; font-size: 0.875rem; color: var(--text-muted); }[39m
+[31m+     .auth-footer a { color: var(--primary); text-decoration: none; font-weight: 500; }[39m
+[31m+     .auth-footer a:hover { color: var(--primary-hover); }[39m
+[31m+     .divider {[39m
+[31m+       display: flex; align-items: center; gap: .75rem;[39m
+[31m+       margin: 1.25rem 0 1rem; color: var(--text-subtle); font-size: .8125rem;[39m
+[31m+     }[39m
+[31m+     .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }[39m
+[31m+     .social-buttons { display: flex; flex-direction: column; gap: .5rem; }[39m
+[31m+     .btn-social {[39m
+[31m+       display: flex; align-items: center; gap: .625rem; width: 100%;[39m
+[31m+       padding: .5rem .75rem; background: var(--surface-inner);[39m
+[31m+       border: 1px solid var(--border); border-radius: var(--radius);[39m
+[31m+       font-family: inherit; font-size: .9375rem; font-weight: 500;[39m
+[31m+       color: var(--text); cursor: pointer; transition: border-color .15s; line-height: 1.5;[39m
+[31m+     }[39m
+[31m+     .btn-social:hover:not(:disabled) { border-color: var(--border-focus); }[39m
+[31m+     .btn-social:disabled { opacity: .5; cursor: not-allowed; }[39m
+[31m+     .btn-social svg { flex-shrink: 0; }[39m
+[31m+[39m
+[31m+     /* ── OTP (6 digits split 3+3) ───────────────────────────────────────── */[39m
+[31m+     .otp-group {[39m
+[31m+       display: flex; align-items: center; justify-content: center;[39m
+[31m+       gap: .5rem; margin: .25rem 0 .25rem;[39m
+[31m+     }[39m
+[31m+     .otp-group .otp-sep {[39m
+[31m+       width: 1rem; height: 1px; background: var(--border);[39m
+[31m+       flex-shrink: 0;[39m
+[31m+     }[39m
+[31m+     .otp-block { display: flex; gap: .4rem; }[39m
+[31m+     .otp-input {[39m
+[31m+       width: 2.5rem; height: 3rem;[39m
+[31m+       text-align: center;[39m
+[31m+       font-size: 1.25rem; font-weight: 600;[39m
+[31m+       font-variant-numeric: tabular-nums;[39m
+[31m+       padding: 0;[39m
+[31m+       border: 1px solid var(--border); border-radius: var(--radius);[39m
+[31m+       background: var(--surface-inner); color: var(--text);[39m
+[31m+       outline: none; transition: border-color .15s, box-shadow .15s, transform .12s;[39m
+[31m+     }[39m
+[31m+     .otp-input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--primary-glow); }[39m
+[31m+     .otp-input.is-filled { border-color: var(--primary); }[39m
+[31m+     .otp-group.is-error .otp-input {[39m
+[31m+       border-color: var(--danger-border);[39m
+[31m+       animation: otp-shake .35s cubic-bezier(.36,.07,.19,.97);[39m
+[31m+     }[39m
+[31m+     @keyframes otp-shake {[39m
+[31m+       10%,90% { transform: translateX(-1px); }[39m
+[31m+       20%,80% { transform: translateX(2px); }[39m
+[31m+       30%,50%,70% { transform: translateX(-4px); }[39m
+[31m+       40%,60% { transform: translateX(4px); }[39m
+[31m+     }[39m
+[31m+     .mfa-mode-switch {[39m
+[31m+       display: flex; justify-content: space-between; align-items: center;[39m
+[31m+       margin-top: .875rem; font-size: .8125rem;[39m
+[31m+     }[39m
+[31m+     .mfa-mode-switch button {[39m
+[31m+       background: none; border: none; padding: 0; cursor: pointer;[39m
+[31m+       font: inherit; color: var(--text-muted);[39m
+[31m+     }[39m
+[31m+     .mfa-mode-switch button:hover { color: var(--text); }[39m
+[31m+     .mfa-mode-switch button.primary { color: var(--primary); }[39m
+[31m+     .mfa-mode-switch button.primary:hover { color: var(--primary-hover); }[39m
+[31m+     .backup-input {[39m
+[31m+       width: 100%; text-align: center; letter-spacing: .1em;[39m
+[31m+       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;[39m
+[31m+       font-size: 1rem;[39m
+[31m+     }[39m
+[31m+   </style>[39m
+[31m+ </head>[39m
+[31m+ <body>[39m
+[31m+   <div class="auth-container">[39m
+[31m+     <div class="auth-header">[39m
+[31m+       <div class="auth-icon" id="auth-icon" aria-hidden="true">[39m
+[31m+         <!-- shield icon for login; swapped to a lock when MFA step is shown -->[39m
+[31m+         <svg id="icon-login" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">[39m
+[31m+           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>[39m
+[31m+         </svg>[39m
+[31m+         <svg id="icon-mfa" style="display:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">[39m
+[31m+           <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>[39m
+[31m+           <path d="M7 11V7a5 5 0 0 1 10 0v4"/>[39m
+[31m+         </svg>[39m
+[31m+       </div>[39m
+[31m+       <h1 id="title">Welcome back</h1>[39m
+[31m+       <p class="subtitle" id="subtitle">Sign in to your account to continue.</p>[39m
+[31m+     </div>[39m
+[31m+[39m
+[31m+     <div class="card">[39m
+[31m+       <div class="error-box" id="error-box"></div>[39m
+[31m+[39m
+[31m+       <div class="slider-viewport">[39m
+[31m+         <div class="slider" id="slider">[39m
+[31m+           <!-- ── Step 1: credentials ─────────────────────────────────── -->[39m
+[31m+           <div class="step" aria-hidden="false">[39m
+[31m+             <div class="step-inner">[39m
+[31m+               <form id="login-form">[39m
+[31m+                 <input type="hidden" name="redirectTo" value="/" />[39m
+[31m+                 <input type="hidden" name="oauthQuery"  value="" />[39m
+[31m+                 <div class="form-group">[39m
+[31m+                   <label for="email">Email</label>[39m
+[31m+                   <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required />[39m
+[31m+                 </div>[39m
+[31m+                 <div class="form-group">[39m
+[31m+                   <div class="label-row">[39m
+[31m+                     <label for="password">Password</label>[39m
+[31m+                     <a class="label-link" href="/forgot-password">Forgot password?</a>[39m
+[31m+                   </div>[39m
+[31m+                   <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />[39m
+[31m+                 </div>[39m
+[31m+                 <button type="submit" class="btn btn-primary" id="submit-btn">Sign in</button>[39m
+[31m+               </form>[39m
+[31m+               <div id="social-section"></div>[39m
+[31m+             </div>[39m
+[31m+           </div>[39m
+[31m+[39m
+[31m+           <!-- ── Step 2: MFA challenge ───────────────────────────────── -->[39m
+[31m+           <div class="step" aria-hidden="true">[39m
+[31m+             <div class="step-inner">[39m
+[31m+               <!-- TOTP (6 digits split 3+3) -->[39m
+[31m+               <form id="totp-form" novalidate>[39m
+[31m+                 <label style="text-align:center; margin-bottom:.75rem;">Enter your 6-digit code</label>[39m
+[31m+                 <div class="otp-group" id="otp-group" role="group" aria-label="One-time password, 6 digits">[39m
+[31m+                   <div class="otp-block">[39m
+[31m+                     <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code" aria-label="Digit 1" />[39m
+[31m+                     <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 2" />[39m
+[31m+                     <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 3" />[39m
+[31m+                   </div>[39m
+[31m+                   <span class="otp-sep" aria-hidden="true"></span>[39m
+[31m+                   <div class="otp-block">[39m
+[31m+                     <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 4" />[39m
+[31m+                     <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 5" />[39m
+[31m+                     <input class="otp-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1"                               aria-label="Digit 6" />[39m
+[31m+                   </div>[39m
+[31m+                 </div>[39m
+[31m+                 <button type="submit" class="btn btn-primary" id="totp-submit">Verify</button>[39m
+[31m+               </form>[39m
+[31m+[39m
+[31m+               <!-- Backup code fallback (hidden by default) -->[39m
+[31m+               <form id="backup-form" style="display:none" novalidate>[39m
+[31m+                 <div class="form-group" style="margin-top:.25rem">[39m
+[31m+                   <label for="backup-code">Backup code</label>[39m
+[31m+                   <input class="backup-input" id="backup-code" type="text" autocomplete="one-time-code" placeholder="xxxx-xxxx" required />[39m
+[31m+                 </div>[39m
+[31m+                 <button type="submit" class="btn btn-primary" id="backup-submit">Verify</button>[39m
+[31m+               </form>[39m
+[31m+[39m
+[31m+               <div class="mfa-mode-switch">[39m
+[31m+                 <button type="button" id="toggle-mode" class="primary">Use a backup code</button>[39m
+[31m+                 <button type="button" id="cancel-mfa">Cancel</button>[39m
+[31m+               </div>[39m
+[31m+             </div>[39m
+[31m+           </div>[39m
+[31m+         </div>[39m
+[31m+       </div>[39m
+[31m+     </div>[39m
+[31m+[39m
+[31m+     <p class="auth-footer" id="register-footer">[39m
+[31m+       No account yet? <a id="register-link" href="/register">Create one</a>[39m
+[31m+     </p>[39m
+[31m+   </div>[39m
+[31m+[39m
+[31m+   <script type="module">[39m
+[31m+     const AUTH_URL = 'https://auth.example.com';[39m
+[31m+[39m
+[31m+     const slider      = document.getElementById('slider');[39m
+[31m+     const errorBox    = document.getElementById('error-box');[39m
+[31m+     const title       = document.getElementById('title');[39m
+[31m+     const subtitle    = document.getElementById('subtitle');[39m
+[31m+     const iconLogin   = document.getElementById('icon-login');[39m
+[31m+     const iconMfa     = document.getElementById('icon-mfa');[39m
+[31m+     const registerFtr = document.getElementById('register-footer');[39m
+[31m+[39m
+[31m+     // ── Step 1: sign-in form ──────────────────────────────────────────[39m
+[31m+     const form      = document.getElementById('login-form');[39m
+[31m+     const submitBtn = document.getElementById('submit-btn');[39m
+[31m+[39m
+[31m+     form.addEventListener('submit', async (e) => {[39m
+[31m+       e.preventDefault();[39m
+[31m+       errorBox.textContent = '';[39m
+[31m+       submitBtn.disabled = true;[39m
+[31m+       submitBtn.textContent = 'Signing in…';[39m
+[31m+       const email = form.email.value.trim();[39m
+[31m+       const password = form.password.value;[39m
+[31m+       const redirectTo = form.redirectTo.value || '/';[39m
+[31m+       const oauthQuery = form.oauthQuery.value;[39m
+[31m+       try {[39m
+[31m+         const callbackURL = oauthQuery[39m
+[31m+           ? AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery[39m
+[31m+           : (redirectTo || '/');[39m
+[31m+         const body = { email, password, callbackURL };[39m
+[31m+         const res = await fetch(AUTH_URL + '/api/auth/sign-in/email', {[39m
+[31m+           method: 'POST', credentials: 'include',[39m
+[31m+           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },[39m
+[31m+           body: JSON.stringify(body),[39m
+[31m+         });[39m
+[31m+         const data = await res.json().catch(() => ({}));[39m
+[31m+         if (!res.ok) {[39m
+[31m+           errorBox.textContent = data?.error?.message ?? 'Authentication failed.';[39m
+[31m+           return;[39m
+[31m+         }[39m
+[31m+         // MFA required → slide to step 2 instead of navigating away.[39m
+[31m+         if (data?.twoFactorRedirect) {[39m
+[31m+           showMfaStep();[39m
+[31m+           return;[39m
+[31m+         }[39m
+[31m+         if (data?.url) {[39m
+[31m+           window.location.href = data.url;[39m
+[31m+         } else if (redirectTo.startsWith('/api/') || redirectTo.startsWith('http')) {[39m
+[31m+           window.location.href = redirectTo;[39m
+[31m+         } else {[39m
+[31m+           window.location.href = redirectTo || '/';[39m
+[31m+         }[39m
+[31m+       } catch {[39m
+[31m+         errorBox.textContent = 'A network error occurred. Please try again.';[39m
+[31m+       } finally {[39m
+[31m+         submitBtn.disabled = false;[39m
+[31m+         submitBtn.textContent = 'Sign in';[39m
+[31m+       }[39m
+[31m+     });[39m
+[31m+[39m
+[31m+     if ('true' !== 'true') registerFtr?.remove();[39m
+[31m+[39m
+[31m+     // ── Step 2: MFA challenge ────────────────────────────────────────[39m
+[31m+     const otpGroup   = document.getElementById('otp-group');[39m
+[31m+     const otpInputs  = Array.from(otpGroup.querySelectorAll('.otp-input'));[39m
+[31m+     const totpForm   = document.getElementById('totp-form');[39m
+[31m+     const totpSubmit = document.getElementById('totp-submit');[39m
+[31m+     const backupForm = document.getElementById('backup-form');[39m
+[31m+     const backupSub  = document.getElementById('backup-submit');[39m
+[31m+     const backupInp  = document.getElementById('backup-code');[39m
+[31m+     const toggleBtn  = document.getElementById('toggle-mode');[39m
+[31m+     const cancelBtn  = document.getElementById('cancel-mfa');[39m
+[31m+[39m
+[31m+     let mfaMode = 'totp'; // 'totp' | 'backup'[39m
+[31m+[39m
+[31m+     function showMfaStep() {[39m
+[31m+       errorBox.textContent = '';[39m
+[31m+       title.textContent = 'Two-factor authentication';[39m
+[31m+       subtitle.textContent = 'Enter the code from your authenticator app.';[39m
+[31m+       iconLogin.style.display = 'none';[39m
+[31m+       iconMfa.style.display = '';[39m
+[31m+       registerFtr?.style && (registerFtr.style.display = 'none');[39m
+[31m+       slider.classList.add('step-mfa');[39m
+[31m+       // Focus first OTP input after slide animation completes.[39m
+[31m+       setTimeout(() => otpInputs[0]?.focus(), 300);[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     function showLoginStep() {[39m
+[31m+       errorBox.textContent = '';[39m
+[31m+       title.textContent = 'Welcome back';[39m
+[31m+       subtitle.textContent = 'Sign in to your account to continue.';[39m
+[31m+       iconLogin.style.display = '';[39m
+[31m+       iconMfa.style.display = 'none';[39m
+[31m+       if (registerFtr && 'true' === 'true') registerFtr.style.display = '';[39m
+[31m+       slider.classList.remove('step-mfa');[39m
+[31m+       resetOtp();[39m
+[31m+       backupInp.value = '';[39m
+[31m+       switchMode('totp');[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     function resetOtp() {[39m
+[31m+       otpInputs.forEach(i => { i.value = ''; i.classList.remove('is-filled'); });[39m
+[31m+       otpGroup.classList.remove('is-error');[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     function otpValue() {[39m
+[31m+       return otpInputs.map(i => i.value).join('');[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     function markFilled() {[39m
+[31m+       otpInputs.forEach(i => i.classList.toggle('is-filled', !!i.value));[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     // Digit input handling: auto-advance, auto-submit on last digit.[39m
+[31m+     otpInputs.forEach((input, idx) => {[39m
+[31m+       input.addEventListener('input', (e) => {[39m
+[31m+         // Keep only the last digit typed (handles Android IMEs returning >1 char).[39m
+[31m+         const raw = (e.target.value || '').replace(/\D/g, '');[39m
+[31m+         input.value = raw.slice(-1);[39m
+[31m+         markFilled();[39m
+[31m+         if (input.value && idx < otpInputs.length - 1) {[39m
+[31m+           otpInputs[idx + 1].focus();[39m
+[31m+         }[39m
+[31m+         if (otpValue().length === 6) {[39m
+[31m+           submitTotp();[39m
+[31m+         }[39m
+[31m+       });[39m
+[31m+       input.addEventListener('keydown', (e) => {[39m
+[31m+         if (e.key === 'Backspace' && !input.value && idx > 0) {[39m
+[31m+           otpInputs[idx - 1].focus();[39m
+[31m+           otpInputs[idx - 1].value = '';[39m
+[31m+           markFilled();[39m
+[31m+           e.preventDefault();[39m
+[31m+         } else if (e.key === 'ArrowLeft' && idx > 0) {[39m
+[31m+           otpInputs[idx - 1].focus(); e.preventDefault();[39m
+[31m+         } else if (e.key === 'ArrowRight' && idx < otpInputs.length - 1) {[39m
+[31m+           otpInputs[idx + 1].focus(); e.preventDefault();[39m
+[31m+         }[39m
+[31m+       });[39m
+[31m+       input.addEventListener('paste', (e) => {[39m
+[31m+         const text = (e.clipboardData || window.clipboardData)?.getData('text') ?? '';[39m
+[31m+         const digits = text.replace(/\D/g, '').slice(0, 6);[39m
+[31m+         if (!digits) return;[39m
+[31m+         e.preventDefault();[39m
+[31m+         otpInputs.forEach((inp, i) => { inp.value = digits[i] ?? ''; });[39m
+[31m+         markFilled();[39m
+[31m+         const nextIdx = Math.min(digits.length, otpInputs.length - 1);[39m
+[31m+         otpInputs[nextIdx].focus();[39m
+[31m+         if (digits.length === 6) submitTotp();[39m
+[31m+       });[39m
+[31m+     });[39m
+[31m+[39m
+[31m+     totpForm.addEventListener('submit', (e) => { e.preventDefault(); submitTotp(); });[39m
+[31m+     backupForm.addEventListener('submit', (e) => { e.preventDefault(); submitBackup(); });[39m
+[31m+[39m
+[31m+     async function submitTotp() {[39m
+[31m+       const code = otpValue();[39m
+[31m+       if (code.length !== 6) return;[39m
+[31m+       totpSubmit.disabled = true;[39m
+[31m+       totpSubmit.textContent = 'Verifying…';[39m
+[31m+       errorBox.textContent = '';[39m
+[31m+       try {[39m
+[31m+         const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-totp', {[39m
+[31m+           method: 'POST', credentials: 'include',[39m
+[31m+           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },[39m
+[31m+           body: JSON.stringify({ code }),[39m
+[31m+         });[39m
+[31m+         const data = await res.json().catch(() => ({}));[39m
+[31m+         if (!res.ok) {[39m
+[31m+           otpGroup.classList.add('is-error');[39m
+[31m+           errorBox.textContent = data?.error?.message ?? 'Invalid code. Please try again.';[39m
+[31m+           // Clear and refocus so the user can retry without manual clearing.[39m
+[31m+           setTimeout(() => { resetOtp(); otpInputs[0].focus(); }, 400);[39m
+[31m+           return;[39m
+[31m+         }[39m
+[31m+         redirectAfterMfa(data);[39m
+[31m+       } catch {[39m
+[31m+         errorBox.textContent = 'A network error occurred. Please try again.';[39m
+[31m+       } finally {[39m
+[31m+         totpSubmit.disabled = false;[39m
+[31m+         totpSubmit.textContent = 'Verify';[39m
+[31m+       }[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     async function submitBackup() {[39m
+[31m+       const code = backupInp.value.trim();[39m
+[31m+       if (!code) return;[39m
+[31m+       backupSub.disabled = true;[39m
+[31m+       backupSub.textContent = 'Verifying…';[39m
+[31m+       errorBox.textContent = '';[39m
+[31m+       try {[39m
+[31m+         const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-backup-code', {[39m
+[31m+           method: 'POST', credentials: 'include',[39m
+[31m+           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },[39m
+[31m+           body: JSON.stringify({ code }),[39m
+[31m+         });[39m
+[31m+         const data = await res.json().catch(() => ({}));[39m
+[31m+         if (!res.ok) {[39m
+[31m+           errorBox.textContent = data?.error?.message ?? 'Invalid backup code.';[39m
+[31m+           return;[39m
+[31m+         }[39m
+[31m+         redirectAfterMfa(data);[39m
+[31m+       } catch {[39m
+[31m+         errorBox.textContent = 'A network error occurred. Please try again.';[39m
+[31m+       } finally {[39m
+[31m+         backupSub.disabled = false;[39m
+[31m+         backupSub.textContent = 'Verify';[39m
+[31m+       }[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     // After successful MFA, BetterAuth returns the same payload shape as a[39m
+[31m+     // normal sign-in: either `{ url }` (OAuth redirect) or a session object.[39m
+[31m+     function redirectAfterMfa(data) {[39m
+[31m+       const redirectTo = form.redirectTo.value || '/';[39m
+[31m+       const oauthQuery = form.oauthQuery.value;[39m
+[31m+       if (data?.url) { window.location.href = data.url; return; }[39m
+[31m+       if (oauthQuery) {[39m
+[31m+         window.location.href = AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery;[39m
+[31m+         return;[39m
+[31m+       }[39m
+[31m+       window.location.href = redirectTo || '/';[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     function switchMode(next) {[39m
+[31m+       mfaMode = next;[39m
+[31m+       errorBox.textContent = '';[39m
+[31m+       if (next === 'backup') {[39m
+[31m+         totpForm.style.display = 'none';[39m
+[31m+         backupForm.style.display = '';[39m
+[31m+         toggleBtn.textContent = 'Use authenticator code';[39m
+[31m+         setTimeout(() => backupInp.focus(), 50);[39m
+[31m+       } else {[39m
+[31m+         totpForm.style.display = '';[39m
+[31m+         backupForm.style.display = 'none';[39m
+[31m+         toggleBtn.textContent = 'Use a backup code';[39m
+[31m+         setTimeout(() => otpInputs[0]?.focus(), 50);[39m
+[31m+       }[39m
+[31m+     }[39m
+[31m+[39m
+[31m+     toggleBtn.addEventListener('click', () => switchMode(mfaMode === 'totp' ? 'backup' : 'totp'));[39m
+[31m+     cancelBtn.addEventListener('click', () => {[39m
+[31m+       // Best-effort: clear BetterAuth's temporary 2FA cookie by signing out.[39m
+[31m+       fetch(AUTH_URL + '/api/auth/sign-out', { method: 'POST', credentials: 'include' })[39m
+[31m+         .catch(() => {})[39m
+[31m+         .finally(() => showLoginStep());[39m
+[31m+     });[39m
+[31m+[39m
+[31m+     // ── Social providers (login step) ────────────────────────────────[39m
+[31m+     const PROVIDER_CONFIG = {[39m
+[31m+       google:    { label: 'Continue with Google',    icon: '<svg width="16" height="16" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>' },[39m
+[31m+       github:    { label: 'Continue with GitHub',    icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>' },[39m
+[31m+       linkedin:  { label: 'Continue with LinkedIn',  icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="#0A66C2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>' },[39m
+[31m+       microsoft: { label: 'Continue with Microsoft', icon: '<svg width="16" height="16" viewBox="0 0 24 24"><path fill="#F25022" d="M1 1h10v10H1z"/><path fill="#00A4EF" d="M13 1h10v10H13z"/><path fill="#7FBA00" d="M1 13h10v10H1z"/><path fill="#FFB900" d="M13 13h10v10H13z"/></svg>' },[39m
+[31m+       apple:     { label: 'Continue with Apple',     icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>' },[39m
+[31m+     };[39m
+[31m+     const socialProviders = (() => { try { return JSON.parse('[]'); } catch { return []; } })();[39m
+[31m+     if (socialProviders.length > 0) {[39m
+[31m+       const sec = document.getElementById('social-section');[39m
+[31m+       sec.innerHTML = '<div class="divider"><span>or continue with</span></div><div class="social-buttons" id="social-buttons"></div>';[39m
+[31m+       const container = document.getElementById('social-buttons');[39m
+[31m+       socialProviders.forEach(provider => {[39m
+[31m+         const cfg = PROVIDER_CONFIG[provider]; if (!cfg) return;[39m
+[31m+         const btn = document.createElement('button');[39m
+[31m+         btn.type = 'button'; btn.className = 'btn-social'; btn.dataset.provider = provider;[39m
+[31m+         btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>';[39m
+[31m+         btn.addEventListener('click', async () => {[39m
+[31m+           container.querySelectorAll('.btn-social').forEach(b => { b.disabled = true; });[39m
+[31m+           btn.innerHTML = cfg.icon + '<span>Redirecting…</span>';[39m
+[31m+           const oq = form.oauthQuery.value; const rd = form.redirectTo.value || '/';[39m
+[31m+           const callbackURL = oq ? AUTH_URL + '/api/auth/oauth2/authorize?' + oq : rd;[39m
+[31m+           try {[39m
+[31m+             const res = await fetch(AUTH_URL + '/api/auth/sign-in/social', {[39m
+[31m+               method: 'POST', credentials: 'include',[39m
+[31m+               headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },[39m
+[31m+               body: JSON.stringify({ provider, callbackURL }),[39m
+[31m+             });[39m
+[31m+             const data = await res.json().catch(() => ({}));[39m
+[31m+             if (!res.ok || !data.url) {[39m
+[31m+               errorBox.textContent = data?.error?.message ?? 'Social sign-in failed.';[39m
+[31m+               container.querySelectorAll('.btn-social').forEach(b => { b.disabled = false; });[39m
+[31m+               btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>'; return;[39m
+[31m+             }[39m
+[31m+             window.location.href = data.url;[39m
+[31m+           } catch {[39m
+[31m+             errorBox.textContent = 'A network error occurred. Please try again.';[39m
+[31m+             container.querySelectorAll('.btn-social').forEach(b => { b.disabled = false; });[39m
+[31m+             btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>';[39m
+[31m+           }[39m
+[31m+         });[39m
+[31m+         container.appendChild(btn);[39m
+[31m+       });[39m
+[31m+     }[39m
+[31m+   </script>[39m
+[31m+ </body>[39m
+[31m+ </html>[39m
+[31m+[39m
+
+ ❯ src/services/templates.test.ts:43:20
+     41|       expect(html).not.toContain("{{OAUTH_QUERY}}");
+     42|       // The hidden input should carry an empty value
+     43|       expect(html).toContain('name="oauthQuery" value=""');
+       |                    ^
+     44|     });
+     45| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/66]⎯
+
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 401 when not authenticated
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 403 when not admin
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 400 when year query param is invalid
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 400 when month is out of valid range
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 404 when app does not exist
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 200 with empty entries when no consumption data
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 200 aggregates entries grouped by userId and key for the requested month
+ FAIL  src/tests/adminConsumption.integration.test.ts > adminConsumptionRoutes integration > 200 excludes entries from other months
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/adminConsumption.integration.test.ts:34:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/66]⎯
+
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > 401 when not authenticated
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > GET / → returns empty list initially
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > POST / → creates an application with default roles and plan
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > POST / → 409 on duplicate slug
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > POST / → public app has no clientSecret
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > POST / auto-assigns superadmins to new app
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > DELETE /:id → removes the application
+ FAIL  src/tests/applications.integration.test.ts > applicationRoutes integration > GET /:id → 404 for unknown application
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/applications.integration.test.ts:40:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/66]⎯
+
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > POST / → 403 when not authenticated
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > POST / → 404 when user+app relationship not found
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > POST / → creates consumption entry and aggregate
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > POST / → accumulates on subsequent calls
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > POST / → 400 on invalid key format
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > GET /:userId/:applicationId → returns all aggregates
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > GET /:userId/:applicationId/:key → returns single aggregate
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > GET /:userId/:applicationId/:key → 404 when not found
+ FAIL  src/tests/consumption.integration.test.ts > consumptionRoutes integration > DELETE /:userId/:applicationId/:key → removes aggregate and entries
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/consumption.integration.test.ts:41:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/66]⎯
+
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > 401 when not authenticated
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > GET plans → 404 when application does not exist
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > GET plans → empty list
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > POST plan → creates plan
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > POST plan → new isDefault demotes existing default
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > DELETE plan → 400 when plan has active subscribers
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > DELETE plan → 204 when no active subscribers
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > POST price → 400 when amount is negative
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > POST price → 201 when amount is 0 (free tier)
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > POST price → 201 stores interval correctly for one_time
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > POST price → 404 when plan does not exist
+ FAIL  src/tests/plans.integration.test.ts > plansRoutes integration > POST plan with metered features → 201 stores features correctly
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/plans.integration.test.ts:38:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/66]⎯
+
+ FAIL  src/tests/roles.integration.test.ts > rolesRoutes integration > 401 when not authenticated
+ FAIL  src/tests/roles.integration.test.ts > rolesRoutes integration > GET roles → empty list
+ FAIL  src/tests/roles.integration.test.ts > rolesRoutes integration > POST role → creates role
+ FAIL  src/tests/roles.integration.test.ts > rolesRoutes integration > POST role → 409 on duplicate name in same app
+ FAIL  src/tests/roles.integration.test.ts > rolesRoutes integration > POST role → new isDefault demotes existing default
+ FAIL  src/tests/roles.integration.test.ts > rolesRoutes integration > DELETE role → 400 when role is assigned to users
+ FAIL  src/tests/roles.integration.test.ts > rolesRoutes integration > DELETE role → 204 when role has no users
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/roles.integration.test.ts:36:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/66]⎯
+
+ FAIL  src/tests/sessions.integration.test.ts > GET /api/admin/sessions — sessions integration > 401 when not authenticated
+ FAIL  src/tests/sessions.integration.test.ts > GET /api/admin/sessions — sessions integration > returns empty list when no active sessions
+ FAIL  src/tests/sessions.integration.test.ts > GET /api/admin/sessions — sessions integration > returns only active sessions, excludes expired ones
+ FAIL  src/tests/sessions.integration.test.ts > GET /api/admin/sessions — sessions integration > paginates correctly
+ FAIL  src/tests/sessions.integration.test.ts > GET /api/admin/sessions — sessions integration > response contains the `sessions` key (not `list`)
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/sessions.integration.test.ts:26:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/66]⎯
+
+ FAIL  src/tests/userSubscription.integration.test.ts > userRoutes — GET /subscription > 401 when not authenticated
+ FAIL  src/tests/userSubscription.integration.test.ts > userRoutes — GET /subscription > 200 with empty subscriptions when user has no app access
+ FAIL  src/tests/userSubscription.integration.test.ts > userRoutes — GET /subscription > 200 with plan null when user has access but no plan assigned
+ FAIL  src/tests/userSubscription.integration.test.ts > userRoutes — GET /subscription > 200 with plan details when subscription plan is assigned
+ FAIL  src/tests/userSubscription.integration.test.ts > userRoutes — GET /subscription > 200 includes prices array in plan when prices exist
+ FAIL  src/tests/userSubscription.integration.test.ts > userRoutes — GET /subscription > 200 prices array is empty when plan has no prices
+ FAIL  src/tests/userSubscription.integration.test.ts > userRoutes — GET /subscription > 200 includes metered features in plan
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/userSubscription.integration.test.ts:40:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/66]⎯
+
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > GET / → 401 when not authenticated
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > GET / → 403 for regular user
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > GET / → returns paginated users via auth.api.listUsers
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > DELETE /:id → 400 USR_002 when deleting the last superadmin
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > DELETE /:id → 204 when deleting a superadmin while another exists
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > DELETE /:id → 204 when deleting a normal user
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > DELETE /:id → 400 USR_003 when admin tries to delete themselves
+ FAIL  src/tests/users.integration.test.ts > Admin — usersRoutes integration > DELETE /:id → 404 when user not found
+Error: Failed query: TRUNCATE TABLE
+      app_role_permissions,
+      user_app_roles,
+      app_permissions,
+      app_roles,
+      user_subscriptions,
+      subscription_plan_prices,
+      subscription_plans,
+      consumption_aggregates,
+      consumption_entries,
+      user_applications,
+      applications,
+      two_factor,
+      passkey,
+      oauth_client,
+      "session",
+      account,
+      verification,
+      "user"
+    RESTART IDENTITY CASCADE
+params: 
+ ❯ PostgresJsPreparedQuery.queryWithCache node_modules/.pnpm/drizzle-orm@0.44.7_@opentelemetry+api@1.9.1_kysely@0.28.17_postgres@3.4.9/node_modules/src/pg-core/session.ts:73:11
+ ❯ Module.cleanDb src/tests/helpers/db.ts:18:3
+     16|  */
+     17| export async function cleanDb(): Promise<void> {
+     18|   await db.execute(
+       |   ^
+     19|     sql`TRUNCATE TABLE
+     20|       app_role_permissions,
+ ❯ src/tests/users.integration.test.ts:37:3
+
+Caused by: Error: connect ECONNREFUSED 127.0.0.1:5433
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -111, code: 'ECONNREFUSED', syscall: 'connect', address: '127.0.0.1', port: 5433, query: undefined, parameters: undefined, args: [], types: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/66]⎯
+
+
+ Test Files  10 failed | 12 passed (22)
+      Tests  66 failed | 97 passed (163)
+   Start at  01:11:40
+   Duration  2.80s (transform 1.58s, setup 0ms, collect 27.50s, tests 1.32s, environment 4ms, prepare 2.13s)
+
+ ELIFECYCLE  Test failed. See above for more details.

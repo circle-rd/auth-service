@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
@@ -8,14 +8,20 @@ import { listUsers } from '@/api/users';
 import { listSessions, revokeSession } from '@/api/sessions';
 import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
+import { getActiveUsers, getLogins, type LoginsSeriesPoint } from '@/api/stats';
+import { useDebounce } from '@/composables/useDebounce';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import StatCard from '@/components/ui/StatCard.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import BaseSelect from '@/components/ui/BaseSelect.vue';
+import DataTable from '@/components/ui/DataTable.vue';
+import AppIconStack from '@/components/ui/AppIconStack.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import type { Session, User, Application, Organization } from '@/types';
+import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import {
-  Users, MonitorSmartphone, AppWindow, Building2,
+  Users, MonitorSmartphone, AppWindow, Building2, Activity,
   AlertTriangle, Info, UserPlus, Plus, Settings, Clock,
 } from 'lucide-vue-next';
 import { Line } from 'vue-chartjs';
@@ -33,27 +39,95 @@ const sessions = ref<Session[]>([]);
 const applications = ref<Application[]>([]);
 const organizations = ref<Organization[]>([]);
 const loading = ref(true);
+const sessionsLoading = ref(true);
 const timeRange = ref<'7d' | '30d'>('7d');
 const lastRefreshed = ref(new Date());
+
+// Server-driven state for the sessions table. Search is debounced so the
+// user can type a query without firing one request per keystroke.
+const sessionPage = ref(1);
+const sessionLimit = ref(20);
+const sessionTotal = ref(0);
+const sessionSearch = ref('');
+const sessionAppFilter = ref('');
+const debouncedSessionSearch = useDebounce(sessionSearch, 300);
+
+const onlineCount = ref<number | null>(null);
+const loginsSeries = ref<LoginsSeriesPoint[]>([]);
+const loginsTotal = ref(0);
+const loginsLoading = ref(true);
+let onlinePollHandle: ReturnType<typeof setInterval> | null = null;
+
+async function fetchOnline() {
+  try {
+    const res = await getActiveUsers();
+    onlineCount.value = res.count;
+  } catch {
+    // Silent — KPI tolerates transient errors during polling.
+  }
+}
+
+async function fetchLogins() {
+  loginsLoading.value = true;
+  try {
+    const res = await getLogins({ range: timeRange.value });
+    loginsSeries.value = res.series;
+    loginsTotal.value = res.total;
+  } finally {
+    loginsLoading.value = false;
+  }
+}
 
 onMounted(async () => {
   await Promise.all([
     services.fetch(),
+    fetchOnline(),
+    fetchLogins(),
+    loadSessions(),
     (async () => {
-      const [u, s, a, o] = await Promise.all([
+      const [u, a, o] = await Promise.all([
         listUsers({ limit: 100 }),
-        listSessions({ limit: 100 }),
         listApplications(),
         listOrganizations(),
       ]);
       users.value = u.users;
-      sessions.value = s.sessions;
       applications.value = a.applications;
       organizations.value = o.organizations;
       lastRefreshed.value = new Date();
     })(),
   ]);
   loading.value = false;
+  onlinePollHandle = setInterval(fetchOnline, 30_000);
+});
+
+async function loadSessions() {
+  sessionsLoading.value = true;
+  try {
+    const res = await listSessions({
+      page: sessionPage.value,
+      limit: sessionLimit.value,
+      search: debouncedSessionSearch.value || undefined,
+    });
+    sessions.value = res.sessions;
+    sessionTotal.value = res.total;
+    lastRefreshed.value = new Date();
+  } finally {
+    sessionsLoading.value = false;
+  }
+}
+
+watch(debouncedSessionSearch, () => {
+  sessionPage.value = 1;
+  void loadSessions();
+});
+watch(sessionLimit, () => {
+  sessionPage.value = 1;
+  void loadSessions();
+});
+watch(sessionPage, () => { void loadSessions(); });
+
+onUnmounted(() => {
+  if (onlinePollHandle) clearInterval(onlinePollHandle);
 });
 
 const activeApplications = computed(() => applications.value.filter(a => a.isActive).length);
@@ -63,6 +137,33 @@ const userMap = computed(() => {
   users.value.forEach(u => m.set(u.id, u));
   return m;
 });
+
+const sessionColumns = computed<ColumnDef<Session>[]>(() => [
+  { key: 'user', label: t('users.columns.name') },
+  { key: 'apps', label: t('users.columns.applications') },
+  { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'ipAddress' },
+  { key: 'ua', label: t('users.columns.device') },
+  { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true },
+  { key: 'actions', label: t('users.columns.actions'), align: 'right' },
+]);
+
+// Client-side filter on application slug, applied to the page returned by
+// the server. Acceptable because the page size is bounded by the limit.
+const filteredSessions = computed(() => {
+  if (!sessionAppFilter.value) return sessions.value;
+  return sessions.value.filter(s => (s.applications ?? []).some(a => a.id === sessionAppFilter.value));
+});
+
+const appFilterOptions = computed(() => [
+  { value: '', label: t('dashboard.allApplications') },
+  ...applications.value.map(a => ({ value: a.id, label: a.name })),
+]);
+
+const sessionPagination = computed<DataTablePagination>(() => ({
+  page: sessionPage.value,
+  limit: sessionLimit.value,
+  total: sessionTotal.value,
+}));
 
 function generateDateLabels(days: number): string[] {
   return Array.from({ length: days }, (_, i) => {
@@ -107,6 +208,24 @@ const userChartData = computed(() => ({
   }],
 }));
 
+const loginsChartData = computed(() => ({
+  labels: loginsSeries.value.map(p => {
+    const d = new Date(p.date);
+    return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+  }),
+  datasets: [{
+    data: loginsSeries.value.map(p => p.count),
+    borderColor: '#10b981',
+    backgroundColor: 'rgba(16,185,129,0.08)',
+    fill: true,
+    tension: 0.4,
+    pointRadius: 3,
+    pointBackgroundColor: '#10b981',
+  }],
+}));
+
+watch(timeRange, () => { void fetchLogins(); });
+
 const hasNoProviders = computed(() => {
   const p = services.config?.providers;
   if (!p) return false;
@@ -117,6 +236,7 @@ const hasNoMfa = computed(() => !users.value.some(u => u.twoFactorEnabled || u.i
 
 async function handleRevoke(session: Session) {
   await revokeSession(session.id);
+  await loadSessions();
 }
 
 function formatDate(iso: string): string {
@@ -129,7 +249,14 @@ void d;
 <template>
   <AppLayout :title="t('dashboard.title')" :subtitle="t('dashboard.subtitle')">
     <div class="space-y-6">
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <StatCard
+          :label="t('dashboard.onlineNow')"
+          :value="onlineCount ?? '—'"
+          :loading="loading && onlineCount === null"
+          :icon="Activity"
+          :sub="t('dashboard.onlineNowSub')"
+        />
         <StatCard :label="t('dashboard.totalUsers')" :value="loading ? '' : users.length" :loading="loading" :icon="Users" />
         <StatCard :label="t('dashboard.activeSessions')" :value="loading ? '' : sessions.length" :loading="loading" :icon="MonitorSmartphone" :sub="t('dashboard.lastRefreshed') + ' ' + lastRefreshed.toLocaleTimeString()" />
         <StatCard :label="t('dashboard.totalApplications')" :value="loading ? '' : applications.length" :loading="loading" :icon="AppWindow" :sub="`${activeApplications} ${t('common.active')}`" />
@@ -197,56 +324,95 @@ void d;
         </div>
       </div>
 
+      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.loginsChart') }}</p>
+            <p class="text-xs text-surface-500 mt-0.5">{{ t('dashboard.totalLogins', { count: loginsTotal }) }}</p>
+          </div>
+          <div class="flex gap-1">
+            <button
+              v-for="r in (['7d', '30d'] as const)"
+              :key="`logins-${r}`"
+              @click="timeRange = r"
+              :class="['px-2.5 py-1 rounded-lg text-xs font-medium transition-colors', timeRange === r ? 'bg-emerald-600/20 text-emerald-300' : 'text-surface-500 hover:text-surface-300']"
+            >
+              {{ t(`dashboard.timeRanges.${r}`) }}
+            </button>
+          </div>
+        </div>
+        <div class="h-48">
+          <Line v-if="!loginsLoading" :data="loginsChartData" :options="chartOptions" />
+          <div v-else class="h-full bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-xl" />
+        </div>
+      </div>
+
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
         <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
           <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.activeSessionsList') }}</p>
-          <span class="text-xs text-surface-500">{{ sessions.length }} {{ t('common.total').toLowerCase() }}</span>
+          <span class="text-xs text-surface-500">{{ sessionTotal }} {{ t('common.total').toLowerCase() }}</span>
         </div>
-
-        <div v-if="loading" class="divide-y divide-surface-800/40">
-          <div v-for="i in 3" :key="i" class="px-5 py-4 flex items-center gap-4">
-            <div class="w-9 h-9 bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-full" />
-            <div class="flex-1 space-y-2">
-              <div class="h-3.5 bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded w-32" />
-              <div class="h-3 bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded w-48" />
-            </div>
-          </div>
-        </div>
-
-        <div v-else-if="sessions.length === 0" class="px-5 py-10 text-center text-sm text-surface-500">
-          No active sessions
-        </div>
-
-        <div v-else class="divide-y divide-surface-800/40">
-          <div
-            v-for="session in sessions"
-            :key="session.id"
-            class="px-5 py-4 flex items-center gap-4 hover:bg-surface-800/20 transition-colors"
+        <div class="p-3">
+          <DataTable
+            :columns="sessionColumns"
+            :items="filteredSessions"
+            :loading="sessionsLoading"
+            :empty="!sessionsLoading && filteredSessions.length === 0"
+            :row-key="(s: Session) => s.id"
+            searchable
+            :search="sessionSearch"
+            :pagination="sessionPagination"
+            enable-column-visibility
+            enable-density-toggle
+            @update:search="sessionSearch = $event"
+            @update:page="sessionPage = $event"
+            @update:limit="sessionLimit = $event"
           >
-            <UserAvatar
-              :name="userMap.get(session.userId)?.name"
-              :image="userMap.get(session.userId)?.image"
-              size="sm"
-            />
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-surface-200">
-                {{ userMap.get(session.userId)?.name ?? t('common.unknown') }}
-                <span v-if="session.userId === auth.user?.id" class="ml-2 text-xs text-primary-400">(you)</span>
-              </p>
-              <p class="text-xs text-surface-500 mt-0.5">
-                {{ userMap.get(session.userId)?.email }} · {{ session.ipAddress ?? '—' }} ·
-                {{ parseUserAgent(session.userAgent).browser }} / {{ parseUserAgent(session.userAgent).os }}
-              </p>
-            </div>
-            <div class="text-right shrink-0 hidden sm:block">
-              <p class="text-xs text-surface-400 flex items-center gap-1">
+            <template #filters>
+              <BaseSelect v-model="sessionAppFilter" :options="appFilterOptions" class="w-48" />
+            </template>
+            <template #empty>
+              <div class="px-5 py-10 text-center text-sm text-surface-500">No active sessions</div>
+            </template>
+            <template #cell-user="{ row }">
+              <div class="flex items-center gap-3">
+                <UserAvatar
+                  :name="(row as Session).user?.name ?? userMap.get((row as Session).userId)?.name"
+                  :image="(row as Session).user?.image ?? userMap.get((row as Session).userId)?.image"
+                  size="sm"
+                />
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-surface-200 truncate">
+                    {{ (row as Session).user?.name ?? userMap.get((row as Session).userId)?.name ?? t('common.unknown') }}
+                    <span v-if="(row as Session).userId === auth.user?.id" class="ml-1 text-xs text-primary-400">(you)</span>
+                  </p>
+                  <p class="text-xs text-surface-500 truncate">
+                    {{ (row as Session).user?.email ?? userMap.get((row as Session).userId)?.email }}
+                  </p>
+                </div>
+              </div>
+            </template>
+            <template #cell-apps="{ row }">
+              <AppIconStack :apps="(row as Session).applications ?? []" />
+            </template>
+            <template #cell-ipAddress="{ row }">
+              <span class="text-xs text-surface-400">{{ (row as Session).ipAddress ?? '—' }}</span>
+            </template>
+            <template #cell-ua="{ row }">
+              <span class="text-xs text-surface-400">
+                {{ parseUserAgent((row as Session).userAgent).browser }} / {{ parseUserAgent((row as Session).userAgent).os }}
+              </span>
+            </template>
+            <template #cell-createdAt="{ row }">
+              <span class="text-xs text-surface-500 inline-flex items-center gap-1">
                 <Clock class="w-3 h-3" />
-                {{ formatDate(session.createdAt) }}
-              </p>
-              <p class="text-xs text-surface-600 mt-0.5">Expires {{ formatDate(session.expiresAt) }}</p>
-            </div>
-            <BaseButton variant="ghost" size="sm" @click="handleRevoke(session)">{{ t('dashboard.revoke') }}</BaseButton>
-          </div>
+                {{ formatDate((row as Session).createdAt) }}
+              </span>
+            </template>
+            <template #cell-actions="{ row }">
+              <BaseButton variant="ghost" size="sm" @click="handleRevoke(row as Session)">{{ t('dashboard.revoke') }}</BaseButton>
+            </template>
+          </DataTable>
         </div>
       </div>
     </div>

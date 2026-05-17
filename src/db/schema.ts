@@ -254,3 +254,30 @@ export const consumptionAggregates = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.applicationId, t.key] })],
 );
+
+// ── Login History ─────────────────────────────────────────────────────────────
+// Append-only log of successful login events. One row per OAuth token
+// issuance to an application (applicationId set) and one row per direct
+// sign-in to the auth-service admin dashboard (applicationId null).
+// Powers session→app attribution, last-login columns, per-app history modal,
+// and dashboard/app-card activity charts.
+export const loginHistory = pgTable(
+  "login_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id").references(() => applications.id, {
+      onDelete: "set null",
+    }),
+    sessionId: text("session_id"),
+    loggedAt: timestamp("logged_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [
+    index("login_history_user_logged_idx").on(t.userId, t.loggedAt),
+    index("login_history_app_logged_idx").on(t.applicationId, t.loggedAt),
+  ],
+);

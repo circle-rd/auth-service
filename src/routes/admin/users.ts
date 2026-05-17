@@ -10,9 +10,11 @@ import {
   userSubscriptions,
   consumptionEntries,
   consumptionAggregates,
+  loginHistory,
+  subscriptionPlans,
 } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 
@@ -83,8 +85,79 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       },
     });
 
+    // Enrich each user with the list of applications they have access to and
+    // a fallback lastLoginAt (the user.lastLoginAt column is denormalised in
+    // recordLogin()). One grouped query per dimension keeps this O(1) round
+    // trips regardless of the page size.
+    const userIds = users.users.map((u) => u.id);
+    const appsByUser = new Map<
+      string,
+      { id: string; name: string; slug: string; icon: string | null }[]
+    >();
+    const lastLoginByUser = new Map<string, Date>();
+    if (userIds.length > 0) {
+      const accessRows = await db
+        .select({
+          userId: userApplications.userId,
+          id: applications.id,
+          name: applications.name,
+          slug: applications.slug,
+          icon: applications.icon,
+        })
+        .from(userApplications)
+        .innerJoin(
+          applications,
+          eq(userApplications.applicationId, applications.id),
+        )
+        .where(
+          and(
+            inArray(userApplications.userId, userIds),
+            eq(userApplications.isActive, true),
+          ),
+        );
+      for (const row of accessRows) {
+        const list = appsByUser.get(row.userId) ?? [];
+        list.push({
+          id: row.id,
+          name: row.name,
+          slug: row.slug,
+          icon: row.icon,
+        });
+        appsByUser.set(row.userId, list);
+      }
+
+      const lastLogins = await db
+        .select({
+          userId: loginHistory.userId,
+          lastLoginAt: max(loginHistory.loggedAt),
+        })
+        .from(loginHistory)
+        .where(inArray(loginHistory.userId, userIds))
+        .groupBy(loginHistory.userId);
+      for (const r of lastLogins) {
+        if (r.lastLoginAt) lastLoginByUser.set(r.userId, r.lastLoginAt);
+      }
+    }
+
+    const enriched = users.users.map((u) => {
+      const denormalised = (u as unknown as Record<string, unknown>)
+        .lastLoginAt as Date | string | null | undefined;
+      const fromHistory = lastLoginByUser.get(u.id) ?? null;
+      const denormalisedDate =
+        denormalised instanceof Date
+          ? denormalised
+          : typeof denormalised === "string"
+            ? new Date(denormalised)
+            : null;
+      return {
+        ...u,
+        applications: appsByUser.get(u.id) ?? [],
+        lastLoginAt: denormalisedDate ?? fromHistory,
+      };
+    });
+
     await reply.send({
-      users: users.users,
+      users: enriched,
       total: users.total,
       page,
       limit,
@@ -129,7 +202,9 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       .catch(() => null);
     if (!user) throw ERR.USR_001();
 
-    // Get user's app access with application details
+    // Get user's app access with application details. Left-join the plan
+    // table so the UI can display the human-readable plan name instead of
+    // the raw UUID stored on user_applications.
     const appAccess = await db
       .select({
         id: applications.id,
@@ -138,11 +213,16 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         icon: applications.icon,
         isActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
+        subscriptionPlanName: subscriptionPlans.name,
       })
       .from(userApplications)
       .innerJoin(
         applications,
         eq(userApplications.applicationId, applications.id),
+      )
+      .leftJoin(
+        subscriptionPlans,
+        eq(userApplications.subscriptionPlanId, subscriptionPlans.id),
       )
       .where(eq(userApplications.userId, req.params.id));
 
@@ -165,9 +245,28 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       rolesByApp.set(r.applicationId, existing);
     }
 
+    // Most recent login per application for this user. One round trip,
+    // one row per applicationId — Postgres-only selectDistinctOn is fine
+    // because the project pins on postgres.js.
+    const lastLoginRows = await db
+      .selectDistinctOn([loginHistory.applicationId], {
+        applicationId: loginHistory.applicationId,
+        lastLoginAt: loginHistory.loggedAt,
+      })
+      .from(loginHistory)
+      .where(eq(loginHistory.userId, req.params.id))
+      .orderBy(loginHistory.applicationId, desc(loginHistory.loggedAt));
+    const lastLoginByApp = new Map<string, Date>();
+    for (const r of lastLoginRows) {
+      if (r.applicationId && r.lastLoginAt) {
+        lastLoginByApp.set(r.applicationId, r.lastLoginAt);
+      }
+    }
+
     const appsWithRoles = appAccess.map((app) => ({
       ...app,
       roles: rolesByApp.get(app.id) ?? [],
+      lastLoginAt: lastLoginByApp.get(app.id) ?? null,
     }));
 
     await reply.send({ user, applications: appsWithRoles });

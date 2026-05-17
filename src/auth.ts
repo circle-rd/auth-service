@@ -22,6 +22,7 @@ import {
 } from "./services/email.js";
 import { userMustSetupMfa } from "./services/mfa.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
+import { recordLogin } from "./services/login-history.js";
 import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
@@ -148,6 +149,44 @@ export const auth = betterAuth({
       company: { type: "string", required: false },
       position: { type: "string", required: false },
       address: { type: "string", required: false },
+      // Surfaced to admin listings as "last seen". Written by
+      // services/login-history.ts on every successful OAuth token issuance.
+      lastLoginAt: { type: "date", required: false },
+    },
+  },
+  // Capture every direct session creation (admin dashboard sign-in, password
+  // login, social provider callback) as a login_history row with
+  // applicationId = null. OAuth-client logins are already recorded inside
+  // `customAccessTokenClaims` with the resolved applicationId — those rows
+  // are complementary (one per token issuance, with an app id and IP/UA
+  // from the OAuth context). Fire-and-forget: failures must never break
+  // session creation.
+  databaseHooks: {
+    session: {
+      create: {
+        after: async (session) => {
+          try {
+            const s = session as {
+              userId: string;
+              id: string;
+              ipAddress?: string | null;
+              userAgent?: string | null;
+            };
+            await recordLogin({
+              userId: s.userId,
+              applicationId: null,
+              sessionId: s.id,
+              ipAddress: s.ipAddress ?? null,
+              userAgent: s.userAgent ?? null,
+            });
+          } catch (err) {
+            console.warn(
+              "[login-history] failed to record dashboard login",
+              { err: String(err) },
+            );
+          }
+        },
+      },
     },
   },
   plugins: [
@@ -370,6 +409,28 @@ export const auth = betterAuth({
         // reference (activeOrganizationId) was captured during the postLogin flow.
         if (scopes.includes("org") && referenceId) {
           (claims as Record<string, unknown>).org_id = referenceId;
+        }
+        // Record this token issuance as a login event for analytics / last-seen
+        // tracking. Fire-and-forget — a failure here must never block token
+        // issuance for the downstream client. The OAuth issuance callback does
+        // not surface request headers, so ipAddress / userAgent stay null;
+        // they remain available on the parent session row when needed.
+        if (clientId) {
+          const [appRow] = await db
+            .select({ id: applications.id })
+            .from(applications)
+            .where(eq(applications.slug, clientId))
+            .limit(1);
+          if (appRow) {
+            try {
+              await recordLogin({ userId: user.id, applicationId: appRow.id });
+            } catch (err) {
+              console.warn(
+                "[login-history] failed to record login",
+                { userId: user.id, clientId, err: String(err) },
+              );
+            }
+          }
         }
         return { ...claims, ...appAttrs };
       },

@@ -30,6 +30,11 @@ export const user = pgTable("user", {
   company: text("company"),
   position: text("position"),
   address: text("address"),
+  // Denormalised timestamp of the user's most recent successful login,
+  // updated by recordLogin() in src/services/login-history.ts. Allows the
+  // admin users listing to render a "last seen" column without joining the
+  // login_history table.
+  lastLoginAt: timestamp("last_login_at"),
 });
 
 export const session = pgTable(

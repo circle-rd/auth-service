@@ -12,13 +12,14 @@ import {
   consumptionEntries,
   subscriptionPlans,
   userSubscriptions,
+  loginHistory,
 } from "../../db/schema.js";
 import {
   assignDefaultRoleIfNeeded,
   assignDefaultPlanIfNeeded,
 } from "../../services/claims.js";
 import { oauthClient, user as userTable } from "../../db/auth-schema.js";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -545,7 +546,10 @@ export async function applicationRoutes(
 
   // ── App ↔ User access management ─────────────────────────────────────────────
 
-  // GET /api/admin/applications/:id/users — list all users associated with this app
+  // GET /api/admin/applications/:id/users — list all users associated with this app.
+  // Augments each row with `lastLoginAt` scoped to this application (computed
+  // from `login_history`). A single grouped sub-select keeps this to one round
+  // trip even when the membership list is large.
   fastify.get<{ Params: { id: string } }>("/:id/users", async (req, reply) => {
     const rows = await db
       .select({
@@ -555,6 +559,7 @@ export async function applicationRoutes(
         createdAt: userApplications.createdAt,
         name: userTable.name,
         email: userTable.email,
+        image: userTable.image,
         roleId: userAppRoles.roleId,
       })
       .from(userApplications)
@@ -568,8 +573,87 @@ export async function applicationRoutes(
       )
       .where(eq(userApplications.applicationId, req.params.id));
 
-    await reply.send({ users: rows });
+    const userIds = Array.from(new Set(rows.map((r) => r.userId)));
+    const lastLoginByUser = new Map<
+      string,
+      { lastLoginAt: Date; lastIp: string | null; lastUserAgent: string | null }
+    >();
+    if (userIds.length > 0) {
+      const lastLogins = await db
+        .selectDistinctOn([loginHistory.userId], {
+          userId: loginHistory.userId,
+          lastLoginAt: loginHistory.loggedAt,
+          lastIp: loginHistory.ipAddress,
+          lastUserAgent: loginHistory.userAgent,
+        })
+        .from(loginHistory)
+        .where(
+          and(
+            eq(loginHistory.applicationId, req.params.id),
+            inArray(loginHistory.userId, userIds),
+          ),
+        )
+        .orderBy(loginHistory.userId, desc(loginHistory.loggedAt));
+      for (const r of lastLogins) {
+        lastLoginByUser.set(r.userId, {
+          lastLoginAt: r.lastLoginAt,
+          lastIp: r.lastIp,
+          lastUserAgent: r.lastUserAgent,
+        });
+      }
+    }
+
+    const enriched = rows.map((r) => {
+      const last = lastLoginByUser.get(r.userId);
+      return {
+        ...r,
+        lastLoginAt: last?.lastLoginAt ?? null,
+        lastIp: last?.lastIp ?? null,
+        lastUserAgent: last?.lastUserAgent ?? null,
+      };
+    });
+
+    await reply.send({ users: enriched });
   });
+
+  // GET /api/admin/applications/:id/users/:userId/history — paginated login
+  // history for a single user inside a single application. Powers the history
+  // modal opened from the row-action icon in the app users tab.
+  fastify.get<{ Params: { id: string; userId: string } }>(
+    "/:id/users/:userId/history",
+    async (req, reply) => {
+      const query = req.query as Record<string, string>;
+      const page = Math.max(1, parseInt(query.page ?? "1", 10));
+      const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "20", 10)));
+      const offset = (page - 1) * limit;
+
+      const where = and(
+        eq(loginHistory.applicationId, req.params.id),
+        eq(loginHistory.userId, req.params.userId),
+      );
+
+      const [{ total }] = await db
+        .select({ total: count() })
+        .from(loginHistory)
+        .where(where);
+
+      const entries = await db
+        .select({
+          id: loginHistory.id,
+          loggedAt: loginHistory.loggedAt,
+          ipAddress: loginHistory.ipAddress,
+          userAgent: loginHistory.userAgent,
+          sessionId: loginHistory.sessionId,
+        })
+        .from(loginHistory)
+        .where(where)
+        .orderBy(desc(loginHistory.loggedAt))
+        .limit(limit)
+        .offset(offset);
+
+      await reply.send({ entries, total, page, limit });
+    },
+  );
 
   // POST /api/admin/applications/:id/users — grant a user access to this app
   fastify.post<{ Params: { id: string } }>("/:id/users", async (req, reply) => {

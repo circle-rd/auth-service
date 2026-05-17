@@ -14,6 +14,8 @@ import CopyField from '@/components/ui/CopyField.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import EntityModal from '@/components/ui/EntityModal.vue';
 import ApplicationFormModal from '@/components/applications/ApplicationFormModal.vue';
+import Sparkline from '@/components/ui/Sparkline.vue';
+import { getApplicationsActivity, type AppActivityEntry } from '@/api/stats';
 import {
   Plus,
   AppWindow,
@@ -27,6 +29,7 @@ import {
   Globe,
   Lock,
   AlertTriangle,
+  Activity,
 } from 'lucide-vue-next';
 
 const { t } = useI18n();
@@ -47,7 +50,22 @@ const actionMenu = ref<string | null>(null);
 const filterActive = ref('');
 const filterType = ref('');
 
-onMounted(() => store.fetchApplications());
+onMounted(() => {
+  store.fetchApplications();
+  void loadActivity();
+});
+
+const activity = ref<Map<string, AppActivityEntry>>(new Map());
+async function loadActivity() {
+  try {
+    const res = await getApplicationsActivity();
+    const m = new Map<string, AppActivityEntry>();
+    res.applications.forEach(a => m.set(a.appId, a));
+    activity.value = m;
+  } catch {
+    // Silent — sparklines are decorative.
+  }
+}
 
 const filtered = computed(() => {
   let apps = store.applications;
@@ -276,6 +294,27 @@ function formatDate(iso: string) {
 
           <div class="text-xs text-surface-600">
             {{ app.redirectUris.length }} redirect URIs · {{ formatDate(app.createdAt) }}
+          </div>
+
+          <div class="mt-3 pt-3 border-t border-surface-800/40 flex items-center justify-between">
+            <div class="flex items-center gap-3 text-xs">
+              <span
+                class="inline-flex items-center gap-1.5"
+                :class="(activity.get(app.id)?.online ?? 0) > 0 ? 'text-emerald-400' : 'text-surface-600'"
+                :title="t('applications.activity.online')"
+              >
+                <Activity class="w-3 h-3" />
+                {{ activity.get(app.id)?.online ?? 0 }}
+              </span>
+              <span class="text-surface-500">
+                {{ activity.get(app.id)?.last7dLogins ?? 0 }} · {{ t('applications.activity.last7d') }}
+              </span>
+            </div>
+            <Sparkline
+              :values="activity.get(app.id)?.sparkline ?? []"
+              :width="72"
+              :height="20"
+            />
           </div>
         </div>
       </div>

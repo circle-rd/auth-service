@@ -20,8 +20,14 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
+import DataTable from '@/components/ui/DataTable.vue';
+import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
+import { parseUserAgent } from '@/composables/useUserAgent';
+import Sparkline from '@/components/ui/Sparkline.vue';
+import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp } from 'lucide-vue-next';
+import type { ColumnDef } from '@/types/data-table';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -73,6 +79,7 @@ const planFeatureEntries = ref<Array<{ key: string; usage: boolean; value: strin
 onMounted(async () => {
   await services.fetch();
   await loadAll();
+  void loadAppActivity();
 });
 
 async function loadAll() {
@@ -105,6 +112,60 @@ async function loadConsumption() {
     allAggs.push(...res.aggregates);
   }
   consumption.value = allAggs;
+}
+
+// — User-history modal state
+const historyModalOpen = ref(false);
+const historyModalUserId = ref<string | null>(null);
+const historyModalUserName = ref<string>('');
+function openHistory(ua: UserApplication) {
+  historyModalUserId.value = ua.userId;
+  historyModalUserName.value = getUserName(ua.userId);
+  historyModalOpen.value = true;
+}
+
+// — Activity strip (online + sparkline + 7d logins)
+const appActivity = ref<AppActivityEntry | null>(null);
+async function loadAppActivity() {
+  try {
+    const [activityRes, loginsRes] = await Promise.all([
+      getApplicationsActivity(),
+      getLogins({ range: '7d', appId }),
+    ]);
+    const entry = activityRes.applications.find(a => a.appId === appId);
+    if (entry) {
+      appActivity.value = entry;
+    } else {
+      // Fallback: synthesise a sparkline from the per-app logins endpoint.
+      appActivity.value = {
+        appId,
+        online: 0,
+        last7dLogins: loginsRes.total,
+        sparkline: loginsRes.series.map(p => p.count),
+      };
+    }
+  } catch {
+    // Silent — activity strip is non-critical.
+  }
+}
+
+const userColumns = computed<ColumnDef<UserApplication>[]>(() => [
+  { key: 'user', label: t('users.columns.name') },
+  { key: 'role', label: t('users.columns.role'), responsive: 'sm' },
+  { key: 'plan', label: 'Plan', responsive: 'sm' },
+  { key: 'status', label: 'Status', responsive: 'md' },
+  { key: 'lastLogin', label: t('users.columns.lastLogin'), field: 'lastLoginAt', sortable: true, responsive: 'md' },
+  { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'lastIp', responsive: 'lg' },
+  { key: 'ua', label: t('users.columns.device'), responsive: 'lg' },
+  { key: 'history', label: t('users.columns.history'), align: 'right' },
+  { key: 'actions', label: t('users.columns.actions'), align: 'right' },
+]);
+
+// Format with date + time (per spec) so admins can see at a glance the
+// exact moment of the last successful login on this application.
+function formatLastLogin(iso: string | null | undefined): string {
+  if (!iso) return t('users.never');
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 async function handleCreateRole() {
@@ -585,6 +646,26 @@ const financialKpis = computed(() => {
         </div>
       </div>
 
+      <div v-if="appActivity" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 px-5 py-3 flex items-center justify-between gap-5">
+        <div class="flex items-center gap-5 text-sm">
+          <div class="flex items-center gap-2">
+            <Activity
+              class="w-4 h-4"
+              :class="appActivity.online > 0 ? 'text-emerald-400' : 'text-surface-600'"
+            />
+            <span class="text-surface-200 font-semibold">{{ appActivity.online }}</span>
+            <span class="text-xs text-surface-500">{{ t('applications.activity.online') }}</span>
+          </div>
+          <div class="h-5 w-px bg-surface-700/60" />
+          <div class="flex items-center gap-2">
+            <TrendingUp class="w-4 h-4 text-primary-400" />
+            <span class="text-surface-200 font-semibold">{{ appActivity.last7dLogins }}</span>
+            <span class="text-xs text-surface-500">{{ t('applications.activity.last7d') }}</span>
+          </div>
+        </div>
+        <Sparkline :values="appActivity.sparkline" :width="140" :height="32" />
+      </div>
+
       <div class="flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 w-fit overflow-x-auto">
         <button
           v-for="tab in tabs"
@@ -681,29 +762,73 @@ const financialKpis = computed(() => {
           <div class="flex justify-end">
             <BaseButton size="sm" @click="showUserModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
           </div>
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-            <div v-if="!appUsers.length" class="px-5 py-8 text-center text-sm text-surface-500">No users with access</div>
-            <div v-else class="divide-y divide-surface-800/40">
-              <div v-for="ua in appUsers" :key="ua.userId" class="px-5 py-4 flex items-center gap-4 group" :class="{ 'opacity-60': isDeletedUser(ua.userId) }">
-                <UserAvatar :name="getUserName(ua.userId)" :image="getUserImage(ua.userId)" size="sm" />
-                <div class="flex-1 min-w-0">
+          <DataTable
+            :columns="userColumns"
+            :items="appUsers"
+            :loading="loading"
+            :empty="!loading && appUsers.length === 0"
+            :row-key="(u: UserApplication) => u.userId"
+            enable-column-visibility
+            enable-density-toggle
+          >
+            <template #empty>
+              <div class="px-5 py-8 text-center text-sm text-surface-500">No users with access</div>
+            </template>
+            <template #cell-user="{ row }">
+              <div class="flex items-center gap-3" :class="{ 'opacity-60': isDeletedUser((row as UserApplication).userId) }">
+                <UserAvatar :name="getUserName((row as UserApplication).userId)" :image="getUserImage((row as UserApplication).userId)" size="sm" />
+                <div class="min-w-0">
                   <div class="flex items-center gap-2">
-                    <p class="text-sm font-medium text-surface-200">{{ getUserName(ua.userId) }}</p>
-                    <BaseBadge v-if="isDeletedUser(ua.userId)" variant="error" size="sm">{{ t('appDetail.deletedUser') }}</BaseBadge>
+                    <p class="text-sm font-medium text-surface-200 truncate">{{ getUserName((row as UserApplication).userId) }}</p>
+                    <BaseBadge v-if="isDeletedUser((row as UserApplication).userId)" variant="error" size="sm">{{ t('appDetail.deletedUser') }}</BaseBadge>
                   </div>
-                  <p class="text-xs text-surface-500">{{ getUserEmail(ua.userId) }}</p>
+                  <p class="text-xs text-surface-500 truncate">{{ getUserEmail((row as UserApplication).userId) }}</p>
                 </div>
-                <div class="flex items-center gap-2">
-                  <BaseBadge variant="neutral" size="sm">{{ getRoleName(ua.roleId) }}</BaseBadge>
-                  <BaseBadge variant="neutral" size="sm">{{ getPlanName(ua.subscriptionPlanId) }}</BaseBadge>
-                  <BaseBadge :variant="ua.isActive ? 'success' : 'neutral'" size="sm" dot>{{ ua.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
-                </div>
-                <button @click="selectedUserId = ua.userId; showDeleteUserConfirm = true" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all">
-                  <Trash2 class="w-4 h-4" />
-                </button>
               </div>
-            </div>
-          </div>
+            </template>
+            <template #cell-role="{ row }">
+              <BaseBadge variant="neutral" size="sm">{{ getRoleName((row as UserApplication).roleId) }}</BaseBadge>
+            </template>
+            <template #cell-plan="{ row }">
+              <BaseBadge variant="neutral" size="sm">{{ getPlanName((row as UserApplication).subscriptionPlanId) }}</BaseBadge>
+            </template>
+            <template #cell-status="{ row }">
+              <BaseBadge :variant="(row as UserApplication).isActive ? 'success' : 'neutral'" size="sm" dot>
+                {{ (row as UserApplication).isActive ? t('common.active') : t('common.inactive') }}
+              </BaseBadge>
+            </template>
+            <template #cell-lastLogin="{ row }">
+              <span class="text-xs text-surface-500">{{ formatLastLogin((row as UserApplication).lastLoginAt) }}</span>
+            </template>
+            <template #cell-ipAddress="{ row }">
+              <span class="text-xs text-surface-400">{{ (row as UserApplication).lastIp ?? '—' }}</span>
+            </template>
+            <template #cell-ua="{ row }">
+              <span class="text-xs text-surface-400">
+                <template v-if="(row as UserApplication).lastUserAgent">
+                  {{ parseUserAgent((row as UserApplication).lastUserAgent!).browser }} / {{ parseUserAgent((row as UserApplication).lastUserAgent!).os }}
+                </template>
+                <template v-else>—</template>
+              </span>
+            </template>
+            <template #cell-history="{ row }">
+              <button
+                @click="openHistory(row as UserApplication)"
+                class="p-1.5 rounded-lg text-surface-500 hover:text-surface-200 hover:bg-surface-700/50 transition-colors"
+                :title="t('users.history.title')"
+              >
+                <History class="w-4 h-4" />
+              </button>
+            </template>
+            <template #cell-actions="{ row }">
+              <button
+                @click="selectedUserId = (row as UserApplication).userId; showDeleteUserConfirm = true"
+                class="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all"
+              >
+                <Trash2 class="w-4 h-4" />
+              </button>
+            </template>
+          </DataTable>
         </div>
 
         <div v-if="activeTab === 'plans'" class="space-y-4">
@@ -1115,5 +1240,14 @@ const financialKpis = computed(() => {
     <ConfirmDialog :open="showRotateConfirm" :title="t('applications.rotateSecret')" :message="t('applications.rotateSecretConfirm')" :loading="formLoading" @confirm="handleRotate" @cancel="showRotateConfirm = false" />
     <ConfirmDialog :open="showDeletePermConfirm" :title="t('appDetail.deletePermission')" message="Delete this permission?" :loading="formLoading" @confirm="async () => { if (selectedPermId) { await appsApi.deletePermission(appId, selectedPermId); permissions = (await appsApi.listPermissions(appId)).permissions; showDeletePermConfirm = false; } }" @cancel="showDeletePermConfirm = false" />
     <ConfirmDialog :open="showDeletePlanConfirm" :title="t('appDetail.deletePlan')" message="Delete this plan?" :loading="formLoading" @confirm="async () => { if (selectedPlanId) { await appsApi.deletePlan(appId, selectedPlanId); plans = (await appsApi.listPlans(appId)).plans; showDeletePlanConfirm = false; } }" @cancel="showDeletePlanConfirm = false" />
+
+    <UserAppHistoryModal
+      v-if="historyModalUserId"
+      :open="historyModalOpen"
+      :app-id="appId"
+      :user-id="historyModalUserId"
+      :user-name="historyModalUserName"
+      @close="historyModalOpen = false"
+    />
   </AppLayout>
 </template>

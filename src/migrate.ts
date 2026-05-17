@@ -22,7 +22,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * Migrations that ship after a clean baseline and only ever run through this
  * runner do not need a probe.
  */
-const POST_BASELINE_PROBES: { tag: string; probe: ReturnType<typeof sql> }[] = [];
+const POST_BASELINE_PROBES: { tag: string; probe: ReturnType<typeof sql> }[] = [
+  {
+    // 0001 introduces the `login_history` table and the `user.last_login_at`
+    // column. Detect the table — it is the most distinctive artefact and
+    // cheaper than checking a column on a hot table.
+    tag: "0001_many_weapon_omega",
+    probe: sql`SELECT 1 FROM information_schema.tables
+               WHERE table_schema = 'public' AND table_name = 'login_history'`,
+  },
+];
 
 /**
  * Ensures `__drizzle_migrations` is consistent with the migrations folder.

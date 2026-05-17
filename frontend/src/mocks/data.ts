@@ -23,6 +23,11 @@ export const MOCK_USERS: User[] = [
     company: 'CIRCLE',
     position: 'Platform Engineer',
     address: '42 rue de la Paix, 75001 Paris',
+    lastLoginAt: '2024-11-15T09:23:11.000Z',
+    applications: [
+      { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Circle Dashboard', slug: 'circle-dashboard', icon: null },
+      { id: '6ba7b811-9dad-11d1-80b4-00c04fd430c8', name: 'Internal API', slug: 'internal-api', icon: null },
+    ],
   },
   {
     id: 'usr_5nRmW9tGxKqPsUvCeL7zBi',
@@ -42,6 +47,10 @@ export const MOCK_USERS: User[] = [
     company: 'Acme Corp',
     position: 'CTO',
     address: null,
+    lastLoginAt: '2024-11-14T08:21:00.000Z',
+    applications: [
+      { id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', name: 'Acme App', slug: 'acme-app', icon: 'https://acme.com/favicon.ico' },
+    ],
   },
   {
     id: 'usr_8jHkD4aNcOeQyMfTgX2rVo',
@@ -61,6 +70,8 @@ export const MOCK_USERS: User[] = [
     company: null,
     position: null,
     address: null,
+    lastLoginAt: '2024-10-22T12:08:00.000Z',
+    applications: [],
   },
   {
     id: 'usr_1cEwZ6sPiLnXbQdRkA9mFu',
@@ -80,6 +91,10 @@ export const MOCK_USERS: User[] = [
     company: 'Startup XYZ',
     position: 'Developer',
     address: null,
+    lastLoginAt: null,
+    applications: [
+      { id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', name: 'Acme App', slug: 'acme-app', icon: 'https://acme.com/favicon.ico' },
+    ],
   },
 ];
 
@@ -95,6 +110,10 @@ export const MOCK_SESSIONS: Session[] = [
     userId: 'usr_2wQx8mNpKvLrTbYcJdF3hA',
     impersonatedBy: null,
     activeOrganizationId: null,
+    user: { id: 'usr_2wQx8mNpKvLrTbYcJdF3hA', name: 'Alexandre Dubois', email: 'alexandre.dubois@example.com', image: null },
+    applications: [
+      { id: '550e8400-e29b-41d4-a716-446655440000', name: 'Circle Dashboard', slug: 'circle-dashboard', icon: null },
+    ],
   },
   {
     id: 'sess_6uZaS1fPkOeVdNbQlIrCg4',
@@ -107,6 +126,10 @@ export const MOCK_SESSIONS: Session[] = [
     userId: 'usr_5nRmW9tGxKqPsUvCeL7zBi',
     impersonatedBy: null,
     activeOrganizationId: 'org_7vBmC4dKpLqRtNsWoXeA',
+    user: { id: 'usr_5nRmW9tGxKqPsUvCeL7zBi', name: 'Sofia Marchetti', email: 'sofia.marchetti@example.com', image: 'https://api.dicebear.com/9.x/initials/svg?seed=SM' },
+    applications: [
+      { id: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', name: 'Acme App', slug: 'acme-app', icon: 'https://acme.com/favicon.ico' },
+    ],
   },
 ];
 
@@ -284,8 +307,8 @@ export const MOCK_ORGANIZATIONS: Organization[] = [
 ];
 
 export const MOCK_USER_APPLICATIONS: UserApplication[] = [
-  { userId: 'usr_5nRmW9tGxKqPsUvCeL7zBi', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000002', createdAt: '2024-03-25T10:00:00.000Z', name: 'Sofia Marchetti', email: 'sofia.marchetti@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000002' },
-  { userId: 'usr_1cEwZ6sPiLnXbQdRkA9mFu', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000001', createdAt: '2024-09-05T08:00:00.000Z', name: 'Margot Lefèvre', email: 'margot.lefevre@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000001' },
+  { userId: 'usr_5nRmW9tGxKqPsUvCeL7zBi', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000002', subscriptionPlanName: 'Pro', createdAt: '2024-03-25T10:00:00.000Z', name: 'Sofia Marchetti', email: 'sofia.marchetti@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000002', lastLoginAt: '2024-11-14T08:21:00.000Z', lastIp: '91.198.174.192', lastUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/132.0' },
+  { userId: 'usr_1cEwZ6sPiLnXbQdRkA9mFu', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000001', subscriptionPlanName: 'Free', createdAt: '2024-09-05T08:00:00.000Z', name: 'Margot Lefèvre', email: 'margot.lefevre@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000001', lastLoginAt: null, lastIp: null, lastUserAgent: null },
 ];
 
 export const MOCK_CONSUMPTION: ConsumptionAggregate[] = [

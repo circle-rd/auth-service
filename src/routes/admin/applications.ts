@@ -19,7 +19,7 @@ import {
   assignDefaultPlanIfNeeded,
 } from "../../services/claims.js";
 import { oauthClient, user as userTable } from "../../db/auth-schema.js";
-import { and, count, desc, eq, inArray, max } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -574,12 +574,17 @@ export async function applicationRoutes(
       .where(eq(userApplications.applicationId, req.params.id));
 
     const userIds = Array.from(new Set(rows.map((r) => r.userId)));
-    const lastLoginByUser = new Map<string, Date>();
+    const lastLoginByUser = new Map<
+      string,
+      { lastLoginAt: Date; lastIp: string | null; lastUserAgent: string | null }
+    >();
     if (userIds.length > 0) {
       const lastLogins = await db
-        .select({
+        .selectDistinctOn([loginHistory.userId], {
           userId: loginHistory.userId,
-          lastLoginAt: max(loginHistory.loggedAt),
+          lastLoginAt: loginHistory.loggedAt,
+          lastIp: loginHistory.ipAddress,
+          lastUserAgent: loginHistory.userAgent,
         })
         .from(loginHistory)
         .where(
@@ -588,16 +593,25 @@ export async function applicationRoutes(
             inArray(loginHistory.userId, userIds),
           ),
         )
-        .groupBy(loginHistory.userId);
+        .orderBy(loginHistory.userId, desc(loginHistory.loggedAt));
       for (const r of lastLogins) {
-        if (r.lastLoginAt) lastLoginByUser.set(r.userId, r.lastLoginAt);
+        lastLoginByUser.set(r.userId, {
+          lastLoginAt: r.lastLoginAt,
+          lastIp: r.lastIp,
+          lastUserAgent: r.lastUserAgent,
+        });
       }
     }
 
-    const enriched = rows.map((r) => ({
-      ...r,
-      lastLoginAt: lastLoginByUser.get(r.userId) ?? null,
-    }));
+    const enriched = rows.map((r) => {
+      const last = lastLoginByUser.get(r.userId);
+      return {
+        ...r,
+        lastLoginAt: last?.lastLoginAt ?? null,
+        lastIp: last?.lastIp ?? null,
+        lastUserAgent: last?.lastUserAgent ?? null,
+      };
+    });
 
     await reply.send({ users: enriched });
   });

@@ -165,6 +165,10 @@ export interface UserApplication {
   roleId: string | null
   /** Most recent login of this user to this application. */
   lastLoginAt?: string | null
+  /** IP captured at the most recent login (this app). */
+  lastIp?: string | null
+  /** User-agent captured at the most recent login (this app). */
+  lastUserAgent?: string | null
 }
 
 export interface LoginHistoryEntry {

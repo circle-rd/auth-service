@@ -22,6 +22,7 @@ import CopyField from '@/components/ui/CopyField.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
+import { parseUserAgent } from '@/composables/useUserAgent';
 import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
@@ -154,6 +155,8 @@ const userColumns = computed<ColumnDef<UserApplication>[]>(() => [
   { key: 'plan', label: 'Plan', responsive: 'md' },
   { key: 'status', label: 'Status', responsive: 'lg' },
   { key: 'lastLogin', label: t('users.columns.lastLogin'), field: 'lastLoginAt', sortable: true, responsive: 'lg' },
+  { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'lastIp', responsive: 'lg' },
+  { key: 'ua', label: t('users.columns.device'), responsive: 'lg' },
   { key: 'history', label: t('users.columns.history'), align: 'right' },
   { key: 'actions', label: t('users.columns.actions'), align: 'right' },
 ]);
@@ -794,6 +797,17 @@ const financialKpis = computed(() => {
             </template>
             <template #cell-lastLogin="{ row }">
               <span class="text-xs text-surface-500">{{ formatLastLogin((row as UserApplication).lastLoginAt) }}</span>
+            </template>
+            <template #cell-ipAddress="{ row }">
+              <span class="text-xs text-surface-400">{{ (row as UserApplication).lastIp ?? '—' }}</span>
+            </template>
+            <template #cell-ua="{ row }">
+              <span class="text-xs text-surface-400">
+                <template v-if="(row as UserApplication).lastUserAgent">
+                  {{ parseUserAgent((row as UserApplication).lastUserAgent!).browser }} / {{ parseUserAgent((row as UserApplication).lastUserAgent!).os }}
+                </template>
+                <template v-else>—</template>
+              </span>
             </template>
             <template #cell-history="{ row }">
               <button

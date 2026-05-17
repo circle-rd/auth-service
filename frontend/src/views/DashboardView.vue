@@ -104,8 +104,8 @@ const userMap = computed(() => {
 const sessionColumns = computed<ColumnDef<Session>[]>(() => [
   { key: 'user', label: t('users.columns.name') },
   { key: 'apps', label: t('users.columns.applications'), responsive: 'md' },
-  { key: 'ipAddress', label: 'IP', field: 'ipAddress', responsive: 'md' },
-  { key: 'ua', label: 'Device', responsive: 'lg' },
+  { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'ipAddress', responsive: 'md' },
+  { key: 'ua', label: t('users.columns.device'), responsive: 'lg' },
   { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true, responsive: 'lg' },
   { key: 'actions', label: t('users.columns.actions'), align: 'right' },
 ]);

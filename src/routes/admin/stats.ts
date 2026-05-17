@@ -118,6 +118,7 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
     const since = new Date();
     since.setUTCDate(since.getUTCDate() - 6);
     since.setUTCHours(0, 0, 0, 0);
+    const sinceIso = since.toISOString();
 
     const apps = await db
       .select({ id: applications.id })
@@ -134,19 +135,20 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
                  COUNT(*)::int AS count
           FROM login_history
           WHERE application_id IS NOT NULL
-            AND logged_at >= ${since}
+            AND logged_at >= ${sinceIso}::timestamptz
           GROUP BY application_id, day`,
     )) as { appId: string; day: string; count: number }[];
 
     // Online proxy: distinct users with a login event in the last 24h per app.
     const online24h = new Date();
     online24h.setUTCHours(online24h.getUTCHours() - 24);
+    const online24hIso = online24h.toISOString();
     const onlineRows = (await db.execute(
       sql`SELECT application_id AS "appId",
                  COUNT(DISTINCT user_id)::int AS online
           FROM login_history
           WHERE application_id IS NOT NULL
-            AND logged_at >= ${online24h}
+            AND logged_at >= ${online24hIso}::timestamptz
           GROUP BY application_id`,
     )) as { appId: string; online: number }[];
     const onlineByApp = new Map(onlineRows.map((r) => [r.appId, r.online]));

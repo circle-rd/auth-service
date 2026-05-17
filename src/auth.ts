@@ -154,6 +154,41 @@ export const auth = betterAuth({
       lastLoginAt: { type: "date", required: false },
     },
   },
+  // Capture every direct session creation (admin dashboard sign-in, password
+  // login, social provider callback) as a login_history row with
+  // applicationId = null. OAuth-client logins are already recorded inside
+  // `customAccessTokenClaims` with the resolved applicationId — those rows
+  // are complementary (one per token issuance, with an app id and IP/UA
+  // from the OAuth context). Fire-and-forget: failures must never break
+  // session creation.
+  databaseHooks: {
+    session: {
+      create: {
+        after: async (session) => {
+          try {
+            const s = session as {
+              userId: string;
+              id: string;
+              ipAddress?: string | null;
+              userAgent?: string | null;
+            };
+            await recordLogin({
+              userId: s.userId,
+              applicationId: null,
+              sessionId: s.id,
+              ipAddress: s.ipAddress ?? null,
+              userAgent: s.userAgent ?? null,
+            });
+          } catch (err) {
+            console.warn(
+              "[login-history] failed to record dashboard login",
+              { err: String(err) },
+            );
+          }
+        },
+      },
+    },
+  },
   plugins: [
     // Required for asymmetric JWT signing used by oauthProvider.
     // Set an explicit issuer so both the jwt plugin and oauthProvider's

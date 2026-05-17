@@ -19,7 +19,7 @@ export interface ColumnDef<Row = Record<string, unknown>> {
   key: string;
   label: string;
   field?: string;
-  responsive?: 'sm' | 'md' | 'lg' | 'xl';
+  responsive?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   align?: 'left' | 'right' | 'center';
   sortable?: boolean;
   width?: string;
@@ -37,4 +37,17 @@ export type SortDirection = 'asc' | 'desc';
 export interface SortState {
   key: string;
   direction: SortDirection;
+}
+
+/**
+ * Server-driven pagination state shared between the parent view and the
+ * DataTable toolbar. `total` is the unfiltered count of rows; `page` is
+ * 1-indexed; `limit` is the page size.
+ */
+export interface DataTablePagination {
+  page: number;
+  limit: number;
+  total: number;
+  /** Optional explicit choices shown in the rows-per-page selector. */
+  pageSizes?: number[];
 }

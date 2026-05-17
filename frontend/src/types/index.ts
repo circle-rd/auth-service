@@ -194,6 +194,8 @@ export interface UserApplicationDetail {
   isActive: boolean
   subscriptionPlanId: string | null
   roles: { id: string; name: string }[]
+  /** Most recent login of the user to this application, or null when none. */
+  lastLoginAt?: string | null
 }
 
 export interface UserSubscription {

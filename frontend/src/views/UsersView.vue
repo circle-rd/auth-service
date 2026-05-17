@@ -207,12 +207,12 @@ function formatLastLogin(iso: string | null | undefined): string {
 
 const userColumns = computed<ColumnDef<User>[]>(() => [
   { key: 'name', label: t('users.columns.name'), field: 'name', sortable: true },
-  { key: 'role', label: t('users.columns.role'), field: 'role', sortable: true, responsive: 'md' },
-  { key: 'applications', label: t('users.columns.applications'), responsive: 'lg', accessor: (r) => r.applications?.length ?? 0 },
-  { key: 'lastLogin', label: t('users.columns.lastLogin'), field: 'lastLoginAt', sortable: true, responsive: 'lg' },
-  { key: 'verified', label: t('users.columns.verified'), field: 'emailVerified', responsive: 'xl' },
-  { key: 'mfa', label: t('users.columns.mfa'), field: 'twoFactorEnabled', responsive: 'xl' },
-  { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true, responsive: 'xl' },
+  { key: 'role', label: t('users.columns.role'), field: 'role', sortable: true, responsive: 'sm' },
+  { key: 'applications', label: t('users.columns.applications'), responsive: 'md', accessor: (r) => r.applications?.length ?? 0 },
+  { key: 'lastLogin', label: t('users.columns.lastLogin'), field: 'lastLoginAt', sortable: true, responsive: 'md' },
+  { key: 'verified', label: t('users.columns.verified'), field: 'emailVerified', responsive: 'lg' },
+  { key: 'mfa', label: t('users.columns.mfa'), field: 'twoFactorEnabled', responsive: 'lg' },
+  { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true, responsive: 'lg' },
   { key: 'actions', label: t('users.columns.actions'), align: 'right' },
 ]);
 

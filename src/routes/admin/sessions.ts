@@ -3,7 +3,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import { db } from "../../db/index.js";
 import { session as sessionTable, user as userTable } from "../../db/auth-schema.js";
 import { applications, loginHistory } from "../../db/schema.js";
-import { and, count, desc, eq, gt, gte, inArray } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, ilike, inArray, or, type SQL } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 
@@ -42,12 +42,28 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
     const page = Math.max(1, parseInt(query.page ?? "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "20", 10)));
     const offset = (page - 1) * limit;
+    const search = query.search?.trim();
     const now = new Date();
+
+    // Search matches user name, email or session IP. Built as a single OR
+    // expression so we can reuse it for both COUNT and SELECT below.
+    const conditions: SQL[] = [gt(sessionTable.expiresAt, now)];
+    if (search) {
+      const pattern = `%${search}%`;
+      const orExpr = or(
+        ilike(userTable.name, pattern),
+        ilike(userTable.email, pattern),
+        ilike(sessionTable.ipAddress, pattern),
+      );
+      if (orExpr) conditions.push(orExpr);
+    }
+    const whereExpr = conditions.length === 1 ? conditions[0] : and(...conditions);
 
     const [{ total }] = await db
       .select({ total: count() })
       .from(sessionTable)
-      .where(gt(sessionTable.expiresAt, now));
+      .leftJoin(userTable, eq(sessionTable.userId, userTable.id))
+      .where(whereExpr);
 
     const list = await db
       .select({
@@ -63,7 +79,7 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
       })
       .from(sessionTable)
       .leftJoin(userTable, eq(sessionTable.userId, userTable.id))
-      .where(gt(sessionTable.expiresAt, now))
+      .where(whereExpr)
       .orderBy(desc(sessionTable.createdAt))
       .limit(limit)
       .offset(offset);

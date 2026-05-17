@@ -9,15 +9,17 @@ import { listSessions, revokeSession } from '@/api/sessions';
 import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
 import { getActiveUsers, getLogins, type LoginsSeriesPoint } from '@/api/stats';
+import { useDebounce } from '@/composables/useDebounce';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import StatCard from '@/components/ui/StatCard.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import BaseSelect from '@/components/ui/BaseSelect.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import AppIconStack from '@/components/ui/AppIconStack.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import type { Session, User, Application, Organization } from '@/types';
-import type { ColumnDef } from '@/types/data-table';
+import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import {
   Users, MonitorSmartphone, AppWindow, Building2, Activity,
   AlertTriangle, Info, UserPlus, Plus, Settings, Clock,
@@ -37,8 +39,18 @@ const sessions = ref<Session[]>([]);
 const applications = ref<Application[]>([]);
 const organizations = ref<Organization[]>([]);
 const loading = ref(true);
+const sessionsLoading = ref(true);
 const timeRange = ref<'7d' | '30d'>('7d');
 const lastRefreshed = ref(new Date());
+
+// Server-driven state for the sessions table. Search is debounced so the
+// user can type a query without firing one request per keystroke.
+const sessionPage = ref(1);
+const sessionLimit = ref(20);
+const sessionTotal = ref(0);
+const sessionSearch = ref('');
+const sessionAppFilter = ref('');
+const debouncedSessionSearch = useDebounce(sessionSearch, 300);
 
 const onlineCount = ref<number | null>(null);
 const loginsSeries = ref<LoginsSeriesPoint[]>([]);
@@ -71,15 +83,14 @@ onMounted(async () => {
     services.fetch(),
     fetchOnline(),
     fetchLogins(),
+    loadSessions(),
     (async () => {
-      const [u, s, a, o] = await Promise.all([
+      const [u, a, o] = await Promise.all([
         listUsers({ limit: 100 }),
-        listSessions({ limit: 100 }),
         listApplications(),
         listOrganizations(),
       ]);
       users.value = u.users;
-      sessions.value = s.sessions;
       applications.value = a.applications;
       organizations.value = o.organizations;
       lastRefreshed.value = new Date();
@@ -88,6 +99,32 @@ onMounted(async () => {
   loading.value = false;
   onlinePollHandle = setInterval(fetchOnline, 30_000);
 });
+
+async function loadSessions() {
+  sessionsLoading.value = true;
+  try {
+    const res = await listSessions({
+      page: sessionPage.value,
+      limit: sessionLimit.value,
+      search: debouncedSessionSearch.value || undefined,
+    });
+    sessions.value = res.sessions;
+    sessionTotal.value = res.total;
+    lastRefreshed.value = new Date();
+  } finally {
+    sessionsLoading.value = false;
+  }
+}
+
+watch(debouncedSessionSearch, () => {
+  sessionPage.value = 1;
+  void loadSessions();
+});
+watch(sessionLimit, () => {
+  sessionPage.value = 1;
+  void loadSessions();
+});
+watch(sessionPage, () => { void loadSessions(); });
 
 onUnmounted(() => {
   if (onlinePollHandle) clearInterval(onlinePollHandle);
@@ -103,12 +140,30 @@ const userMap = computed(() => {
 
 const sessionColumns = computed<ColumnDef<Session>[]>(() => [
   { key: 'user', label: t('users.columns.name') },
-  { key: 'apps', label: t('users.columns.applications'), responsive: 'md' },
-  { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'ipAddress', responsive: 'md' },
-  { key: 'ua', label: t('users.columns.device'), responsive: 'lg' },
-  { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true, responsive: 'lg' },
+  { key: 'apps', label: t('users.columns.applications') },
+  { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'ipAddress' },
+  { key: 'ua', label: t('users.columns.device') },
+  { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true },
   { key: 'actions', label: t('users.columns.actions'), align: 'right' },
 ]);
+
+// Client-side filter on application slug, applied to the page returned by
+// the server. Acceptable because the page size is bounded by the limit.
+const filteredSessions = computed(() => {
+  if (!sessionAppFilter.value) return sessions.value;
+  return sessions.value.filter(s => (s.applications ?? []).some(a => a.id === sessionAppFilter.value));
+});
+
+const appFilterOptions = computed(() => [
+  { value: '', label: t('dashboard.allApplications') },
+  ...applications.value.map(a => ({ value: a.id, label: a.name })),
+]);
+
+const sessionPagination = computed<DataTablePagination>(() => ({
+  page: sessionPage.value,
+  limit: sessionLimit.value,
+  total: sessionTotal.value,
+}));
 
 function generateDateLabels(days: number): string[] {
   return Array.from({ length: days }, (_, i) => {
@@ -181,6 +236,7 @@ const hasNoMfa = computed(() => !users.value.some(u => u.twoFactorEnabled || u.i
 
 async function handleRevoke(session: Session) {
   await revokeSession(session.id);
+  await loadSessions();
 }
 
 function formatDate(iso: string): string {
@@ -294,16 +350,27 @@ void d;
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
         <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
           <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.activeSessionsList') }}</p>
-          <span class="text-xs text-surface-500">{{ sessions.length }} {{ t('common.total').toLowerCase() }}</span>
+          <span class="text-xs text-surface-500">{{ sessionTotal }} {{ t('common.total').toLowerCase() }}</span>
         </div>
         <div class="p-3">
           <DataTable
             :columns="sessionColumns"
-            :items="sessions"
-            :loading="loading"
-            :empty="!loading && sessions.length === 0"
+            :items="filteredSessions"
+            :loading="sessionsLoading"
+            :empty="!sessionsLoading && filteredSessions.length === 0"
             :row-key="(s: Session) => s.id"
+            searchable
+            :search="sessionSearch"
+            :pagination="sessionPagination"
+            enable-column-visibility
+            enable-density-toggle
+            @update:search="sessionSearch = $event"
+            @update:page="sessionPage = $event"
+            @update:limit="sessionLimit = $event"
           >
+            <template #filters>
+              <BaseSelect v-model="sessionAppFilter" :options="appFilterOptions" class="w-48" />
+            </template>
             <template #empty>
               <div class="px-5 py-10 text-center text-sm text-surface-500">No active sessions</div>
             </template>

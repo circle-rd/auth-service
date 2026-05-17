@@ -13,7 +13,7 @@ import {
   loginHistory,
 } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
-import { and, count, eq, inArray, max } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 
@@ -237,9 +237,28 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       rolesByApp.set(r.applicationId, existing);
     }
 
+    // Most recent login per application for this user. One round trip,
+    // one row per applicationId — Postgres-only selectDistinctOn is fine
+    // because the project pins on postgres.js.
+    const lastLoginRows = await db
+      .selectDistinctOn([loginHistory.applicationId], {
+        applicationId: loginHistory.applicationId,
+        lastLoginAt: loginHistory.loggedAt,
+      })
+      .from(loginHistory)
+      .where(eq(loginHistory.userId, req.params.id))
+      .orderBy(loginHistory.applicationId, desc(loginHistory.loggedAt));
+    const lastLoginByApp = new Map<string, Date>();
+    for (const r of lastLoginRows) {
+      if (r.applicationId && r.lastLoginAt) {
+        lastLoginByApp.set(r.applicationId, r.lastLoginAt);
+      }
+    }
+
     const appsWithRoles = appAccess.map((app) => ({
       ...app,
       roles: rolesByApp.get(app.id) ?? [],
+      lastLoginAt: lastLoginByApp.get(app.id) ?? null,
     }));
 
     await reply.send({ user, applications: appsWithRoles });

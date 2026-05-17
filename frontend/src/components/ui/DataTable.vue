@@ -1,7 +1,8 @@
 <script setup lang="ts" generic="Row extends Record<string, unknown>">
 import { computed, ref, watch } from 'vue';
-import { ChevronUp, ChevronDown, ChevronsUpDown, Columns3, Rows3, Rows4 } from 'lucide-vue-next';
-import type { ColumnDef, SortState } from '@/types/data-table';
+import { ChevronUp, ChevronDown, ChevronsUpDown, Columns3, Rows3, Rows4, Search, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { useI18n } from 'vue-i18n';
+import type { ColumnDef, DataTablePagination, SortState } from '@/types/data-table';
 
 const props = withDefaults(defineProps<{
   /** Optional column-driven mode. When provided, the table auto-renders headers and rows. */
@@ -29,6 +30,18 @@ const props = withDefaults(defineProps<{
   enableColumnVisibility?: boolean;
   /** Allow users to switch between comfortable and compact row density. */
   enableDensityToggle?: boolean;
+  /** Render the built-in search input (bound through `v-model:search`). */
+  searchable?: boolean;
+  /** Current search string. Use with `v-model:search` for two-way binding. */
+  search?: string;
+  /** Placeholder shown in the search input. Defaults to the i18n `common.search` label. */
+  searchPlaceholder?: string;
+  /**
+   * Server-driven pagination metadata. Triggers the footer with prev/next
+   * controls and the rows-per-page selector. Emits `update:page` and
+   * `update:limit` when the user interacts.
+   */
+  pagination?: DataTablePagination | null;
 }>(), {
   loading: false,
   empty: false,
@@ -37,12 +50,21 @@ const props = withDefaults(defineProps<{
   toolbar: false,
   enableColumnVisibility: false,
   enableDensityToggle: false,
+  searchable: false,
+  search: '',
+  searchPlaceholder: '',
+  pagination: null,
 });
 
 const emit = defineEmits<{
   (e: 'update:sort', value: SortState | null): void;
   (e: 'row-click', row: Row): void;
+  (e: 'update:search', value: string): void;
+  (e: 'update:page', value: number): void;
+  (e: 'update:limit', value: number): void;
 }>();
+
+const { t } = useI18n();
 
 const density = ref<'comfortable' | 'compact'>('comfortable');
 function toggleDensity() {
@@ -122,8 +144,19 @@ function alignClass(col: ColumnDef<Row>): string {
 }
 
 function responsiveClass(col: ColumnDef<Row>): string {
+  // Static class map — Tailwind's JIT scanner only sees fully-formed class
+  // names in source. Concatenating `hidden ${breakpoint}:table-cell` would
+  // be silently dropped at build time, causing columns to stay hidden at
+  // every viewport. Listing the literals keeps them in the generated CSS.
   if (!col.responsive) return '';
-  return `hidden ${col.responsive}:table-cell`;
+  switch (col.responsive) {
+    case 'sm': return 'hidden sm:table-cell';
+    case 'md': return 'hidden md:table-cell';
+    case 'lg': return 'hidden lg:table-cell';
+    case 'xl': return 'hidden xl:table-cell';
+    case '2xl': return 'hidden 2xl:table-cell';
+    default: return '';
+  }
 }
 
 function defaultRowKey(row: Row, idx: number): string | number {
@@ -132,11 +165,68 @@ function defaultRowKey(row: Row, idx: number): string | number {
   if (typeof id === 'string' || typeof id === 'number') return id;
   return idx;
 }
+
+// ── Search ─────────────────────────────────────────────────────────────
+// Mirrors the `search` prop in a local ref so the input stays controllable
+// even when the parent uses simple one-way binding (no v-model).
+const searchValue = ref(props.search ?? '');
+watch(() => props.search, (v) => { searchValue.value = v ?? ''; });
+function onSearchInput(event: Event) {
+  const v = (event.target as HTMLInputElement).value;
+  searchValue.value = v;
+  emit('update:search', v);
+}
+
+// ── Pagination ─────────────────────────────────────────────────────────
+const pageCount = computed(() => {
+  if (!props.pagination) return 1;
+  return Math.max(1, Math.ceil(props.pagination.total / props.pagination.limit));
+});
+const pageStart = computed(() => {
+  if (!props.pagination || props.pagination.total === 0) return 0;
+  return (props.pagination.page - 1) * props.pagination.limit + 1;
+});
+const pageEnd = computed(() => {
+  if (!props.pagination) return 0;
+  return Math.min(props.pagination.total, props.pagination.page * props.pagination.limit);
+});
+function setPage(p: number) {
+  if (!props.pagination) return;
+  const next = Math.min(Math.max(1, p), pageCount.value);
+  if (next !== props.pagination.page) emit('update:page', next);
+}
+function onLimitChange(event: Event) {
+  const next = parseInt((event.target as HTMLSelectElement).value, 10);
+  if (!Number.isFinite(next) || next < 1) return;
+  emit('update:limit', next);
+}
+const defaultPageSizes = [10, 20, 50, 100];
+const pageSizes = computed(() => props.pagination?.pageSizes ?? defaultPageSizes);
+
+const showToolbar = computed(() =>
+  props.toolbar
+  || props.enableColumnVisibility
+  || props.enableDensityToggle
+  || props.searchable,
+);
 </script>
 
 <template>
   <div class="space-y-3">
-    <div v-if="toolbar || enableColumnVisibility || enableDensityToggle" class="flex items-center gap-2 flex-wrap">
+    <div v-if="showToolbar" class="flex items-center gap-2 flex-wrap">
+      <div v-if="searchable" class="relative w-full sm:w-64 shrink-0">
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+        <input
+          type="search"
+          :value="searchValue"
+          @input="onSearchInput"
+          :placeholder="searchPlaceholder || t('common.search')"
+          class="w-full pl-9 pr-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500"
+        />
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <slot name="filters" />
+      </div>
       <div class="flex-1 min-w-0">
         <slot name="toolbar" />
       </div>
@@ -263,6 +353,47 @@ function defaultRowKey(row: Row, idx: number): string | number {
             <slot />
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <div
+      v-if="pagination"
+      class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm text-surface-400"
+    >
+      <div class="flex items-center gap-2">
+        <label class="text-xs text-surface-500">{{ t('dataTable.rowsPerPage') }}</label>
+        <select
+          :value="pagination.limit"
+          @change="onLimitChange"
+          class="text-xs bg-surface-800 border border-surface-600 rounded-lg px-2 py-1 text-surface-200 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+        >
+          <option v-for="sz in pageSizes" :key="sz" :value="sz">{{ sz }}</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-surface-500 tabular-nums">
+          {{ t('dataTable.pageOf', { from: pageStart, to: pageEnd, total: pagination.total }) }}
+        </span>
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            :disabled="pagination.page <= 1"
+            @click="setPage(pagination.page - 1)"
+            class="p-1.5 rounded-lg text-surface-500 hover:text-surface-200 hover:bg-surface-800/60 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+            :title="t('dataTable.previous')"
+          >
+            <ChevronLeft class="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            :disabled="pagination.page >= pageCount"
+            @click="setPage(pagination.page + 1)"
+            class="p-1.5 rounded-lg text-surface-500 hover:text-surface-200 hover:bg-surface-800/60 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+            :title="t('dataTable.next')"
+          >
+            <ChevronRight class="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   </div>

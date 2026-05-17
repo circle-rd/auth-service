@@ -9,16 +9,26 @@ export interface SessionsListResponse {
   limit: number
 }
 
-export async function listSessions(params: { page?: number; limit?: number } = {}): Promise<SessionsListResponse> {
+export async function listSessions(params: { page?: number; limit?: number; search?: string } = {}): Promise<SessionsListResponse> {
   if (USE_MOCK) {
     const page = params.page ?? 1;
     const limit = params.limit ?? 20;
+    const search = params.search?.trim().toLowerCase() ?? '';
+    let pool = MOCK_SESSIONS;
+    if (search) {
+      pool = pool.filter(s =>
+        (s.user?.name ?? '').toLowerCase().includes(search)
+        || (s.user?.email ?? '').toLowerCase().includes(search)
+        || (s.ipAddress ?? '').toLowerCase().includes(search),
+      );
+    }
     const start = (page - 1) * limit;
-    return { sessions: MOCK_SESSIONS.slice(start, start + limit), total: MOCK_SESSIONS.length, page, limit };
+    return { sessions: pool.slice(start, start + limit), total: pool.length, page, limit };
   }
   const qs = new URLSearchParams();
   if (params.page) qs.set('page', String(params.page));
   if (params.limit) qs.set('limit', String(params.limit));
+  if (params.search) qs.set('search', params.search);
   return apiFetch<SessionsListResponse>(`/admin/sessions?${qs}`);
 }
 

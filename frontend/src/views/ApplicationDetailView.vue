@@ -151,19 +151,21 @@ async function loadAppActivity() {
 
 const userColumns = computed<ColumnDef<UserApplication>[]>(() => [
   { key: 'user', label: t('users.columns.name') },
-  { key: 'role', label: t('users.columns.role'), responsive: 'md' },
-  { key: 'plan', label: 'Plan', responsive: 'md' },
-  { key: 'status', label: 'Status', responsive: 'lg' },
-  { key: 'lastLogin', label: t('users.columns.lastLogin'), field: 'lastLoginAt', sortable: true, responsive: 'lg' },
+  { key: 'role', label: t('users.columns.role'), responsive: 'sm' },
+  { key: 'plan', label: 'Plan', responsive: 'sm' },
+  { key: 'status', label: 'Status', responsive: 'md' },
+  { key: 'lastLogin', label: t('users.columns.lastLogin'), field: 'lastLoginAt', sortable: true, responsive: 'md' },
   { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'lastIp', responsive: 'lg' },
   { key: 'ua', label: t('users.columns.device'), responsive: 'lg' },
   { key: 'history', label: t('users.columns.history'), align: 'right' },
   { key: 'actions', label: t('users.columns.actions'), align: 'right' },
 ]);
 
+// Format with date + time (per spec) so admins can see at a glance the
+// exact moment of the last successful login on this application.
 function formatLastLogin(iso: string | null | undefined): string {
   if (!iso) return t('users.never');
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 async function handleCreateRole() {

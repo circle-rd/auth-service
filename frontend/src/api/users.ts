@@ -60,7 +60,7 @@ export async function getUser(id: string): Promise<UserDetailResponse> {
     if (!user) throw new Error('User not found');
     const apps: UserApplicationDetail[] = MOCK_USER_APPLICATIONS
       .filter(a => a.userId === id)
-      .map(a => ({ id: a.applicationId, name: a.name ?? a.applicationId, slug: a.applicationId, icon: null, isActive: a.isActive, subscriptionPlanId: a.subscriptionPlanId, roles: a.roleId ? [{ id: a.roleId, name: a.roleId }] : [] }));
+      .map(a => ({ id: a.applicationId, name: a.name ?? a.applicationId, slug: a.applicationId, icon: null, isActive: a.isActive, subscriptionPlanId: a.subscriptionPlanId, roles: a.roleId ? [{ id: a.roleId, name: a.roleId }] : [], lastLoginAt: a.lastLoginAt ?? null }));
     return { user, applications: apps };
   }
   return apiFetch<UserDetailResponse>(`/admin/users/${id}`);

@@ -290,6 +290,8 @@ const editModalTags = computed(() => {
         :row-key="(u: User) => u.id"
         enable-column-visibility
         enable-density-toggle
+        clickable-rows
+        @row-click="(u: User) => router.push(`/users/${u.id}`)"
       >
         <template #empty>
           <EmptyState :title="t('users.noUsers')" :message="t('users.noUsersMessage')">

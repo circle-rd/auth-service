@@ -11,6 +11,7 @@ import {
   consumptionEntries,
   consumptionAggregates,
   loginHistory,
+  subscriptionPlans,
 } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
 import { and, count, desc, eq, inArray, max } from "drizzle-orm";
@@ -201,7 +202,9 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       .catch(() => null);
     if (!user) throw ERR.USR_001();
 
-    // Get user's app access with application details
+    // Get user's app access with application details. Left-join the plan
+    // table so the UI can display the human-readable plan name instead of
+    // the raw UUID stored on user_applications.
     const appAccess = await db
       .select({
         id: applications.id,
@@ -210,11 +213,16 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         icon: applications.icon,
         isActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
+        subscriptionPlanName: subscriptionPlans.name,
       })
       .from(userApplications)
       .innerJoin(
         applications,
         eq(userApplications.applicationId, applications.id),
+      )
+      .leftJoin(
+        subscriptionPlans,
+        eq(userApplications.subscriptionPlanId, subscriptionPlans.id),
       )
       .where(eq(userApplications.userId, req.params.id));
 

@@ -307,8 +307,8 @@ export const MOCK_ORGANIZATIONS: Organization[] = [
 ];
 
 export const MOCK_USER_APPLICATIONS: UserApplication[] = [
-  { userId: 'usr_5nRmW9tGxKqPsUvCeL7zBi', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000002', createdAt: '2024-03-25T10:00:00.000Z', name: 'Sofia Marchetti', email: 'sofia.marchetti@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000002', lastLoginAt: '2024-11-14T08:21:00.000Z', lastIp: '91.198.174.192', lastUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/132.0' },
-  { userId: 'usr_1cEwZ6sPiLnXbQdRkA9mFu', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000001', createdAt: '2024-09-05T08:00:00.000Z', name: 'Margot Lefèvre', email: 'margot.lefevre@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000001', lastLoginAt: null, lastIp: null, lastUserAgent: null },
+  { userId: 'usr_5nRmW9tGxKqPsUvCeL7zBi', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000002', subscriptionPlanName: 'Pro', createdAt: '2024-03-25T10:00:00.000Z', name: 'Sofia Marchetti', email: 'sofia.marchetti@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000002', lastLoginAt: '2024-11-14T08:21:00.000Z', lastIp: '91.198.174.192', lastUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/132.0' },
+  { userId: 'usr_1cEwZ6sPiLnXbQdRkA9mFu', applicationId: '6ba7b810-9dad-11d1-80b4-00c04fd430c8', isActive: true, subscriptionPlanId: 'plan-0001-0000-0000-000000000001', subscriptionPlanName: 'Free', createdAt: '2024-09-05T08:00:00.000Z', name: 'Margot Lefèvre', email: 'margot.lefevre@example.com', roleId: 'a1b2c3d4-0001-0000-0000-000000000001', lastLoginAt: null, lastIp: null, lastUserAgent: null },
 ];
 
 export const MOCK_CONSUMPTION: ConsumptionAggregate[] = [

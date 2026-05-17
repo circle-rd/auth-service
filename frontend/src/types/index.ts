@@ -158,6 +158,7 @@ export interface UserApplication {
   applicationId: string
   isActive: boolean
   subscriptionPlanId: string | null
+  subscriptionPlanName?: string | null
   createdAt: string
   name: string | null
   email: string | null
@@ -193,6 +194,7 @@ export interface UserApplicationDetail {
   icon: string | null
   isActive: boolean
   subscriptionPlanId: string | null
+  subscriptionPlanName?: string | null
   roles: { id: string; name: string }[]
   /** Most recent login of the user to this application, or null when none. */
   lastLoginAt?: string | null

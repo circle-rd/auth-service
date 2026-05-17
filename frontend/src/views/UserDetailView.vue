@@ -175,7 +175,7 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
                 </div>
               </template>
               <template #cell-plan="{ row }">
-                <span class="text-xs text-surface-400">{{ (row as UserApplicationDetail).subscriptionPlanId ?? '—' }}</span>
+                <span class="text-xs text-surface-400">{{ (row as UserApplicationDetail).subscriptionPlanName ?? (row as UserApplicationDetail).subscriptionPlanId ?? '—' }}</span>
               </template>
               <template #cell-status="{ row }">
                 <BaseBadge :variant="(row as UserApplicationDetail).isActive ? 'success' : 'neutral'" size="sm" dot>

@@ -42,6 +42,8 @@ const props = withDefaults(defineProps<{
    * `update:limit` when the user interacts.
    */
   pagination?: DataTablePagination | null;
+  /** When true, rows render with `cursor-pointer`. Pair with `@row-click`. */
+  clickableRows?: boolean;
 }>(), {
   loading: false,
   empty: false,
@@ -54,6 +56,7 @@ const props = withDefaults(defineProps<{
   search: '',
   searchPlaceholder: '',
   pagination: null,
+  clickableRows: false,
 });
 
 const emit = defineEmits<{
@@ -334,7 +337,10 @@ const showToolbar = computed(() =>
             <tr
               v-for="(row, idx) in sortedItems"
               :key="defaultRowKey(row, idx)"
-              class="border-b border-surface-800/50 last:border-0 hover:bg-surface-800/20 transition-colors"
+              :class="[
+                'border-b border-surface-800/50 last:border-0 hover:bg-surface-800/20 transition-colors',
+                clickableRows ? 'cursor-pointer' : '',
+              ]"
               @click="emit('row-click', row)"
             >
               <td

@@ -68,11 +68,11 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
   // Distinct users with at least one non-expired session — i.e. currently online.
   fastify.get("/active-users", async (_req, reply) => {
     const now = new Date();
-    const [{ online }] = await db
-      .select({ online: countDistinct(sessionTable.userId) })
+    const [{ count }] = await db
+      .select({ count: countDistinct(sessionTable.userId) })
       .from(sessionTable)
       .where(gt(sessionTable.expiresAt, now));
-    await reply.send({ online });
+    await reply.send({ count });
   });
 
   // GET /api/admin/stats/logins?range=7d|30d&appId=<uuid>
@@ -165,7 +165,7 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
         appId: a.id,
         online: onlineByApp.get(a.id) ?? 0,
         last7dLogins,
-        sparkline: series,
+        sparkline: series.map((p) => p.count),
       };
     });
 

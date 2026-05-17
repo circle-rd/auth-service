@@ -70,10 +70,10 @@ describe("Admin — statsRoutes", () => {
 
   it("GET /active-users → returns distinct online count", async () => {
     mockGetSession.mockResolvedValueOnce(adminSession);
-    mockDb.select.mockImplementationOnce(() => makeChain([{ online: 3 }]));
+    mockDb.select.mockImplementationOnce(() => makeChain([{ count: 3 }]));
     const res = await app.inject({ method: "GET", url: "/active-users" });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body)).toEqual({ online: 3 });
+    expect(JSON.parse(res.body)).toEqual({ count: 3 });
   });
 
   // ── /logins ────────────────────────────────────────────────────────────
@@ -158,13 +158,14 @@ describe("Admin — statsRoutes", () => {
         appId: string;
         online: number;
         last7dLogins: number;
-        sparkline: unknown[];
+        sparkline: number[];
       }[];
     };
     expect(body.applications).toHaveLength(2);
     const app1 = body.applications.find((a) => a.appId === "app-1");
     expect(app1?.online).toBe(2);
     expect(app1?.sparkline).toHaveLength(7);
+    expect(app1?.sparkline.every((n) => typeof n === "number")).toBe(true);
     const app2 = body.applications.find((a) => a.appId === "app-2");
     expect(app2?.online).toBe(0);
     expect(app2?.last7dLogins).toBe(0);

@@ -380,19 +380,19 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       .limit(1);
     if (!targetRow) throw ERR.USR_001();
 
-    const callerRole = await getCallerRole(req);
-
-    // Admins cannot delete other admins or superadmins
-    if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
-      throw ERR.AUTH_001("Insufficient permissions to delete this user");
-    }
-
-    // Prevent anyone from deleting themselves
+    // Prevent anyone from deleting themselves (takes precedence over role checks)
     const session = await auth.api.getSession({
       headers: fromNodeHeaders(req.headers),
     });
     if (session?.user.id === req.params.id) {
       throw ERR.USR_003("You cannot delete your own account");
+    }
+
+    const callerRole = await getCallerRole(req);
+
+    // Admins cannot delete other admins or superadmins
+    if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
+      throw ERR.AUTH_001("Insufficient permissions to delete this user");
     }
 
     // Prevent deleting the last superadmin

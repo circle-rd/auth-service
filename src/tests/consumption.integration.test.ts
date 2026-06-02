@@ -222,7 +222,7 @@ describe("consumptionRoutes integration", () => {
     asAdmin();
     const res = await app.inject({
       method: "GET",
-      url: `/${userId}/${seededApp.id}/missing-key`,
+      url: `/${userId}/${seededApp.id}/missingkey`,
     });
     expect(res.statusCode).toBe(404);
   });

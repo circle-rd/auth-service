@@ -42,6 +42,11 @@ import { eq, isNotNull } from "drizzle-orm";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const fastify = Fastify({
+  // Trust the reverse-proxy chain (sni-router) so `req.ip` reflects the real
+  // client address from `X-Forwarded-For` instead of the proxy's address — and,
+  // crucially, so a client-forged `X-Forwarded-For` cannot move the rate-limit
+  // bucket. The number of trusted hops is configurable (TRUST_PROXY_HOPS).
+  trustProxy: config.trustProxyHops,
   logger: {
     level: config.isDev ? "debug" : "info",
     transport: config.isDev
@@ -85,9 +90,10 @@ await fastify.register(rateLimit, {
   global: true,
   max: 600,
   timeWindow: "1 minute",
-  keyGenerator: (req) =>
-    (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ??
-    req.ip,
+  // `req.ip` is the proxy-resolved client address (see Fastify `trustProxy`
+  // above). Using it directly prevents a forged `X-Forwarded-For` header from
+  // minting a fresh bucket on every request.
+  keyGenerator: (req) => req.ip,
   allowList: (req) => {
     const url = req.url ?? "";
     return RATE_LIMIT_EXEMPT_PATHS.some((p) => url.startsWith(p));
@@ -369,10 +375,9 @@ fastify.addHook("onRequest", (req, reply, done) => {
     // Rate-limit sensitive auth endpoints
     const urlPath = req.url.split("?")[0] ?? "";
     if (AUTH_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))) {
-      const ip =
-        (req.headers["x-forwarded-for"] as string | undefined)
-          ?.split(",")[0]
-          ?.trim() ?? req.socket.remoteAddress ?? "unknown";
+      // `req.ip` is proxy-resolved (Fastify `trustProxy`), so a forged
+      // `X-Forwarded-For` cannot reset the per-IP brute-force counter.
+      const ip = req.ip ?? "unknown";
       if (!checkAuthRateLimit(ip)) {
         reply.raw.writeHead(429, { "Content-Type": "application/json" });
         reply.raw.end(JSON.stringify({ error: "Too many requests", code: "RATE_LIMITED" }));

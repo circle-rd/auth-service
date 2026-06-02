@@ -8,7 +8,7 @@ import { config } from "../config.js";
 function createStripeClient(): Stripe | null {
   if (!config.stripe.secretKey) return null;
   return new Stripe(config.stripe.secretKey, {
-    apiVersion: "2026-03-25.dahlia",
+    apiVersion: "2026-05-27.dahlia",
     typescript: true,
   });
 }

@@ -57,6 +57,16 @@ async function seedUser(
 
 type SessionLike = ReturnType<typeof auth.api.getSession> extends Promise<infer T> ? T : never;
 
+// `getUser` is not part of the statically-typed BetterAuth API surface, so we
+// spy on it through a structural cast that still exposes the mock helpers
+// (vitest 4 returns `MockInstance<never>` when the key is not in the type).
+function spyGetUser() {
+  return vi.spyOn(
+    auth.api as unknown as Record<string, () => Promise<unknown>>,
+    "getUser",
+  );
+}
+
 function asAdmin() {
   vi.spyOn(auth.api, "getSession").mockResolvedValue(
     makeAdminSession() as SessionLike,
@@ -116,7 +126,7 @@ describe("Admin — usersRoutes integration", () => {
     asSuperadmin("sa-caller");
 
     // auth.api.getUser returns the target
-    vi.spyOn(auth.api, "getUser" as never).mockResolvedValue({
+    spyGetUser().mockResolvedValue({
       id: "sa-1",
       role: "superadmin",
       email: "sa-1@example.com",
@@ -138,7 +148,7 @@ describe("Admin — usersRoutes integration", () => {
 
     asSuperadmin("sa-2");
 
-    vi.spyOn(auth.api, "getUser" as never).mockResolvedValue({
+    spyGetUser().mockResolvedValue({
       id: "sa-1",
       role: "superadmin",
       email: "sa-1@example.com",
@@ -153,7 +163,7 @@ describe("Admin — usersRoutes integration", () => {
 
     asAdmin();
 
-    vi.spyOn(auth.api, "getUser" as never).mockResolvedValue({
+    spyGetUser().mockResolvedValue({
       id: "u-target",
       role: "user",
       email: "u-target@example.com",
@@ -177,7 +187,7 @@ describe("Admin — usersRoutes integration", () => {
     vi.spyOn(auth.api, "getSession").mockResolvedValue(
       makeAdminSession("admin-1") as SessionLike,
     );
-    vi.spyOn(auth.api, "getUser" as never).mockResolvedValue({
+    spyGetUser().mockResolvedValue({
       id: "admin-1",
       role: "admin",
       email: "admin-1@example.com",
@@ -191,7 +201,7 @@ describe("Admin — usersRoutes integration", () => {
 
   it("DELETE /:id → 404 when user not found", async () => {
     asAdmin();
-    vi.spyOn(auth.api, "getUser" as never).mockRejectedValue(
+    spyGetUser().mockRejectedValue(
       new Error("Not found"),
     );
 

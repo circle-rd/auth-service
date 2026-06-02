@@ -104,7 +104,7 @@ describe("consumptionRoutes integration", () => {
       method: "POST",
       url: "/",
       payload: {
-        applicationId: "00000000-0000-0000-0000-000000000001",
+        applicationId: "11111111-1111-4111-8111-111111111111",
         userId: "nonexistent",
         key: "tokens",
         value: 10,
@@ -222,7 +222,7 @@ describe("consumptionRoutes integration", () => {
     asAdmin();
     const res = await app.inject({
       method: "GET",
-      url: `/${userId}/${seededApp.id}/missing-key`,
+      url: `/${userId}/${seededApp.id}/missingkey`,
     });
     expect(res.statusCode).toBe(404);
   });

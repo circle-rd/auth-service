@@ -26,7 +26,7 @@ const postConsumptionSchema = z.object({
 });
 
 const userAppParamsSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().min(1),
   applicationId: z.string().uuid(),
 });
 

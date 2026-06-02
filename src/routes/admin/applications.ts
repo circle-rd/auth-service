@@ -143,7 +143,7 @@ const RESERVED_JWT_CLAIMS = new Set([
  * EMQX 5 JWT authn / client attributes spec). Keep keys to safe identifiers.
  */
 const metadataSchema = z
-  .record(z.string().max(256))
+  .record(z.string(), z.string().max(256))
   .refine(
     (m) => Object.keys(m).every((k) => !RESERVED_JWT_CLAIMS.has(k)),
     { message: "metadata keys must not collide with reserved JWT claims" },
@@ -177,6 +177,27 @@ async function requireAdmin(
   }
 }
 
+/**
+ * Ensure a role belongs to the given application before it is assigned to a
+ * user. Without this check an admin could attach a `roleId` from a different
+ * application (the `userAppRoles` insert does not constrain the role's owning
+ * app), leaking that app's role name / permissions into the target app's
+ * tokens via `getUserClaims`. Throws APP_001 on mismatch or unknown role.
+ */
+async function assertRoleBelongsToApp(
+  roleId: string,
+  applicationId: string,
+): Promise<void> {
+  const [row] = await db
+    .select({ id: appRoles.id })
+    .from(appRoles)
+    .where(and(eq(appRoles.id, roleId), eq(appRoles.applicationId, applicationId)))
+    .limit(1);
+  if (!row) {
+    throw ERR.APP_001("Role does not belong to this application");
+  }
+}
+
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
 const createAppSchema = z.object({
@@ -193,7 +214,7 @@ const createAppSchema = z.object({
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(true),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
-  redirectUris: z.array(z.string().min(1)).default([]),
+  redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client is allowed to call
   // /oauth2/end-session to terminate the AuthService SSO session. Required
   // for proper federated logout — without it, browsers retain the cookie and
@@ -682,7 +703,9 @@ export async function applicationRoutes(
       .returning();
 
     if (parsed.data.roleId && ua) {
-      // Explicit role provided — assign it directly
+      // Explicit role provided — assign it directly after verifying it belongs
+      // to this application (prevents cross-app role injection).
+      await assertRoleBelongsToApp(parsed.data.roleId, req.params.id);
       await db
         .insert(userAppRoles)
         .values({
@@ -723,6 +746,11 @@ export async function applicationRoutes(
       }
 
       if (parsed.data.roleId !== undefined) {
+        // Validate the new role (when provided) BEFORE mutating anything, so a
+        // bad roleId cannot strip the user's current role as a side effect.
+        if (parsed.data.roleId !== null) {
+          await assertRoleBelongsToApp(parsed.data.roleId, req.params.id);
+        }
         await db
           .delete(userAppRoles)
           .where(

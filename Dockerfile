@@ -16,7 +16,7 @@ FROM node:22-alpine AS backend-builder
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 WORKDIR /app
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json drizzle.config.ts ./
@@ -32,7 +32,7 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 WORKDIR /app
 
 # Production dependencies only
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
 # Compiled server

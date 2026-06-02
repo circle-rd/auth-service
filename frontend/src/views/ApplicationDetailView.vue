@@ -636,7 +636,7 @@ const financialKpis = computed(() => {
   <AppLayout :title="app?.name ?? 'Application'" :subtitle="app?.slug">
     <div class="space-y-5">
       <div class="flex items-center justify-between">
-        <BaseButton variant="ghost" size="sm" @click="router.back()">
+        <BaseButton variant="ghost" size="sm" @click="router.go(-1)">
           <ArrowLeft class="w-4 h-4" />
           {{ t('common.back') }}
         </BaseButton>

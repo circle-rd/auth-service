@@ -84,7 +84,7 @@ async function resolvePlanIdFromSubscription(
 
 /**
  * Extract price ID from an invoice line item.
- * In the new Stripe API version (2026-03-25.dahlia), the price is nested under
+ * In the Stripe dahlia API version (2026-05-27.dahlia), the price is nested under
  * `pricing.price_details.price` rather than a top-level `price` field.
  */
 function priceIdFromLineItem(lineItem: Stripe.InvoiceLineItem): string | null {

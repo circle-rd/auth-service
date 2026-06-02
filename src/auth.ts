@@ -71,6 +71,119 @@ async function getApplicationMetadataClaims(
   return { client_attrs: attrs };
 }
 
+/**
+ * Central authorization guard for OAuth token issuance.
+ *
+ * MUST be invoked on EVERY token-issuance path that produces a user-bound
+ * token — not just the OIDC id_token. The OAuth provider only calls
+ * `customIdTokenClaims` (and therefore the gating that used to live inside it)
+ * when the `openid` scope is present; a client that requests a JWT access
+ * token with a valid `resource` but WITHOUT `openid` would otherwise bypass
+ * every check below (revoked access, missing access, MFA, social-provider
+ * allow-list). Calling this from both `customIdTokenClaims` and
+ * `customAccessTokenClaims` closes that gap.
+ *
+ * Throws `APIError("FORBIDDEN")` to abort token issuance when the user is not
+ * permitted. Auto-provisions access for public / open-registration apps,
+ * mirroring the historical id-token behaviour.
+ */
+async function enforceApplicationAccessGuard(
+  user: Record<string, unknown> & { id: string },
+  clientId: string | undefined,
+): Promise<void> {
+  if (!clientId) return;
+
+  // Single query: resolve app + the flags needed for the access decision.
+  const [app] = await db
+    .select({
+      id: applications.id,
+      isPublic: applications.isPublic,
+      allowRegister: applications.allowRegister,
+      isMfaRequired: applications.isMfaRequired,
+      enabledSocialProviders: applications.enabledSocialProviders,
+    })
+    .from(applications)
+    .where(eq(applications.slug, clientId))
+    .limit(1);
+
+  if (!app) {
+    throw new APIError("FORBIDDEN", {
+      message: "Application not found",
+    });
+  }
+
+  const hasAccess = await userHasAppAccessBySlug(user.id, clientId);
+  if (!hasAccess) {
+    // Distinguish "never had access" from "explicitly revoked" (isActive: false).
+    // A revoked row must not be re-activated by auto-provisioning.
+    const [existingRow] = await db
+      .select({ isActive: userApplications.isActive })
+      .from(userApplications)
+      .where(
+        and(
+          eq(userApplications.userId, user.id),
+          eq(userApplications.applicationId, app.id),
+        ),
+      )
+      .limit(1);
+
+    if (existingRow) {
+      // Row exists but isActive is false → access explicitly revoked.
+      throw new APIError("FORBIDDEN", {
+        message: "User access has been revoked for this application",
+      });
+    }
+
+    if (app.isPublic || app.allowRegister) {
+      // Auto-provision: insert a userApplications row so subsequent calls
+      // find the user as an active member of this application.
+      await db
+        .insert(userApplications)
+        .values({
+          userId: user.id,
+          applicationId: app.id,
+          isActive: true,
+        })
+        .onConflictDoNothing();
+      await assignDefaultRoleIfNeeded(user.id, app.id);
+      await assignDefaultPlanIfNeeded(user.id, app.id);
+    } else {
+      throw new APIError("FORBIDDEN", {
+        message: "User not authorized for this application",
+      });
+    }
+  }
+
+  // Enforce MFA when the application requires it OR when the user has been
+  // individually flagged as MFA-required by an admin. The OAuth token cannot
+  // be issued until the user enables a second factor.
+  if (userMustSetupMfa(user, Boolean(app.isMfaRequired))) {
+    throw new APIError("FORBIDDEN", {
+      message:
+        "MFA is required for this account. Please enable two-factor authentication in your profile before continuing.",
+    });
+  }
+  // If MFA is enabled, the twoFactor plugin's sign-in hook already enforced
+  // verification during login — no additional check needed here.
+
+  // Per-app social provider gate. If the application restricts the set of
+  // allowed social providers and the user's primary linked account is not in
+  // that list, deny token issuance.
+  const accounts = await db
+    .select({ providerId: authSchema.account.providerId })
+    .from(authSchema.account)
+    .where(eq(authSchema.account.userId, user.id));
+  // A user is allowed if at least one of their linked accounts is permitted.
+  const allowed = accounts.some((a) =>
+    isSocialProviderAllowed(app.enabledSocialProviders, a.providerId),
+  );
+  if (accounts.length > 0 && !allowed) {
+    throw new APIError("FORBIDDEN", {
+      message: "Social provider not enabled for this application",
+    });
+  }
+}
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
@@ -268,105 +381,12 @@ export const auth = betterAuth({
         // metadata.clientId is stored in oauthClient.metadata and equals applications.slug
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
-        if (clientId) {
-          // Single query: resolve app + check access in one round-trip
-          const [app] = await db
-            .select({
-              id: applications.id,
-              isPublic: applications.isPublic,
-              allowRegister: applications.allowRegister,
-              isMfaRequired: applications.isMfaRequired,
-              enabledSocialProviders: applications.enabledSocialProviders,
-            })
-            .from(applications)
-            .where(eq(applications.slug, clientId))
-            .limit(1);
-
-          if (!app) {
-            throw new APIError("FORBIDDEN", {
-              message: "Application not found",
-            });
-          }
-
-          const hasAccess = await userHasAppAccessBySlug(user.id, clientId);
-          if (!hasAccess) {
-            // Distinguish "never had access" from "explicitly revoked" (isActive: false).
-            // A revoked row must not be re-activated by auto-provisioning.
-            const [existingRow] = await db
-              .select({ isActive: userApplications.isActive })
-              .from(userApplications)
-              .where(
-                and(
-                  eq(userApplications.userId, user.id),
-                  eq(userApplications.applicationId, app.id),
-                ),
-              )
-              .limit(1);
-
-            if (existingRow) {
-              // Row exists but isActive is false → access explicitly revoked.
-              throw new APIError("FORBIDDEN", {
-                message: "User access has been revoked for this application",
-              });
-            }
-
-            if (app.isPublic || app.allowRegister) {
-              // Auto-provision: insert a userApplications row so subsequent calls
-              // find the user as an active member of this application.
-              await db
-                .insert(userApplications)
-                .values({
-                  userId: user.id,
-                  applicationId: app.id,
-                  isActive: true,
-                })
-                .onConflictDoNothing();
-              await assignDefaultRoleIfNeeded(user.id, app.id);
-              await assignDefaultPlanIfNeeded(user.id, app.id);
-            } else {
-              throw new APIError("FORBIDDEN", {
-                message: "User not authorized for this application",
-              });
-            }
-          }
-
-          // Enforce MFA when the application requires it OR when the user has
-          // been individually flagged as MFA-required by an admin. The OAuth
-          // token cannot be issued until the user enables a second factor.
-          if (
-            userMustSetupMfa(
-              user as Record<string, unknown>,
-              Boolean(app.isMfaRequired),
-            )
-          ) {
-            throw new APIError("FORBIDDEN", {
-              message:
-                "MFA is required for this account. Please enable two-factor authentication in your profile before continuing.",
-            });
-          }
-          // If MFA is enabled, the twoFactor plugin's sign-in hook already
-          // enforced verification during login — no additional check needed here.
-
-          // Per-app social provider gate. If the application restricts the set
-          // of allowed social providers and the user's primary linked account
-          // is not in that list, deny token issuance.
-          {
-            const accounts = await db
-              .select({ providerId: authSchema.account.providerId })
-              .from(authSchema.account)
-              .where(eq(authSchema.account.userId, user.id));
-            // A user is allowed if at least one of their linked accounts is permitted.
-            const allowed = accounts.some((a) =>
-              isSocialProviderAllowed(app.enabledSocialProviders, a.providerId),
-            );
-            if (accounts.length > 0 && !allowed) {
-              throw new APIError("FORBIDDEN", {
-                message:
-                  "Social provider not enabled for this application",
-              });
-            }
-          }
-        }
+        // Shared authorization guard — also invoked in customAccessTokenClaims
+        // so the gating cannot be skipped by omitting the `openid` scope.
+        await enforceApplicationAccessGuard(
+          user as Record<string, unknown> & { id: string },
+          clientId,
+        );
         return {
           ...(await getUserClaims(user.id, clientId, scopes, {
             email: (user as Record<string, unknown>).email as string | null | undefined,
@@ -396,6 +416,16 @@ export const auth = betterAuth({
         // (no user → no roles/permissions/features).
         const appAttrs = await getApplicationMetadataClaims(clientId);
         if (!user) return appAttrs;
+        // Shared authorization guard. The OAuth provider issues a JWT access
+        // token whenever a valid `resource` is supplied, REGARDLESS of whether
+        // the `openid` scope (and therefore customIdTokenClaims) is present.
+        // Running the guard here prevents revoked / unauthorized users and
+        // users who have not satisfied the MFA / social-provider policy from
+        // obtaining a token simply by omitting `openid`.
+        await enforceApplicationAccessGuard(
+          user as Record<string, unknown> & { id: string },
+          clientId,
+        );
         const claims = await getUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as string | null | undefined,
           emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,

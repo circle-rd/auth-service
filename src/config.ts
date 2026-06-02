@@ -27,6 +27,13 @@ const envSchema = z.object({
   CORS_ORIGINS: z.string().default("http://localhost:5173"),
   SESSION_DOMAIN: z.string().optional(),
 
+  // Number of trusted reverse-proxy hops in front of the service. Passed to
+  // Fastify's `trustProxy` so `req.ip` is derived from the right entry in the
+  // `X-Forwarded-For` chain instead of the (spoofable) client-supplied value.
+  // Our deployments sit behind `sni-router` (a single hop), hence the default
+  // of 1. Set to 0 only when the service is exposed directly with no proxy.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(1),
+
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_USER: z.string().optional(),
@@ -95,6 +102,7 @@ export const config = {
   session: {
     domain: parsed.data.SESSION_DOMAIN,
   },
+  trustProxyHops: parsed.data.TRUST_PROXY_HOPS,
   smtp: {
     host: parsed.data.SMTP_HOST,
     port: parsed.data.SMTP_PORT,

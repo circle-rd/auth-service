@@ -3,6 +3,10 @@
 		"BetterAuth Doc": {
 			"url": "https://mcp.better-auth.com/mcp",
 			"type": "http"
+		},
+		"Auth Service": {
+			"url": "https://docs.circle-cyber.com/auth-service/mcp",
+			"type": "http"
 		}
 	},
 	"inputs": []

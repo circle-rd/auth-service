@@ -104,7 +104,7 @@ describe("consumptionRoutes integration", () => {
       method: "POST",
       url: "/",
       payload: {
-        applicationId: "00000000-0000-0000-0000-000000000001",
+        applicationId: "11111111-1111-4111-8111-111111111111",
         userId: "nonexistent",
         key: "tokens",
         value: 10,

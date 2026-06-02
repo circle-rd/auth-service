@@ -143,7 +143,7 @@ const RESERVED_JWT_CLAIMS = new Set([
  * EMQX 5 JWT authn / client attributes spec). Keep keys to safe identifiers.
  */
 const metadataSchema = z
-  .record(z.string().max(256))
+  .record(z.string(), z.string().max(256))
   .refine(
     (m) => Object.keys(m).every((k) => !RESERVED_JWT_CLAIMS.has(k)),
     { message: "metadata keys must not collide with reserved JWT claims" },

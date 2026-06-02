@@ -40,7 +40,7 @@ const createPlanSchema = z.object({
   name: z.string().min(1).max(64),
   description: z.string().max(500).optional().nullable(),
   stripeProductId: z.string().optional().nullable(),
-  features: z.record(z.unknown()).default({}),
+  features: z.record(z.string(), z.unknown()).default({}),
   isDefault: z.boolean().default(false),
 });
 

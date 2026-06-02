@@ -33,7 +33,7 @@ const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
   slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/),
   logo: z.string().url().optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const updateOrgSchema = z
@@ -41,7 +41,7 @@ const updateOrgSchema = z
     name: z.string().min(1).max(100).optional(),
     slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/).optional(),
     logo: z.string().url().optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
     message: "At least one field must be provided",

@@ -1,7 +1,7 @@
 ---
 seo:
   title: Auth Service — Self-hosted OAuth 2.1 / OIDC identity provider
-  description: Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth. Multi-app RBAC, MFA (TOTP + passkeys), subscription plans with feature flags, and consumption tracking.
+  description: Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth. Multi-app RBAC, MFA (TOTP + passkeys), subscription plans with feature flags, consumption tracking, organizations, social login, login history, and MCP server integration.
 ---
 
 :::u-page-hero
@@ -42,5 +42,13 @@ What it does
 ::::
 
 ::::u-page-feature{icon="i-lucide-building-2" title="Organization support" description="Multi-tenant organizations with owner / admin / member roles. The org_id claim is injected into access tokens for the org scope, enabling backend services to scope data by tenant."}
+::::
+::::u-page-feature{icon="i-lucide-globe" title="Social login" description="Google, GitHub, LinkedIn, Microsoft, and Apple OAuth providers. Per-application allow-list gating controls which providers are available to each client."}
+::::
+::::u-page-feature{icon="i-lucide-clock" title="Login history" description="Every successful login is recorded with IP address, user-agent, and application context. Available via the admin dashboard and API for audit purposes."}
+::::
+::::u-page-feature{icon="i-lucide-terminal" title="MCP server integration" description="Any MCP client can authenticate via OAuth 2.1 Authorization Code + PKCE and receive a JWT access token with roles, permissions, and feature claims. See the MCP integration guide for complete examples."}
+::::
+::::u-page-feature{icon="i-lucide-palette" title="Custom templates & branding" description="Override login, register, and verify-email pages per application via TEMPLATES_DIR. Dynamic APP_NAME and APP_LOGO_URL drive the entire UI."}
 ::::
 :::

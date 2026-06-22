@@ -31,14 +31,20 @@ const visibleItems = computed(() =>
 function isActive(to: string) {
   return route.path === to || (to !== '/' && route.path.startsWith(to));
 }
+
+function handleNavItemClick() {
+  if (window.innerWidth < 768) {
+    close();
+  }
+}
 </script>
 
 <template>
   <aside :class="[
     'fixed md:static inset-y-0 left-0 z-40 w-64 shrink-0 h-full flex flex-col',
     'bg-surface-950/60 backdrop-blur-xl border-r border-surface-800/50',
-    'transform transition-transform duration-200 ease-in-out',
-    isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+    'transition-[left] duration-200 ease-in-out',
+    isSidebarOpen ? 'left-0' : '-left-full md:left-0',
   ]">
     <!-- Close button (mobile only) -->
     <button
@@ -65,6 +71,7 @@ function isActive(to: string) {
         v-for="item in visibleItems"
         :key="item.to"
         :to="item.to"
+        @click="handleNavItemClick"
         :class="[
           'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
           isActive(item.to)

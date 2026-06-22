@@ -43,6 +43,11 @@ export function useMobileNav() {
   };
 
   onMounted(() => {
+    // Ensure drawer is always closed when mounting on mobile viewports.
+    if (window.innerWidth < 768) {
+      close();
+    }
+
     window.addEventListener('resize', handleResize);
     window.addEventListener('keydown', handleKeydown);
   });

@@ -21,7 +21,7 @@ async function copy(val: string) {
   <div class="space-y-1.5">
     <label v-if="label" class="block text-xs font-medium text-surface-400 uppercase tracking-wide">{{ label }}</label>
     <div class="flex items-center gap-2 bg-surface-800/60 border border-surface-700 rounded-lg px-3 py-2">
-      <code class="flex-1 text-sm font-mono text-surface-300 truncate">
+      <code :class="['flex-1 text-sm font-mono text-surface-300', masked ? 'truncate' : 'break-all']">
         {{ masked ? '•'.repeat(Math.min(value.length, 32)) : value }}
       </code>
       <button

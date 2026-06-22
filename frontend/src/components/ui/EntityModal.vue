@@ -87,7 +87,7 @@ const autoIconColor = computed(() => {
         >
           <div
             v-if="open"
-            :class="['relative w-full bg-surface-900 border border-surface-700/60 shadow-2xl shadow-black/60 overflow-hidden', sizeClasses[size]]"
+            :class="['relative w-full mx-4 sm:mx-6 md:mx-auto bg-surface-900 border border-surface-700/60 shadow-2xl shadow-black/60 overflow-hidden max-h-[90vh] overflow-y-auto flex flex-col', sizeClasses[size]]"
             style="border-radius: 10px;"
           >
             <button
@@ -99,23 +99,23 @@ const autoIconColor = computed(() => {
               </svg>
             </button>
 
-            <div class="flex items-start gap-5 px-6 pt-6 pb-5 border-b border-surface-800/60 bg-surface-950/40">
+            <div class="flex items-start gap-4 sm:gap-5 px-4 sm:px-6 pt-6 pb-5 border-b border-surface-800/60 bg-surface-950/40 shrink-0">
               <div
                 :class="[
-                  'w-16 h-16 shrink-0 overflow-hidden flex items-center justify-center border bg-gradient-to-br',
+                  'w-14 sm:w-16 h-14 sm:h-16 shrink-0 overflow-hidden flex items-center justify-center border bg-gradient-to-br',
                   iconShape === 'circle' ? 'rounded-full' : 'rounded-lg',
                   !iconUrl ? autoIconColor : 'bg-surface-800 border-surface-700/50',
                 ]"
               >
                 <img v-if="iconUrl" :src="iconUrl" class="w-full h-full object-cover" :alt="name ?? ''" />
-                <span v-else class="text-2xl font-bold select-none">{{ iconLetterDisplay }}</span>
+                <span v-else class="text-xl sm:text-2xl font-bold select-none">{{ iconLetterDisplay }}</span>
               </div>
 
               <div class="flex-1 min-w-0 pt-0.5">
-                <h2 class="text-xl font-bold text-surface-50 leading-tight truncate">
+                <h2 class="text-lg sm:text-xl font-bold text-surface-50 leading-tight truncate">
                   {{ name && name.length ? name : 'New Entity' }}
                 </h2>
-                <p v-if="subtitle" class="text-sm font-mono text-surface-500 mt-0.5 truncate">{{ subtitle }}</p>
+                <p v-if="subtitle" class="text-xs sm:text-sm font-mono text-surface-500 mt-0.5 truncate">{{ subtitle }}</p>
                 <div v-if="tags?.length" class="flex flex-wrap gap-1.5 mt-2.5">
                   <BaseBadge
                     v-for="tag in tags"
@@ -129,11 +129,11 @@ const autoIconColor = computed(() => {
               </div>
             </div>
 
-            <div class="px-6 py-5 max-h-[60vh] overflow-y-auto">
+            <div class="px-4 sm:px-6 py-5 overflow-y-auto">
               <slot />
             </div>
 
-            <div v-if="$slots.footer" class="px-6 py-4 flex justify-end gap-2.5 border-t border-surface-800/60 bg-surface-950/20">
+            <div v-if="$slots.footer" class="px-4 sm:px-6 py-4 flex justify-end gap-2.5 border-t border-surface-800/60 bg-surface-950/20 shrink-0">
               <slot name="footer" />
             </div>
           </div>

@@ -90,7 +90,7 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
 
       <template v-else-if="user">
         <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-6">
-          <div class="flex items-start gap-5">
+          <div class="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-5">
             <UserAvatar :name="user.name" :image="user.image" size="lg" />
             <div class="flex-1">
               <div class="flex items-center gap-3 flex-wrap">

@@ -4,14 +4,16 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useTheme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/auth';
-import { Sun, Moon, User, LogOut } from 'lucide-vue-next';
+import { Sun, Moon, User, LogOut, Menu } from 'lucide-vue-next';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';
+import { useMobileNav } from '@/composables/useMobileNav';
 
 const { t } = useI18n();
 const router = useRouter();
 const auth = useAuthStore();
 const { theme, toggle } = useTheme();
+const { toggle: toggleSidebar } = useMobileNav();
 
 defineProps<{
   title?: string;
@@ -28,13 +30,24 @@ async function handleLogout() {
 </script>
 
 <template>
-  <header class="relative z-40 h-16 shrink-0 flex items-center justify-between px-6 border-b border-surface-800/40 bg-surface-950/40 backdrop-blur-xl">
-    <div>
+  <header class="relative z-40 h-16 shrink-0 flex items-center justify-between px-4 md:px-6 border-b border-surface-800/40 bg-surface-950/40 backdrop-blur-xl">
+    <!-- Mobile burger button -->
+    <button
+      @click="toggleSidebar"
+      class="md:hidden p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-800/60 transition-colors"
+      :aria-label="t('aria.openMenu') || 'Open menu'"
+    >
+      <Menu class="w-5 h-5" />
+    </button>
+
+    <!-- Title section -->
+    <div class="flex-1 md:flex-none">
       <h1 v-if="title" class="text-base font-semibold text-surface-100">{{ title }}</h1>
       <p v-if="subtitle" class="text-xs text-surface-500">{{ subtitle }}</p>
     </div>
 
-    <div class="flex items-center gap-1">
+    <!-- Right actions -->
+    <div class="flex items-center gap-1 sm:gap-2 md:gap-3">
       <LanguageSelect />
 
       <button
@@ -47,7 +60,7 @@ async function handleLogout() {
       </button>
 
       <!-- User menu -->
-      <div class="relative ml-1" v-click-outside="() => (menuOpen = false)">
+      <div class="relative" v-click-outside="() => (menuOpen = false)">
         <button
           type="button"
           @click="menuOpen = !menuOpen"

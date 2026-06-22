@@ -635,12 +635,12 @@ const financialKpis = computed(() => {
 <template>
   <AppLayout :title="app?.name ?? 'Application'" :subtitle="app?.slug">
     <div class="space-y-5">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <BaseButton variant="ghost" size="sm" @click="router.go(-1)">
           <ArrowLeft class="w-4 h-4" />
           {{ t('common.back') }}
         </BaseButton>
-        <div v-if="app" class="flex items-center gap-2">
+        <div v-if="app" class="flex items-center gap-2 flex-wrap">
           <BaseBadge :variant="app.isActive ? 'success' : 'neutral'" dot>{{ app.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
           <BaseBadge variant="neutral">{{ app.isPublic ? t('applications.public') : t('applications.confidential') }}</BaseBadge>
         </div>
@@ -666,12 +666,12 @@ const financialKpis = computed(() => {
         <Sparkline :values="appActivity.sparkline" :width="140" :height="32" />
       </div>
 
-      <div class="flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 w-fit overflow-x-auto">
+      <div class="flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 overflow-x-auto -mx-6 sm:mx-0 px-6 sm:px-0 scroll-smooth snap-x snap-mandatory">
         <button
           v-for="tab in tabs"
           :key="tab.key"
           @click="activeTab = tab.key"
-          :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap', activeTab === tab.key ? 'bg-primary-600/20 text-primary-300 shadow-sm' : 'text-surface-500 hover:text-surface-300']"
+          :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap snap-start', activeTab === tab.key ? 'bg-primary-600/20 text-primary-300 shadow-sm' : 'text-surface-500 hover:text-surface-300']"
         >
           {{ tab.label }}
         </button>

@@ -300,7 +300,7 @@ async function submit() {
     @close="emit('close')"
   >
     <form @submit.prevent="submit" class="space-y-5">
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <BaseInput v-model="form.name" :label="t('applications.name')" required />
         <BaseInput
           v-model="form.slug"
@@ -310,14 +310,14 @@ async function submit() {
         />
       </div>
       <BaseInput v-model="form.description" :label="t('applications.description')" />
-      <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <BaseInput v-model="form.url" :label="t('applications.url')" placeholder="https://app.example.com" />
         <BaseInput v-model="form.icon" :label="t('applications.icon')" placeholder="https://..." />
       </div>
 
       <div class="pt-1">
         <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-3">Options</p>
-        <div class="grid grid-cols-2 gap-x-8 gap-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
           <BaseToggle v-model="form.isActive" :label="t('applications.isActive')" />
           <BaseToggle
             v-model="form.isPublic"
@@ -536,10 +536,12 @@ async function submit() {
       </div>
     </form>
     <template #footer>
-      <BaseButton variant="ghost" @click="emit('close')">{{ t('common.cancel') }}</BaseButton>
-      <BaseButton :loading="loading" @click="submit">
-        {{ isEdit ? t('common.save') : t('common.create') }}
-      </BaseButton>
+      <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 w-full">
+        <BaseButton variant="ghost" @click="emit('close')" class="w-full sm:w-auto">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton :loading="loading" @click="submit" class="w-full sm:w-auto">
+          {{ isEdit ? t('common.save') : t('common.create') }}
+        </BaseButton>
+      </div>
     </template>
   </EntityModal>
 </template>

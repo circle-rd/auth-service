@@ -66,7 +66,7 @@ function getProvider(key: ProviderKey) {
             </div>
             <h2 class="text-sm font-semibold text-surface-200">{{ t('configuration.mfa') }}</h2>
           </div>
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <p class="text-xs text-surface-500 mb-1">{{ t('configuration.mfaAdoption') }}</p>
               <p class="text-2xl font-bold text-surface-100">{{ mfaRate }}%</p>
@@ -88,7 +88,7 @@ function getProvider(key: ProviderKey) {
             </div>
             <h2 class="text-sm font-semibold text-surface-200">{{ t('configuration.platformInfo') }}</h2>
           </div>
-          <div class="grid grid-cols-3 gap-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             <div class="text-center">
               <div class="w-10 h-10 rounded-xl bg-primary-500/10 flex items-center justify-center mx-auto mb-2">
                 <Users class="w-5 h-5 text-primary-400" />

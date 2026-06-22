@@ -198,13 +198,13 @@ const showRegenerateBackup = ref(false);
     </div>
 
     <!-- Tab navigation -->
-    <div class="flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 w-fit overflow-x-auto mb-6">
+    <div class="flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 overflow-x-auto -mx-6 sm:mx-0 px-6 sm:px-0 mb-6 scroll-smooth snap-x snap-mandatory">
       <button
         v-for="tab in profileTabs"
         :key="tab.key"
         @click="activeTab = tab.key"
         :class="[
-          'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap',
+          'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap snap-start',
           activeTab === tab.key
             ? 'bg-primary-600/20 text-primary-300 shadow-sm'
             : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',

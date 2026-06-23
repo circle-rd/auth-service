@@ -6,7 +6,7 @@ export default defineNuxtConfig({
   site: {
     url: process.env.NUXT_SITE_URL ?? "https://docs.circle-cyber.com/auth-service",
   },
-  robots: { robotstxt: false },
+  robots: { robotsTxt: false },
   meta: {
     title: "Auth Service",
     description:

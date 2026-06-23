@@ -14,7 +14,7 @@ const { t } = useI18n();
 const route = useRoute();
 const auth = useAuthStore();
 const { branding } = useAppBranding();
-const { isSidebarOpen, close } = useMobileNav();
+const { isSidebarOpen, close, isSidebarCollapsed } = useMobileNav();
 
 const navItems = computed(() => [
   { name: t('nav.dashboard'), to: '/dashboard', icon: LayoutDashboard, adminOnly: true },
@@ -41,10 +41,12 @@ function handleNavItemClick() {
 
 <template>
   <aside :class="[
-    'fixed md:static inset-y-0 left-0 z-40 w-64 shrink-0 h-full flex flex-col',
+    'fixed md:static inset-y-0 z-40 shrink-0 h-full flex flex-col',
     'bg-surface-950/60 backdrop-blur-xl border-r border-surface-800/50',
-    'transition-[left] duration-200 ease-in-out',
-    isSidebarOpen ? 'left-0' : '-left-full md:left-0',
+    'transition-[left,width] duration-200 ease-in-out',
+    isSidebarOpen ? 'left-0' : '-left-full',
+    'md:left-0 w-64',
+    isSidebarCollapsed ? 'md:w-16' : 'md:w-64',
   ]">
     <!-- Close button (mobile only) -->
     <button
@@ -55,12 +57,15 @@ function handleNavItemClick() {
       <X class="w-5 h-5" />
     </button>
 
-    <div class="px-5 py-6 flex items-center gap-3 border-b border-surface-800/40">
+    <div :class="[
+      'py-6 flex items-center border-b border-surface-800/40 transition-all',
+      isSidebarCollapsed ? 'md:px-3 md:justify-center px-5 gap-0' : 'px-5 gap-3',
+    ]">
       <div v-if="!branding.logoUrl" class="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shadow-lg shadow-primary-900/40 overflow-hidden">
         <AppLogo :size="16" icon-class="text-white" />
       </div>
       <AppLogo v-else :size="32" icon-class="text-white" />
-      <div>
+      <div :class="[{ 'md:hidden': isSidebarCollapsed }]">
         <p class="text-sm font-semibold text-surface-100">{{ branding.appName }}</p>
         <p class="text-xs text-surface-500">Admin Panel</p>
       </div>
@@ -73,7 +78,8 @@ function handleNavItemClick() {
         :to="item.to"
         @click="handleNavItemClick"
         :class="[
-          'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+          'group relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
+          isSidebarCollapsed ? 'md:justify-center md:px-2' : '',
           isActive(item.to)
             ? 'bg-primary-600/15 text-primary-300 shadow-sm'
             : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',
@@ -83,11 +89,18 @@ function handleNavItemClick() {
           :is="item.icon"
           :class="['w-4 h-4 shrink-0 transition-colors', isActive(item.to) ? 'text-primary-400' : 'text-surface-500 group-hover:text-surface-300']"
         />
-        <span class="flex-1">{{ item.name }}</span>
+        <span :class="['flex-1', { 'md:hidden': isSidebarCollapsed }]">{{ item.name }}</span>
         <ChevronRight
           v-if="isActive(item.to)"
-          class="w-3.5 h-3.5 text-primary-500"
+          :class="['w-3.5 h-3.5 text-primary-500', { 'md:hidden': isSidebarCollapsed }]"
         />
+
+        <span
+          v-if="isSidebarCollapsed"
+          class="hidden md:block pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap bg-surface-900 text-surface-100 border border-surface-700/60 shadow-lg opacity-0 scale-95 transition-all duration-150 group-hover:opacity-100 group-hover:scale-100"
+        >
+          {{ item.name }}
+        </span>
       </RouterLink>
     </nav>
   </aside>

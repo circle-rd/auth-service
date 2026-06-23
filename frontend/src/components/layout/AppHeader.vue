@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useTheme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/auth';
-import { Sun, Moon, User, LogOut, Menu } from 'lucide-vue-next';
+import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';
 import { useMobileNav } from '@/composables/useMobileNav';
@@ -13,7 +13,7 @@ const { t } = useI18n();
 const router = useRouter();
 const auth = useAuthStore();
 const { theme, toggle } = useTheme();
-const { toggle: toggleSidebar } = useMobileNav();
+const { toggle: toggleSidebar, toggleCollapsed, isSidebarCollapsed } = useMobileNav();
 
 defineProps<{
   title?: string;
@@ -31,14 +31,26 @@ async function handleLogout() {
 
 <template>
   <header class="relative z-40 h-16 shrink-0 flex items-center justify-between px-4 md:px-6 border-b border-surface-800/40 bg-surface-950/40 backdrop-blur-xl">
-    <!-- Mobile burger button -->
-    <button
-      @click="toggleSidebar"
-      class="md:hidden p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-800/60 transition-colors"
-      :aria-label="t('aria.openMenu') || 'Open menu'"
-    >
-      <Menu class="w-5 h-5" />
-    </button>
+    <div class="flex items-center gap-2">
+      <!-- Mobile burger button -->
+      <button
+        @click="toggleSidebar"
+        class="md:hidden p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-800/60 transition-colors"
+        :aria-label="t('aria.openMenu') || 'Open menu'"
+      >
+        <Menu class="w-5 h-5" />
+      </button>
+
+      <!-- Desktop collapse button -->
+      <button
+        @click="toggleCollapsed"
+        class="hidden md:inline-flex p-1.5 rounded-lg text-surface-400 hover:text-surface-200 hover:bg-surface-800/60 transition-colors"
+        :aria-label="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+      >
+        <PanelLeftOpen v-if="isSidebarCollapsed" class="w-5 h-5" />
+        <PanelLeftClose v-else class="w-5 h-5" />
+      </button>
+    </div>
 
     <!-- Title section -->
     <div class="flex-1 md:flex-none">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { watch } from 'vue';
+import { onMounted, onUnmounted, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import AppSidebar from './AppSidebar.vue';
 import AppHeader from './AppHeader.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
@@ -10,7 +11,8 @@ defineProps<{
   subtitle?: string;
 }>();
 
-const { isSidebarOpen, close } = useMobileNav();
+const route = useRoute();
+const { isSidebarOpen, close, syncForViewport } = useMobileNav();
 
 // Lock body scroll when sidebar is open on mobile
 watch(isSidebarOpen, (isOpen) => {
@@ -21,6 +23,33 @@ watch(isSidebarOpen, (isOpen) => {
       document.documentElement.classList.remove('overflow-hidden');
     }
   }
+});
+
+watch(() => route.fullPath, () => {
+  // Close mobile drawer on every navigation, including browser history nav.
+  close();
+});
+
+function handleResize() {
+  syncForViewport();
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    close();
+  }
+}
+
+onMounted(() => {
+  syncForViewport();
+  window.addEventListener('resize', handleResize);
+  window.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+  document.documentElement.classList.remove('overflow-hidden');
+  window.removeEventListener('resize', handleResize);
+  window.removeEventListener('keydown', handleKeydown);
 });
 </script>
 

@@ -6,8 +6,8 @@ ARG NUXT_APP_BASE_URL=/auth-service/
 ARG NUXT_SITE_URL=https://docs.circle-cyber.com/auth-service
 ENV NUXT_APP_BASE_URL=${NUXT_APP_BASE_URL}
 ENV NUXT_SITE_URL=${NUXT_SITE_URL}
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json ./
+RUN npm install
 COPY . .
 RUN npx nuxt build
 

@@ -6,6 +6,13 @@ export default defineNuxtConfig({
   site: {
     url: process.env.NUXT_SITE_URL ?? "https://docs.circle-cyber.com/auth-service",
   },
+  robots: { robotstxt: false },
+  meta: {
+    title: "Auth Service",
+    description:
+      "Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth. Multi-app RBAC, MFA, subscription plans, and consumption tracking.",
+    ogHost: process.env.NUXT_SITE_URL ?? "https://docs.circle-cyber.com/auth-service",
+  },
   llms: {
     title: "Auth Service",
     description:

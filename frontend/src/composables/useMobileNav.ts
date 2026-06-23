@@ -1,18 +1,48 @@
-import { ref, watch, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref } from 'vue';
 
 const isSidebarOpen = ref(false);
+const isSidebarCollapsed = ref(false);
+
+const MOBILE_BREAKPOINT = 768;
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'auth-service:sidebar-collapsed';
+
+let initialized = false;
+
+function initSidebarState() {
+  if (initialized || typeof window === 'undefined') return;
+
+  initialized = true;
+
+  const persisted = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+  isSidebarCollapsed.value = persisted === '1';
+
+  // Drawer must never start open on mobile.
+  if (window.innerWidth < MOBILE_BREAKPOINT) {
+    isSidebarOpen.value = false;
+  }
+}
+
+function persistCollapsedState() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(
+    SIDEBAR_COLLAPSED_STORAGE_KEY,
+    isSidebarCollapsed.value ? '1' : '0'
+  );
+}
 
 /**
  * Mobile navigation state composable
- * Manages sidebar drawer open/close state with auto-close on route change,
- * resize detection, and ESC key handling.
+ * Manages sidebar drawer state for mobile and collapsed state for desktop.
  */
 export function useMobileNav() {
-  const router = useRouter();
+  initSidebarState();
+
+  const isMobileViewport = () => typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT;
 
   const open = () => {
-    isSidebarOpen.value = true;
+    if (isMobileViewport()) {
+      isSidebarOpen.value = true;
+    }
   };
 
   const close = () => {
@@ -20,47 +50,36 @@ export function useMobileNav() {
   };
 
   const toggle = () => {
-    isSidebarOpen.value = !isSidebarOpen.value;
-  };
-
-  // Auto-close sidebar on route change
-  watch(() => router.currentRoute.value.fullPath, () => {
-    close();
-  });
-
-  // Auto-close when resizing above md breakpoint (768px)
-  const handleResize = () => {
-    if (window.innerWidth >= 768) {
-      close();
+    if (isMobileViewport()) {
+      isSidebarOpen.value = !isSidebarOpen.value;
     }
   };
 
-  // ESC key closes the drawer
-  const handleKeydown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
+  const setCollapsed = (collapsed: boolean) => {
+    isSidebarCollapsed.value = collapsed;
+    persistCollapsedState();
+  };
+
+  const toggleCollapsed = () => {
+    setCollapsed(!isSidebarCollapsed.value);
+  };
+
+  const syncForViewport = () => {
+    if (typeof window === 'undefined') return;
+
+    if (window.innerWidth >= MOBILE_BREAKPOINT) {
       close();
     }
   };
-
-  onMounted(() => {
-    // Ensure drawer is always closed when mounting on mobile viewports.
-    if (window.innerWidth < 768) {
-      close();
-    }
-
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('keydown', handleKeydown);
-  });
-
-  onUnmounted(() => {
-    window.removeEventListener('resize', handleResize);
-    window.removeEventListener('keydown', handleKeydown);
-  });
 
   return {
     isSidebarOpen,
+    isSidebarCollapsed,
     open,
     close,
     toggle,
+    setCollapsed,
+    toggleCollapsed,
+    syncForViewport,
   };
 }

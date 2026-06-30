@@ -1,518 +1,77 @@
-import Fastify from "fastify";
-import cors from "@fastify/cors";
-import staticFiles from "@fastify/static";
-import rateLimit from "@fastify/rate-limit";
-import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
-import {
-  oauthProviderOpenIdConfigMetadata,
-  oauthProviderAuthServerMetadata,
-} from "@better-auth/oauth-provider";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+/**
+ * Production entry point.
+ *
+ * Sequence: migrations (prod) → bootstrap seeding → mail transport verify
+ * → runtime-config seeding → buildServer() → listen.
+ *
+ * The Fastify application factory lives in `server.ts` so integration tests
+ * can drive the app via `app.inject()` without binding a port.
+ */
 import { config } from "./config.js";
-import { auth } from "./auth.js";
 import { bootstrap } from "./bootstrap.js";
 import { runMigrations } from "./migrate.js";
-import {
-  corsOrigins,
-  addAudience,
-  addCorsOrigin,
-} from "./runtime-config.js";
-import { healthRoutes } from "./routes/health.js";
-import { applicationRoutes } from "./routes/admin/applications.js";
-import { rolesRoutes } from "./routes/admin/roles.js";
-import { plansRoutes } from "./routes/admin/plans.js";
-import { adminConsumptionRoutes } from "./routes/admin/adminConsumption.js";
-import { usersRoutes } from "./routes/admin/users.js";
-import { sessionsRoutes } from "./routes/admin/sessions.js";
-import { statsRoutes } from "./routes/admin/stats.js";
-import { servicesRoutes } from "./routes/admin/services.js";
-import { consumptionRoutes } from "./routes/consumption.js";
-import { userRoutes } from "./routes/user.js";
-import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
-import { organizationsRoutes } from "./routes/admin/organizations.js";
-import { appConfigRoutes, globallyEnabledProviders } from "./routes/app-config.js";
-import { ApiError } from "./errors.js";
-import { renderAuthPage } from "./services/templates.js";
+import { addAudience, addCorsOrigin } from "./runtime-config.js";
+import { getMailTransport } from "./services/mail/index.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
-import { eq, isNotNull } from "drizzle-orm";
+import { isNotNull } from "drizzle-orm";
+import { buildServer } from "./server.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const fastify = Fastify({
-  // Trust the reverse-proxy chain (sni-router) so `req.ip` reflects the real
-  // client address from `X-Forwarded-For` instead of the proxy's address — and,
-  // crucially, so a client-forged `X-Forwarded-For` cannot move the rate-limit
-  // bucket. The number of trusted hops is configurable (TRUST_PROXY_HOPS).
-  trustProxy: config.trustProxyHops,
-  logger: {
-    level: config.isDev ? "debug" : "info",
-    transport: config.isDev
-      ? { target: "pino-pretty", options: { colorize: true } }
-      : undefined,
-  },
-});
-
-// ── CORS ──────────────────────────────────────────────────────────────────────
-// corsOrigins is seeded at startup (see start()) from CORS_ORIGINS env and
-// all application URLs in the DB, then kept in sync on app CRUD operations.
-await fastify.register(cors, {
-  origin: (origin, callback) => {
-    // Allow requests with no Origin header (server-to-server, curl, etc.)
-    if (!origin) return callback(null, true);
-    callback(null, corsOrigins.has(origin));
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-});
-
-// ── Rate limiting ─────────────────────────────────────────────────────────────
-// Applied globally to all Fastify-managed routes (/api/admin/*, /api/user/*, etc.).
-// BetterAuth routes (/api/auth/*) are handled in the onRequest hook below and
-// are rate-limited separately with a stricter per-IP token-bucket.
-//
-// Exemptions:
-//   - /api/auth/oauth2/token   client-credentials / authorization-code grants
-//                              are authenticated by client_secret or PKCE; a
-//                              single SSO login or a misbehaving M2M loop
-//                              can otherwise lock out the consuming service's
-//                              public IP.
-//   - /api/auth/jwks           public keyset polled by EMQX every hour.
-//   - /api/auth/.well-known/*  OIDC discovery, also polled by clients.
-const RATE_LIMIT_EXEMPT_PATHS = [
-  "/api/auth/oauth2/token",
-  "/api/auth/jwks",
-  "/api/auth/.well-known/",
-];
-await fastify.register(rateLimit, {
-  global: true,
-  max: 600,
-  timeWindow: "1 minute",
-  // `req.ip` is the proxy-resolved client address (see Fastify `trustProxy`
-  // above). Using it directly prevents a forged `X-Forwarded-For` header from
-  // minting a fresh bucket on every request.
-  keyGenerator: (req) => req.ip,
-  allowList: (req) => {
-    const url = req.url ?? "";
-    return RATE_LIMIT_EXEMPT_PATHS.some((p) => url.startsWith(p));
-  },
-});
-
-// Strict in-memory rate limiter for sensitive BetterAuth endpoints.
-// Uses a sliding-window counter per IP. Not suitable for multi-instance
-// deployments (use Redis-backed rate limiting there).
-const AUTH_RATE_PATHS = [
-  "/api/auth/sign-in/email",
-  "/api/auth/sign-in/social",
-  "/api/auth/forget-password",
-  "/api/auth/reset-password",
-  "/api/auth/sign-up/email",
-  "/api/auth/two-factor/verify-totp",
-  "/api/auth/two-factor/verify-backup-code",
-];
-const AUTH_RATE_MAX = 10;    // attempts
-const AUTH_RATE_WINDOW = 60_000; // 1 minute in ms
-
-const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
-
-function checkAuthRateLimit(ip: string): boolean {
-  const now = Date.now();
-  let bucket = authRateBuckets.get(ip);
-  if (!bucket || now >= bucket.resetAt) {
-    bucket = { count: 0, resetAt: now + AUTH_RATE_WINDOW };
-    authRateBuckets.set(ip, bucket);
-  }
-  bucket.count += 1;
-  return bucket.count <= AUTH_RATE_MAX;
-}
-
-// Evict stale buckets every 5 minutes to prevent unbounded memory growth.
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, bucket] of authRateBuckets) {
-    if (now >= bucket.resetAt) authRateBuckets.delete(ip);
-  }
-}, 5 * 60_000).unref();
-
-// ── Static frontend (built Vue SPA) ──────────────────────────────────────────
-const frontendDist = join(__dirname, "..", "frontend-dist");
-if (existsSync(frontendDist)) {
-  await fastify.register(staticFiles, {
-    root: frontendDist,
-    prefix: "/",
-    wildcard: false,
-  });
-}
-
-// ── Auth page routes — served before Vue SPA ─────────────────────────────────
-// BetterAuth's oauthProvider redirects to /login carrying the full signed OAuth
-// params in the query string (client_id, sig, exp, …), NOT a plain redirectTo.
-// These routes serve either a custom HTML template (from TEMPLATES_DIR) or
-// fall through to the Vue SPA index.html when no template is found.
-const authPageRoutes: Array<{
-  path: string;
-  page: "login" | "register" | "verify-email" | "two-factor";
-}> = [
-  { path: "/login", page: "login" },
-  { path: "/register", page: "register" },
-  { path: "/verify-email", page: "verify-email" },
-  // Standalone MFA challenge page. Normally the login template drives the
-  // TOTP prompt inline (via the `twoFactorRedirect` response from
-  // /api/auth/sign-in/email), but this route is needed when the user
-  // reloads mid-flow, bookmarks the MFA step, or integrators prefer a
-  // dedicated page.
-  { path: "/two-factor", page: "two-factor" },
-] as const;
-
-for (const { path, page } of authPageRoutes) {
-  fastify.get(path, async (req, reply) => {
-    const query = req.query as Record<string, string>;
-    const appSlug = query.client_id ?? "";
-    const rawUrl = req.raw.url ?? "";
-    const rawQs = rawUrl.includes("?")
-      ? rawUrl.split("?").slice(1).join("?")
-      : "";
-
-    // Resolve allowRegister before choosing the render mode so the guard fires
-    // in both template and SPA paths regardless of TEMPLATES_DIR.
-    let allowRegister = true;
-    let socialProvidersJson = "[]";
-    if (appSlug) {
-      const [appRow] = await db
-        .select({
-          allowRegister: applications.allowRegister,
-          enabledSocialProviders: applications.enabledSocialProviders,
-        })
-        .from(applications)
-        .where(eq(applications.slug, appSlug))
-        .limit(1);
-      allowRegister = appRow?.allowRegister ?? true;
-
-      // Compute social providers: null → inherit all globally active providers;
-      // explicit array → intersect with globally active providers so a provider
-      // removed from .env cannot be forced on by the DB value.
-      const globalProviders = globallyEnabledProviders();
-      const appProviders =
-        appRow?.enabledSocialProviders === null || appRow?.enabledSocialProviders === undefined
-          ? globalProviders
-          : (appRow.enabledSocialProviders as string[]).filter((p) =>
-              globalProviders.includes(p as never),
-            );
-      socialProvidersJson = JSON.stringify(appProviders);
-    } else {
-      // No client_id — expose globally active providers
-      socialProvidersJson = JSON.stringify(globallyEnabledProviders());
-    }
-
-    if (page === "register" && !allowRegister) {
-      const loginUrl = rawQs ? `/login?${rawQs}` : "/login";
-      return reply.redirect(loginUrl, 302);
-    }
-
-    // Only serve custom template when TEMPLATES_DIR is configured.
-    // Without it, fall through to the Vue SPA (handled by the static file
-    // plugin or the notFound handler below).
-    if (!config.templatesDir) {
-      if (existsSync(frontendDist)) {
-        return reply.sendFile("index.html", frontendDist);
-      }
-      return reply.status(404).send({ error: "Not found" });
-    }
-
-    // Sanitize redirectTo to prevent open-redirect attacks.
-    // Only allow relative paths starting with a single slash.
-    const rawRedirect = query.redirectTo ?? query.next ?? "/";
-    const redirectTo =
-      typeof rawRedirect === "string" &&
-      rawRedirect.startsWith("/") &&
-      !rawRedirect.startsWith("//")
-        ? rawRedirect
-        : "/";
-    // When BetterAuth's oauthProvider initiates the login, it signs all OAuth
-    // params (including client_id + sig). Pass the raw query string back to the
-    // template so the sign-in form can include it as `oauth_query` in the body,
-    // allowing BetterAuth's after-hook to resume the authorization flow.
-    const oauthQuery =
-      query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
-
-    // Pre-compute cross-links that preserve the full OAuth context so templates
-    // never lose the signed query when navigating between login and register.
-    const encodedRedirect = encodeURIComponent(redirectTo);
-    const loginUrl = oauthQuery
-      ? `/login?${oauthQuery}`
-      : `/login?redirectTo=${encodedRedirect}`;
-    const registerUrl =
-      allowRegister && oauthQuery
-        ? `/register?${oauthQuery}`
-        : `/register?redirectTo=${encodedRedirect}`;
-
-    try {
-      const html = renderAuthPage(
-        page,
-        {
-          actionUrl: `/api/auth/sign-in/email`,
-          redirectTo,
-          appSlug,
-          authUrl: config.betterAuth.url,
-          errorMessage: query.error,
-          oauthQuery,
-          allowRegister,
-          socialProvidersJson,
-          loginUrl,
-          registerUrl,
-        },
-        appSlug || null,
-        config.templatesDir,
-      );
-      return reply
-        .status(200)
-        .header("content-type", "text/html; charset=utf-8")
-        .send(html);
-    } catch {
-      // Template not found — fall back to Vue SPA
-      if (existsSync(frontendDist)) {
-        return reply.sendFile("index.html", frontendDist);
-      }
-      return reply.status(404).send({ error: "Not found" });
-    }
-  });
-}
-
-// ── Organization selection page (postLogin OAuth2 flow) ──────────────────────
-// BetterAuth's oauthProvider redirects here when the client requests the "org"
-// scope and the user needs to select their active organization.
-fastify.get("/select-org", async (req, reply) => {
-  if (!config.templatesDir) {
-    if (existsSync(frontendDist)) {
-      return reply.sendFile("index.html", frontendDist);
-    }
-    return reply.status(404).send({ error: "Not found" });
-  }
-
-  // Retrieve the authenticated session.
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    const query = req.query as Record<string, string>;
-    const rawUrl = req.raw.url ?? "";
-    const rawQs = rawUrl.includes("?") ? rawUrl.split("?").slice(1).join("?") : "";
-    return reply.redirect(`/login${rawQs ? `?${rawQs}` : ""}`, 302);
-  }
-
-  // Enumerate the user's organizations to populate the selection list.
-  const organizations = await auth.api.listOrganizations({
-    headers: fromNodeHeaders(req.headers),
-  });
-
-  const query = req.query as Record<string, string>;
-  const rawUrl = req.raw.url ?? "";
-  const rawQs = rawUrl.includes("?") ? rawUrl.split("?").slice(1).join("?") : "";
-  const oauthQuery =
-    query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
-
-  try {
-    const html = renderAuthPage(
-      "select-org",
-      {
-        actionUrl: "",
-        redirectTo: "",
-        appSlug: query.client_id ?? "",
-        authUrl: config.betterAuth.url,
-        oauthQuery,
-        organizationsJson: JSON.stringify(
-          (organizations ?? []).map((o) => ({
-            id: (o as Record<string, unknown>).id,
-            name: (o as Record<string, unknown>).name,
-            slug: (o as Record<string, unknown>).slug,
-            logo: (o as Record<string, unknown>).logo ?? null,
-          })),
-        ),
-      },
-      query.client_id ?? null,
-      config.templatesDir,
-    );
-    return reply
-      .status(200)
-      .header("content-type", "text/html; charset=utf-8")
-      .send(html);
-  } catch {
-    if (existsSync(frontendDist)) {
-      return reply.sendFile("index.html", frontendDist);
-    }
-    return reply.status(404).send({ error: "Not found" });
-  }
-});
-
-// ── BetterAuth handler — intercept before Fastify body-parsing ───────────────
-// Must run in onRequest (before preParsing) so the raw stream is still intact.
-// reply.hijack() bypasses @fastify/cors, so we inject CORS headers manually.
-const betterAuthHandler = toNodeHandler(auth);
-fastify.addHook("onRequest", (req, reply, done) => {
-  if (req.url?.startsWith("/api/auth/")) {
-    const origin = req.headers.origin;
-    if (origin && corsOrigins.has(origin)) {
-      reply.raw.setHeader("Access-Control-Allow-Origin", origin);
-      reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
-      reply.raw.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Authorization, X-Requested-With",
-      );
-      reply.raw.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-      );
-    }
-    // Handle preflight without consuming the body
-    if (req.method === "OPTIONS") {
-      reply.raw.writeHead(204);
-      reply.raw.end();
-      return;
-    }
-
-    // Rate-limit sensitive auth endpoints
-    const urlPath = req.url.split("?")[0] ?? "";
-    if (AUTH_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))) {
-      // `req.ip` is proxy-resolved (Fastify `trustProxy`), so a forged
-      // `X-Forwarded-For` cannot reset the per-IP brute-force counter.
-      const ip = req.ip ?? "unknown";
-      if (!checkAuthRateLimit(ip)) {
-        reply.raw.writeHead(429, { "Content-Type": "application/json" });
-        reply.raw.end(JSON.stringify({ error: "Too many requests", code: "RATE_LIMITED" }));
-        return;
-      }
-    }
-
-    reply.hijack();
-    betterAuthHandler(req.raw, reply.raw);
-  } else {
-    done();
-  }
-});
-
-// ── Routes ────────────────────────────────────────────────────────────────────
-// Stripe webhook must be registered first — it uses a raw Buffer body parser
-// scoped to its plugin, which takes precedence over the default JSON parser.
-await fastify.register(stripeWebhookRoutes, { prefix: "/api/webhooks/stripe" });
-await fastify.register(healthRoutes);
-await fastify.register(applicationRoutes, {
-  prefix: "/api/admin/applications",
-});
-await fastify.register(rolesRoutes, { prefix: "/api/admin" });
-await fastify.register(plansRoutes, { prefix: "/api/admin" });
-await fastify.register(adminConsumptionRoutes, { prefix: "/api/admin" });
-await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
-await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
-await fastify.register(statsRoutes, { prefix: "/api/admin/stats" });
-await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
-await fastify.register(organizationsRoutes, { prefix: "/api/admin/organizations" });
-await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
-await fastify.register(userRoutes, { prefix: "/api/user" });
-await fastify.register(appConfigRoutes, { prefix: "/api/app-config" });
-
-// ── OIDC / OAuth 2.0 discovery at root (RFC 8414 / OIDC Core §4) ──────────────
-// BetterAuth serves these under /api/auth/.well-known/… but many clients look
-// for them at the root of the issuer (https://auth.example.com/.well-known/…).
-const handleOpenIdConfig = oauthProviderOpenIdConfigMetadata(auth);
-const handleAuthServerMeta = oauthProviderAuthServerMetadata(auth);
-
-fastify.get("/.well-known/openid-configuration", async (_req, reply) => {
-  const res = await handleOpenIdConfig(
-    new Request(config.betterAuth.url + "/.well-known/openid-configuration"),
-  );
-  const body = await res.json();
-  return reply
-    .status(res.status)
-    .header("content-type", "application/json")
-    .send(body);
-});
-
-fastify.get("/.well-known/oauth-authorization-server", async (_req, reply) => {
-  const res = await handleAuthServerMeta(
-    new Request(
-      config.betterAuth.url + "/.well-known/oauth-authorization-server",
-    ),
-  );
-  const body = await res.json();
-  return reply
-    .status(res.status)
-    .header("content-type", "application/json")
-    .send(body);
-});
-
-// ── SPA fallback — serve index.html for all unmatched routes ─────────────────
-fastify.setNotFoundHandler(async (req, reply) => {
-  if (
-    !req.url.startsWith("/api/") &&
-    !req.url.startsWith("/api/auth/") &&
-    existsSync(frontendDist)
-  ) {
-    return reply.sendFile("index.html", frontendDist);
-  }
-  await reply
-    .status(404)
-    .send({ error: { code: "SRV_001", message: "Not found" } });
-});
-
-// ── Global error handler ──────────────────────────────────────────────────────
-fastify.setErrorHandler(async (error, _req, reply) => {
-  if (error instanceof ApiError) {
-    await reply.status(error.statusCode).send(error.toJSON());
-    return;
-  }
-
-  // Fastify validation errors
-  const err = error as { validation?: unknown };
-  if (err.validation) {
-    await reply.status(400).send({
-      error: {
-        code: "APP_001",
-        message: "Validation error",
-        details: err.validation,
-      },
-    });
-    return;
-  }
-
-  fastify.log.error(error);
-  await reply.status(500).send({
-    error: { code: "SRV_001", message: "Internal server error" },
-  });
-});
-
-// ── Startup ───────────────────────────────────────────────────────────────────
 async function start(): Promise<void> {
-  try {
-    // Run migrations automatically in production; in dev use `pnpm db:push`
-    if (!config.isDev) {
-      await runMigrations();
-    }
-    await bootstrap();
-
-    // ── Seed runtime-config from env vars (static seed, backward-compat) ─────
-    for (const o of config.cors.origins) addCorsOrigin(o);
-    for (const aud of config.oauthProvider.validAudiences) addAudience(aud);
-
-    // ── Seed runtime-config from DB — all app URLs ─────────────────────
-    // Pulls every application that has a URL configured so the server starts
-    // with the correct audiences/origins without any env variable restart.
-    const appRows = await db
-      .select({ url: applications.url })
-      .from(applications)
-      .where(isNotNull(applications.url));
-    for (const { url } of appRows) {
-      addAudience(url);
-      addCorsOrigin(url);
-    }
-
-    await fastify.listen({ port: config.port, host: config.host });
-    fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
-  } catch (err) {
-    fastify.log.error(err);
-    process.exit(1);
+  // Run migrations automatically in production; in dev use `pnpm db:push`
+  // or `pnpm db:migrate` manually so schema changes are reviewed first.
+  if (!config.isDev) {
+    await runMigrations();
   }
+  await bootstrap();
+
+  const fastify = await buildServer();
+
+  // ── Verify outbound mail transport ────────────────────────────────────
+  // In production a failed SMTP check is fatal: every email-dependent flow
+  // (verification, reset, magic link, OTP, org invites) would silently
+  // break otherwise. In dev/test we log a warning and continue.
+  const transport = getMailTransport();
+  if (transport.verify) {
+    try {
+      await transport.verify();
+      fastify.log.info(`mail transport=${transport.name} verified`);
+    } catch (err) {
+      if (config.isDev || config.nodeEnv === "test") {
+        fastify.log.warn(
+          { err: String(err) },
+          `mail transport=${transport.name} verification failed (non-fatal in ${config.nodeEnv})`,
+        );
+      } else {
+        fastify.log.error(
+          { err: String(err) },
+          `mail transport=${transport.name} verification failed`,
+        );
+        process.exit(1);
+      }
+    }
+  }
+
+  // ── Seed runtime-config from env vars (static seed) ─────────────────────
+  for (const o of config.cors.origins) addCorsOrigin(o);
+  for (const aud of config.oauthProvider.validAudiences) addAudience(aud);
+
+  // ── Seed runtime-config from DB — all app URLs ──────────────────────────
+  const appRows = await db
+    .select({ url: applications.url })
+    .from(applications)
+    .where(isNotNull(applications.url));
+  for (const { url } of appRows) {
+    addAudience(url);
+    addCorsOrigin(url);
+  }
+
+  await fastify.listen({ port: config.port, host: config.host });
+  fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
 }
 
-await start();
+start().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error(err);
+  process.exit(1);
+});

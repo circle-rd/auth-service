@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { twoFactor, admin, jwt, role, organization } from "better-auth/plugins";
+import { twoFactor, admin, jwt, role, organization, magicLink, emailOTP } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
@@ -19,6 +19,10 @@ import {
 import {
   sendResetPasswordEmail,
   sendVerificationEmail,
+  sendChangeEmailVerification,
+  sendMagicLinkEmail,
+  sendEmailOtp,
+  sendOrganizationInvitationEmail,
 } from "./services/email.js";
 import { userMustSetupMfa } from "./services/mfa.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
@@ -237,13 +241,21 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
-    requireEmailVerification: false,
+    requireEmailVerification: config.email.requireVerification,
     sendResetPassword: async (params: {
       user: { email: string };
       url: string;
     }) => {
       await sendResetPasswordEmail(params.user.email, params.url);
     },
+  },
+  // BetterAuth wires the verification email sender at the top level under
+  // `emailVerification` (NOT inside `emailAndPassword` — that field is
+  // silently ignored). `sendOnSignUp: true` fires the email automatically
+  // when a new account is created.
+  emailVerification: {
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
     sendVerificationEmail: async (params: {
       user: { email: string };
       url: string;
@@ -251,7 +263,27 @@ export const auth = betterAuth({
       await sendVerificationEmail(params.user.email, params.url);
     },
   },
+  // Email change confirmation: BetterAuth fires this when an authenticated
+  // user updates their email. The link goes to the user's CURRENT address;
+  // they must click it to finalise the change to `newEmail`.
   user: {
+    changeEmail: {
+      enabled: true,
+      // BetterAuth 1.6 renamed this callback from
+      // `sendChangeEmailVerification` to `sendChangeEmailConfirmation`.
+      // The old name is silently ignored by the runtime.
+      sendChangeEmailConfirmation: async (params: {
+        user: { email: string };
+        newEmail: string;
+        url: string;
+      }) => {
+        await sendChangeEmailVerification(
+          params.user.email,
+          params.newEmail,
+          params.url,
+        );
+      },
+    },
     additionalFields: {
       isMfaRequired: {
         type: "boolean",
@@ -318,6 +350,25 @@ export const auth = betterAuth({
         const role = (user as Record<string, unknown>).role as string | undefined;
         return role === "admin" || role === "superadmin";
       },
+      // Email an invited user the accept-invitation link. Falls back
+      // gracefully if the invitation row is missing some optional fields.
+      sendInvitationEmail: async (data: {
+        id: string;
+        email: string;
+        role?: string;
+        organization: { name: string; slug?: string };
+        inviter: { user: { name?: string | null; email: string } };
+      }) => {
+        const acceptUrl = `${config.betterAuth.url}/accept-invitation?id=${encodeURIComponent(
+          data.id,
+        )}`;
+        await sendOrganizationInvitationEmail(data.email, {
+          url: acceptUrl,
+          inviterName: data.inviter.user.name || data.inviter.user.email,
+          orgName: data.organization.name,
+          role: data.role,
+        });
+      },
     }),
     admin({
       adminRoles: ["admin", "superadmin"],
@@ -348,6 +399,32 @@ export const auth = betterAuth({
         }),
       },
     }),
+    // Passwordless flows — gated by env so deployments that don't want them
+    // never expose the corresponding endpoints. Both are sender-only here;
+    // verification (/api/auth/magic-link/verify, /api/auth/email-otp/...) is
+    // always reachable on the BetterAuth client side.
+    ...(config.email.magicLinkEnabled
+      ? [
+          magicLink({
+            sendMagicLink: async (params: { email: string; url: string }) => {
+              await sendMagicLinkEmail(params.email, params.url);
+            },
+          }),
+        ]
+      : []),
+    ...(config.email.otpEnabled
+      ? [
+          emailOTP({
+            sendVerificationOTP: async (params: {
+              email: string;
+              otp: string;
+              type: "sign-in" | "email-verification" | "forget-password" | "change-email";
+            }) => {
+              await sendEmailOtp(params.email, params.otp, params.type);
+            },
+          }),
+        ]
+      : []),
     oauthProvider({
       loginPage: "/login",
       consentPage: "/oauth2/consent",

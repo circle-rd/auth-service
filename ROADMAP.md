@@ -41,8 +41,12 @@ Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 | Health check `GET /health`                         | ✅ Complete    | ✅ N/A          | [`src/routes/health.ts`](src/routes/health.ts:6)                                    |
 | OIDC discovery endpoints                           | ✅ Complete    | ✅ N/A          | [`src/index.ts:104`](src/index.ts:104)                                              |
 | Email + password auth                              | ✅ Complete    | ✅ Complete     | BetterAuth `emailAndPassword` plugin                                                |
-| Password reset via email                           | ✅ Complete    | ✅ Complete     | SMTP optional, silently no-ops                                                      |
-| Email verification                                 | ⚠️ Partial     | ✅ Complete     | `requireEmailVerification: false` — disabled by default                             |
+| Password reset via email                           | ✅ Complete    | ✅ Complete     | Eta templates, SMTP via Nodemailer                                                  |
+| Email verification                                 | ✅ Complete    | ✅ Complete     | `REQUIRE_EMAIL_VERIFICATION` env (true in prod by default)                          |
+| Change-email confirmation                          | ✅ Complete    | —               | `user.changeEmail.sendChangeEmailVerification`                                      |
+| Magic-link sign-in                                 | ✅ Opt-in      | —               | `MAGIC_LINK_ENABLED=true`; `/api/auth/sign-in/magic-link`                           |
+| Email OTP (sign-in / verify / reset)               | ✅ Opt-in      | —               | `EMAIL_OTP_ENABLED=true`; `/api/auth/email-otp/*`                                   |
+| Organization invitations                           | ✅ Complete    | ✅ Complete     | `organization.sendInvitationEmail`                                                  |
 | Session management                                 | ✅ Complete    | ✅ Complete     | BetterAuth sessions                                                                 |
 | TOTP (2FA)                                         | ✅ Complete    | ✅ Complete     | `twoFactor()` plugin                                                                |
 | Passkey / YubiKey                                  | ✅ Complete    | ✅ Complete     | Registration + authentication use `@simplewebauthn/browser`                         |
@@ -100,8 +104,8 @@ Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 
 - ✅ **Registration** — `POST /api/auth/sign-up/email` via BetterAuth `emailAndPassword` plugin; min 8 chars enforced ([`src/auth.ts:38`](src/auth.ts:38))
 - ✅ **Sign-in** — `POST /api/auth/sign-in/email`; MFA redirect handled in [`LoginView.vue:27`](frontend/src/views/LoginView.vue:27)
-- ✅ **Password reset** — `sendResetPassword` hook wired to [`src/services/email.ts`](src/services/email.ts); frontend at [`ResetPasswordView.vue`](frontend/src/views/ResetPasswordView.vue)
-- ⚠️ **Email verification** — `requireEmailVerification: false` in [`src/auth.ts:41`](src/auth.ts:41); the hook is wired but the feature is disabled. SPECS.md §3.2 says "optional, configurable" — this is acceptable but should be documented.
+- ✅ **Password reset** — `sendResetPassword` hook wired to [`src/services/email.ts`](src/services/email.ts) (Eta-rendered `reset-password.eml`); frontend at [`ResetPasswordView.vue`](frontend/src/views/ResetPasswordView.vue)
+- ✅ **Email verification** — enabled by default in production via `REQUIRE_EMAIL_VERIFICATION` ([`src/config.ts`](src/config.ts)); template `verify-email.eml`
 
 #### 1.2 OAuth 2.1 / OIDC
 
@@ -466,7 +470,7 @@ Overall project completeness: **~90% of SPECS.md requirements are implemented**.
 - [ ] Implement Stripe webhook handler (`POST /stripe/webhook`)
 - [ ] Add LinkedIn, Microsoft, Apple social providers to `auth.ts` when env vars are set
 - [ ] Add `/admin/applications/new` route (or confirm modal approach is acceptable)
-- [ ] Add email verification toggle (make `requireEmailVerification` configurable via env var)
+- [x] Add email verification toggle (`REQUIRE_EMAIL_VERIFICATION` env, true by default in production)
 
 ### Sprint 6 — Production Hardening (ongoing)
 

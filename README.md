@@ -233,12 +233,72 @@ Add a reverse proxy (Traefik, nginx, Caddy) in front of it for TLS termination.
 | `CORS_ORIGINS`       | no       | Comma-separated allowed origins                   |
 | `APP_NAME`           | no       | Display name in UI + TOTP issuer (default: `CIRCLE Auth`) |
 | `APP_LOGO_URL`       | no       | Logo URL for UI + favicon (falls back to default) |
-| `SMTP_HOST`          | no       | SMTP server (email features disabled if empty)    |
-| `SMTP_PORT`          | no       | SMTP port (default: 587)                          |
-| `SMTP_USER`          | no       | SMTP username                                     |
+| `SMTP_HOST`          | prod¹   | SMTP server host                                  |
+| `SMTP_PORT`          | no       | 465 (TLS) │ 587 (STARTTLS, default) │ 25         |
+| `SMTP_USER`          | no       | SMTP username (omit for unauthenticated relays)   |
 | `SMTP_PASS`          | no       | SMTP password                                     |
-| `SMTP_FROM`          | no       | From address for outgoing emails                  |
+| `SMTP_FROM`          | no       | From address (default: `auth-service <no-reply@localhost>`) |
+| `MAIL_REPLY_TO`      | no       | Reply-To header added to every outbound email     |
+| `REQUIRE_EMAIL_VERIFICATION` | no | `true` in prod by default, `false` elsewhere   |
+| `MAGIC_LINK_ENABLED` | no       | Enable `/api/auth/sign-in/magic-link` (default: false) |
+| `EMAIL_OTP_ENABLED`  | no       | Enable `/api/auth/email-otp/*` (default: false)   |
 | `NODE_ENV`           | no       | `development` or `production`                     |
+
+¹ `SMTP_HOST` is required in production whenever any email flow is active
+(`REQUIRE_EMAIL_VERIFICATION`, `MAGIC_LINK_ENABLED`, or `EMAIL_OTP_ENABLED`).
+The service refuses to start otherwise.
+
+---
+
+## Email
+
+Auth-service ships its own SMTP pipeline (Nodemailer) and renders every
+outbound message from an Eta template. The flows currently wired up:
+
+| Flow                  | Template (`.eml`)               | Triggered by                                    |
+| --------------------- | ------------------------------- | ----------------------------------------------- |
+| Email verification    | `verify-email.eml`              | sign-up + `/api/auth/send-verification-email`   |
+| Password reset        | `reset-password.eml`            | `/api/auth/forget-password`                     |
+| Change-email confirm  | `change-email.eml`              | `/api/auth/change-email`                        |
+| Magic-link sign-in    | `magic-link.eml`                | `/api/auth/sign-in/magic-link` (opt-in)         |
+| Email OTP             | `email-otp.eml`                 | `/api/auth/email-otp/*` (opt-in)                |
+| Org invitation        | `org-invitation.eml`            | `/api/admin/organizations/:id/invitations`      |
+
+Each `.eml` file has the same shape:
+
+```
+---
+subject: Verify your email for <%= it.appName %>
+---
+<html>...<%= it.url %>...</html>
+===TEXT===
+Click <%= it.url %> to verify.
+```
+
+The `===TEXT===` block is optional; when absent the renderer derives a plain-
+text version by stripping tags from the HTML. Eta tags work everywhere
+(`<%= it.x %>` HTML-escapes, `<%~ it.x %>` outputs raw, `<% ... %>` is a
+JS control-flow block).
+
+### Overriding templates per app
+
+The resolution order matches the `/login` page overrides:
+
+1. `<TEMPLATES_DIR>/<app-slug>/emails/<name>.eml` — per-application override
+2. `<TEMPLATES_DIR>/default/emails/<name>.eml`    — global override
+3. `templates/default/emails/<name>.eml`          — bundled fallback
+
+Mount your overrides at `TEMPLATES_DIR` (Docker volume) and they take effect
+on the next request — cached only in production.
+
+### Local development with Mailhog
+
+```sh
+docker run -d --rm --name mailhog -p 1025:1025 -p 8025:8025 mailhog/mailhog
+export SMTP_HOST=localhost SMTP_PORT=1025
+pnpm dev
+# open http://localhost:8025 to read captured mails
+```
 
 ---
 

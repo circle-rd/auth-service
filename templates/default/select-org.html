@@ -124,23 +124,23 @@
 
     <div class="card">
       <!-- Hidden input so the HTML parser decodes &amp; → & before JS reads it.
-           {{OAUTH_QUERY}} is HTML-escaped by templates.ts; inside a raw <script>
+           <%= it.OAUTH_QUERY %> is HTML-escaped by templates.ts; inside a raw <script>
            block, entities are NOT decoded, which would break the HMAC signature. -->
-      <input type="hidden" id="oauth-query" value="{{OAUTH_QUERY}}" />
+      <input type="hidden" id="oauth-query" value="<%= it.OAUTH_QUERY %>" />
       <div class="error-box" id="error-box"></div>
       <div class="org-list" id="org-list"></div>
     </div>
   </div>
 
   <script type="module">
-    const AUTH_URL = '{{AUTH_URL}}';
+    const AUTH_URL = '<%= it.AUTH_URL %>';
     // .value decodes HTML entities (&amp; → &) which escapeHtml() introduced.
     // This preserves the exact signed query string for HMAC verification.
     const OAUTH_QUERY = document.getElementById('oauth-query').value;
     const errorBox = document.getElementById('error-box');
     const orgList = document.getElementById('org-list');
 
-    const orgs = (() => { try { return JSON.parse('{{ORGANIZATIONS_JSON}}'); } catch { return []; } })();
+    const orgs = (() => { try { return JSON.parse('<%~ it.ORGANIZATIONS_JSON %>'); } catch { return []; } })();
 
     function getInitials(name) {
       return name.split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();

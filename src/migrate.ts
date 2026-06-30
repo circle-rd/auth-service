@@ -31,6 +31,15 @@ const POST_BASELINE_PROBES: { tag: string; probe: ReturnType<typeof sql> }[] = [
     probe: sql`SELECT 1 FROM information_schema.tables
                WHERE table_schema = 'public' AND table_name = 'login_history'`,
   },
+  {
+    // 0002 adds two_factor.failed_verification_count + locked_until (required
+    // by better-auth >=1.6.20 TOTP brute-force lockout).
+    tag: "0002_adorable_the_hand",
+    probe: sql`SELECT 1 FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name = 'two_factor'
+                 AND column_name = 'failed_verification_count'`,
+  },
 ];
 
 /**

@@ -110,4 +110,16 @@ export const ERR = {
   SRV_002: (msg = "Service temporarily unavailable") =>
     new ApiError(503, "SRV_002", msg),
   SRV_003: (msg = "Database error") => new ApiError(500, "SRV_003", msg),
+
+  // ── MAIL ──────────────────────────────────────────────────────────────────
+  MAIL_001: (msg = "Email template not found", details?: unknown) =>
+    new ApiError(500, "MAIL_001", msg, details),
+  MAIL_002: (msg = "Mail transport failure", details?: unknown) =>
+    new ApiError(502, "MAIL_002", msg, details),
+  MAIL_003: (msg = "Too many email requests, please retry later") =>
+    new ApiError(429, "MAIL_003", msg),
+
+  // ── RATE ──────────────────────────────────────────────────────────────────
+  RATE_001: (msg = "Too many authentication attempts, please retry later") =>
+    new ApiError(429, "RATE_001", msg),
 } as const;

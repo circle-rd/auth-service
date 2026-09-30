@@ -15,6 +15,13 @@
       "when": 1778972820706,
       "tag": "0001_many_weapon_omega",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782806153317,
+      "tag": "0002_adorable_the_hand",
+      "breakpoints": true
     }
   ]
 }

@@ -175,6 +175,11 @@ export const twoFactor = pgTable(
      * functional after migration.
      */
     verified: boolean("verified").default(true),
+    // Added in better-auth 1.6.20+: TOTP brute-force lockout. The plugin
+    // increments failed_verification_count on each wrong code and sets
+    // locked_until when the threshold is reached.
+    failedVerificationCount: integer("failed_verification_count").default(0),
+    lockedUntil: timestamp("locked_until"),
   },
   (table) => [
     index("twoFactor_secret_idx").on(table.secret),

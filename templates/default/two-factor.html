@@ -158,11 +158,11 @@
     </div>
 
     <div class="card">
-      <div class="error-box" id="error-box">{{ERROR_MESSAGE}}</div>
+      <div class="error-box" id="error-box"><%= it.ERROR_MESSAGE %></div>
 
       <form id="totp-form" novalidate>
-        <input type="hidden" id="redirectTo" value="{{REDIRECT_TO}}" />
-        <input type="hidden" id="oauthQuery" value="{{OAUTH_QUERY}}" />
+        <input type="hidden" id="redirectTo" value="<%= it.REDIRECT_TO %>" />
+        <input type="hidden" id="oauthQuery" value="<%= it.OAUTH_QUERY %>" />
         <label style="text-align:center; margin-bottom:.75rem;">Enter your 6-digit code</label>
         <div class="otp-group" id="otp-group" role="group" aria-label="One-time password, 6 digits">
           <div class="otp-block">
@@ -190,13 +190,13 @@
 
       <div class="mfa-mode-switch">
         <button type="button" id="toggle-mode" class="primary">Use a backup code</button>
-        <a href="{{LOGIN_URL}}" style="color: var(--text-muted); text-decoration: none;">Back to sign in</a>
+        <a href="<%= it.LOGIN_URL %>" style="color: var(--text-muted); text-decoration: none;">Back to sign in</a>
       </div>
     </div>
   </div>
 
   <script type="module">
-    const AUTH_URL = '{{AUTH_URL}}';
+    const AUTH_URL = '<%= it.AUTH_URL %>';
 
     const errorBox   = document.getElementById('error-box');
     const otpGroup   = document.getElementById('otp-group');

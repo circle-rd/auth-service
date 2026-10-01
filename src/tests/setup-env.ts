@@ -9,15 +9,14 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { applyBaseEnv } from "./base-env.js";
+
 const URL_FILE = join(tmpdir(), "auth-service-test-db-url.txt");
 
 const url = readFileSync(URL_FILE, "utf-8").trim();
 process.env.DATABASE_URL = url;
 
-// Provide the remaining env vars that config.ts requires
-process.env.BETTER_AUTH_SECRET = "integration-test-secret-that-is-long-enough";
-process.env.BETTER_AUTH_URL = "http://localhost:3001";
-process.env.NODE_ENV = "test";
+applyBaseEnv();
 
 // Enable email-driven passwordless flows so their /api/auth/* endpoints are
 // mounted by BetterAuth. The transport itself is swapped to MailCaptureTransport

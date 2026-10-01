@@ -1,6 +1,17 @@
 import { z } from "zod";
 import "dotenv/config";
 
+// Zod's `z.coerce.boolean()` uses `Boolean(value)`, so the string "false"
+// becomes `true`. Env flags must be parsed strictly instead: `z.stringbool()`
+// accepts true/false, 1/0, yes/no and on/off (case-insensitive), and rejects
+// anything else so a typo fails the startup check rather than silently
+// enabling a security-sensitive flow. An empty string is treated as unset.
+const envBoolean = (defaultValue: boolean) =>
+  z
+    .union([z.stringbool(), z.literal("")])
+    .optional()
+    .transform((v) => (v === "" || v === undefined ? defaultValue : v));
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   HOST: z.string().default("0.0.0.0"),
@@ -30,8 +41,8 @@ const envSchema = z.object({
   // Number of trusted reverse-proxy hops in front of the service. Passed to
   // Fastify's `trustProxy` so `req.ip` is derived from the right entry in the
   // `X-Forwarded-For` chain instead of the (spoofable) client-supplied value.
-  // Our deployments sit behind `sni-router` (a single hop), hence the default
-  // of 1. Set to 0 only when the service is exposed directly with no proxy.
+  // The default of 1 suits a single trusted reverse-proxy hop. Set to 0 only
+  // when the service is exposed directly with no proxy.
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(1),
 
   SMTP_HOST: z.string().optional(),
@@ -46,16 +57,17 @@ const envSchema = z.object({
   // Email verification gating. When true (the default in production),
   // BetterAuth refuses to issue a session for an unverified account; the
   // user is sent a verification email and bounced to /verify-email.
+  // Explicitly leaving the variable empty keeps the production default.
   REQUIRE_EMAIL_VERIFICATION: z
-    .union([z.coerce.boolean(), z.literal("")])
+    .union([z.stringbool(), z.literal("")])
     .optional()
     .transform((v) => (v === "" || v === undefined ? undefined : v)),
 
   // Opt-in passwordless flows. Both default to false because they expand the
   // attack surface (anyone who knows a user's email can trigger a send).
   // Enable only after rate-limits and SMTP are in place.
-  MAGIC_LINK_ENABLED: z.coerce.boolean().default(false),
-  EMAIL_OTP_ENABLED: z.coerce.boolean().default(false),
+  MAGIC_LINK_ENABLED: envBoolean(false),
+  EMAIL_OTP_ENABLED: envBoolean(false),
 
   // Templates directory — optional, allows overriding login/register/verify-email pages
   // per-application (mount a volume at this path in Docker)

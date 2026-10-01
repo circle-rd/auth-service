@@ -12,15 +12,15 @@
 
 | Layer                | Choice                                            | Rationale                                                         |
 | -------------------- | ------------------------------------------------- | ----------------------------------------------------------------- |
-| Runtime              | Node.js (ESM)                                     | Same stack as mcp-central                                         |
-| Framework            | Fastify                                           | Same stack as mcp-central                                         |
+| Runtime              | Node.js 22 (ESM)                                  | Modern JavaScript runtime; ESM-first                     |
+| Framework            | Fastify 5                                         | High-throughput, low-overhead HTTP framework             |
 | Auth framework       | `better-auth` v1.5+                               | Plugin-first, BetterAuth base package                             |
 | OAuth 2.1 / OIDC     | `@better-auth/oauth-provider` — `oauthProvider()` | Separate package, successor to deprecated built-in `oidcProvider` |
 | JWT signing          | `jwt()` plugin from `better-auth/plugins`         | Required by `oauthProvider` for asymmetric token signing          |
 | Passkey / YubiKey    | `@better-auth/passkey`                            | FIDO2/WebAuthn, YubiKey-compatible                                |
 | TOTP (Auth app)      | `twoFactor()` from `better-auth/plugins`          | Google Authenticator, Authy, Bitwarden                            |
 | Admin / global roles | `admin()` from `better-auth/plugins`              | Role management (superadmin/admin/user)                           |
-| DB ORM               | Drizzle ORM + PostgreSQL                          | Same stack as mcp-central                                         |
+| DB ORM               | Drizzle ORM + PostgreSQL                          | Type-safe schema, first-class migrations                         |
 | Frontend (bundled)   | Vue 3 + Vite + Tailwind v4                        | SPA embedded in the service                                       |
 | Testing              | Vitest + Supertest                                | Unit tests + HTTP integration tests                               |
 | Containerisation     | Docker (Node Alpine multi-stage)                  | Build frontend → compile TS → Alpine runtime                      |
@@ -48,8 +48,8 @@ An **application** is a client project consuming auth-service as its OAuth 2.1 /
 Fields:
 
 - `id` — UUID
-- `name` — Display name (e.g. "MCP Central")
-- `slug` — URL-safe identifier (e.g. `mcp-central`)
+- `name` — Display name (e.g. "Admin Console")
+- `slug` — URL-safe identifier (e.g. `admin-console`)
 - `description` — Optional description
 - `clientId` — Auto-generated, used in the OIDC flow
 - `clientSecret` — OIDC secret (hashed in DB, shown once at creation)
@@ -737,7 +737,7 @@ Plugins added here automatically affect:
 - [ ] `GET /api/auth/jwks` returns public key in JWKS format
 - [ ] Email/password login → redirect_uri with valid OAuth 2.1 code
 - [ ] Token exchange: code → `access_token` + `id_token` with `sub`, `email`, `name`, `roles`, `permissions`, `features`
-- [ ] mcp-central backend: BetterAuth token accepted by `OidcMiddleware` (JWT verify via JWKS)
+- [ ] Downstream backend: Auth Service token accepted by a JWKS-capable middleware (JWT verify via JWKS)
 
 ### MFA
 

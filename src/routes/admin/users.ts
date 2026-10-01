@@ -17,6 +17,7 @@ import { user as userTable } from "../../db/auth-schema.js";
 import { and, count, desc, eq, inArray, max } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
+import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
 
 async function requireAdmin(
   req: FastifyRequest,
@@ -342,6 +343,9 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         headers: fromNodeHeaders(req.headers),
         body: { userId: req.params.id },
       });
+      // A ban must also invalidate the user's OAuth tokens so an existing
+      // refresh token cannot keep issuing access tokens.
+      await revokeAllUserTokens(req.params.id);
       await reply.send({ ok: true });
     },
   );

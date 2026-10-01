@@ -81,7 +81,7 @@ const EMAIL_SEND_WINDOW = 60_000;
 
 export async function buildServer(): Promise<FastifyInstance> {
   const fastify = Fastify({
-    // Trust the reverse-proxy chain (sni-router) so `req.ip` reflects the real
+    // Trust the reverse-proxy chain so `req.ip` reflects the real
     // client address from `X-Forwarded-For` instead of the proxy's address —
     // and, crucially, so a client-forged `X-Forwarded-For` cannot move the
     // rate-limit bucket. The number of trusted hops is configurable.

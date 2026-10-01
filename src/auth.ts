@@ -27,9 +27,60 @@ import {
 import { userMustSetupMfa } from "./services/mfa.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
+import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
+
+const ADMIN_TARGET_USER_ID_PATHS = new Set([
+  "/admin/ban-user",
+  "/admin/unban-user",
+  "/admin/remove-user",
+  "/admin/update-user",
+  "/admin/set-role",
+  "/admin/set-user-password",
+  "/admin/impersonate-user",
+  "/admin/revoke-user-sessions",
+]);
+
+const ROLE_RANK: Record<string, number> = { user: 0, admin: 1, superadmin: 2 };
+
+function roleRank(role: string | null | undefined): number {
+  return role ? (ROLE_RANK[role] ?? 0) : 0;
+}
+
+/** A caller may only manage users that strictly outrank below them. */
+function canManageRole(callerRole: string, targetRole: string): boolean {
+  return roleRank(callerRole) > roleRank(targetRole);
+}
+
+/**
+ * Resolve the user id targeted by a native BetterAuth admin endpoint, or null
+ * when the request is not one of the guarded endpoints. `revoke-user-session`
+ * identifies the session by token, so the owner is resolved from the session
+ * table.
+ */
+async function resolveAdminTargetUserId(
+  path: string,
+  body: unknown,
+): Promise<string | null> {
+  if (ADMIN_TARGET_USER_ID_PATHS.has(path)) {
+    const userId = (body as Record<string, unknown> | undefined)?.userId;
+    return typeof userId === "string" ? userId : null;
+  }
+  if (path === "/admin/revoke-user-session") {
+    const sessionToken = (body as Record<string, unknown> | undefined)
+      ?.sessionToken;
+    if (typeof sessionToken !== "string") return null;
+    const [row] = await db
+      .select({ userId: authSchema.session.userId })
+      .from(authSchema.session)
+      .where(eq(authSchema.session.token, sessionToken))
+      .limit(1);
+    return row?.userId ?? null;
+  }
+  return null;
+}
 
 /**
  * Reserved JWT claim names (mirror of admin route validation). Any per-app
@@ -76,6 +127,31 @@ async function getApplicationMetadataClaims(
 }
 
 /**
+ * Fail-closed check for machine-to-machine tokens (client_credentials): the
+ * request has no user, so the main access guard never runs. Reject unknown or
+ * disabled applications outright.
+ */
+async function assertApplicationActive(
+  clientId: string | undefined,
+): Promise<void> {
+  if (!clientId) {
+    throw new APIError("FORBIDDEN", {
+      message: "Token requested by an unregistered OAuth client",
+    });
+  }
+  const [app] = await db
+    .select({ isActive: applications.isActive })
+    .from(applications)
+    .where(eq(applications.slug, clientId))
+    .limit(1);
+  if (!app || !app.isActive) {
+    throw new APIError("FORBIDDEN", {
+      message: "Application not found or disabled",
+    });
+  }
+}
+
+/**
  * Central authorization guard for OAuth token issuance.
  *
  * MUST be invoked on EVERY token-issuance path that produces a user-bound
@@ -95,12 +171,27 @@ async function enforceApplicationAccessGuard(
   user: Record<string, unknown> & { id: string },
   clientId: string | undefined,
 ): Promise<void> {
-  if (!clientId) return;
+  // Fail closed: every user-bound token must be tied to a registered OAuth
+  // client. A missing client id means the caller (or the client) is not one of
+  // our applications, so no application-level policy can be evaluated and no
+  // token may be issued.
+  if (!clientId) {
+    throw new APIError("FORBIDDEN", {
+      message: "Token requested by an unregistered OAuth client",
+    });
+  }
+
+  // A banned account must not receive or renew tokens, including through the
+  // refresh_token grant (which otherwise keeps minting access tokens forever).
+  if (user.banned === true) {
+    throw new APIError("FORBIDDEN", { message: "Account is disabled" });
+  }
 
   // Single query: resolve app + the flags needed for the access decision.
   const [app] = await db
     .select({
       id: applications.id,
+      isActive: applications.isActive,
       isPublic: applications.isPublic,
       allowRegister: applications.allowRegister,
       isMfaRequired: applications.isMfaRequired,
@@ -110,9 +201,9 @@ async function enforceApplicationAccessGuard(
     .where(eq(applications.slug, clientId))
     .limit(1);
 
-  if (!app) {
+  if (!app || !app.isActive) {
     throw new APIError("FORBIDDEN", {
-      message: "Application not found",
+      message: "Application not found or disabled",
     });
   }
 
@@ -285,18 +376,22 @@ export const auth = betterAuth({
       },
     },
     additionalFields: {
+      // Server-controlled: set by admins through /api/admin/users, never by the
+      // user themselves. `input: false` strips it from /update-user payloads so
+      // a user cannot lift an MFA requirement imposed on them.
       isMfaRequired: {
         type: "boolean",
         defaultValue: false,
         required: false,
+        input: false,
       },
       phone: { type: "string", required: false },
       company: { type: "string", required: false },
       position: { type: "string", required: false },
       address: { type: "string", required: false },
       // Surfaced to admin listings as "last seen". Written by
-      // services/login-history.ts on every successful OAuth token issuance.
-      lastLoginAt: { type: "date", required: false },
+      // services/login-history.ts; must not be user-writable.
+      lastLoginAt: { type: "date", required: false, input: false },
     },
   },
   // Capture every direct session creation (admin dashboard sign-in, password
@@ -333,6 +428,41 @@ export const auth = betterAuth({
         },
       },
     },
+  },
+  // Hierarchy guard for the native BetterAuth admin endpoints. The admin role
+  // holds `ban`/`update`/`session:revoke` permissions (needed by our own
+  // controlled routes), but nothing stops a direct call to
+  // /api/auth/admin/* from targeting a peer or a superadmin. This hook rejects
+  // any admin action whose target outranks (or equals) the caller.
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      const targetUserId = await resolveAdminTargetUserId(
+        ctx.path,
+        ctx.body,
+      );
+      if (!targetUserId) return;
+
+      if (!ctx.headers) return;
+      const session = await auth.api.getSession({ headers: ctx.headers });
+      // Unauthenticated callers are rejected by the endpoint itself.
+      if (!session) return;
+
+      const callerRole =
+        ((session.user as Record<string, unknown>).role as string | undefined) ??
+        "user";
+      const [target] = await db
+        .select({ role: authSchema.user.role })
+        .from(authSchema.user)
+        .where(eq(authSchema.user.id, targetUserId))
+        .limit(1);
+      if (!target) return;
+
+      if (!canManageRole(callerRole, target.role ?? "user")) {
+        throw new APIError("FORBIDDEN", {
+          message: "Cannot manage a user with an equal or higher role",
+        });
+      }
+    }),
   },
   plugins: [
     // Required for asymmetric JWT signing used by oauthProvider.
@@ -406,6 +536,9 @@ export const auth = betterAuth({
     ...(config.email.magicLinkEnabled
       ? [
           magicLink({
+            // Store a hash of the token instead of the plaintext so a leaked
+            // database dump cannot be replayed to sign in.
+            storeToken: "hashed",
             sendMagicLink: async (params: { email: string; url: string }) => {
               await sendMagicLinkEmail(params.email, params.url);
             },
@@ -428,6 +561,18 @@ export const auth = betterAuth({
     oauthProvider({
       loginPage: "/login",
       consentPage: "/oauth2/consent",
+      // Restrict the native OAuth client management endpoints
+      // (/oauth2/create-client, /update-client, /delete-client, /rotate-secret,
+      // /client/...). Without this, ANY authenticated account could register its
+      // own client and obtain tokens that bypass every application policy
+      // (access, MFA, social provider allow-list). Clients are provisioned
+      // exclusively through the admin API.
+      clientPrivileges: ({ user }) => {
+        const role = (user as Record<string, unknown> | undefined)?.role as
+          | string
+          | undefined;
+        return role === "admin" || role === "superadmin";
+      },
       // Live mutable list of valid resource server audiences (RFC 8707).
       // Seeded from OAUTH_VALID_AUDIENCES env + all app.url values at startup.
       // Updated in-place on application CRUD — no restart needed.
@@ -480,7 +625,7 @@ export const auth = betterAuth({
       },
       // `customIdTokenClaims` only affects the ID token; this callback is what
       // puts roles/permissions/features/email/name/org_id in the Bearer JWT that
-      // the resource server (MCP-Central, CyPlate, etc.) receives and verifies.
+      // a downstream resource server receives and verifies.
       // `resource` is the RFC 8707 audience URL (e.g. "https://api.lagarde.dev").
       // `referenceId` is the org ID stored at consent time via postLogin flow.
       // `metadata.clientId` holds the OAuth client slug (application slug).
@@ -492,7 +637,12 @@ export const auth = betterAuth({
         // machine-to-machine tokens this is the sole source of custom claims
         // (no user → no roles/permissions/features).
         const appAttrs = await getApplicationMetadataClaims(clientId);
-        if (!user) return appAttrs;
+        if (!user) {
+          // client_credentials: no user to gate on, but the client itself must
+          // be a known, enabled application.
+          await assertApplicationActive(clientId);
+          return appAttrs;
+        }
         // Shared authorization guard. The OAuth provider issues a JWT access
         // token whenever a valid `resource` is supplied, REGARDLESS of whether
         // the `openid` scope (and therefore customIdTokenClaims) is present.

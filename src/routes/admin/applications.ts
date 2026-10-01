@@ -29,6 +29,10 @@ import {
   addCorsOrigin,
   removeCorsOrigin,
 } from "../../runtime-config.js";
+import {
+  revokeUserClientTokens,
+  revokeClientTokens,
+} from "../../services/oauth-tokens.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -324,6 +328,9 @@ export async function applicationRoutes(
         scopes: data.allowedScopes,
         redirectUris: data.redirectUris,
         enableEndSession: data.enableEndSession,
+        // Keep the OAuth client's enabled state in sync with the application
+        // so a disabled app cannot obtain tokens.
+        disabled: !data.isActive,
         postLogoutRedirectUris: effectivePostLogoutRedirectUris(
           data.postLogoutRedirectUris,
           data.url,
@@ -501,6 +508,10 @@ export async function applicationRoutes(
       oauthUpdate.skipConsent = parsed.data.skipConsent;
     if (parsed.data.redirectUris !== undefined)
       oauthUpdate.redirectUris = parsed.data.redirectUris;
+    // Mirror the application's active flag onto the OAuth client so a disabled
+    // application stops issuing tokens.
+    if (parsed.data.isActive !== undefined)
+      oauthUpdate.disabled = !parsed.data.isActive;
     if (parsed.data.enableEndSession !== undefined)
       oauthUpdate.enableEndSession = parsed.data.enableEndSession;
     if (parsed.data.postLogoutRedirectUris !== undefined)
@@ -560,6 +571,9 @@ export async function applicationRoutes(
         .update(oauthClient)
         .set({ clientSecret: hashedSecret })
         .where(eq(oauthClient.clientId, app.slug));
+
+      // Invalidate every token minted with the previous secret.
+      await revokeClientTokens(app.slug);
 
       await reply.send({ clientSecret: newSecret });
     },
@@ -743,6 +757,19 @@ export async function applicationRoutes(
               eq(userApplications.applicationId, req.params.id),
             ),
           );
+
+        // Revoking access must also burn the user's OAuth refresh tokens for
+        // this app, otherwise they keep minting access tokens indefinitely.
+        if (parsed.data.isActive === false) {
+          const [app] = await db
+            .select({ slug: applications.slug })
+            .from(applications)
+            .where(eq(applications.id, req.params.id))
+            .limit(1);
+          if (app) {
+            await revokeUserClientTokens(req.params.userId, app.slug);
+          }
+        }
       }
 
       if (parsed.data.roleId !== undefined) {
@@ -797,6 +824,18 @@ export async function applicationRoutes(
     "/:id/users/:userId",
     async (req, reply) => {
       const { id: appId, userId } = req.params;
+
+      // Burn the user's OAuth tokens for this app before deleting the access
+      // rows, so a held refresh token cannot resurrect the grant.
+      const [app] = await db
+        .select({ slug: applications.slug })
+        .from(applications)
+        .where(eq(applications.id, appId))
+        .limit(1);
+      if (app) {
+        await revokeUserClientTokens(userId, app.slug);
+      }
+
       await db.transaction(async (tx) => {
         await tx.delete(userAppRoles).where(
           and(eq(userAppRoles.userId, userId), eq(userAppRoles.applicationId, appId)),

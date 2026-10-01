@@ -63,7 +63,7 @@ async function seedSession(
 
 function asAdmin() {
   vi.spyOn(auth.api, "getSession").mockResolvedValue(
-    makeSuperadminSession() as ReturnType<typeof auth.api.getSession> extends Promise<infer T> ? T : never,
+    makeSuperadminSession() as unknown as ReturnType<typeof auth.api.getSession> extends Promise<infer T> ? T : never,
   );
 }
 

@@ -17,8 +17,10 @@ import { user as userTable } from "../../db/auth-schema.js";
 import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
+import { isMailConfigured } from "../../services/mail/index.js";
 import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
 import { getCallerRole, requireAdmin } from "../../middleware.js";
+import { canAdminTargetUser } from "../../services/roles.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = z.object({
@@ -157,6 +159,22 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         headers: fromNodeHeaders(req.headers),
         body: { name, email, password, role: role as "user" | "admin" },
       });
+      // The native `/admin/create-user` endpoint does not trigger the
+      // verification mail that `/sign-up/email` sends, so an admin-provisioned
+      // account would otherwise stay unverified with no mail. Sent without a
+      // session so BetterAuth accepts a target address other than the caller's.
+      // Best-effort and detached: the 201 must not wait on SMTP, and a send
+      // failure must not roll back the new account.
+      if (isMailConfigured()) {
+        void auth.api
+          .sendVerificationEmail({ body: { email } })
+          .catch((err: unknown) =>
+            req.log.warn(
+              { err: String(err), email },
+              "[admin] failed to send verification email after user creation",
+            ),
+          );
+      }
       await reply.status(201).send({ user: result.user });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to create user";
@@ -264,10 +282,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     const targetRole = targetRow.role ?? "user";
 
     // Admins cannot modify other admins or superadmins
-    if (
-      callerRole !== "superadmin" &&
-      (targetRole === "admin" || targetRole === "superadmin")
-    ) {
+    if (!canAdminTargetUser(callerRole, targetRole)) {
       throw ERR.AUTH_011("Insufficient permissions to modify this user");
     }
     // Only superadmin can promote someone to admin
@@ -326,10 +341,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       if (!targetRow) throw ERR.USR_001();
 
       const callerRole = await getCallerRole(req);
-      if (
-        callerRole !== "superadmin" &&
-        (targetRow.role === "admin" || targetRow.role === "superadmin")
-      ) {
+      if (!canAdminTargetUser(callerRole, targetRow.role)) {
         throw ERR.AUTH_011("Insufficient permissions to disable this user");
       }
 
@@ -356,10 +368,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       if (!targetRow) throw ERR.USR_001();
 
       const callerRole = await getCallerRole(req);
-      if (
-        callerRole !== "superadmin" &&
-        (targetRow.role === "admin" || targetRow.role === "superadmin")
-      ) {
+      if (!canAdminTargetUser(callerRole, targetRow.role)) {
         throw ERR.AUTH_011("Insufficient permissions to enable this user");
       }
 
@@ -367,6 +376,65 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         headers: fromNodeHeaders(req.headers),
         body: { userId: req.params.id },
       });
+      await reply.send({ ok: true });
+    },
+  );
+
+  // POST /api/admin/users/:id/send-verification — re-send the verification mail
+  fastify.post<{ Params: { id: string } }>(
+    "/:id/send-verification",
+    async (req, reply) => {
+      const [targetRow] = await db
+        .select({
+          role: userTable.role,
+          email: userTable.email,
+          emailVerified: userTable.emailVerified,
+        })
+        .from(userTable)
+        .where(eq(userTable.id, req.params.id))
+        .limit(1);
+      if (!targetRow) throw ERR.USR_001();
+
+      const callerRole = await getCallerRole(req);
+      if (!canAdminTargetUser(callerRole, targetRow.role)) {
+        throw ERR.AUTH_011("Insufficient permissions to email this user");
+      }
+      if (targetRow.emailVerified) {
+        throw ERR.USR_003("This email address is already verified");
+      }
+      if (!isMailConfigured()) {
+        throw ERR.MAIL_002("SMTP is not configured for this deployment");
+      }
+
+      // No session: BetterAuth only allows a mismatched target address on the
+      // unauthenticated branch of /send-verification-email.
+      await auth.api.sendVerificationEmail({
+        body: { email: targetRow.email },
+      });
+      await reply.send({ ok: true });
+    },
+  );
+
+  // POST /api/admin/users/:id/verify-email — mark an address verified manually
+  fastify.post<{ Params: { id: string } }>(
+    "/:id/verify-email",
+    async (req, reply) => {
+      const [targetRow] = await db
+        .select({ role: userTable.role })
+        .from(userTable)
+        .where(eq(userTable.id, req.params.id))
+        .limit(1);
+      if (!targetRow) throw ERR.USR_001();
+
+      const callerRole = await getCallerRole(req);
+      if (!canAdminTargetUser(callerRole, targetRow.role)) {
+        throw ERR.AUTH_011("Insufficient permissions to verify this user");
+      }
+
+      await db
+        .update(userTable)
+        .set({ emailVerified: true })
+        .where(eq(userTable.id, req.params.id));
       await reply.send({ ok: true });
     },
   );
@@ -392,10 +460,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     const callerRole = await getCallerRole(req);
 
     // Admins cannot delete other admins or superadmins
-    if (
-      callerRole !== "superadmin" &&
-      (targetRow.role === "admin" || targetRow.role === "superadmin")
-    ) {
+    if (!canAdminTargetUser(callerRole, targetRow.role)) {
       throw ERR.AUTH_011("Insufficient permissions to delete this user");
     }
 

@@ -44,6 +44,7 @@ vi.mock("../../auth.js", () => ({
       getSession: mockGetSession,
       listUsers: vi.fn().mockResolvedValue({ users: [], total: 0 }),
       createUser: vi.fn(),
+      sendVerificationEmail: vi.fn().mockResolvedValue({ status: true }),
     },
   },
 }));
@@ -119,6 +120,46 @@ describe("Admin — usersRoutes", () => {
     mockGetSession.mockResolvedValueOnce(adminSession);
     const res = await app.inject({ method: "POST", url: "/", payload: {} });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("POST / → 201 when creation succeeds (no-op mail transport)", async () => {
+    const { auth } = await import("../../auth.js");
+    (
+      auth.api.createUser as unknown as {
+        mockResolvedValueOnce: (v: unknown) => void;
+      }
+    ).mockResolvedValueOnce({ user: { id: "u2", email: "new@example.com" } });
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    const res = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: {
+        name: "New User",
+        email: "new@example.com",
+        password: "password123",
+      },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  // ── POST /:id/send-verification & /:id/verify-email ───────────────────
+
+  it("POST /:id/send-verification → 404 when user does not exist", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    const res = await app.inject({
+      method: "POST",
+      url: "/missing-id/send-verification",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("POST /:id/verify-email → 404 when user does not exist", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    const res = await app.inject({
+      method: "POST",
+      url: "/missing-id/verify-email",
+    });
+    expect(res.statusCode).toBe(404);
   });
 
   // ── GET /:id — not found ──────────────────────────────────────────────

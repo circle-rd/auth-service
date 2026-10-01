@@ -64,6 +64,12 @@ const routes = [
     meta: { requiresAdmin: false },
   },
   {
+    path: '/device',
+    name: 'device',
+    component: () => import('@/views/DeviceView.vue'),
+    meta: { requiresAdmin: false },
+  },
+  {
     path: '/forbidden',
     name: 'forbidden',
     component: () => import('@/views/ForbiddenView.vue'),

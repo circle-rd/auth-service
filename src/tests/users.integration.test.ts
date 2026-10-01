@@ -69,13 +69,13 @@ function spyGetUser() {
 
 function asAdmin() {
   vi.spyOn(auth.api, "getSession").mockResolvedValue(
-    makeAdminSession() as SessionLike,
+    makeAdminSession() as unknown as SessionLike,
   );
 }
 
 function asSuperadmin(id = "superadmin-1") {
   vi.spyOn(auth.api, "getSession").mockResolvedValue(
-    makeSuperadminSession(id) as SessionLike,
+    makeSuperadminSession(id) as unknown as SessionLike,
   );
 }
 
@@ -93,7 +93,7 @@ describe("Admin — usersRoutes integration", () => {
 
   it("GET / → 403 for regular user", async () => {
     vi.spyOn(auth.api, "getSession").mockResolvedValue(
-      { user: { id: "u1", role: "user" } } as SessionLike,
+      { user: { id: "u1", role: "user" } } as unknown as SessionLike,
     );
     const res = await app.inject({ method: "GET", url: "/" });
     expect(res.statusCode).toBe(403);
@@ -185,7 +185,7 @@ describe("Admin — usersRoutes integration", () => {
 
     // caller IS the target
     vi.spyOn(auth.api, "getSession").mockResolvedValue(
-      makeAdminSession("admin-1") as SessionLike,
+      makeAdminSession("admin-1") as unknown as SessionLike,
     );
     spyGetUser().mockResolvedValue({
       id: "admin-1",

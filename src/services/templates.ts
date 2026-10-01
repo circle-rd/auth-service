@@ -27,7 +27,12 @@ const BUILTIN_TEMPLATES_DIR = join(
 );
 
 type PageName =
-  "login" | "register" | "verify-email" | "select-org" | "two-factor";
+  | "login"
+  | "register"
+  | "verify-email"
+  | "select-org"
+  | "two-factor"
+  | "device";
 
 // Application slugs are constrained to this charset everywhere else (admin
 // route + OAuth client ids). Validating again here prevents `client_id` from

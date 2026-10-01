@@ -21,4 +21,7 @@ Thumbs.db
 # Test coverage
 coverage/
 
+# Test run output
+test_output.txt
+
 FRONTEND_PROMPT.md

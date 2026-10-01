@@ -1,6 +1,16 @@
 {
     "name": "auth-service",
     "version": "0.1.27",
+    "description": "Self-hosted OAuth 2.1 / OIDC identity provider with multi-app RBAC, MFA, organizations and billing.",
+    "license": "GPL-3.0-or-later",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/circle-rd/auth-service.git"
+    },
+    "homepage": "https://github.com/circle-rd/auth-service",
+    "bugs": {
+        "url": "https://github.com/circle-rd/auth-service/issues"
+    },
     "type": "module",
     "packageManager": "pnpm@10.33.0",
     "scripts": {

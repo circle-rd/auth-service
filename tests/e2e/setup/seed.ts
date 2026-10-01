@@ -19,7 +19,7 @@ import fs from "fs";
 
 const AUTH_INTERNAL = (process.env["AUTH_SERVICE_INTERNAL_URL"] ?? "http://auth-service:3001").replace(/\/$/, "");
 const ADMIN_EMAIL = process.env["ADMIN_EMAIL"] ?? "admin@test.local";
-const ADMIN_PASSWORD = process.env["ADMIN_PASSWORD"] ?? "AdminPass1!";
+const ADMIN_PASSWORD = process.env["ADMIN_PASSWORD"] ?? "AdminPass123!";
 const APP_SLUG = process.env["APP_SLUG"] ?? "test-app";
 const REDIRECT_URI = process.env["REDIRECT_URI"] ?? "http://testapp:3000/callback";
 const CREDENTIALS_PATH = process.env["CREDENTIALS_PATH"] ?? "/shared/credentials.json";

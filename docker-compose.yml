@@ -1,58 +1,117 @@
+# Single Compose recipe for auth-service.
+#
+# Two ways to run it:
+#   1. Prebuilt image (recommended) — `docker compose pull && docker compose up -d`
+#      Pulls the image published by the GitHub workflow. Default tag is `nightly`
+#      (tracks the develop branch); set AUTH_IMAGE=...:latest for a stable release.
+#   2. Build from source — `docker compose up -d --build`
+#
+# Credentials and secrets come from `.env` (copy `.env.example` to `.env`).
+
 services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-auth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auth}
+      POSTGRES_DB: ${POSTGRES_DB:-auth}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Exposed on the host so `pnpm dev` can connect to the containerised DB.
+    # Remove or firewall this mapping in production deployments.
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-auth} -d ${POSTGRES_DB:-auth}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
     restart: unless-stopped
 
   auth-service:
+    # Prebuilt image from GHCR. `docker compose pull` fetches it; `--build`
+    # builds the same tag locally from the Dockerfile instead.
+    image: ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:nightly}
     build:
       context: .
       dockerfile: Dockerfile
+      target: runtime
     environment:
       PORT: ${PORT:-3001}
       HOST: ${HOST:-0.0.0.0}
+      # The published image is a production build without devDependencies;
+      # always run it in production mode (hot-reload dev uses `pnpm dev` on the host).
       NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-}
 
-      # Override DATABASE_URL to use the docker-internal hostname
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
-      BETTER_AUTH_URL: ${BETTER_AUTH_URL}
+      # Docker-internal database hostname.
+      DATABASE_URL: postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/${POSTGRES_DB:-auth}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3001}
 
+      # Bootstrap superadmin (created on first boot if absent).
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+
+      # Networking / sessions.
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      SESSION_DOMAIN: ${SESSION_DOMAIN:-}
 
-      # Branding (displayed in UI + used as TOTP issuer)
+      # Auth flows. Email verification defaults to false here so the stack
+      # boots without SMTP; set REQUIRE_EMAIL_VERIFICATION=true and configure
+      # SMTP_HOST in production.
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      MAGIC_LINK_ENABLED: ${MAGIC_LINK_ENABLED:-false}
+      EMAIL_OTP_ENABLED: ${EMAIL_OTP_ENABLED:-false}
+
+      # Branding (displayed in UI + used as TOTP issuer).
       APP_NAME: ${APP_NAME:-CIRCLE Auth}
-      APP_LOGO_URL: ${APP_LOGO_URL:-}
+      APP_LOGO_URL: ${APP_LOGO_URL:-https://avatars.githubusercontent.com/u/266095592?v=4}
 
-      # SMTP settings for email notifications
+      # SMTP (optional).
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
 
-      # Social provider credentials (optional)
+      # Social providers (optional).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID:-}
+      LINKEDIN_CLIENT_SECRET: ${LINKEDIN_CLIENT_SECRET:-}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      APPLE_CLIENT_ID: ${APPLE_CLIENT_ID:-}
+      APPLE_CLIENT_SECRET: ${APPLE_CLIENT_SECRET:-}
+
+      # Stripe (optional).
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:${PORT:-3001}/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
 
 volumes:

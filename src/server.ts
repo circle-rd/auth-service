@@ -25,6 +25,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { config } from "./config.js";
+import { prettyTransport } from "./logger.js";
 import { auth } from "./auth.js";
 import { corsOrigins } from "./runtime-config.js";
 import { healthRoutes } from "./routes/health.js";
@@ -94,9 +95,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     trustProxy: config.trustProxyHops,
     logger: {
       level: config.isDev ? "debug" : "info",
-      transport: config.isDev
-        ? { target: "pino-pretty", options: { colorize: true } }
-        : undefined,
+      transport: prettyTransport(),
       serializers: {
         // Never log the query string: it can carry password-reset,
         // email-verification and magic-link tokens.

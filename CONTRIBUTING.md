@@ -22,7 +22,7 @@
 
 ```bash
 # Start the database
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d postgres
 
 # Install dependencies
 pnpm install

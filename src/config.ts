@@ -33,7 +33,10 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
 
   ADMIN_EMAIL: z.string().email().optional(),
-  ADMIN_PASSWORD: z.string().min(8).optional(),
+  // Bootstrap superadmin password. Minimum 12 characters (startup fails fast
+  // with a clear message otherwise); the bootstrap also refuses known
+  // default placeholders such as the one in .env.example.
+  ADMIN_PASSWORD: z.string().min(12).optional(),
 
   CORS_ORIGINS: z.string().default("http://localhost:5173"),
   SESSION_DOMAIN: z.string().optional(),
@@ -92,7 +95,13 @@ const envSchema = z.object({
   APPLE_CLIENT_SECRET: z.string().optional(),
 });
 
-const parsed = envSchema.safeParse(process.env);
+// Docker Compose passes unset variables as empty strings. Treat those as
+// absent so `.default()` / `.optional()` apply instead of failing validation
+// (e.g. an empty ADMIN_EMAIL must not be rejected as an invalid email).
+const rawEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([, value]) => value !== ""),
+);
+const parsed = envSchema.safeParse(rawEnv);
 
 if (!parsed.success) {
   console.error("Invalid environment variables:");

@@ -5,15 +5,21 @@ import { user as userTable } from "./db/auth-schema.js";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
 
-// Common bootstrap passwords that must never be accepted in production.
+// Known default/placeholder bootstrap passwords that must never be accepted in
+// production. Matching is exact so a legitimate password that merely contains a
+// word like "password" is not rejected.
 const WEAK_PASSWORDS = new Set([
   "admin",
   "admin123",
   "admin1234",
+  "admin123!",
   "password",
   "password123",
+  "password123!",
   "changeme",
   "changeme123",
+  "changeme123!",
+  "changeme1234",
   "circle",
   "letmein",
 ]);
@@ -32,22 +38,18 @@ export async function bootstrap(): Promise<void> {
     return;
   }
 
-  // The seeded account is a full superadmin, so a guessable password is a
-  // direct takeover. Refuse weak/known-default values in production, including
-  // anything derived from the shipped `.env.example` placeholder.
+  // The seeded account is a full superadmin, so a known default/placeholder
+  // password is a direct takeover. Refuse those in production. The minimum
+  // length policy is enforced by config.ts (min 8); we only block exact
+  // known values here so legitimate passwords are never falsely rejected.
   const normalizedPassword = adminPassword.toLowerCase();
-  const looksDefault = ["changeme", "password", "letmein", "admin123"].some(
-    (token) => normalizedPassword.includes(token),
-  );
   if (
     config.nodeEnv === "production" &&
-    (adminPassword.length < 12 ||
-      looksDefault ||
-      WEAK_PASSWORDS.has(normalizedPassword))
+    WEAK_PASSWORDS.has(normalizedPassword)
   ) {
     logger.error(
-      "[bootstrap] ADMIN_PASSWORD is too weak for production " +
-        "(minimum 12 characters, not a common default). Superadmin not created.",
+      "[bootstrap] ADMIN_PASSWORD is a known default/placeholder value. " +
+        "Set a unique ADMIN_PASSWORD. Superadmin not created.",
     );
     return;
   }
@@ -60,7 +62,15 @@ export async function bootstrap(): Promise<void> {
     .limit(1);
 
   if (existing.length > 0) {
-    logger.info("[bootstrap] Superadmin already exists — skipping.");
+    // Keep the bootstrap account usable: an unverified superadmin cannot sign
+    // in when email verification is enabled.
+    await db
+      .update(userTable)
+      .set({ emailVerified: true })
+      .where(eq(userTable.role, "superadmin"));
+    logger.info(
+      "[bootstrap] Superadmin already exists — ensured email is verified.",
+    );
     return;
   }
 
@@ -71,6 +81,9 @@ export async function bootstrap(): Promise<void> {
         password: adminPassword,
         name: "Superadmin",
         role: "superadmin" as "admin",
+        // The bootstrap account is trusted: it exists to let an operator in
+        // without a mail round-trip, so it starts verified.
+        data: { emailVerified: true },
       },
     });
     logger.info({ email: adminEmail }, "[bootstrap] Superadmin created");
@@ -85,4 +98,10 @@ export async function bootstrap(): Promise<void> {
     }
     throw err;
   }
+
+  // Belt-and-suspenders: ensure the flag is set even if createUser ignored it.
+  await db
+    .update(userTable)
+    .set({ emailVerified: true })
+    .where(eq(userTable.email, adminEmail));
 }

@@ -54,8 +54,7 @@ auth-service/
 │       └── locales/          # i18n (en, fr)
 ├── drizzle/                  # Generated SQL migrations
 ├── Dockerfile                # Multi-stage build
-├── docker-compose.yml        # Production
-├── docker-compose.dev.yml    # Dev (postgres only + hot-reload server)
+├── docker-compose.yml        # Single recipe: postgres + auth-service
 └── .env.example
 ```
 
@@ -80,7 +79,7 @@ openssl rand -base64 32   # use this as BETTER_AUTH_SECRET
 ### 2. Start the database
 
 ```sh
-docker compose -f docker-compose.dev.yml up -d postgres
+docker compose up -d postgres
 ```
 
 The postgres container is exposed on **port 5433** (to avoid conflicts with a local postgres on 5432).
@@ -204,12 +203,25 @@ In production (Docker), migrations run automatically at container startup via `r
 
 ## Production deployment
 
-### Build & run with Docker Compose
+### Run with the prebuilt image (recommended)
+
+Images are published by the GitHub workflow to
+`ghcr.io/circle-rd/auth-service`:
+
+- `:nightly` — built from the `develop` branch (default in `docker-compose.yml`)
+- `:latest` — the latest tagged release
+- `:vX.Y.Z` / `:X.Y` — pinned releases
 
 ```sh
 # Fill in production values in .env (never commit this file)
-docker compose build
+docker compose pull
 docker compose up -d
+```
+
+### Build from source instead
+
+```sh
+docker compose up -d --build
 ```
 
 The service is exposed on the port defined by `PORT` (default 3001).  

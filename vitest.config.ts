@@ -5,6 +5,7 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts"],
     exclude: ["**/node_modules/**", "src/**/*.integration.test.ts"],
+    setupFiles: ["src/tests/setup-unit.ts"],
     coverage: {
       reporter: ["text", "lcov"],
       include: ["src/routes/**", "src/services/**"],

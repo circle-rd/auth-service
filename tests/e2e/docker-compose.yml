@@ -38,7 +38,7 @@ services:
       BETTER_AUTH_SECRET: "e2e-test-secret-at-least-16-chars"
       BETTER_AUTH_URL: "http://localhost:3001"
       ADMIN_EMAIL: "admin@test.local"
-      ADMIN_PASSWORD: "AdminPass1!"
+      ADMIN_PASSWORD: "AdminPass123!"
       CORS_ORIGINS: "http://localhost:3000,http://testapp:3000"
     ports:
       - "3001:3001"
@@ -85,7 +85,7 @@ services:
     environment:
       AUTH_SERVICE_INTERNAL_URL: "http://auth-service:3001"
       ADMIN_EMAIL: "admin@test.local"
-      ADMIN_PASSWORD: "AdminPass1!"
+      ADMIN_PASSWORD: "AdminPass123!"
       APP_SLUG: "test-app"
       REDIRECT_URI: "http://localhost:3000/callback"
       CREDENTIALS_PATH: "/shared/credentials.json"

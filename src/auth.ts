@@ -1,6 +1,14 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { twoFactor, admin, jwt, role, organization, magicLink, emailOTP } from "better-auth/plugins";
+import {
+  twoFactor,
+  admin,
+  jwt,
+  role,
+  organization,
+  magicLink,
+  emailOTP,
+} from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
@@ -9,7 +17,8 @@ import * as authSchema from "./db/auth-schema.js";
 import { applications, userApplications } from "./db/schema.js";
 import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
-import { trustedOrigins, validAudiences } from "./runtime-config.js";
+import { trustedOrigins } from "./runtime-config.js";
+import { logger } from "./logger.js";
 import {
   getUserClaims,
   userHasAppAccessBySlug,
@@ -27,9 +36,60 @@ import {
 import { userMustSetupMfa } from "./services/mfa.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
+import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
+
+const ADMIN_TARGET_USER_ID_PATHS = new Set([
+  "/admin/ban-user",
+  "/admin/unban-user",
+  "/admin/remove-user",
+  "/admin/update-user",
+  "/admin/set-role",
+  "/admin/set-user-password",
+  "/admin/impersonate-user",
+  "/admin/revoke-user-sessions",
+]);
+
+const ROLE_RANK: Record<string, number> = { user: 0, admin: 1, superadmin: 2 };
+
+function roleRank(role: string | null | undefined): number {
+  return role ? (ROLE_RANK[role] ?? 0) : 0;
+}
+
+/** A caller may only manage users that strictly outrank below them. */
+function canManageRole(callerRole: string, targetRole: string): boolean {
+  return roleRank(callerRole) > roleRank(targetRole);
+}
+
+/**
+ * Resolve the user id targeted by a native BetterAuth admin endpoint, or null
+ * when the request is not one of the guarded endpoints. `revoke-user-session`
+ * identifies the session by token, so the owner is resolved from the session
+ * table.
+ */
+async function resolveAdminTargetUserId(
+  path: string,
+  body: unknown,
+): Promise<string | null> {
+  if (ADMIN_TARGET_USER_ID_PATHS.has(path)) {
+    const userId = (body as Record<string, unknown> | undefined)?.userId;
+    return typeof userId === "string" ? userId : null;
+  }
+  if (path === "/admin/revoke-user-session") {
+    const sessionToken = (body as Record<string, unknown> | undefined)
+      ?.sessionToken;
+    if (typeof sessionToken !== "string") return null;
+    const [row] = await db
+      .select({ userId: authSchema.session.userId })
+      .from(authSchema.session)
+      .where(eq(authSchema.session.token, sessionToken))
+      .limit(1);
+    return row?.userId ?? null;
+  }
+  return null;
+}
 
 /**
  * Reserved JWT claim names (mirror of admin route validation). Any per-app
@@ -38,9 +98,22 @@ const schema = { ...authSchema, ...customSchema };
  * we never let user-provided values shadow OAuth-managed claims.
  */
 const RESERVED_JWT_CLAIMS = new Set([
-  "sub", "aud", "iss", "exp", "iat", "nbf", "jti",
-  "scope", "scopes", "azp", "client_id", "token_type",
-  "auth_time", "acr", "amr", "client_attrs",
+  "sub",
+  "aud",
+  "iss",
+  "exp",
+  "iat",
+  "nbf",
+  "jti",
+  "scope",
+  "scopes",
+  "azp",
+  "client_id",
+  "token_type",
+  "auth_time",
+  "acr",
+  "amr",
+  "client_attrs",
 ]);
 
 /**
@@ -76,6 +149,31 @@ async function getApplicationMetadataClaims(
 }
 
 /**
+ * Fail-closed check for machine-to-machine tokens (client_credentials): the
+ * request has no user, so the main access guard never runs. Reject unknown or
+ * disabled applications outright.
+ */
+async function assertApplicationActive(
+  clientId: string | undefined,
+): Promise<void> {
+  if (!clientId) {
+    throw new APIError("FORBIDDEN", {
+      message: "Token requested by an unregistered OAuth client",
+    });
+  }
+  const [app] = await db
+    .select({ isActive: applications.isActive })
+    .from(applications)
+    .where(eq(applications.slug, clientId))
+    .limit(1);
+  if (!app || !app.isActive) {
+    throw new APIError("FORBIDDEN", {
+      message: "Application not found or disabled",
+    });
+  }
+}
+
+/**
  * Central authorization guard for OAuth token issuance.
  *
  * MUST be invoked on EVERY token-issuance path that produces a user-bound
@@ -95,12 +193,27 @@ async function enforceApplicationAccessGuard(
   user: Record<string, unknown> & { id: string },
   clientId: string | undefined,
 ): Promise<void> {
-  if (!clientId) return;
+  // Fail closed: every user-bound token must be tied to a registered OAuth
+  // client. A missing client id means the caller (or the client) is not one of
+  // our applications, so no application-level policy can be evaluated and no
+  // token may be issued.
+  if (!clientId) {
+    throw new APIError("FORBIDDEN", {
+      message: "Token requested by an unregistered OAuth client",
+    });
+  }
+
+  // A banned account must not receive or renew tokens, including through the
+  // refresh_token grant (which otherwise keeps minting access tokens forever).
+  if (user.banned === true) {
+    throw new APIError("FORBIDDEN", { message: "Account is disabled" });
+  }
 
   // Single query: resolve app + the flags needed for the access decision.
   const [app] = await db
     .select({
       id: applications.id,
+      isActive: applications.isActive,
       isPublic: applications.isPublic,
       allowRegister: applications.allowRegister,
       isMfaRequired: applications.isMfaRequired,
@@ -110,9 +223,9 @@ async function enforceApplicationAccessGuard(
     .where(eq(applications.slug, clientId))
     .limit(1);
 
-  if (!app) {
+  if (!app || !app.isActive) {
     throw new APIError("FORBIDDEN", {
-      message: "Application not found",
+      message: "Application not found or disabled",
     });
   }
 
@@ -195,14 +308,6 @@ export const auth = betterAuth({
   // Used as the default TOTP issuer (shown in authenticator apps) and as a
   // display name in other BetterAuth contexts.
   appName: config.appName,
-  // Silence startup self-check warnings for well-known OIDC discovery endpoints.
-  // Both /.well-known/openid-configuration and /.well-known/oauth-authorization-server
-  // are served correctly via /api/auth/.well-known/* — BetterAuth's HTTP check fires
-  // before the server is listening, producing false-positive warnings.
-  silenceWarnings: {
-    oauthAuthServerConfig: true,
-    openidConfig: true,
-  },
   // Live mutable list — seeded from env + DB app URLs at startup,
   // updated on application create/update/delete without restart.
   trustedOrigins: trustedOrigins,
@@ -285,18 +390,22 @@ export const auth = betterAuth({
       },
     },
     additionalFields: {
+      // Server-controlled: set by admins through /api/admin/users, never by the
+      // user themselves. `input: false` strips it from /update-user payloads so
+      // a user cannot lift an MFA requirement imposed on them.
       isMfaRequired: {
         type: "boolean",
         defaultValue: false,
         required: false,
+        input: false,
       },
       phone: { type: "string", required: false },
       company: { type: "string", required: false },
       position: { type: "string", required: false },
       address: { type: "string", required: false },
       // Surfaced to admin listings as "last seen". Written by
-      // services/login-history.ts on every successful OAuth token issuance.
-      lastLoginAt: { type: "date", required: false },
+      // services/login-history.ts; must not be user-writable.
+      lastLoginAt: { type: "date", required: false, input: false },
     },
   },
   // Capture every direct session creation (admin dashboard sign-in, password
@@ -325,14 +434,76 @@ export const auth = betterAuth({
               userAgent: s.userAgent ?? null,
             });
           } catch (err) {
-            console.warn(
-              "[login-history] failed to record dashboard login",
+            logger.warn(
               { err: String(err) },
+              "[login-history] failed to record dashboard login",
             );
           }
         },
       },
     },
+  },
+  // Hierarchy guard for the native BetterAuth admin endpoints. The admin role
+  // holds `ban`/`update`/`session:revoke` permissions (needed by our own
+  // controlled routes), but nothing stops a direct call to
+  // /api/auth/admin/* from targeting a peer or a superadmin. This hook rejects
+  // any admin action whose target outranks (or equals) the caller.
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      const targetUserId = await resolveAdminTargetUserId(ctx.path, ctx.body);
+      if (!targetUserId) return;
+
+      if (!ctx.headers) return;
+      const session = await auth.api.getSession({ headers: ctx.headers });
+      // Unauthenticated callers are rejected by the endpoint itself.
+      if (!session) return;
+
+      const callerRole =
+        ((session.user as Record<string, unknown>).role as
+          string | undefined) ?? "user";
+      const [target] = await db
+        .select({ role: authSchema.user.role })
+        .from(authSchema.user)
+        .where(eq(authSchema.user.id, targetUserId))
+        .limit(1);
+      if (!target) return;
+
+      if (!canManageRole(callerRole, target.role ?? "user")) {
+        throw new APIError("FORBIDDEN", {
+          message: "Cannot manage a user with an equal or higher role",
+        });
+      }
+    }),
+    // The two-factor plugin only challenges the password sign-in flow. Social,
+    // magic-link and email-OTP sign-ins would otherwise create a fully
+    // authenticated session for a 2FA-enabled account, silently bypassing the
+    // second factor. Fail closed: drop the session and require the
+    // password + second-factor flow instead. Passkey is deliberately excluded
+    // (a passkey is already a strong, possession-based factor).
+    after: createAuthMiddleware(async (ctx) => {
+      const passwordlessSignInPaths = [
+        "/callback/",
+        "/magic-link/verify",
+        "/sign-in/email-otp",
+        "/email-otp/verify-email",
+        "/one-tap/callback",
+        // Social sign-in creates a session directly in its `idToken` branch
+        // (native-app flow); include it so that path cannot skip 2FA either.
+        "/sign-in/social",
+      ];
+      if (!passwordlessSignInPaths.some((p) => ctx.path.startsWith(p))) return;
+
+      const newSession = ctx.context.newSession;
+      if (!newSession) return;
+      if (newSession.user.twoFactorEnabled !== true) return;
+
+      await ctx.context.internalAdapter.deleteSession(newSession.session.token);
+      ctx.context.setNewSession(null);
+      throw new APIError("FORBIDDEN", {
+        message:
+          "This account has two-factor authentication enabled. Sign in with your password and a second factor.",
+      });
+    }),
   },
   plugins: [
     // Required for asymmetric JWT signing used by oauthProvider.
@@ -340,14 +511,28 @@ export const auth = betterAuth({
     // createIdToken use the same value (config.betterAuth.url without '/api/auth').
     // Without this, createIdToken falls back to ctx.context.baseURL which
     // BetterAuth computes as `${baseURL}/api/auth`, causing iss/issuer mismatch.
-    jwt({ jwt: { issuer: config.betterAuth.url } }),
+    jwt({
+      jwt: { issuer: config.betterAuth.url },
+      // Do not emit a `set-auth-jwt` response header on get-session: that JWT
+      // is signed with the same JWKS keys as OAuth access tokens and can be
+      // mistaken for one by downstream resource servers. Bearer tokens must
+      // come from the token endpoint.
+      disableSettingJwtHeader: true,
+      // Rotate signing keys monthly; keep the previous key for a month so
+      // access tokens issued just before rotation still verify.
+      jwks: {
+        rotationInterval: 60 * 60 * 24 * 30,
+        gracePeriod: 60 * 60 * 24 * 30,
+      },
+    }),
     twoFactor({ issuer: config.appName }),
     passkey(),
     // Organization support — only admins/superadmins can create orgs via admin API.
     // Regular users can be members of orgs but cannot create them.
     organization({
       allowUserToCreateOrganization: async (user) => {
-        const role = (user as Record<string, unknown>).role as string | undefined;
+        const role = (user as Record<string, unknown>).role as
+          string | undefined;
         return role === "admin" || role === "superadmin";
       },
       // Email an invited user the accept-invitation link. Falls back
@@ -379,7 +564,15 @@ export const auth = betterAuth({
         // or change passwords via the native BetterAuth admin API. Those operations
         // go through our custom routes which enforce the role hierarchy.
         admin: role({
-          user: ["create", "list", "ban", "impersonate", "delete", "get", "update"],
+          user: [
+            "create",
+            "list",
+            "ban",
+            "impersonate",
+            "delete",
+            "get",
+            "update",
+          ],
           session: ["list", "revoke", "delete"],
         }),
         superadmin: role({
@@ -406,6 +599,9 @@ export const auth = betterAuth({
     ...(config.email.magicLinkEnabled
       ? [
           magicLink({
+            // Store a hash of the token instead of the plaintext so a leaked
+            // database dump cannot be replayed to sign in.
+            storeToken: "hashed",
             sendMagicLink: async (params: { email: string; url: string }) => {
               await sendMagicLinkEmail(params.email, params.url);
             },
@@ -418,7 +614,11 @@ export const auth = betterAuth({
             sendVerificationOTP: async (params: {
               email: string;
               otp: string;
-              type: "sign-in" | "email-verification" | "forget-password" | "change-email";
+              type:
+                | "sign-in"
+                | "email-verification"
+                | "forget-password"
+                | "change-email";
             }) => {
               await sendEmailOtp(params.email, params.otp, params.type);
             },
@@ -428,12 +628,21 @@ export const auth = betterAuth({
     oauthProvider({
       loginPage: "/login",
       consentPage: "/oauth2/consent",
-      // Live mutable list of valid resource server audiences (RFC 8707).
-      // Seeded from OAUTH_VALID_AUDIENCES env + all app.url values at startup.
-      // Updated in-place on application CRUD — no restart needed.
-      // @better-auth/oauth-provider spreads this into a new Set per request,
-      // so mutations are reflected immediately.
-      validAudiences: validAudiences,
+      // Restrict the native OAuth client management endpoints
+      // (/oauth2/create-client, /update-client, /delete-client, /rotate-secret,
+      // /client/...). Without this, ANY authenticated account could register its
+      // own client and obtain tokens that bypass every application policy
+      // (access, MFA, social provider allow-list). Clients are provisioned
+      // exclusively through the admin API.
+      clientPrivileges: ({ user }) => {
+        const role = (user as Record<string, unknown> | undefined)?.role as
+          string | undefined;
+        return role === "admin" || role === "superadmin";
+      },
+      // Protected OAuth resources (RFC 8707 audiences) live in the
+      // `oauth_resource` table, synced from applications.url by
+      // services/oauth-resources.ts, and linked to their client via
+      // `oauth_client_resource`.
       scopes: [
         "openid",
         "profile",
@@ -466,13 +675,20 @@ export const auth = betterAuth({
         );
         return {
           ...(await getUserClaims(user.id, clientId, scopes, {
-            email: (user as Record<string, unknown>).email as string | null | undefined,
-            emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-            name: (user as Record<string, unknown>).name as string | null | undefined,
-            company: (user as Record<string, unknown>).company as string | null | undefined,
-            image: (user as Record<string, unknown>).image as string | null | undefined,
-            phone: (user as Record<string, unknown>).phone as string | null | undefined,
-            updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+            email: (user as Record<string, unknown>).email as
+              string | null | undefined,
+            emailVerified: (user as Record<string, unknown>).emailVerified as
+              boolean | null | undefined,
+            name: (user as Record<string, unknown>).name as
+              string | null | undefined,
+            company: (user as Record<string, unknown>).company as
+              string | null | undefined,
+            image: (user as Record<string, unknown>).image as
+              string | null | undefined,
+            phone: (user as Record<string, unknown>).phone as
+              string | null | undefined,
+            updatedAt: (user as Record<string, unknown>).updatedAt as
+              Date | null | undefined,
           })),
           // Per-app metadata claims (additive; reserved keys are filtered).
           ...(await getApplicationMetadataClaims(clientId)),
@@ -480,11 +696,16 @@ export const auth = betterAuth({
       },
       // `customIdTokenClaims` only affects the ID token; this callback is what
       // puts roles/permissions/features/email/name/org_id in the Bearer JWT that
-      // the resource server (MCP-Central, CyPlate, etc.) receives and verifies.
+      // a downstream resource server receives and verifies.
       // `resource` is the RFC 8707 audience URL (e.g. "https://api.lagarde.dev").
       // `referenceId` is the org ID stored at consent time via postLogin flow.
       // `metadata.clientId` holds the OAuth client slug (application slug).
-      customAccessTokenClaims: async ({ user, scopes, metadata, referenceId }) => {
+      customAccessTokenClaims: async ({
+        user,
+        scopes,
+        metadata,
+        referenceId,
+      }) => {
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
         // Per-app metadata is injected for BOTH user-bound and
@@ -492,7 +713,12 @@ export const auth = betterAuth({
         // machine-to-machine tokens this is the sole source of custom claims
         // (no user → no roles/permissions/features).
         const appAttrs = await getApplicationMetadataClaims(clientId);
-        if (!user) return appAttrs;
+        if (!user) {
+          // client_credentials: no user to gate on, but the client itself must
+          // be a known, enabled application.
+          await assertApplicationActive(clientId);
+          return appAttrs;
+        }
         // Shared authorization guard. The OAuth provider issues a JWT access
         // token whenever a valid `resource` is supplied, REGARDLESS of whether
         // the `openid` scope (and therefore customIdTokenClaims) is present.
@@ -504,13 +730,20 @@ export const auth = betterAuth({
           clientId,
         );
         const claims = await getUserClaims(user.id, clientId, scopes, {
-          email: (user as Record<string, unknown>).email as string | null | undefined,
-          emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-          name: (user as Record<string, unknown>).name as string | null | undefined,
-          company: (user as Record<string, unknown>).company as string | null | undefined,
-          image: (user as Record<string, unknown>).image as string | null | undefined,
-          phone: (user as Record<string, unknown>).phone as string | null | undefined,
-          updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+          email: (user as Record<string, unknown>).email as
+            string | null | undefined,
+          emailVerified: (user as Record<string, unknown>).emailVerified as
+            boolean | null | undefined,
+          name: (user as Record<string, unknown>).name as
+            string | null | undefined,
+          company: (user as Record<string, unknown>).company as
+            string | null | undefined,
+          image: (user as Record<string, unknown>).image as
+            string | null | undefined,
+          phone: (user as Record<string, unknown>).phone as
+            string | null | undefined,
+          updatedAt: (user as Record<string, unknown>).updatedAt as
+            Date | null | undefined,
         });
         // Inject org_id when the client requested the "org" scope and a
         // reference (activeOrganizationId) was captured during the postLogin flow.
@@ -532,9 +765,9 @@ export const auth = betterAuth({
             try {
               await recordLogin({ userId: user.id, applicationId: appRow.id });
             } catch (err) {
-              console.warn(
-                "[login-history] failed to record login",
+              logger.warn(
                 { userId: user.id, clientId, err: String(err) },
+                "[login-history] failed to record login",
               );
             }
           }
@@ -545,17 +778,23 @@ export const auth = betterAuth({
       // clientId is read from the access token's azp (authorized party) claim.
       customUserInfoClaims: async ({ user, scopes, jwt }) => {
         const clientId = (jwt as Record<string, unknown>)?.azp as
-          | string
-          | undefined;
+          string | undefined;
         return {
           ...(await getUserClaims(user.id, clientId, scopes, {
-            email: (user as Record<string, unknown>).email as string | null | undefined,
-            emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-            name: (user as Record<string, unknown>).name as string | null | undefined,
-            company: (user as Record<string, unknown>).company as string | null | undefined,
-            image: (user as Record<string, unknown>).image as string | null | undefined,
-            phone: (user as Record<string, unknown>).phone as string | null | undefined,
-            updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+            email: (user as Record<string, unknown>).email as
+              string | null | undefined,
+            emailVerified: (user as Record<string, unknown>).emailVerified as
+              boolean | null | undefined,
+            name: (user as Record<string, unknown>).name as
+              string | null | undefined,
+            company: (user as Record<string, unknown>).company as
+              string | null | undefined,
+            image: (user as Record<string, unknown>).image as
+              string | null | undefined,
+            phone: (user as Record<string, unknown>).phone as
+              string | null | undefined,
+            updatedAt: (user as Record<string, unknown>).updatedAt as
+              Date | null | undefined,
           })),
           ...(await getApplicationMetadataClaims(clientId)),
         };
@@ -573,7 +812,8 @@ export const auth = betterAuth({
           if (orgs.length === 0) return false;
           if (
             orgs.length === 1 &&
-            orgs[0]?.id === (session as Record<string, unknown>)?.activeOrganizationId
+            orgs[0]?.id ===
+              (session as Record<string, unknown>)?.activeOrganizationId
           ) {
             return false;
           }

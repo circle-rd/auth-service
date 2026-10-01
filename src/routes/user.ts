@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { db } from "../db/index.js";
@@ -9,39 +9,16 @@ import {
   subscriptionPlanPrices,
   consumptionAggregates,
 } from "../db/schema.js";
-import { session as sessionTable, user as userTable, member as memberTable, organization as organizationTable } from "../db/auth-schema.js";
+import {
+  session as sessionTable,
+  user as userTable,
+  member as memberTable,
+  organization as organizationTable,
+} from "../db/auth-schema.js";
 import { and, eq, gt, inArray } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
-
-async function requireSession(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<string> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    // Return a placeholder — Fastify will have already sent the response
-    return "";
-  }
-  return session.user.id;
-}
-
-async function requireFullSession(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<{ userId: string; sessionId: string } | null> {
-  const s = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!s) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return null;
-  }
-  return { userId: s.user.id, sessionId: s.session.id };
-}
+import { requireSession, requireFullSession } from "../middleware.js";
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -212,7 +189,11 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Verify the target session belongs to the current user
       const [target] = await db
-        .select({ id: sessionTable.id, userId: sessionTable.userId })
+        .select({
+          id: sessionTable.id,
+          userId: sessionTable.userId,
+          token: sessionTable.token,
+        })
         .from(sessionTable)
         .where(eq(sessionTable.id, req.params.id))
         .limit(1);
@@ -221,9 +202,12 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         throw ERR.AUTH_001("Session not found");
       }
 
-      await db
-        .delete(sessionTable)
-        .where(eq(sessionTable.id, req.params.id));
+      // Route through BetterAuth so any plugin-managed session side effects
+      // (cookie invalidation, downstream hooks) still run.
+      await auth.api.revokeSession({
+        headers: fromNodeHeaders(req.headers),
+        body: { token: target.token },
+      });
 
       await reply.status(204).send();
     },
@@ -245,7 +229,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         role: memberTable.role,
       })
       .from(memberTable)
-      .innerJoin(organizationTable, eq(organizationTable.id, memberTable.organizationId))
+      .innerJoin(
+        organizationTable,
+        eq(organizationTable.id, memberTable.organizationId),
+      )
       .where(eq(memberTable.userId, userId))
       .orderBy(organizationTable.name);
 

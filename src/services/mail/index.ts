@@ -8,6 +8,7 @@
  */
 
 import { config } from "../../config.js";
+import { logger } from "../../logger.js";
 import { renderEmail } from "../email-templates.js";
 import { NoopMailTransport } from "./noop-transport.js";
 import { SmtpTransport } from "./smtp-transport.js";
@@ -72,11 +73,11 @@ export async function sendEmail(
       from: rendered.from,
       replyTo: rendered.replyTo,
     });
-    console.info(
+    logger.info(
       `[mail] sent template=${name} to=${to} transport=${transport.name} duration_ms=${Date.now() - startedAt}`,
     );
   } catch (err) {
-    console.error(
+    logger.error(
       `[mail] FAILED template=${name} to=${to} transport=${transport.name} duration_ms=${Date.now() - startedAt} err=${String(err)}`,
     );
     throw err;

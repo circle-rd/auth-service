@@ -30,7 +30,10 @@ export class SmtpTransport implements MailTransport {
       host: opts.host,
       port: opts.port,
       secure: opts.port === 465,
-      auth: opts.user && opts.pass ? { user: opts.user, pass: opts.pass } : undefined,
+      auth:
+        opts.user && opts.pass
+          ? { user: opts.user, pass: opts.pass }
+          : undefined,
     });
   }
 

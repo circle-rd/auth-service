@@ -11,9 +11,12 @@
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
+import { APIError } from "better-auth";
+import { ZodError } from "zod";
 import {
   oauthProviderOpenIdConfigMetadata,
   oauthProviderAuthServerMetadata,
@@ -22,6 +25,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { config } from "./config.js";
+import { prettyTransport } from "./logger.js";
 import { auth } from "./auth.js";
 import { corsOrigins } from "./runtime-config.js";
 import { healthRoutes } from "./routes/health.js";
@@ -37,7 +41,10 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
-import { appConfigRoutes, globallyEnabledProviders } from "./routes/app-config.js";
+import {
+  appConfigRoutes,
+  globallyEnabledProviders,
+} from "./routes/app-config.js";
 import { ApiError, ERR } from "./errors.js";
 import { renderAuthPage } from "./services/templates.js";
 import { db } from "./db/index.js";
@@ -81,24 +88,65 @@ const EMAIL_SEND_WINDOW = 60_000;
 
 export async function buildServer(): Promise<FastifyInstance> {
   const fastify = Fastify({
-    // Trust the reverse-proxy chain (sni-router) so `req.ip` reflects the real
+    // Trust the reverse-proxy chain so `req.ip` reflects the real
     // client address from `X-Forwarded-For` instead of the proxy's address —
     // and, crucially, so a client-forged `X-Forwarded-For` cannot move the
     // rate-limit bucket. The number of trusted hops is configurable.
     trustProxy: config.trustProxyHops,
     logger: {
       level: config.isDev ? "debug" : "info",
-      transport: config.isDev
-        ? { target: "pino-pretty", options: { colorize: true } }
-        : undefined,
+      transport: prettyTransport(),
+      serializers: {
+        // Never log the query string: it can carry password-reset,
+        // email-verification and magic-link tokens.
+        req(req: { method?: string; url?: string }) {
+          return {
+            method: req.method,
+            url: (req.url ?? "").split("?")[0],
+          };
+        },
+      },
     },
   });
 
+  // ── Security headers ────────────────────────────────────────────────────
+  // HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy. CSP keeps
+  // 'unsafe-inline' because the auth pages ship small inline scripts; tighten
+  // once those move to bundled files.
+  await fastify.register(helmet, {
+    contentSecurityPolicy: config.isDev
+      ? false
+      : {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: [
+              "'self'",
+              "'unsafe-inline'",
+              "https://fonts.googleapis.com",
+            ],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            imgSrc: ["'self'", "data:", "https:"],
+            connectSrc: ["'self'", config.betterAuth.url],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            frameAncestors: ["'none'"],
+          },
+        },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  });
+
   // ── CORS ────────────────────────────────────────────────────────────────
+  // Only the dashboard origins (CORS_ORIGINS) get credentialed CORS on the
+  // API. Registered application origins are handled separately for
+  // /api/auth/* in the onRequest hook below, so an application origin can
+  // never read credentialed responses from admin or data routes.
+  const dashboardOrigins = new Set(config.cors.origins);
   await fastify.register(cors, {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      callback(null, corsOrigins.has(origin));
+      callback(null, dashboardOrigins.has(origin));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -119,7 +167,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   // ── Strict in-memory rate buckets for sensitive auth + email endpoints ──
   // Not multi-instance safe; use Redis-backed limiting in a clustered deploy.
   const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
-  const emailSendBuckets = new Map<string, { count: number; resetAt: number }>();
+  const emailSendBuckets = new Map<
+    string,
+    { count: number; resetAt: number }
+  >();
 
   function checkAuthRateLimit(ip: string): boolean {
     const now = Date.now();
@@ -185,8 +236,8 @@ export async function buildServer(): Promise<FastifyInstance> {
         ? rawUrl.split("?").slice(1).join("?")
         : "";
 
-      let allowRegister = true;
-      let socialProvidersJson = "[]";
+      let allowRegister = false;
+      let socialProvidersJson: string;
       if (appSlug) {
         const [appRow] = await db
           .select({
@@ -196,7 +247,7 @@ export async function buildServer(): Promise<FastifyInstance> {
           .from(applications)
           .where(eq(applications.slug, appSlug))
           .limit(1);
-        allowRegister = appRow?.allowRegister ?? true;
+        allowRegister = appRow?.allowRegister ?? false;
 
         const globalProviders = globallyEnabledProviders();
         const appProviders =
@@ -287,7 +338,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
     if (!session) {
       const rawUrl = req.raw.url ?? "";
-      const rawQs = rawUrl.includes("?") ? rawUrl.split("?").slice(1).join("?") : "";
+      const rawQs = rawUrl.includes("?")
+        ? rawUrl.split("?").slice(1).join("?")
+        : "";
       return reply.redirect(`/login${rawQs ? `?${rawQs}` : ""}`, 302);
     }
 
@@ -297,7 +350,9 @@ export async function buildServer(): Promise<FastifyInstance> {
 
     const query = req.query as Record<string, string>;
     const rawUrl = req.raw.url ?? "";
-    const rawQs = rawUrl.includes("?") ? rawUrl.split("?").slice(1).join("?") : "";
+    const rawQs = rawUrl.includes("?")
+      ? rawUrl.split("?").slice(1).join("?")
+      : "";
     const oauthQuery =
       query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
 
@@ -358,7 +413,11 @@ export async function buildServer(): Promise<FastifyInstance> {
       }
 
       const urlPath = req.url.split("?")[0] ?? "";
-      if (AUTH_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))) {
+      if (
+        AUTH_RATE_PATHS.some(
+          (p) => urlPath === p || urlPath.startsWith(p + "/"),
+        )
+      ) {
         const ip = req.ip ?? "unknown";
         if (!checkAuthRateLimit(ip)) {
           reply.raw.writeHead(429, { "Content-Type": "application/json" });
@@ -366,7 +425,11 @@ export async function buildServer(): Promise<FastifyInstance> {
           return;
         }
       }
-      if (EMAIL_SEND_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))) {
+      if (
+        EMAIL_SEND_PATHS.some(
+          (p) => urlPath === p || urlPath.startsWith(p + "/"),
+        )
+      ) {
         const ip = req.ip ?? "unknown";
         if (!checkEmailSendRateLimit(ip)) {
           reply.raw.writeHead(429, { "Content-Type": "application/json" });
@@ -384,9 +447,13 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // ── Routes ──────────────────────────────────────────────────────────────
   // Stripe webhook first — its raw Buffer parser must take precedence.
-  await fastify.register(stripeWebhookRoutes, { prefix: "/api/webhooks/stripe" });
+  await fastify.register(stripeWebhookRoutes, {
+    prefix: "/api/webhooks/stripe",
+  });
   await fastify.register(healthRoutes);
-  await fastify.register(applicationRoutes, { prefix: "/api/admin/applications" });
+  await fastify.register(applicationRoutes, {
+    prefix: "/api/admin/applications",
+  });
   await fastify.register(rolesRoutes, { prefix: "/api/admin" });
   await fastify.register(plansRoutes, { prefix: "/api/admin" });
   await fastify.register(adminConsumptionRoutes, { prefix: "/api/admin" });
@@ -394,7 +461,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
   await fastify.register(statsRoutes, { prefix: "/api/admin/stats" });
   await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
-  await fastify.register(organizationsRoutes, { prefix: "/api/admin/organizations" });
+  await fastify.register(organizationsRoutes, {
+    prefix: "/api/admin/organizations",
+  });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });
   await fastify.register(appConfigRoutes, { prefix: "/api/app-config" });
@@ -414,18 +483,21 @@ export async function buildServer(): Promise<FastifyInstance> {
       .send(body);
   });
 
-  fastify.get("/.well-known/oauth-authorization-server", async (_req, reply) => {
-    const res = await handleAuthServerMeta(
-      new Request(
-        config.betterAuth.url + "/.well-known/oauth-authorization-server",
-      ),
-    );
-    const body = await res.json();
-    return reply
-      .status(res.status)
-      .header("content-type", "application/json")
-      .send(body);
-  });
+  fastify.get(
+    "/.well-known/oauth-authorization-server",
+    async (_req, reply) => {
+      const res = await handleAuthServerMeta(
+        new Request(
+          config.betterAuth.url + "/.well-known/oauth-authorization-server",
+        ),
+      );
+      const body = await res.json();
+      return reply
+        .status(res.status)
+        .header("content-type", "application/json")
+        .send(body);
+    },
+  );
 
   // ── SPA fallback ────────────────────────────────────────────────────────
   fastify.setNotFoundHandler(async (req, reply) => {
@@ -445,6 +517,35 @@ export async function buildServer(): Promise<FastifyInstance> {
   fastify.setErrorHandler(async (error, _req, reply) => {
     if (error instanceof ApiError) {
       await reply.status(error.statusCode).send(error.toJSON());
+      return;
+    }
+
+    // Zod validation errors from route schemas map to 400 without leaking the
+    // raw stack.
+    if (error instanceof ZodError) {
+      await reply.status(400).send({
+        error: {
+          code: "APP_001",
+          message: "Validation error",
+          details: error.flatten(),
+        },
+      });
+      return;
+    }
+
+    // BetterAuth throws APIError with an HTTP status and a sanitised body.
+    if (error instanceof APIError) {
+      const status =
+        error.statusCode ??
+        (typeof error.status === "number" ? error.status : 500);
+      const body = error.body as
+        { code?: string; message?: string } | undefined;
+      await reply.status(status).send({
+        error: {
+          code: body?.code ?? "AUTH_001",
+          message: body?.message ?? error.message,
+        },
+      });
       return;
     }
 

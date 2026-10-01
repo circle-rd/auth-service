@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { db } from "../../db/index.js";
@@ -14,39 +14,11 @@ import {
   subscriptionPlans,
 } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
-import { and, count, desc, eq, inArray, max } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
-
-async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-    return;
-  }
-}
-
-/** Returns the calling user's platform role. Called after requireAdmin so session is guaranteed. */
-async function getCallerRole(req: FastifyRequest): Promise<string> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  return ((session!.user as Record<string, unknown>).role as string | undefined) ?? "admin";
-}
+import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
+import { getCallerRole, requireAdmin } from "../../middleware.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = z.object({
@@ -176,7 +148,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     if (role === "admin") {
       const callerRole = await getCallerRole(req);
       if (callerRole !== "superadmin") {
-        throw ERR.AUTH_001("Only superadmins can create admin users");
+        throw ERR.AUTH_011("Only superadmins can create admin users");
       }
     }
 
@@ -292,21 +264,41 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     const targetRole = targetRow.role ?? "user";
 
     // Admins cannot modify other admins or superadmins
-    if (callerRole !== "superadmin" && (targetRole === "admin" || targetRole === "superadmin")) {
-      throw ERR.AUTH_001("Insufficient permissions to modify this user");
+    if (
+      callerRole !== "superadmin" &&
+      (targetRole === "admin" || targetRole === "superadmin")
+    ) {
+      throw ERR.AUTH_011("Insufficient permissions to modify this user");
     }
     // Only superadmin can promote someone to admin
     if (role === "admin" && callerRole !== "superadmin") {
-      throw ERR.AUTH_001("Only superadmins can assign the admin role");
+      throw ERR.AUTH_011("Only superadmins can assign the admin role");
     }
 
+    // Never allow the last superadmin to be demoted — that would lock the
+    // platform out of its highest privilege level. The count is enforced in the
+    // same statement as the update so concurrent demotions cannot both pass.
     if (role) {
       // Direct DB update — set-role was removed from admin's BetterAuth permissions
       // to prevent native API abuse; all role changes go through this controlled path.
-      await db
-        .update(userTable)
-        .set({ role })
-        .where(eq(userTable.id, req.params.id));
+      if (targetRole === "superadmin") {
+        const demoted = await db
+          .update(userTable)
+          .set({ role })
+          .where(
+            and(
+              eq(userTable.id, req.params.id),
+              sql`(SELECT count(*) FROM ${userTable} WHERE ${userTable.role} = 'superadmin') > 1`,
+            ),
+          )
+          .returning({ id: userTable.id });
+        if (demoted.length === 0) throw ERR.USR_002();
+      } else {
+        await db
+          .update(userTable)
+          .set({ role })
+          .where(eq(userTable.id, req.params.id));
+      }
     }
 
     if (name !== undefined || isMfaRequired !== undefined) {
@@ -334,14 +326,20 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       if (!targetRow) throw ERR.USR_001();
 
       const callerRole = await getCallerRole(req);
-      if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
-        throw ERR.AUTH_001("Insufficient permissions to disable this user");
+      if (
+        callerRole !== "superadmin" &&
+        (targetRow.role === "admin" || targetRow.role === "superadmin")
+      ) {
+        throw ERR.AUTH_011("Insufficient permissions to disable this user");
       }
 
       await auth.api.banUser({
         headers: fromNodeHeaders(req.headers),
         body: { userId: req.params.id },
       });
+      // A ban must also invalidate the user's OAuth tokens so an existing
+      // refresh token cannot keep issuing access tokens.
+      await revokeAllUserTokens(req.params.id);
       await reply.send({ ok: true });
     },
   );
@@ -358,8 +356,11 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       if (!targetRow) throw ERR.USR_001();
 
       const callerRole = await getCallerRole(req);
-      if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
-        throw ERR.AUTH_001("Insufficient permissions to enable this user");
+      if (
+        callerRole !== "superadmin" &&
+        (targetRow.role === "admin" || targetRow.role === "superadmin")
+      ) {
+        throw ERR.AUTH_011("Insufficient permissions to enable this user");
       }
 
       await auth.api.unbanUser({
@@ -391,8 +392,11 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     const callerRole = await getCallerRole(req);
 
     // Admins cannot delete other admins or superadmins
-    if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
-      throw ERR.AUTH_001("Insufficient permissions to delete this user");
+    if (
+      callerRole !== "superadmin" &&
+      (targetRow.role === "admin" || targetRow.role === "superadmin")
+    ) {
+      throw ERR.AUTH_011("Insufficient permissions to delete this user");
     }
 
     // Prevent deleting the last superadmin
@@ -409,11 +413,21 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // Delete the user — cascade constraints in auth-schema handle BetterAuth-owned records.
     // Our custom tables store userId as plain text without a FK, so we clean them manually.
     await db.transaction(async (tx) => {
-      await tx.delete(userAppRoles).where(eq(userAppRoles.userId, req.params.id));
-      await tx.delete(userSubscriptions).where(eq(userSubscriptions.userId, req.params.id));
-      await tx.delete(consumptionAggregates).where(eq(consumptionAggregates.userId, req.params.id));
-      await tx.delete(consumptionEntries).where(eq(consumptionEntries.userId, req.params.id));
-      await tx.delete(userApplications).where(eq(userApplications.userId, req.params.id));
+      await tx
+        .delete(userAppRoles)
+        .where(eq(userAppRoles.userId, req.params.id));
+      await tx
+        .delete(userSubscriptions)
+        .where(eq(userSubscriptions.userId, req.params.id));
+      await tx
+        .delete(consumptionAggregates)
+        .where(eq(consumptionAggregates.userId, req.params.id));
+      await tx
+        .delete(consumptionEntries)
+        .where(eq(consumptionEntries.userId, req.params.id));
+      await tx
+        .delete(userApplications)
+        .where(eq(userApplications.userId, req.params.id));
       await tx.delete(userTable).where(eq(userTable.id, req.params.id));
     });
 

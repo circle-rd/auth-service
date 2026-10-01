@@ -1,5 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { fromNodeHeaders } from "better-auth/node";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../../db/index.js";
 import {
@@ -11,30 +10,8 @@ import {
 } from "../../db/schema.js";
 import { and, eq, ne, count, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
-import { auth } from "../../auth.js";
 import { stripe } from "../../services/stripe.js";
-
-async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-    return;
-  }
-}
+import { requireAdmin } from "../../middleware.js";
 
 const createPlanSchema = z.object({
   name: z.string().min(1).max(64),

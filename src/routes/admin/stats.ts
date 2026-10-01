@@ -1,34 +1,11 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { fromNodeHeaders } from "better-auth/node";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../../db/index.js";
 import { session as sessionTable } from "../../db/auth-schema.js";
 import { applications, loginHistory } from "../../db/schema.js";
 import { and, countDistinct, eq, gt, gte, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
-import { auth } from "../../auth.js";
-
-async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-    return;
-  }
-}
+import { requireAdmin } from "../../middleware.js";
 
 const rangeSchema = z.enum(["7d", "30d"]).default("7d");
 const loginsQuerySchema = z.object({
@@ -120,9 +97,7 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
     since.setUTCHours(0, 0, 0, 0);
     const sinceIso = since.toISOString();
 
-    const apps = await db
-      .select({ id: applications.id })
-      .from(applications);
+    const apps = await db.select({ id: applications.id }).from(applications);
 
     if (apps.length === 0) {
       await reply.send({ applications: [] });

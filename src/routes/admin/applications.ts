@@ -1,5 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { fromNodeHeaders } from "better-auth/node";
+import type { FastifyInstance } from "fastify";
 import { generateId } from "better-auth";
 import { z } from "zod";
 import { db } from "../../db/index.js";
@@ -21,14 +20,17 @@ import {
 import { oauthClient, user as userTable } from "../../db/auth-schema.js";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
-import { auth } from "../../auth.js";
 import { randomBytes, createHash } from "node:crypto";
+import { addCorsOrigin, removeCorsOrigin } from "../../runtime-config.js";
 import {
-  addAudience,
-  removeAudience,
-  addCorsOrigin,
-  removeCorsOrigin,
-} from "../../runtime-config.js";
+  replaceClientResource,
+  deleteClientResource,
+} from "../../services/oauth-resources.js";
+import {
+  revokeUserClientTokens,
+  revokeClientTokens,
+} from "../../services/oauth-tokens.js";
+import { requireAdmin } from "../../middleware.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -46,9 +48,7 @@ interface OauthClientView {
   postLogoutRedirectUris: string[];
 }
 
-async function fetchOauthClientView(
-  slug: string,
-): Promise<OauthClientView> {
+async function fetchOauthClientView(slug: string): Promise<OauthClientView> {
   const [row] = await db
     .select({
       enableEndSession: oauthClient.enableEndSession,
@@ -144,38 +144,18 @@ const RESERVED_JWT_CLAIMS = new Set([
  */
 const metadataSchema = z
   .record(z.string(), z.string().max(256))
-  .refine(
-    (m) => Object.keys(m).every((k) => !RESERVED_JWT_CLAIMS.has(k)),
-    { message: "metadata keys must not collide with reserved JWT claims" },
-  )
+  .refine((m) => Object.keys(m).every((k) => !RESERVED_JWT_CLAIMS.has(k)), {
+    message: "metadata keys must not collide with reserved JWT claims",
+  })
   .refine(
     (m) => Object.keys(m).every((k) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)),
-    { message: "metadata keys must be valid identifiers (letters, digits, underscore)" },
+    {
+      message:
+        "metadata keys must be valid identifiers (letters, digits, underscore)",
+    },
   );
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-
-async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-    return;
-  }
-}
 
 /**
  * Ensure a role belongs to the given application before it is assigned to a
@@ -191,7 +171,9 @@ async function assertRoleBelongsToApp(
   const [row] = await db
     .select({ id: appRoles.id })
     .from(appRoles)
-    .where(and(eq(appRoles.id, roleId), eq(appRoles.applicationId, applicationId)))
+    .where(
+      and(eq(appRoles.id, roleId), eq(appRoles.applicationId, applicationId)),
+    )
     .limit(1);
   if (!row) {
     throw ERR.APP_001("Role does not belong to this application");
@@ -212,7 +194,7 @@ const createAppSchema = z.object({
   isPublic: z.boolean().default(false),
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
-  allowRegister: z.boolean().default(true),
+  allowRegister: z.boolean().default(false),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client is allowed to call
@@ -232,7 +214,9 @@ const createAppSchema = z.object({
   metadata: metadataSchema.optional().default({}),
 });
 
-const updateAppSchema = createAppSchema.partial().omit({ slug: true, isPublic: true });
+const updateAppSchema = createAppSchema
+  .partial()
+  .omit({ slug: true, isPublic: true });
 
 const grantUserAccessSchema = z.object({
   userId: z.string().min(1),
@@ -262,7 +246,10 @@ export async function applicationRoutes(
     const enriched = rows.map((r) =>
       mergeOauthView(
         r,
-        views.get(r.slug) ?? { enableEndSession: false, postLogoutRedirectUris: [] },
+        views.get(r.slug) ?? {
+          enableEndSession: false,
+          postLogoutRedirectUris: [],
+        },
       ),
     );
     await reply.send({ applications: enriched });
@@ -324,13 +311,28 @@ export async function applicationRoutes(
         scopes: data.allowedScopes,
         redirectUris: data.redirectUris,
         enableEndSession: data.enableEndSession,
+        // Keep the OAuth client's enabled state in sync with the application
+        // so a disabled app cannot obtain tokens.
+        disabled: !data.isActive,
         postLogoutRedirectUris: effectivePostLogoutRedirectUris(
           data.postLogoutRedirectUris,
           data.url,
         ),
-        public: data.isPublic || null,
-        tokenEndpointAuthMethod: data.isPublic ? "none" : null,
-        requirePKCE: data.isPublic ? true : null,
+        // OAuth 2.1 client metadata. Web clients that hold a secret use
+        // client_secret_basic and may use the client_credentials grant; public
+        // clients (SPAs) use `none` and are limited to the authorization code
+        // flow. PKCE is required for every client.
+        applicationType: "web",
+        tokenEndpointAuthMethod: data.isPublic ? "none" : "client_secret_basic",
+        grantTypes: data.isPublic
+          ? ["authorization_code", "refresh_token"]
+          : ["authorization_code", "refresh_token", "client_credentials"],
+        responseTypes: ["code"],
+        requirePKCE: true,
+        // Machine-to-machine scope. Deliberately separate from the app's OIDC
+        // `allowedScopes` (openid/profile/email are user-delegated and rejected
+        // by the client_credentials grant). Public clients cannot use M2M.
+        clientCredentialsScopes: data.isPublic ? [] : ["m2m"],
         metadata: { clientId: data.slug, applicationId: app.id },
       });
 
@@ -425,12 +427,16 @@ export async function applicationRoutes(
     // Secret shown once — not persisted in plaintext. Public clients have no secret.
     if (rawSecret) response.clientSecret = rawSecret;
 
-    // Register the app URL as a valid OAuth audience and CORS origin immediately.
-    // This takes effect on the next request — no server restart required.
+    // Register the app URL as a protected OAuth resource (RFC 8707) and CORS
+    // origin immediately. Takes effect on the next request — no restart needed.
     if (data.url) {
-      addAudience(data.url);
       addCorsOrigin(data.url);
     }
+    await replaceClientResource({
+      clientId: data.slug,
+      identifier: data.url ?? null,
+      name: data.name,
+    });
 
     await reply.status(201).send(response);
   });
@@ -478,16 +484,13 @@ export async function applicationRoutes(
       .returning();
     if (!app) throw ERR.APP_002();
 
-    // Sync runtime-config when the URL field changes.
+    // Sync CORS origin + protected resource when the URL field changes.
+    // The OAuth resource link is refreshed unconditionally below.
     if (parsed.data.url !== undefined && parsed.data.url !== before?.url) {
-      // Remove old audience/origin if it was set
       if (before?.url) {
-        removeAudience(before.url);
         removeCorsOrigin(before.url);
       }
-      // Add new audience/origin if one was provided
       if (parsed.data.url) {
-        addAudience(parsed.data.url);
         addCorsOrigin(parsed.data.url);
       }
     }
@@ -501,6 +504,10 @@ export async function applicationRoutes(
       oauthUpdate.skipConsent = parsed.data.skipConsent;
     if (parsed.data.redirectUris !== undefined)
       oauthUpdate.redirectUris = parsed.data.redirectUris;
+    // Mirror the application's active flag onto the OAuth client so a disabled
+    // application stops issuing tokens.
+    if (parsed.data.isActive !== undefined)
+      oauthUpdate.disabled = !parsed.data.isActive;
     if (parsed.data.enableEndSession !== undefined)
       oauthUpdate.enableEndSession = parsed.data.enableEndSession;
     if (parsed.data.postLogoutRedirectUris !== undefined)
@@ -513,6 +520,14 @@ export async function applicationRoutes(
         .where(eq(oauthClient.clientId, app.slug));
     }
 
+    // Keep the RFC 8707 resource identifier and client link aligned with the
+    // (possibly changed) application URL.
+    await replaceClientResource({
+      clientId: app.slug,
+      identifier: app.url,
+      name: app.name,
+    });
+
     const view = await fetchOauthClientView(app.slug);
     await reply.send({ application: mergeOauthView(app, view) });
   });
@@ -523,15 +538,21 @@ export async function applicationRoutes(
     const [deleted] = await db
       .delete(applications)
       .where(eq(applications.id, req.params.id))
-      .returning({ id: applications.id, slug: applications.slug, url: applications.url });
+      .returning({
+        id: applications.id,
+        slug: applications.slug,
+        url: applications.url,
+      });
     if (!deleted) throw ERR.APP_002();
 
     // Remove the oauthClient row (cascades to tokens/consents in BetterAuth tables)
     await db.delete(oauthClient).where(eq(oauthClient.clientId, deleted.slug));
 
+    // Drop the client's protected-resource links.
+    await deleteClientResource(deleted.slug);
+
     // Remove the URL from runtime-config.
     if (deleted.url) {
-      removeAudience(deleted.url);
       removeCorsOrigin(deleted.url);
     }
 
@@ -543,7 +564,11 @@ export async function applicationRoutes(
     "/:id/rotate-secret",
     async (req, reply) => {
       const [app] = await db
-        .select({ id: applications.id, slug: applications.slug, isPublic: applications.isPublic })
+        .select({
+          id: applications.id,
+          slug: applications.slug,
+          isPublic: applications.isPublic,
+        })
         .from(applications)
         .where(eq(applications.id, req.params.id))
         .limit(1);
@@ -560,6 +585,9 @@ export async function applicationRoutes(
         .update(oauthClient)
         .set({ clientSecret: hashedSecret })
         .where(eq(oauthClient.clientId, app.slug));
+
+      // Invalidate every token minted with the previous secret.
+      await revokeClientTokens(app.slug);
 
       await reply.send({ clientSecret: newSecret });
     },
@@ -645,7 +673,10 @@ export async function applicationRoutes(
     async (req, reply) => {
       const query = req.query as Record<string, string>;
       const page = Math.max(1, parseInt(query.page ?? "1", 10));
-      const limit = Math.min(100, Math.max(1, parseInt(query.limit ?? "20", 10)));
+      const limit = Math.min(
+        100,
+        Math.max(1, parseInt(query.limit ?? "20", 10)),
+      );
       const offset = (page - 1) * limit;
 
       const where = and(
@@ -743,6 +774,19 @@ export async function applicationRoutes(
               eq(userApplications.applicationId, req.params.id),
             ),
           );
+
+        // Revoking access must also burn the user's OAuth refresh tokens for
+        // this app, otherwise they keep minting access tokens indefinitely.
+        if (parsed.data.isActive === false) {
+          const [app] = await db
+            .select({ slug: applications.slug })
+            .from(applications)
+            .where(eq(applications.id, req.params.id))
+            .limit(1);
+          if (app) {
+            await revokeUserClientTokens(req.params.userId, app.slug);
+          }
+        }
       }
 
       if (parsed.data.roleId !== undefined) {
@@ -797,22 +841,59 @@ export async function applicationRoutes(
     "/:id/users/:userId",
     async (req, reply) => {
       const { id: appId, userId } = req.params;
+
+      // Burn the user's OAuth tokens for this app before deleting the access
+      // rows, so a held refresh token cannot resurrect the grant.
+      const [app] = await db
+        .select({ slug: applications.slug })
+        .from(applications)
+        .where(eq(applications.id, appId))
+        .limit(1);
+      if (app) {
+        await revokeUserClientTokens(userId, app.slug);
+      }
+
       await db.transaction(async (tx) => {
-        await tx.delete(userAppRoles).where(
-          and(eq(userAppRoles.userId, userId), eq(userAppRoles.applicationId, appId)),
-        );
-        await tx.delete(userSubscriptions).where(
-          and(eq(userSubscriptions.userId, userId), eq(userSubscriptions.applicationId, appId)),
-        );
-        await tx.delete(consumptionAggregates).where(
-          and(eq(consumptionAggregates.userId, userId), eq(consumptionAggregates.applicationId, appId)),
-        );
-        await tx.delete(consumptionEntries).where(
-          and(eq(consumptionEntries.userId, userId), eq(consumptionEntries.applicationId, appId)),
-        );
-        await tx.delete(userApplications).where(
-          and(eq(userApplications.userId, userId), eq(userApplications.applicationId, appId)),
-        );
+        await tx
+          .delete(userAppRoles)
+          .where(
+            and(
+              eq(userAppRoles.userId, userId),
+              eq(userAppRoles.applicationId, appId),
+            ),
+          );
+        await tx
+          .delete(userSubscriptions)
+          .where(
+            and(
+              eq(userSubscriptions.userId, userId),
+              eq(userSubscriptions.applicationId, appId),
+            ),
+          );
+        await tx
+          .delete(consumptionAggregates)
+          .where(
+            and(
+              eq(consumptionAggregates.userId, userId),
+              eq(consumptionAggregates.applicationId, appId),
+            ),
+          );
+        await tx
+          .delete(consumptionEntries)
+          .where(
+            and(
+              eq(consumptionEntries.userId, userId),
+              eq(consumptionEntries.applicationId, appId),
+            ),
+          );
+        await tx
+          .delete(userApplications)
+          .where(
+            and(
+              eq(userApplications.userId, userId),
+              eq(userApplications.applicationId, appId),
+            ),
+          );
       });
       await reply.status(204).send();
     },

@@ -22,7 +22,7 @@
 
 ```bash
 # Start the database
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d postgres
 
 # Install dependencies
 pnpm install
@@ -55,7 +55,7 @@ This project follows **Semantic Versioning** (`MAJOR.MINOR.PATCH`).
 | Change type                       | Version bump | Required action                       |
 | --------------------------------- | ------------ | ------------------------------------- |
 | Bug fix, no API change            | `PATCH`      | Changelog entry                       |
-| New feature, backward-compatible  | `MINOR`      | Changelog entry + `SPECS.md` update   |
+| New feature, backward-compatible  | `MINOR`      | Changelog entry + specifications update |
 | Breaking change                   | `MAJOR`      | See below                             |
 
 ### Breaking changes
@@ -72,7 +72,9 @@ necessary:
 
 1. Bump the `MAJOR` version in `package.json`.
 2. Document the change clearly in `CHANGELOG.md` with a migration note.
-3. Update `SPECS.md` to reflect the new contract.
+3. Update the specifications
+   (`docs-site/content/docs/project/2.specifications.md`) to reflect the new
+   contract.
 4. Remove the old implementation entirely. Do not keep a `v1/` legacy path
    or a deprecated alias alongside the new code.
 
@@ -131,9 +133,8 @@ Before opening a PR, verify:
 - [ ] New routes have co-located test files
 - [ ] No `any` introduced without justification comment
 - [ ] No dead code left behind
-- [ ] `SPECS.md` updated if the API contract changed
-- [ ] Migration file included if DB schema changed (and a probe entry added
-      in `POST_BASELINE_PROBES` if the DDL may already exist out-of-band)
+- [ ] Specifications updated (`docs-site/content/docs/project/2.specifications.md`) if the API contract changed
+- [ ] Migration file included if DB schema changed
 - [ ] Breaking changes bump the major version and have a changelog entry
 
 For the rationale behind each gate and the standards new code must meet,

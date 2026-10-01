@@ -1,24 +1,14 @@
 /**
- * Mutable runtime state for dynamic audience and CORS management.
+ * Mutable runtime state for dynamic CORS / trusted-origin management.
  *
- * Seeded at startup from:
- *   1. OAUTH_VALID_AUDIENCES / CORS_ORIGINS env vars (backward compat)
- *   2. applications.url column in the DB
- *
- * Updated on every application create / update / delete — no server restart
+ * Seeded at startup from CORS_ORIGINS and the applications.url column, and
+ * updated on every application create / update / delete — no server restart
  * needed when registering a new application via the admin UI.
  *
- * Why mutable arrays work:
- *  - @better-auth/oauth-provider spreads `validAudiences` into a new Set on
- *    every token request (`new Set([...opts.validAudiences])`), so mutations
- *    are picked up immediately.
- *  - BetterAuth reads `trustedOrigins` on every request for CSRF checks.
- *  - Fastify CORS uses an `origin` function that closes over `corsOrigins`.
+ * Protected OAuth resources (RFC 8707 audiences) are no longer held here:
+ * BetterAuth 1.7 persists them in the `oauth_resource` table, synced by
+ * services/oauth-resources.ts.
  */
-
-/** Live list of valid OAuth resource server audiences (RFC 8707).
- *  Passed by reference to @better-auth/oauth-provider's `validAudiences`. */
-export const validAudiences: string[] = [];
 
 /** Live list of trusted origins for BetterAuth CSRF checks.
  *  Passed by reference to betterAuth({ trustedOrigins }). */
@@ -30,21 +20,6 @@ export const trustedOrigins: string[] = [];
 export const corsOrigins = new Set<string>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Add a resource URL to validAudiences (deduplicated). No-op for empty/invalid values. */
-export function addAudience(url: string | null | undefined): void {
-  if (!url) return;
-  if (!validAudiences.includes(url)) {
-    validAudiences.push(url);
-  }
-}
-
-/** Remove a resource URL from validAudiences. */
-export function removeAudience(url: string | null | undefined): void {
-  if (!url) return;
-  const idx = validAudiences.indexOf(url);
-  if (idx !== -1) validAudiences.splice(idx, 1);
-}
 
 /**
  * Add an origin derived from `rawUrl` to trustedOrigins and corsOrigins.

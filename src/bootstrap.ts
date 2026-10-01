@@ -3,6 +3,26 @@ import { db } from "./db/index.js";
 import { config } from "./config.js";
 import { user as userTable } from "./db/auth-schema.js";
 import { eq } from "drizzle-orm";
+import { logger } from "./logger.js";
+
+// Known default/placeholder bootstrap passwords that must never be accepted in
+// production. Matching is exact so a legitimate password that merely contains a
+// word like "password" is not rejected.
+const WEAK_PASSWORDS = new Set([
+  "admin",
+  "admin123",
+  "admin1234",
+  "admin123!",
+  "password",
+  "password123",
+  "password123!",
+  "changeme",
+  "changeme123",
+  "changeme123!",
+  "changeme1234",
+  "circle",
+  "letmein",
+]);
 
 /**
  * Creates the superadmin user at startup if none exists yet.
@@ -12,26 +32,46 @@ export async function bootstrap(): Promise<void> {
   const { adminEmail, adminPassword } = config.bootstrap;
 
   if (!adminEmail || !adminPassword) {
-    console.warn(
+    logger.warn(
       "[bootstrap] ADMIN_EMAIL / ADMIN_PASSWORD not set — skipping superadmin creation.",
     );
     return;
   }
 
-  // Check if any superadmin exists via direct DB query
-  try {
-    const existing = await db
-      .select({ id: userTable.id })
-      .from(userTable)
-      .where(eq(userTable.role, "superadmin"))
-      .limit(1);
+  // The seeded account is a full superadmin, so a known default/placeholder
+  // password is a direct takeover. Refuse those in production. The minimum
+  // length policy is enforced by config.ts (min 8); we only block exact
+  // known values here so legitimate passwords are never falsely rejected.
+  const normalizedPassword = adminPassword.toLowerCase();
+  if (
+    config.nodeEnv === "production" &&
+    WEAK_PASSWORDS.has(normalizedPassword)
+  ) {
+    logger.error(
+      "[bootstrap] ADMIN_PASSWORD is a known default/placeholder value. " +
+        "Set a unique ADMIN_PASSWORD. Superadmin not created.",
+    );
+    return;
+  }
 
-    if (existing.length > 0) {
-      console.info("[bootstrap] Superadmin already exists — skipping.");
-      return;
-    }
-  } catch {
-    // If query fails (first boot, tables empty), proceed to create
+  // Runs after migrations, so the table is guaranteed to exist.
+  const existing = await db
+    .select({ id: userTable.id })
+    .from(userTable)
+    .where(eq(userTable.role, "superadmin"))
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Keep the bootstrap account usable: an unverified superadmin cannot sign
+    // in when email verification is enabled.
+    await db
+      .update(userTable)
+      .set({ emailVerified: true })
+      .where(eq(userTable.role, "superadmin"));
+    logger.info(
+      "[bootstrap] Superadmin already exists — ensured email is verified.",
+    );
+    return;
   }
 
   try {
@@ -41,18 +81,27 @@ export async function bootstrap(): Promise<void> {
         password: adminPassword,
         name: "Superadmin",
         role: "superadmin" as "admin",
+        // The bootstrap account is trusted: it exists to let an operator in
+        // without a mail round-trip, so it starts verified.
+        data: { emailVerified: true },
       },
     });
-    console.info(`[bootstrap] Superadmin created: ${adminEmail}`);
+    logger.info({ email: adminEmail }, "[bootstrap] Superadmin created");
   } catch (err) {
-    // User might already exist (email conflict)
+    // A pre-existing email is not fatal; anything else is.
     const message = err instanceof Error ? err.message : String(err);
     if (message.toLowerCase().includes("already") || message.includes("409")) {
-      console.info(
+      logger.info(
         "[bootstrap] Superadmin email already registered — skipping.",
       );
-    } else {
-      console.error("[bootstrap] Failed to create superadmin:", message);
+      return;
     }
+    throw err;
   }
+
+  // Belt-and-suspenders: ensure the flag is set even if createUser ignored it.
+  await db
+    .update(userTable)
+    .set({ emailVerified: true })
+    .where(eq(userTable.email, adminEmail));
 }

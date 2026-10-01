@@ -139,10 +139,16 @@ describe("Admin — adminConsumptionRoutes", () => {
       url: `/applications/${APP_ID}/consumption/monthly?year=2024&month=6`,
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json<{ entries: Array<{ userId: string; key: string; total: string }> }>();
+    const body = res.json<{
+      entries: Array<{ userId: string; key: string; total: string }>;
+    }>();
     expect(Array.isArray(body.entries)).toBe(true);
     expect(body.entries).toHaveLength(2);
-    expect(body.entries[0]).toMatchObject({ userId: "u1", key: "tokens", total: "42" });
+    expect(body.entries[0]).toMatchObject({
+      userId: "u1",
+      key: "tokens",
+      total: "42",
+    });
     mockDb.select.mockImplementation(() => makeChain());
   });
 

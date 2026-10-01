@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+} from "vitest";
 import Fastify from "fastify";
 import { statsRoutes } from "./stats.js";
 
@@ -24,7 +32,9 @@ const { mockDb, mockGetSession, makeChain } = vi.hoisted(() => {
   }
   const mockDb = {
     select: vi.fn(() => makeChain()),
-    execute: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(() => Promise.resolve([])),
+    execute: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(() =>
+      Promise.resolve([]),
+    ),
   };
   const mockGetSession = vi.fn();
   return { mockDb, mockGetSession, makeChain };

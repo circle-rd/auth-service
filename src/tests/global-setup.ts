@@ -10,12 +10,19 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { applyBaseEnv } from "./base-env.js";
+
 const URL_FILE = join(tmpdir(), "auth-service-test-db-url.txt");
 
 let container: StartedPostgreSqlContainer;
 
 export async function setup(): Promise<void> {
-  container = await new PostgreSqlContainer("postgres:16-alpine")
+  // config.ts fails fast at import time and is pulled in by migrate.ts below.
+  // globalSetup runs before the per-file setupFiles, so provision the base
+  // variables here too.
+  applyBaseEnv();
+
+  container = await new PostgreSqlContainer("postgres:17-alpine")
     .withDatabase("auth_test")
     .withUsername("test")
     .withPassword("test")

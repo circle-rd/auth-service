@@ -127,6 +127,10 @@
            <%= it.OAUTH_QUERY %> is HTML-escaped by templates.ts; inside a raw <script>
            block, entities are NOT decoded, which would break the HMAC signature. -->
       <input type="hidden" id="oauth-query" value="<%= it.OAUTH_QUERY %>" />
+      <!-- JSON is passed through an HTML-escaped attribute and read via
+           .value, so org names containing quotes or markup cannot break out
+           of a script context. -->
+      <input type="hidden" id="orgs-json" value="<%= it.ORGANIZATIONS_JSON %>" />
       <div class="error-box" id="error-box"></div>
       <div class="org-list" id="org-list"></div>
     </div>
@@ -140,7 +144,7 @@
     const errorBox = document.getElementById('error-box');
     const orgList = document.getElementById('org-list');
 
-    const orgs = (() => { try { return JSON.parse('<%~ it.ORGANIZATIONS_JSON %>'); } catch { return []; } })();
+    const orgs = (() => { try { return JSON.parse(document.getElementById('orgs-json').value); } catch { return []; } })();
 
     function getInitials(name) {
       return name.split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
@@ -167,7 +171,14 @@
 
       const infoDiv = document.createElement('div');
       infoDiv.className = 'org-info';
-      infoDiv.innerHTML = `<div class="org-name">${org.name}</div><div class="org-slug">${org.slug}</div>`;
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'org-name';
+      nameDiv.textContent = org.name;
+      const slugDiv = document.createElement('div');
+      slugDiv.className = 'org-slug';
+      slugDiv.textContent = org.slug;
+      infoDiv.appendChild(nameDiv);
+      infoDiv.appendChild(slugDiv);
 
       const chevron = document.createElement('div');
       chevron.className = 'chevron';

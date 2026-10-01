@@ -30,7 +30,6 @@ export class ApiError extends Error {
 export const ERR = {
   AUTH_001: (msg = "Missing or invalid authentication token") =>
     new ApiError(401, "AUTH_001", msg),
-  AUTH_002: (msg = "Token expired") => new ApiError(401, "AUTH_002", msg),
   AUTH_003: (msg = "Invalid credentials") => new ApiError(401, "AUTH_003", msg),
   AUTH_004: (msg = "MFA required") => new ApiError(401, "AUTH_004", msg),
   AUTH_005: (msg = "Invalid MFA code") => new ApiError(401, "AUTH_005", msg),
@@ -42,6 +41,8 @@ export const ERR = {
   AUTH_009: (msg = "Password too weak") => new ApiError(400, "AUTH_009", msg),
   AUTH_010: (msg = "Email already registered") =>
     new ApiError(409, "AUTH_010", msg),
+  AUTH_011: (msg = "Insufficient permissions") =>
+    new ApiError(403, "AUTH_011", msg),
 
   // ── APP ───────────────────────────────────────────────────────────────────
   APP_001: (msg = "Invalid application data", details?: unknown) =>
@@ -96,7 +97,8 @@ export const ERR = {
   USR_003: (msg = "Invalid user data", details?: unknown) =>
     new ApiError(400, "USR_003", msg, details),
   // ── ORG ──────────────────────────────────────────────────────────────────
-  ORG_001: (msg = "Organization not found") => new ApiError(404, "ORG_001", msg),
+  ORG_001: (msg = "Organization not found") =>
+    new ApiError(404, "ORG_001", msg),
   ORG_002: (msg = "Organization slug already exists") =>
     new ApiError(409, "ORG_002", msg),
   ORG_003: (msg = "Invalid organization data", details?: unknown) =>

@@ -27,11 +27,12 @@ const BUILTIN_TEMPLATES_DIR = join(
 );
 
 type PageName =
-  | "login"
-  | "register"
-  | "verify-email"
-  | "select-org"
-  | "two-factor";
+  "login" | "register" | "verify-email" | "select-org" | "two-factor";
+
+// Application slugs are constrained to this charset everywhere else (admin
+// route + OAuth client ids). Validating again here prevents `client_id` from
+// being used as a path-traversal vector when resolving per-app templates.
+const APP_SLUG_RE = /^[a-z0-9-]+$/;
 
 export interface TemplateVars {
   actionUrl: string;
@@ -53,10 +54,14 @@ function resolveTemplate(
   externalTemplatesDir: string | null,
 ): string {
   const candidates: string[] = [];
+  const safeSlug =
+    appSlug && APP_SLUG_RE.test(appSlug) && appSlug.length <= 64
+      ? appSlug
+      : null;
 
   if (externalTemplatesDir) {
-    if (appSlug) {
-      candidates.push(join(externalTemplatesDir, appSlug, `${page}.html`));
+    if (safeSlug) {
+      candidates.push(join(externalTemplatesDir, safeSlug, `${page}.html`));
     }
     candidates.push(join(externalTemplatesDir, "default", `${page}.html`));
   }

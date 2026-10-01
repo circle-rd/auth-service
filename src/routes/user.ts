@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { db } from "../db/index.js";
@@ -18,35 +18,7 @@ import {
 import { and, eq, gt, inArray } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
-
-async function requireSession(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<string> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    // Return a placeholder — Fastify will have already sent the response
-    return "";
-  }
-  return session.user.id;
-}
-
-async function requireFullSession(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<{ userId: string; sessionId: string } | null> {
-  const s = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!s) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return null;
-  }
-  return { userId: s.user.id, sessionId: s.session.id };
-}
+import { requireSession, requireFullSession } from "../middleware.js";
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),

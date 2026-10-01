@@ -202,6 +202,6 @@ describe("client_credentials → /api/consumption end to end", () => {
       },
     });
     // Valid token, but not authorized for this application.
-    expect(report.statusCode).toBe(401);
+    expect(report.statusCode).toBe(403);
   });
 });

@@ -29,7 +29,7 @@ CREATE TABLE "applications" (
 	"is_active" boolean DEFAULT true NOT NULL,
 	"skip_consent" boolean DEFAULT false NOT NULL,
 	"is_mfa_required" boolean DEFAULT false NOT NULL,
-	"allow_register" boolean DEFAULT true NOT NULL,
+	"allow_register" boolean DEFAULT false NOT NULL,
 	"allowed_scopes" text[] DEFAULT '{"openid","profile","email"}' NOT NULL,
 	"redirect_uris" text[] DEFAULT '{}' NOT NULL,
 	"is_public" boolean DEFAULT false NOT NULL,
@@ -67,6 +67,12 @@ CREATE TABLE "login_history" (
 	"logged_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"ip_address" text,
 	"user_agent" text
+);
+--> statement-breakpoint
+CREATE TABLE "stripe_events" (
+	"id" text PRIMARY KEY NOT NULL,
+	"type" text NOT NULL,
+	"processed_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "subscription_plan_prices" (

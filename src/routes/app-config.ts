@@ -36,7 +36,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
 
       if (!clientId) {
         return reply.send({
-          allowRegister: true,
+          allowRegister: false,
           enabledSocialProviders: globalProviders,
           appName: config.appName,
           logoUrl: config.appLogoUrl ?? null,

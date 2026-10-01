@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import {
@@ -10,7 +9,7 @@ import {
 } from "../db/schema.js";
 import { and, eq, sql } from "drizzle-orm";
 import { ERR } from "../errors.js";
-import { auth } from "../auth.js";
+import { getRequestSession, requireAdmin } from "../middleware.js";
 import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
 
 const CONSUMPTION_KEY_RE = /^[a-zA-Z0-9.]+$/;
@@ -68,9 +67,7 @@ async function requireConsumptionAuth(
     return { kind: "machine", appSlug: verified.clientId };
   }
 
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
+  const session = await getRequestSession(req);
   if (session) {
     const role = (session.user as Record<string, unknown>).role as
       string | undefined;
@@ -108,7 +105,7 @@ export async function consumptionRoutes(
         .where(eq(applications.id, applicationId))
         .limit(1);
       if (!app || app.slug !== caller.appSlug) {
-        throw ERR.AUTH_001("Token is not authorized for this application");
+        throw ERR.AUTH_011("Token is not authorized for this application");
       }
     }
 
@@ -196,7 +193,7 @@ export async function consumptionRoutes(
           .where(eq(applications.id, parsed.data.applicationId))
           .limit(1);
         if (!app || app.slug !== caller.appSlug) {
-          throw ERR.AUTH_001("Token is not authorized for this application");
+          throw ERR.AUTH_011("Token is not authorized for this application");
         }
       }
 
@@ -239,7 +236,7 @@ export async function consumptionRoutes(
         .where(eq(applications.id, parsed.data.applicationId))
         .limit(1);
       if (!app || app.slug !== caller.appSlug) {
-        throw ERR.AUTH_001("Token is not authorized for this application");
+        throw ERR.AUTH_011("Token is not authorized for this application");
       }
     }
 
@@ -269,22 +266,7 @@ export async function consumptionRoutes(
   }>(
     "/:userId/:applicationId/:key",
     {
-      preHandler: async (req, reply) => {
-        const session = await auth.api.getSession({
-          headers: fromNodeHeaders(req.headers),
-        });
-        if (!session) {
-          await reply.status(401).send(ERR.AUTH_001().toJSON());
-          return;
-        }
-        const role = (session.user as Record<string, unknown>).role as
-          string | undefined;
-        if (role !== "admin" && role !== "superadmin") {
-          await reply
-            .status(403)
-            .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-        }
-      },
+      preHandler: requireAdmin,
     },
     async (req, reply) => {
       const parsed = userAppKeyParamsSchema.safeParse(req.params);

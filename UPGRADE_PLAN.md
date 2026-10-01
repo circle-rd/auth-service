@@ -18,8 +18,8 @@
 | 0 | Guardrails: lint/format/coverage/CI, repo cleanup | ✅ |
 | 1 | Urgent fixes independent from the upgrade | ✅ (commit `f757af6`) |
 | 2 | BetterAuth upgrade 1.6.23 → 1.7.7 + M2M end-to-end | ✅ |
-| 3 | Design-level security hardening | ⬜ |
-| 4 | Refactoring to AGENTS.md rules | ⬜ |
+| 3 | Design-level hardening | 🟡 (2 items left) |
+| 4 | Refactoring to AGENTS.md rules | 🟡 (core done) |
 | 5 | New BetterAuth features (optional Redis, DPoP, …) | ⬜ |
 
 ## Phase 1 — Urgent fixes (✅ done)
@@ -71,14 +71,51 @@
 - [ ] End-session E2E and back-channel logout (deferred to Phase 5)
 
 ### Deployment note
-Phase 2 is a **breaking release**: recreate the database (`docker compose down -v && docker compose pull && docker compose up -d`), then re-register downstream clients. Existing 1.6 databases are not migrated incrementally — the consolidated baseline is the only path, by design.
+Phase 2 is a **breaking release**: recreate the database (`docker compose down -v && docker compose pull && docker compose up -d`), then re-register downstream clients. The consolidated baseline is regenerated until the first production deploy, so an already-initialised database will fail `runMigrations()` with an actionable error — recreate it. Also set `TRUST_PROXY_HOPS=1` when running behind a reverse proxy (default is now `0`, secure).
+
+### Post-review fixes
+- 2FA guard also covers `/sign-in/social` (idToken branch creates a session).
+- Stripe invoice/delete handlers filter by `(user_id, application_id, plan_id)` so stale old-plan events cannot flip the current subscription; the `user_applications.subscription_plan_id` mirror is cleared when inactive/canceled; `stripe_events` is purged after 30 days; plan→application lookups are cached.
+- `requireAdmin` now emits `AUTH_011` (403) consistently; unused `AUTH_002` removed.
+- Last-superadmin demotion is a single conditional UPDATE (race-safe).
+- Bootstrap rejects the shipped `.env.example` password pattern.
 
 
-## Phase 3 — Design-level hardening (⬜, ~3 days)
-H-03 2FA for passwordless/social sign-in · H-06 `select-org.html` XSS · M-01 CORS credentials scoped to dashboard · M-02 cross-subdomain cookie · M-03 `set-auth-jwt` header + dedicated audience · M-04 token-free request logs · M-05 `allowRegister` default + `disableSignUp` · M-07 `TRUST_PROXY_HOPS` default 0 · M-08 helmet/CSP/HSTS · M-09 Stripe idempotency (`stripe_events`) · L-01 slug validation for template path · L-02/L-03 cross-app bindings, last-superadmin demotion · L-04 weak default admin password refused in production · L-05 Dockerfile `USER node` · L-08 login-history reliability · L-10 pin GitHub Actions by SHA
+## Phase 3 — Design-level hardening (🟡 mostly done)
 
-## Phase 4 — Refactoring to AGENTS.md (⬜, ~4–6 days)
-`src/middleware.ts` (`requireAdmin`/`requireSession`), `src/types.ts`, `src/logger.ts`, `services/` layer (no DB in routes), split `applications.ts`, rename `adminConsumption.ts`, shared Zod schemas (pagination, uuid params, social providers), `ApiError` clean-up (`AUTH_011` 403…) incl. BetterAuth/Zod error mapping, fail-fast fixes, `user_subscriptions` upsert + single source of truth for plans, explicit `.select({…})`/`.returning({…})`, transactions, `config.ts` partial-config checks, missing tests (`user.ts`, `stripe-webhook.ts`, `app-config.ts`, `bootstrap.ts`, `migrate.ts`), SPECS.md error-code sync.
+| ID | Item | Status |
+| -- | ---- | ------ |
+| H-03 | Passwordless/social sign-in blocked for 2FA-enabled accounts (top-level `after` hook, fail-closed; covers `/callback/`, magic-link, email-OTP, one-tap and the social `idToken` branch) | ✅ |
+| H-06 | `select-org.html` XSS (name/slug via `textContent`, JSON via escaped hidden input) | ✅ |
+| M-01 | Credentialed CORS scoped to dashboard origins; app origins only on `/api/auth/*` | ✅ |
+| M-03 | `disableSettingJwtHeader` (no more `set-auth-jwt`) | ✅ |
+| M-04 | Request logs strip query strings (tokens) | ✅ |
+| M-05 | `allowRegister` defaults to `false` (DB + API + pages) | ✅ |
+| M-07 | `TRUST_PROXY_HOPS` defaults to `0` | ✅ |
+| M-08 | `@fastify/helmet` (HSTS, nosniff, frame-ancestors, CSP) | ✅ |
+| M-09 | Stripe webhook idempotency (`stripe_events` claim + release on error) | ✅ |
+| L-01 | Slug validated with `^[a-z0-9-]+$` before template path resolution | ✅ |
+| L-03 | Last superadmin cannot be demoted via PATCH | ✅ |
+| L-04 | Weak/default bootstrap password refused in production | ✅ |
+| L-05 | Dockerfile runs as `USER node` | ✅ |
+| M-02 | Cross-subdomain session cookie — **kept as opt-in** (`SESSION_DOMAIN`); document the trust trade-off | ⬜ |
+| L-08 | Login history: OAuth issuance still has no request IP/UA (plugin callback has no headers) | ⬜ |
+| L-10 | Pin GitHub Actions by commit SHA | ⬜ |
+
+## Phase 4 — Refactoring to AGENTS.md (🟡 partially done)
+
+- [x] `src/middleware.ts` (`requireAdmin`, `requireSession`, `requireFullSession`, `getCallerRole`); 9 duplicated `requireAdmin` copies + 2 session helpers removed
+- [x] `src/logger.ts` (pino); `console.*` removed from bootstrap/index/auth/mail
+- [x] `ApiError`: added `AUTH_011` (403); authorization denials no longer reuse `AUTH_001`
+- [x] Global error handler maps `ZodError` → 400 and BetterAuth `APIError` → its status/body
+- [x] Fail-fast: bootstrap no longer swallows DB errors; `getCallerRole` no longer defaults to `"admin"`
+- [x] `user_subscriptions` upsert on `(user_id, application_id)` (plan changes no longer 500 and loop on Stripe retries); `user_applications.subscription_plan_id` kept as a mirror
+- [ ] `src/types.ts` centralisation (user/app/claims types still file-local)
+- [ ] Split `applications.ts` (<1000 lines; currently ~880) into applications + application-users
+- [ ] Rename `adminConsumption.ts` → kebab-case
+- [ ] Explicit `.select({…})` / `.returning({…})` sweep
+- [ ] Coverage ≥80 % gate on `routes/**` + `services/**`; add missing tests for `user.ts`, `stripe-webhook.ts`, `bootstrap.ts`, `migrate.ts`
+- [ ] `SPECS.md` error-code sync
 
 ## Phase 5 — New features (⬜)
 - **Redis is optional.** Compose recipes get a `redis` service behind a profile; `REDIS_URL` unset → in-memory behaviour unchanged.

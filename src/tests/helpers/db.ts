@@ -24,6 +24,7 @@ export async function cleanDb(): Promise<void> {
       user_subscriptions,
       subscription_plan_prices,
       subscription_plans,
+      stripe_events,
       consumption_aggregates,
       consumption_entries,
       user_applications,

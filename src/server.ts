@@ -11,9 +11,12 @@
  */
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
+import { APIError } from "better-auth";
+import { ZodError } from "zod";
 import {
   oauthProviderOpenIdConfigMetadata,
   oauthProviderAuthServerMetadata,
@@ -94,14 +97,57 @@ export async function buildServer(): Promise<FastifyInstance> {
       transport: config.isDev
         ? { target: "pino-pretty", options: { colorize: true } }
         : undefined,
+      serializers: {
+        // Never log the query string: it can carry password-reset,
+        // email-verification and magic-link tokens.
+        req(req: { method?: string; url?: string }) {
+          return {
+            method: req.method,
+            url: (req.url ?? "").split("?")[0],
+          };
+        },
+      },
     },
   });
 
+  // ── Security headers ────────────────────────────────────────────────────
+  // HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy. CSP keeps
+  // 'unsafe-inline' because the auth pages ship small inline scripts; tighten
+  // once those move to bundled files.
+  await fastify.register(helmet, {
+    contentSecurityPolicy: config.isDev
+      ? false
+      : {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: [
+              "'self'",
+              "'unsafe-inline'",
+              "https://fonts.googleapis.com",
+            ],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            imgSrc: ["'self'", "data:", "https:"],
+            connectSrc: ["'self'", config.betterAuth.url],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            frameAncestors: ["'none'"],
+          },
+        },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  });
+
   // ── CORS ────────────────────────────────────────────────────────────────
+  // Only the dashboard origins (CORS_ORIGINS) get credentialed CORS on the
+  // API. Registered application origins are handled separately for
+  // /api/auth/* in the onRequest hook below, so an application origin can
+  // never read credentialed responses from admin or data routes.
+  const dashboardOrigins = new Set(config.cors.origins);
   await fastify.register(cors, {
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      callback(null, corsOrigins.has(origin));
+      callback(null, dashboardOrigins.has(origin));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -191,7 +237,7 @@ export async function buildServer(): Promise<FastifyInstance> {
         ? rawUrl.split("?").slice(1).join("?")
         : "";
 
-      let allowRegister = true;
+      let allowRegister = false;
       let socialProvidersJson: string;
       if (appSlug) {
         const [appRow] = await db
@@ -202,7 +248,7 @@ export async function buildServer(): Promise<FastifyInstance> {
           .from(applications)
           .where(eq(applications.slug, appSlug))
           .limit(1);
-        allowRegister = appRow?.allowRegister ?? true;
+        allowRegister = appRow?.allowRegister ?? false;
 
         const globalProviders = globallyEnabledProviders();
         const appProviders =
@@ -472,6 +518,35 @@ export async function buildServer(): Promise<FastifyInstance> {
   fastify.setErrorHandler(async (error, _req, reply) => {
     if (error instanceof ApiError) {
       await reply.status(error.statusCode).send(error.toJSON());
+      return;
+    }
+
+    // Zod validation errors from route schemas map to 400 without leaking the
+    // raw stack.
+    if (error instanceof ZodError) {
+      await reply.status(400).send({
+        error: {
+          code: "APP_001",
+          message: "Validation error",
+          details: error.flatten(),
+        },
+      });
+      return;
+    }
+
+    // BetterAuth throws APIError with an HTTP status and a sanitised body.
+    if (error instanceof APIError) {
+      const status =
+        error.statusCode ??
+        (typeof error.status === "number" ? error.status : 500);
+      const body = error.body as
+        { code?: string; message?: string } | undefined;
+      await reply.status(status).send({
+        error: {
+          code: body?.code ?? "AUTH_001",
+          message: body?.message ?? error.message,
+        },
+      });
       return;
     }
 

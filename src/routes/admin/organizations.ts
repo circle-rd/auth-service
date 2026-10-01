@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { ERR } from "../../errors.js";
@@ -10,27 +10,7 @@ import {
   user as userTable,
 } from "../../db/auth-schema.js";
 import { count, ilike, or, eq, desc, asc, and } from "drizzle-orm";
-
-async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    string | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-    return;
-  }
-}
+import { requireAdmin } from "../../middleware.js";
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),

@@ -41,9 +41,11 @@ const envSchema = z.object({
   // Number of trusted reverse-proxy hops in front of the service. Passed to
   // Fastify's `trustProxy` so `req.ip` is derived from the right entry in the
   // `X-Forwarded-For` chain instead of the (spoofable) client-supplied value.
-  // The default of 1 suits a single trusted reverse-proxy hop. Set to 0 only
-  // when the service is exposed directly with no proxy.
-  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(1),
+  // Defaults to 0 (secure): set it explicitly to 1 (or the exact hop count)
+  // when running behind a reverse proxy, otherwise req.ip is the proxy address
+  // and per-IP rate limiting collapses into one bucket. Leaving it at 0 while
+  // a proxy is in front means a forged X-Forwarded-For is ignored.
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),

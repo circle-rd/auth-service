@@ -13,5 +13,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  */
 export async function runMigrations(): Promise<void> {
   const migrationsFolder = join(__dirname, "..", "drizzle");
-  await migrate(db, { migrationsFolder });
+  try {
+    await migrate(db, { migrationsFolder });
+  } catch (err) {
+    // The consolidated baseline is regenerated until the first production
+    // deploy (AGENTS.md §8). An already-initialised database still carries the
+    // previous baseline hash, so Drizzle re-runs the baseline and hits an
+    // "already exists" error. Surface a clear instruction instead of a raw
+    // Postgres error.
+    if (err instanceof Error && /already exists/i.test(err.message)) {
+      throw new Error(
+        "Migrations failed: the database schema already exists but is not " +
+          "recorded as migrated. This release regenerates the schema baseline; " +
+          "recreate the database before starting (docker compose down -v). " +
+          "See UPGRADE_PLAN.md.",
+        { cause: err },
+      );
+    }
+    throw err;
+  }
 }

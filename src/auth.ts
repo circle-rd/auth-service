@@ -18,6 +18,7 @@ import { applications, userApplications } from "./db/schema.js";
 import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { trustedOrigins } from "./runtime-config.js";
+import { logger } from "./logger.js";
 import {
   getUserClaims,
   userHasAppAccessBySlug,
@@ -433,9 +434,10 @@ export const auth = betterAuth({
               userAgent: s.userAgent ?? null,
             });
           } catch (err) {
-            console.warn("[login-history] failed to record dashboard login", {
-              err: String(err),
-            });
+            logger.warn(
+              { err: String(err) },
+              "[login-history] failed to record dashboard login",
+            );
           }
         },
       },
@@ -472,6 +474,36 @@ export const auth = betterAuth({
         });
       }
     }),
+    // The two-factor plugin only challenges the password sign-in flow. Social,
+    // magic-link and email-OTP sign-ins would otherwise create a fully
+    // authenticated session for a 2FA-enabled account, silently bypassing the
+    // second factor. Fail closed: drop the session and require the
+    // password + second-factor flow instead. Passkey is deliberately excluded
+    // (a passkey is already a strong, possession-based factor).
+    after: createAuthMiddleware(async (ctx) => {
+      const passwordlessSignInPaths = [
+        "/callback/",
+        "/magic-link/verify",
+        "/sign-in/email-otp",
+        "/email-otp/verify-email",
+        "/one-tap/callback",
+        // Social sign-in creates a session directly in its `idToken` branch
+        // (native-app flow); include it so that path cannot skip 2FA either.
+        "/sign-in/social",
+      ];
+      if (!passwordlessSignInPaths.some((p) => ctx.path.startsWith(p))) return;
+
+      const newSession = ctx.context.newSession;
+      if (!newSession) return;
+      if (newSession.user.twoFactorEnabled !== true) return;
+
+      await ctx.context.internalAdapter.deleteSession(newSession.session.token);
+      ctx.context.setNewSession(null);
+      throw new APIError("FORBIDDEN", {
+        message:
+          "This account has two-factor authentication enabled. Sign in with your password and a second factor.",
+      });
+    }),
   },
   plugins: [
     // Required for asymmetric JWT signing used by oauthProvider.
@@ -481,6 +513,11 @@ export const auth = betterAuth({
     // BetterAuth computes as `${baseURL}/api/auth`, causing iss/issuer mismatch.
     jwt({
       jwt: { issuer: config.betterAuth.url },
+      // Do not emit a `set-auth-jwt` response header on get-session: that JWT
+      // is signed with the same JWKS keys as OAuth access tokens and can be
+      // mistaken for one by downstream resource servers. Bearer tokens must
+      // come from the token endpoint.
+      disableSettingJwtHeader: true,
       // Rotate signing keys monthly; keep the previous key for a month so
       // access tokens issued just before rotation still verify.
       jwks: {
@@ -728,11 +765,10 @@ export const auth = betterAuth({
             try {
               await recordLogin({ userId: user.id, applicationId: appRow.id });
             } catch (err) {
-              console.warn("[login-history] failed to record login", {
-                userId: user.id,
-                clientId,
-                err: String(err),
-              });
+              logger.warn(
+                { userId: user.id, clientId, err: String(err) },
+                "[login-history] failed to record login",
+              );
             }
           }
         }

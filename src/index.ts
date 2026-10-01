@@ -16,6 +16,7 @@ import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
 import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
+import { logger } from "./logger.js";
 
 async function start(): Promise<void> {
   // Run migrations automatically in production; in dev use `pnpm db:push`
@@ -69,7 +70,6 @@ async function start(): Promise<void> {
 }
 
 start().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error(err);
+  logger.error({ err }, "Failed to start auth-service");
   process.exit(1);
 });

@@ -847,7 +847,6 @@ Format: `{DOMAIN}_{3-digit number}`
 | Code     | HTTP | Description                             |
 | -------- | ---- | --------------------------------------- |
 | AUTH_001 | 401  | Missing or invalid authentication token |
-| AUTH_002 | 401  | Token expired                           |
 | AUTH_003 | 401  | Invalid credentials (email/password)    |
 | AUTH_004 | 401  | MFA required                            |
 | AUTH_005 | 401  | Invalid MFA code                        |

@@ -1,4 +1,5 @@
 import type { MailMessage, MailTransport } from "./types.js";
+import { logger } from "../../logger.js";
 
 /**
  * No-op transport used in development when no SMTP is configured. Logs a
@@ -12,7 +13,7 @@ export class NoopMailTransport implements MailTransport {
   readonly name = "noop";
 
   async send(msg: MailMessage): Promise<void> {
-    console.warn(
+    logger.warn(
       `[mail:noop] SMTP not configured — dropping email to ${msg.to} ("${msg.subject}")`,
     );
   }

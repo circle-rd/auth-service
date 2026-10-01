@@ -1,5 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { fromNodeHeaders } from "better-auth/node";
+import type { FastifyInstance } from "fastify";
 import { generateId } from "better-auth";
 import { z } from "zod";
 import { db } from "../../db/index.js";
@@ -21,7 +20,6 @@ import {
 import { oauthClient, user as userTable } from "../../db/auth-schema.js";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
-import { auth } from "../../auth.js";
 import { randomBytes, createHash } from "node:crypto";
 import { addCorsOrigin, removeCorsOrigin } from "../../runtime-config.js";
 import {
@@ -32,6 +30,7 @@ import {
   revokeUserClientTokens,
   revokeClientTokens,
 } from "../../services/oauth-tokens.js";
+import { requireAdmin } from "../../middleware.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -158,27 +157,6 @@ const metadataSchema = z
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 
-async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    string | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-    return;
-  }
-}
-
 /**
  * Ensure a role belongs to the given application before it is assigned to a
  * user. Without this check an admin could attach a `roleId` from a different
@@ -216,7 +194,7 @@ const createAppSchema = z.object({
   isPublic: z.boolean().default(false),
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
-  allowRegister: z.boolean().default(true),
+  allowRegister: z.boolean().default(false),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client is allowed to call

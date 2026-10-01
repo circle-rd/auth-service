@@ -7,8 +7,10 @@ import {
   userSubscriptions,
   subscriptionPlanPrices,
   subscriptionPlans,
+  stripeEvents,
+  userApplications,
 } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
 /**
  * Maps a Stripe subscription status to our internal isActive flag.
@@ -98,6 +100,30 @@ function priceIdFromLineItem(lineItem: Stripe.InvoiceLineItem): string | null {
   return price.id ?? null;
 }
 
+/** Resolve the application a plan belongs to (null if unknown). */
+const planApplicationCache = new Map<
+  string,
+  { applicationId: string | null; expiresAt: number }
+>();
+const PLAN_APP_CACHE_TTL_MS = 5 * 60_000;
+
+async function applicationIdFromPlanId(planId: string): Promise<string | null> {
+  const cached = planApplicationCache.get(planId);
+  if (cached && cached.expiresAt > Date.now()) return cached.applicationId;
+
+  const [plan] = await db
+    .select({ applicationId: subscriptionPlans.applicationId })
+    .from(subscriptionPlans)
+    .where(eq(subscriptionPlans.id, planId))
+    .limit(1);
+  const applicationId = plan?.applicationId ?? null;
+  planApplicationCache.set(planId, {
+    applicationId,
+    expiresAt: Date.now() + PLAN_APP_CACHE_TTL_MS,
+  });
+  return applicationId;
+}
+
 /**
  * Handle customer.subscription.created / customer.subscription.updated
  */
@@ -133,45 +159,49 @@ async function handleSubscriptionUpsert(
     return;
   }
 
-  // Upsert: update existing subscription for this user+plan, or insert
-  const [existing] = await db
-    .select({ id: userSubscriptions.id })
-    .from(userSubscriptions)
-    .where(
-      and(
-        eq(userSubscriptions.userId, userId),
-        eq(userSubscriptions.planId, planId),
-      ),
-    )
-    .limit(1);
+  const applicationId = await applicationIdFromPlanId(planId);
+  if (!applicationId) {
+    fastify.log.warn(
+      { subscriptionId: subscription.id, planId },
+      "stripe-webhook: plan has no application — skipping",
+    );
+    return;
+  }
 
-  if (existing) {
-    await db
-      .update(userSubscriptions)
-      .set({
-        isActive,
-        expiresAt: currentPeriodEnd,
-        updatedAt: new Date(),
-      })
-      .where(eq(userSubscriptions.id, existing.id));
-  } else {
-    // Find applicationId from the plan
-    const [plan] = await db
-      .select({ applicationId: subscriptionPlans.applicationId })
-      .from(subscriptionPlans)
-      .where(eq(subscriptionPlans.id, planId))
-      .limit(1);
-
-    if (!plan) return;
-
-    await db.insert(userSubscriptions).values({
+  // A user has at most one subscription per application (unique index on
+  // user_id + application_id). Upsert on that pair so a plan change updates the
+  // existing row instead of violating the constraint.
+  await db
+    .insert(userSubscriptions)
+    .values({
       userId,
-      applicationId: plan.applicationId,
+      applicationId,
       planId,
       isActive,
       expiresAt: currentPeriodEnd,
+    })
+    .onConflictDoUpdate({
+      target: [userSubscriptions.userId, userSubscriptions.applicationId],
+      set: {
+        planId,
+        isActive,
+        expiresAt: currentPeriodEnd,
+        updatedAt: new Date(),
+      },
     });
-  }
+
+  // Mirror the plan onto the user's access row, which the admin UI reads.
+  // Clear it when the subscription is not active so a canceled/past-due
+  // subscription is not displayed as a live plan.
+  await db
+    .update(userApplications)
+    .set({ subscriptionPlanId: isActive ? planId : null })
+    .where(
+      and(
+        eq(userApplications.userId, userId),
+        eq(userApplications.applicationId, applicationId),
+      ),
+    );
 }
 
 /**
@@ -199,13 +229,29 @@ async function handleSubscriptionDeleted(
     return;
   }
 
+  const applicationId = await applicationIdFromPlanId(planId);
+  if (!applicationId) return;
+
   await db
     .update(userSubscriptions)
     .set({ isActive: false, updatedAt: new Date() })
     .where(
       and(
         eq(userSubscriptions.userId, userId),
+        eq(userSubscriptions.applicationId, applicationId),
+        // Ignore a deletion event for a plan the user has already left.
         eq(userSubscriptions.planId, planId),
+      ),
+    );
+
+  // The plan is no longer active: clear the admin-UI mirror.
+  await db
+    .update(userApplications)
+    .set({ subscriptionPlanId: null })
+    .where(
+      and(
+        eq(userApplications.userId, userId),
+        eq(userApplications.applicationId, applicationId),
       ),
     );
 }
@@ -246,12 +292,17 @@ async function handleInvoicePaymentSucceeded(
   const expiresAt =
     typeof periodEnd === "number" ? new Date(periodEnd * 1000) : null;
 
+  const applicationId = await applicationIdFromPlanId(planId);
+  if (!applicationId) return;
+
   await db
     .update(userSubscriptions)
     .set({ isActive: true, expiresAt, updatedAt: new Date() })
     .where(
       and(
         eq(userSubscriptions.userId, userId),
+        eq(userSubscriptions.applicationId, applicationId),
+        // Only reactivate the plan this invoice belongs to.
         eq(userSubscriptions.planId, planId),
       ),
     );
@@ -288,12 +339,17 @@ async function handleInvoicePaymentFailed(
     return;
   }
 
+  const applicationId = await applicationIdFromPlanId(planId);
+  if (!applicationId) return;
+
   await db
     .update(userSubscriptions)
     .set({ isActive: false, updatedAt: new Date() })
     .where(
       and(
         eq(userSubscriptions.userId, userId),
+        eq(userSubscriptions.applicationId, applicationId),
+        // Only deactivate the plan this failed invoice belongs to.
         eq(userSubscriptions.planId, planId),
       ),
     );
@@ -311,6 +367,28 @@ export async function stripeWebhookRoutes(
       done(null, body);
     },
   );
+
+  // Purge idempotency rows older than Stripe's retry window so the ledger
+  // stays bounded. Runs periodically; unref'd so it never keeps the process
+  // alive, and cleared on shutdown.
+  const purgeInterval = setInterval(
+    () => {
+      void db
+        .delete(stripeEvents)
+        .where(sql`${stripeEvents.processedAt} < now() - interval '30 days'`)
+        .catch((err: unknown) => {
+          fastify.log.warn(
+            { err },
+            "stripe-webhook: failed to purge stripe_events",
+          );
+        });
+    },
+    6 * 60 * 60 * 1000,
+  );
+  purgeInterval.unref?.();
+  fastify.addHook("onClose", async () => {
+    clearInterval(purgeInterval);
+  });
 
   // POST /api/webhooks/stripe
   fastify.post("/", async (req, reply) => {
@@ -350,6 +428,22 @@ export async function stripeWebhookRoutes(
     }
 
     fastify.log.info({ type: event.type }, "stripe-webhook: received event");
+
+    // Idempotency: claim the event id before handling. A duplicate delivery
+    // (Stripe retries at-least-once) finds the row already present and is
+    // acknowledged without re-applying state.
+    const claimed = await db
+      .insert(stripeEvents)
+      .values({ id: event.id, type: event.type })
+      .onConflictDoNothing()
+      .returning({ id: stripeEvents.id });
+    if (claimed.length === 0) {
+      fastify.log.info(
+        { eventId: event.id },
+        "stripe-webhook: duplicate event ignored",
+      );
+      return reply.send({ received: true });
+    }
 
     try {
       switch (event.type) {
@@ -393,6 +487,8 @@ export async function stripeWebhookRoutes(
         { err, type: event.type },
         "stripe-webhook: handler error",
       );
+      // Release the idempotency claim so Stripe's retry is processed.
+      await db.delete(stripeEvents).where(eq(stripeEvents.id, event.id));
       return reply.status(500).send({
         error: { code: "SRV_001", message: "Internal server error" },
       });

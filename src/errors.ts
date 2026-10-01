@@ -30,7 +30,6 @@ export class ApiError extends Error {
 export const ERR = {
   AUTH_001: (msg = "Missing or invalid authentication token") =>
     new ApiError(401, "AUTH_001", msg),
-  AUTH_002: (msg = "Token expired") => new ApiError(401, "AUTH_002", msg),
   AUTH_003: (msg = "Invalid credentials") => new ApiError(401, "AUTH_003", msg),
   AUTH_004: (msg = "MFA required") => new ApiError(401, "AUTH_004", msg),
   AUTH_005: (msg = "Invalid MFA code") => new ApiError(401, "AUTH_005", msg),
@@ -42,6 +41,8 @@ export const ERR = {
   AUTH_009: (msg = "Password too weak") => new ApiError(400, "AUTH_009", msg),
   AUTH_010: (msg = "Email already registered") =>
     new ApiError(409, "AUTH_010", msg),
+  AUTH_011: (msg = "Insufficient permissions") =>
+    new ApiError(403, "AUTH_011", msg),
 
   // ── APP ───────────────────────────────────────────────────────────────────
   APP_001: (msg = "Invalid application data", details?: unknown) =>

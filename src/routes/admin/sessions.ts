@@ -1,5 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import { fromNodeHeaders } from "better-auth/node";
+import type { FastifyInstance } from "fastify";
 import { db } from "../../db/index.js";
 import {
   session as sessionTable,
@@ -18,29 +17,7 @@ import {
   or,
   type SQL,
 } from "drizzle-orm";
-import { ERR } from "../../errors.js";
-import { auth } from "../../auth.js";
-
-async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(req.headers),
-  });
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    string | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_001("Insufficient permissions").toJSON());
-    return;
-  }
-}
+import { requireAdmin } from "../../middleware.js";
 
 export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);

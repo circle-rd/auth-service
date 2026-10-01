@@ -15,6 +15,7 @@ import {
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 import { cleanDb } from "./helpers/db.js";
+import { extractUrl, toPath } from "./helpers/email-capture.js";
 
 let handle: AuthServerHandle;
 
@@ -141,6 +142,45 @@ describe("security hardening – self-service fields", () => {
       .where(eq(userTable.email, "user@example.com"))
       .limit(1);
     expect(row?.isMfaRequired).toBe(false);
+  });
+});
+
+describe("security hardening – passwordless 2FA bypass", () => {
+  it("blocks magic-link sign-in for a 2FA-enabled account", async () => {
+    // Insert directly to avoid extra sign-in requests hitting the auth rate
+    // limit for this file.
+    await db.insert(userTable).values({
+      id: "mfa-1",
+      name: "MFA",
+      email: "mfa@example.com",
+      emailVerified: true,
+      role: "user",
+      twoFactorEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    handle.capture.clear();
+
+    const req = await handle.app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/magic-link",
+      payload: { email: "mfa@example.com", callbackURL: "/" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(req.statusCode).toBe(200);
+
+    const msg = handle.capture.last("mfa@example.com");
+    expect(msg).toBeDefined();
+    const link = extractUrl(msg!.html, (u) =>
+      u.includes("/api/auth/magic-link/verify"),
+    );
+    const followed = await handle.app.inject({
+      method: "GET",
+      url: toPath(link),
+    });
+    // The session created by the magic-link verify is dropped and the request
+    // rejected because the account requires a second factor.
+    expect(followed.statusCode).toBe(403);
   });
 });
 

@@ -48,4 +48,7 @@ EXPOSE 3001
 
 ENV NODE_ENV=production
 
+# Drop privileges: the runtime only needs to read code/config and open sockets.
+USER node
+
 CMD ["node", "dist/index.js"]

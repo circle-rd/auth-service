@@ -14,14 +14,16 @@ Detailed tracking: [`UPGRADE_PLAN.md`](UPGRADE_PLAN.md).
 | 0 | Lint / format / coverage / CI guardrails | ✅ |
 | 1 | Urgent security fixes (fail-closed OAuth guard, admin hierarchy, env booleans, token revocation, M2M verification) | ✅ |
 | 2 | BetterAuth 1.6.23 → 1.7.7 (schema, protected resources, M2M E2E) | ✅ |
-| 3 | Design-level hardening | ⬜ |
-| 4 | Refactoring to `AGENTS.md` rules | ⬜ |
+| 3 | Design-level hardening | 🟡 |
+| 4 | Refactoring to `AGENTS.md` rules | 🟡 |
 | 5 | New features (optional Redis, DPoP, back-channel logout…) | ⬜ |
 
 ---
 
 ## Recently Shipped
 
+- Hardening (Phase 3): 2FA enforced for passwordless/social sign-in, `select-org` XSS fixed, credentialed CORS scoped to the dashboard, request logs token-free, `allowRegister`/`TRUST_PROXY_HOPS` secure defaults, helmet headers, Stripe webhook idempotency, last-superadmin protection, non-root container.
+- Refactor (Phase 4): shared `middleware.ts` and `logger.ts`, `AUTH_011` 403 + Zod/BetterAuth error mapping, fail-fast bootstrap, `user_subscriptions` upsert fix.
 - Guardrails (Phase 0): ESLint + Prettier + husky/lint-staged, coverage tooling, CI on PR, integration tests on PostgreSQL 17, tracked build artefacts removed.
 - BetterAuth 1.6.23 → 1.7.7 (Phase 2): regenerated single baseline schema, protected resources (`oauth_resource`/`oauth_client_resource`) replacing `validAudiences`, client metadata (`application_type`, `token_endpoint_auth_method`, `grant_types`, PKCE), native `revokeSession`, local-JWKS M2M verification with an end-to-end test, JWKS rotation.
 - Security hardening (Phase 1): OAuth client management restricted to admins, access guard fail-closed, native admin endpoints hierarchy-checked, strict boolean env parsing, provider secrets no longer exposed, OAuth tokens revoked on ban / access revocation / secret rotation, verified Bearer auth on `/api/consumption`.

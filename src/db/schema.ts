@@ -22,7 +22,9 @@ export const applications = pgTable(
     isActive: boolean("is_active").notNull().default(true),
     skipConsent: boolean("skip_consent").notNull().default(false),
     isMfaRequired: boolean("is_mfa_required").notNull().default(false),
-    allowRegister: boolean("allow_register").notNull().default(true),
+    // Self-registration is opt-in per application: default false so a
+    // misconfigured app cannot silently open public sign-up.
+    allowRegister: boolean("allow_register").notNull().default(false),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()
@@ -281,3 +283,15 @@ export const loginHistory = pgTable(
     index("login_history_app_logged_idx").on(t.applicationId, t.loggedAt),
   ],
 );
+
+// ── Stripe Events ─────────────────────────────────────────────────────────────
+// Idempotency ledger keyed by the Stripe event id. A webhook event is recorded
+// before it is handled; Stripe's at-least-once retries are then deduplicated
+// instead of double-applying subscription state.
+export const stripeEvents = pgTable("stripe_events", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});

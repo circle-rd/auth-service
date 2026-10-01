@@ -241,7 +241,8 @@ Adding a new code:
    `USR_`, `ORG_`, `MAIL_`, `RATE_`, `SRV_`).
 2. Take the next sequential number in that domain.
 3. Add the entry in `src/errors.ts` following the existing pattern.
-4. Document it in `SPECS.md`.
+4. Document it in the specifications
+   (`docs-site/content/docs/project/2.specifications.md`, error-code registry).
 
 **Never** create ad-hoc `Error` objects or call
 `reply.status(xxx).send({ error: "…" })` directly in routes. Always go
@@ -327,26 +328,13 @@ environment.** Add a new migration instead.
 > deployed database from scratch. **After the first production deploy this
 > is forbidden** — migrations become immutable history.
 
-### Migration runner and history reconciliation
+### Migration runner
 
-`src/migrate.ts` runs before the Fastify server boots and reconciles the
-`drizzle.__drizzle_migrations` history table with the on-disk journal. Two
-legacy states are handled automatically:
-
-1. **Pre-consolidation history** — the table contains hashes that no longer
-   exist on disk. The runner resets to the consolidated baseline, then
-   `migrate()` applies the remaining deltas.
-2. **Out-of-band DDL** — a column or table created by `db:push` or a manual
-   `ALTER`. Each post-baseline migration that may have leaked into a
-   deployed environment registers a *probe* in `POST_BASELINE_PROBES` (a
-   SQL query returning a row iff the migration is effectively applied).
-   Probe-positive migrations are marked as applied so `migrate()` skips
-   them.
-
-**Whenever you ship a migration that may already exist out-of-band in any
-deployed environment, add a probe entry in `POST_BASELINE_PROBES`.** Probes
-should be cheap (`information_schema` lookups) and unambiguous — prefer
-detecting a column the migration introduces over checking an enum value.
+`src/migrate.ts` runs before the Fastify server boots and applies pending
+migrations with Drizzle's `migrate()`. While the consolidated baseline is
+regenerated (pre-production exception above), any database initialised with
+an older baseline is rejected with an actionable error instead of being
+reconciled — recreate it (`docker compose down -v`).
 
 ### Query style
 

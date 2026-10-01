@@ -26,7 +26,7 @@ export async function runMigrations(): Promise<void> {
         "Migrations failed: the database schema already exists but is not " +
           "recorded as migrated. This release regenerates the schema baseline; " +
           "recreate the database before starting (docker compose down -v). " +
-          "See UPGRADE_PLAN.md.",
+          "See the deployment notes in the project roadmap (docs).",
         { cause: err },
       );
     }

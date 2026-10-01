@@ -1,12 +1,30 @@
 # Auth Service — Roadmap & Gap Analysis
 
-> Generated: 2026-03-28 — Mise à jour: 2026-04-15  
+> Generated: 2026-03-28 — Mise à jour: 2026-10-01  
 > Based on: full codebase audit vs [`SPECS.md`](SPECS.md)
+
+---
+
+## Programme — Security hardening & BetterAuth 1.7 upgrade
+
+Detailed tracking: [`UPGRADE_PLAN.md`](UPGRADE_PLAN.md).
+
+| Phase | Scope | Status |
+| ----- | ----- | ------ |
+| 0 | Lint / format / coverage / CI guardrails | ✅ |
+| 1 | Urgent security fixes (fail-closed OAuth guard, admin hierarchy, env booleans, token revocation, M2M verification) | ✅ |
+| 2 | BetterAuth 1.6.23 → 1.7.7 (schema, protected resources, M2M E2E) | ✅ |
+| 3 | Design-level hardening | ⬜ |
+| 4 | Refactoring to `AGENTS.md` rules | ⬜ |
+| 5 | New features (optional Redis, DPoP, back-channel logout…) | ⬜ |
 
 ---
 
 ## Recently Shipped
 
+- Guardrails (Phase 0): ESLint + Prettier + husky/lint-staged, coverage tooling, CI on PR, integration tests on PostgreSQL 17, tracked build artefacts removed.
+- BetterAuth 1.6.23 → 1.7.7 (Phase 2): regenerated single baseline schema, protected resources (`oauth_resource`/`oauth_client_resource`) replacing `validAudiences`, client metadata (`application_type`, `token_endpoint_auth_method`, `grant_types`, PKCE), native `revokeSession`, local-JWKS M2M verification with an end-to-end test, JWKS rotation.
+- Security hardening (Phase 1): OAuth client management restricted to admins, access guard fail-closed, native admin endpoints hierarchy-checked, strict boolean env parsing, provider secrets no longer exposed, OAuth tokens revoked on ban / access revocation / secret rotation, verified Bearer auth on `/api/consumption`.
 - `PATCH /api/admin/organizations/:id` — partial org update (name/slug/logo/metadata) with slug-conflict detection (`ORG_003`).
 - Consumption path-parameter validation — `GET`/`DELETE` endpoints reject non-UUID ids with `CONS_005` (400) instead of 500.
 - Per-application social-provider gate — `applications.enabledSocialProviders` is honored at OAuth token-issuance time; non-allowed providers receive `APP_006` (403).

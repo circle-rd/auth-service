@@ -1,6 +1,14 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { twoFactor, admin, jwt, role, organization, magicLink, emailOTP } from "better-auth/plugins";
+import {
+  twoFactor,
+  admin,
+  jwt,
+  role,
+  organization,
+  magicLink,
+  emailOTP,
+} from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
@@ -9,7 +17,7 @@ import * as authSchema from "./db/auth-schema.js";
 import { applications, userApplications } from "./db/schema.js";
 import { and, eq } from "drizzle-orm";
 import { config } from "./config.js";
-import { trustedOrigins, validAudiences } from "./runtime-config.js";
+import { trustedOrigins } from "./runtime-config.js";
 import {
   getUserClaims,
   userHasAppAccessBySlug,
@@ -89,9 +97,22 @@ async function resolveAdminTargetUserId(
  * we never let user-provided values shadow OAuth-managed claims.
  */
 const RESERVED_JWT_CLAIMS = new Set([
-  "sub", "aud", "iss", "exp", "iat", "nbf", "jti",
-  "scope", "scopes", "azp", "client_id", "token_type",
-  "auth_time", "acr", "amr", "client_attrs",
+  "sub",
+  "aud",
+  "iss",
+  "exp",
+  "iat",
+  "nbf",
+  "jti",
+  "scope",
+  "scopes",
+  "azp",
+  "client_id",
+  "token_type",
+  "auth_time",
+  "acr",
+  "amr",
+  "client_attrs",
 ]);
 
 /**
@@ -286,14 +307,6 @@ export const auth = betterAuth({
   // Used as the default TOTP issuer (shown in authenticator apps) and as a
   // display name in other BetterAuth contexts.
   appName: config.appName,
-  // Silence startup self-check warnings for well-known OIDC discovery endpoints.
-  // Both /.well-known/openid-configuration and /.well-known/oauth-authorization-server
-  // are served correctly via /api/auth/.well-known/* — BetterAuth's HTTP check fires
-  // before the server is listening, producing false-positive warnings.
-  silenceWarnings: {
-    oauthAuthServerConfig: true,
-    openidConfig: true,
-  },
   // Live mutable list — seeded from env + DB app URLs at startup,
   // updated on application create/update/delete without restart.
   trustedOrigins: trustedOrigins,
@@ -420,10 +433,9 @@ export const auth = betterAuth({
               userAgent: s.userAgent ?? null,
             });
           } catch (err) {
-            console.warn(
-              "[login-history] failed to record dashboard login",
-              { err: String(err) },
-            );
+            console.warn("[login-history] failed to record dashboard login", {
+              err: String(err),
+            });
           }
         },
       },
@@ -436,10 +448,7 @@ export const auth = betterAuth({
   // any admin action whose target outranks (or equals) the caller.
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
-      const targetUserId = await resolveAdminTargetUserId(
-        ctx.path,
-        ctx.body,
-      );
+      const targetUserId = await resolveAdminTargetUserId(ctx.path, ctx.body);
       if (!targetUserId) return;
 
       if (!ctx.headers) return;
@@ -448,8 +457,8 @@ export const auth = betterAuth({
       if (!session) return;
 
       const callerRole =
-        ((session.user as Record<string, unknown>).role as string | undefined) ??
-        "user";
+        ((session.user as Record<string, unknown>).role as
+          string | undefined) ?? "user";
       const [target] = await db
         .select({ role: authSchema.user.role })
         .from(authSchema.user)
@@ -470,14 +479,23 @@ export const auth = betterAuth({
     // createIdToken use the same value (config.betterAuth.url without '/api/auth').
     // Without this, createIdToken falls back to ctx.context.baseURL which
     // BetterAuth computes as `${baseURL}/api/auth`, causing iss/issuer mismatch.
-    jwt({ jwt: { issuer: config.betterAuth.url } }),
+    jwt({
+      jwt: { issuer: config.betterAuth.url },
+      // Rotate signing keys monthly; keep the previous key for a month so
+      // access tokens issued just before rotation still verify.
+      jwks: {
+        rotationInterval: 60 * 60 * 24 * 30,
+        gracePeriod: 60 * 60 * 24 * 30,
+      },
+    }),
     twoFactor({ issuer: config.appName }),
     passkey(),
     // Organization support — only admins/superadmins can create orgs via admin API.
     // Regular users can be members of orgs but cannot create them.
     organization({
       allowUserToCreateOrganization: async (user) => {
-        const role = (user as Record<string, unknown>).role as string | undefined;
+        const role = (user as Record<string, unknown>).role as
+          string | undefined;
         return role === "admin" || role === "superadmin";
       },
       // Email an invited user the accept-invitation link. Falls back
@@ -509,7 +527,15 @@ export const auth = betterAuth({
         // or change passwords via the native BetterAuth admin API. Those operations
         // go through our custom routes which enforce the role hierarchy.
         admin: role({
-          user: ["create", "list", "ban", "impersonate", "delete", "get", "update"],
+          user: [
+            "create",
+            "list",
+            "ban",
+            "impersonate",
+            "delete",
+            "get",
+            "update",
+          ],
           session: ["list", "revoke", "delete"],
         }),
         superadmin: role({
@@ -551,7 +577,11 @@ export const auth = betterAuth({
             sendVerificationOTP: async (params: {
               email: string;
               otp: string;
-              type: "sign-in" | "email-verification" | "forget-password" | "change-email";
+              type:
+                | "sign-in"
+                | "email-verification"
+                | "forget-password"
+                | "change-email";
             }) => {
               await sendEmailOtp(params.email, params.otp, params.type);
             },
@@ -569,16 +599,13 @@ export const auth = betterAuth({
       // exclusively through the admin API.
       clientPrivileges: ({ user }) => {
         const role = (user as Record<string, unknown> | undefined)?.role as
-          | string
-          | undefined;
+          string | undefined;
         return role === "admin" || role === "superadmin";
       },
-      // Live mutable list of valid resource server audiences (RFC 8707).
-      // Seeded from OAUTH_VALID_AUDIENCES env + all app.url values at startup.
-      // Updated in-place on application CRUD — no restart needed.
-      // @better-auth/oauth-provider spreads this into a new Set per request,
-      // so mutations are reflected immediately.
-      validAudiences: validAudiences,
+      // Protected OAuth resources (RFC 8707 audiences) live in the
+      // `oauth_resource` table, synced from applications.url by
+      // services/oauth-resources.ts, and linked to their client via
+      // `oauth_client_resource`.
       scopes: [
         "openid",
         "profile",
@@ -611,13 +638,20 @@ export const auth = betterAuth({
         );
         return {
           ...(await getUserClaims(user.id, clientId, scopes, {
-            email: (user as Record<string, unknown>).email as string | null | undefined,
-            emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-            name: (user as Record<string, unknown>).name as string | null | undefined,
-            company: (user as Record<string, unknown>).company as string | null | undefined,
-            image: (user as Record<string, unknown>).image as string | null | undefined,
-            phone: (user as Record<string, unknown>).phone as string | null | undefined,
-            updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+            email: (user as Record<string, unknown>).email as
+              string | null | undefined,
+            emailVerified: (user as Record<string, unknown>).emailVerified as
+              boolean | null | undefined,
+            name: (user as Record<string, unknown>).name as
+              string | null | undefined,
+            company: (user as Record<string, unknown>).company as
+              string | null | undefined,
+            image: (user as Record<string, unknown>).image as
+              string | null | undefined,
+            phone: (user as Record<string, unknown>).phone as
+              string | null | undefined,
+            updatedAt: (user as Record<string, unknown>).updatedAt as
+              Date | null | undefined,
           })),
           // Per-app metadata claims (additive; reserved keys are filtered).
           ...(await getApplicationMetadataClaims(clientId)),
@@ -629,7 +663,12 @@ export const auth = betterAuth({
       // `resource` is the RFC 8707 audience URL (e.g. "https://api.lagarde.dev").
       // `referenceId` is the org ID stored at consent time via postLogin flow.
       // `metadata.clientId` holds the OAuth client slug (application slug).
-      customAccessTokenClaims: async ({ user, scopes, metadata, referenceId }) => {
+      customAccessTokenClaims: async ({
+        user,
+        scopes,
+        metadata,
+        referenceId,
+      }) => {
         const clientId = (metadata as Record<string, unknown> | undefined)
           ?.clientId as string | undefined;
         // Per-app metadata is injected for BOTH user-bound and
@@ -654,13 +693,20 @@ export const auth = betterAuth({
           clientId,
         );
         const claims = await getUserClaims(user.id, clientId, scopes, {
-          email: (user as Record<string, unknown>).email as string | null | undefined,
-          emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-          name: (user as Record<string, unknown>).name as string | null | undefined,
-          company: (user as Record<string, unknown>).company as string | null | undefined,
-          image: (user as Record<string, unknown>).image as string | null | undefined,
-          phone: (user as Record<string, unknown>).phone as string | null | undefined,
-          updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+          email: (user as Record<string, unknown>).email as
+            string | null | undefined,
+          emailVerified: (user as Record<string, unknown>).emailVerified as
+            boolean | null | undefined,
+          name: (user as Record<string, unknown>).name as
+            string | null | undefined,
+          company: (user as Record<string, unknown>).company as
+            string | null | undefined,
+          image: (user as Record<string, unknown>).image as
+            string | null | undefined,
+          phone: (user as Record<string, unknown>).phone as
+            string | null | undefined,
+          updatedAt: (user as Record<string, unknown>).updatedAt as
+            Date | null | undefined,
         });
         // Inject org_id when the client requested the "org" scope and a
         // reference (activeOrganizationId) was captured during the postLogin flow.
@@ -682,10 +728,11 @@ export const auth = betterAuth({
             try {
               await recordLogin({ userId: user.id, applicationId: appRow.id });
             } catch (err) {
-              console.warn(
-                "[login-history] failed to record login",
-                { userId: user.id, clientId, err: String(err) },
-              );
+              console.warn("[login-history] failed to record login", {
+                userId: user.id,
+                clientId,
+                err: String(err),
+              });
             }
           }
         }
@@ -695,17 +742,23 @@ export const auth = betterAuth({
       // clientId is read from the access token's azp (authorized party) claim.
       customUserInfoClaims: async ({ user, scopes, jwt }) => {
         const clientId = (jwt as Record<string, unknown>)?.azp as
-          | string
-          | undefined;
+          string | undefined;
         return {
           ...(await getUserClaims(user.id, clientId, scopes, {
-            email: (user as Record<string, unknown>).email as string | null | undefined,
-            emailVerified: (user as Record<string, unknown>).emailVerified as boolean | null | undefined,
-            name: (user as Record<string, unknown>).name as string | null | undefined,
-            company: (user as Record<string, unknown>).company as string | null | undefined,
-            image: (user as Record<string, unknown>).image as string | null | undefined,
-            phone: (user as Record<string, unknown>).phone as string | null | undefined,
-            updatedAt: (user as Record<string, unknown>).updatedAt as Date | null | undefined,
+            email: (user as Record<string, unknown>).email as
+              string | null | undefined,
+            emailVerified: (user as Record<string, unknown>).emailVerified as
+              boolean | null | undefined,
+            name: (user as Record<string, unknown>).name as
+              string | null | undefined,
+            company: (user as Record<string, unknown>).company as
+              string | null | undefined,
+            image: (user as Record<string, unknown>).image as
+              string | null | undefined,
+            phone: (user as Record<string, unknown>).phone as
+              string | null | undefined,
+            updatedAt: (user as Record<string, unknown>).updatedAt as
+              Date | null | undefined,
           })),
           ...(await getApplicationMetadataClaims(clientId)),
         };
@@ -723,7 +776,8 @@ export const auth = betterAuth({
           if (orgs.length === 0) return false;
           if (
             orgs.length === 1 &&
-            orgs[0]?.id === (session as Record<string, unknown>)?.activeOrganizationId
+            orgs[0]?.id ===
+              (session as Record<string, unknown>)?.activeOrganizationId
           ) {
             return false;
           }

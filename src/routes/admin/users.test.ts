@@ -6,7 +6,7 @@ import { usersRoutes } from "./users.js";
 
 vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
 
-const { mockDb, mockGetSession, makeChain } = vi.hoisted(() => {
+const { mockDb, mockGetSession } = vi.hoisted(() => {
   function makeChain(result: unknown[] = []): Record<string, unknown> {
     const p = Promise.resolve(result);
     const c: Record<string, unknown> = {
@@ -34,7 +34,7 @@ const { mockDb, mockGetSession, makeChain } = vi.hoisted(() => {
     delete: vi.fn(() => makeChain()),
   };
   const mockGetSession = vi.fn();
-  return { mockDb, mockGetSession, makeChain };
+  return { mockDb, mockGetSession };
 });
 
 vi.mock("../../db/index.js", () => ({ db: mockDb }));

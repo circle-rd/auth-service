@@ -1,9 +1,23 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { db } from "../../db/index.js";
-import { session as sessionTable, user as userTable } from "../../db/auth-schema.js";
+import {
+  session as sessionTable,
+  user as userTable,
+} from "../../db/auth-schema.js";
 import { applications, loginHistory } from "../../db/schema.js";
-import { and, count, desc, eq, gt, gte, ilike, inArray, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  ilike,
+  inArray,
+  or,
+  type SQL,
+} from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 
@@ -19,8 +33,7 @@ async function requireAdmin(
     return;
   }
   const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
+    string | undefined;
   if (role !== "admin" && role !== "superadmin") {
     await reply
       .status(403)
@@ -57,7 +70,8 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
       );
       if (orExpr) conditions.push(orExpr);
     }
-    const whereExpr = conditions.length === 1 ? conditions[0] : and(...conditions);
+    const whereExpr =
+      conditions.length === 1 ? conditions[0] : and(...conditions);
 
     const [{ total }] = await db
       .select({ total: count() })
@@ -105,7 +119,10 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
           icon: applications.icon,
         })
         .from(loginHistory)
-        .innerJoin(applications, eq(loginHistory.applicationId, applications.id))
+        .innerJoin(
+          applications,
+          eq(loginHistory.applicationId, applications.id),
+        )
         .where(
           and(
             inArray(loginHistory.userId, userIds),

@@ -27,11 +27,7 @@ const BUILTIN_TEMPLATES_DIR = join(
 );
 
 type PageName =
-  | "login"
-  | "register"
-  | "verify-email"
-  | "select-org"
-  | "two-factor";
+  "login" | "register" | "verify-email" | "select-org" | "two-factor";
 
 export interface TemplateVars {
   actionUrl: string;

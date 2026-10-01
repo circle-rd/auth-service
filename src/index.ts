@@ -10,7 +10,7 @@
 import { config } from "./config.js";
 import { bootstrap } from "./bootstrap.js";
 import { runMigrations } from "./migrate.js";
-import { addAudience, addCorsOrigin } from "./runtime-config.js";
+import { addCorsOrigin } from "./runtime-config.js";
 import { getMailTransport } from "./services/mail/index.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
@@ -54,7 +54,6 @@ async function start(): Promise<void> {
 
   // ── Seed runtime-config from env vars (static seed) ─────────────────────
   for (const o of config.cors.origins) addCorsOrigin(o);
-  for (const aud of config.oauthProvider.validAudiences) addAudience(aud);
 
   // ── Seed runtime-config from DB — all app URLs ──────────────────────────
   const appRows = await db
@@ -62,7 +61,6 @@ async function start(): Promise<void> {
     .from(applications)
     .where(isNotNull(applications.url));
   for (const { url } of appRows) {
-    addAudience(url);
     addCorsOrigin(url);
   }
 

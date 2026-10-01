@@ -7,6 +7,7 @@ import {
   afterAll,
   beforeEach,
 } from "vitest";
+import type * as BetterAuthModule from "better-auth";
 import { applicationRoutes } from "../routes/admin/applications.js";
 import { createTestApp } from "./helpers/app.js";
 import { db } from "../db/index.js";
@@ -21,7 +22,7 @@ import { auth } from "../auth.js";
 
 vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
 vi.mock("better-auth", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("better-auth")>();
+  const actual = await importOriginal<typeof BetterAuthModule>();
   return { ...actual, generateId: vi.fn(() => "mock-oauth-id") };
 });
 

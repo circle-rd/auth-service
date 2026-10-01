@@ -19,14 +19,14 @@ interface UserClaims {
   name?: string;
   picture?: string;
   updated_at?: number;
-  company?: string;         // Proprietary claim within profile scope
+  company?: string; // Proprietary claim within profile scope
   // Standard OIDC email scope claims
   email?: string;
   email_verified?: boolean;
   // Standard OIDC phone scope claim
   phone_number?: string;
   // features scope extras
-  plan?: string;            // Human-readable plan name
+  plan?: string; // Human-readable plan name
 }
 
 /**
@@ -60,7 +60,8 @@ export async function getUserClaims(
       if (profile.name) claims.name = profile.name;
       if (profile.company) claims.company = profile.company;
       if (profile.image) claims.picture = profile.image;
-      if (profile.updatedAt) claims.updated_at = Math.floor(profile.updatedAt.getTime() / 1000);
+      if (profile.updatedAt)
+        claims.updated_at = Math.floor(profile.updatedAt.getTime() / 1000);
     }
     if (scopes.includes("phone") && profile.phone) {
       claims.phone_number = profile.phone;
@@ -127,8 +128,9 @@ export async function getUserClaims(
           resourceActions.set(p.resource, p.action);
         }
       }
-      claims.permissions = [...resourceActions.entries()].map(([resource, action]) =>
-        action === "write" ? `${resource}.write` : resource,
+      claims.permissions = [...resourceActions.entries()].map(
+        ([resource, action]) =>
+          action === "write" ? `${resource}.write` : resource,
       );
     } else if (needsPermissions) {
       claims.permissions = [];

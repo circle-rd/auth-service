@@ -15,7 +15,7 @@ const URL_FILE = join(tmpdir(), "auth-service-test-db-url.txt");
 let container: StartedPostgreSqlContainer;
 
 export async function setup(): Promise<void> {
-  container = await new PostgreSqlContainer("postgres:16-alpine")
+  container = await new PostgreSqlContainer("postgres:17-alpine")
     .withDatabase("auth_test")
     .withUsername("test")
     .withPassword("test")

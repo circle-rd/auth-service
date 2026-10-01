@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const insertValuesMock = vi.fn<(...args: unknown[]) => Promise<void>>(() => Promise.resolve());
+const insertValuesMock = vi.fn<(...args: unknown[]) => Promise<void>>(() =>
+  Promise.resolve(),
+);
 const updateSetMock = vi.fn<(...args: unknown[]) => unknown>();
 
 vi.mock("../db/index.js", () => {

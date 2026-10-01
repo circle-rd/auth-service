@@ -23,25 +23,37 @@ describe("services/mfa", () => {
         userMustSetupMfa({ isMfaRequired: true, twoFactorEnabled: true }, true),
       ).toBe(false);
       expect(
-        userMustSetupMfa({ isMfaRequired: false, twoFactorEnabled: true }, false),
+        userMustSetupMfa(
+          { isMfaRequired: false, twoFactorEnabled: true },
+          false,
+        ),
       ).toBe(false);
     });
 
     it("returns true when the application requires MFA and 2FA is not set up", () => {
       expect(
-        userMustSetupMfa({ isMfaRequired: false, twoFactorEnabled: false }, true),
+        userMustSetupMfa(
+          { isMfaRequired: false, twoFactorEnabled: false },
+          true,
+        ),
       ).toBe(true);
     });
 
     it("returns true when the user is individually flagged and 2FA is not set up", () => {
       expect(
-        userMustSetupMfa({ isMfaRequired: true, twoFactorEnabled: false }, false),
+        userMustSetupMfa(
+          { isMfaRequired: true, twoFactorEnabled: false },
+          false,
+        ),
       ).toBe(true);
     });
 
     it("returns false when neither flag is set", () => {
       expect(
-        userMustSetupMfa({ isMfaRequired: false, twoFactorEnabled: false }, false),
+        userMustSetupMfa(
+          { isMfaRequired: false, twoFactorEnabled: false },
+          false,
+        ),
       ).toBe(false);
     });
   });

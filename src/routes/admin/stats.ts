@@ -20,8 +20,7 @@ async function requireAdmin(
     return;
   }
   const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
+    string | undefined;
   if (role !== "admin" && role !== "superadmin") {
     await reply
       .status(403)
@@ -120,9 +119,7 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
     since.setUTCHours(0, 0, 0, 0);
     const sinceIso = since.toISOString();
 
-    const apps = await db
-      .select({ id: applications.id })
-      .from(applications);
+    const apps = await db.select({ id: applications.id }).from(applications);
 
     if (apps.length === 0) {
       await reply.send({ applications: [] });

@@ -59,7 +59,7 @@ subject: x
 `,
     );
 
-    const out = renderEmail("esc", { payload: '<img onerror=x>' }, null, dir);
+    const out = renderEmail("esc", { payload: "<img onerror=x>" }, null, dir);
     expect(out.html).toContain("&lt;img onerror=x&gt;");
     // Text section also escapes via <%= %>; consumers receive a safe string.
     expect(out.text).toContain("&lt;img onerror=x&gt;");

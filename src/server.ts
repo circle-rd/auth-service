@@ -37,7 +37,10 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
-import { appConfigRoutes, globallyEnabledProviders } from "./routes/app-config.js";
+import {
+  appConfigRoutes,
+  globallyEnabledProviders,
+} from "./routes/app-config.js";
 import { ApiError, ERR } from "./errors.js";
 import { renderAuthPage } from "./services/templates.js";
 import { db } from "./db/index.js";
@@ -119,7 +122,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   // ── Strict in-memory rate buckets for sensitive auth + email endpoints ──
   // Not multi-instance safe; use Redis-backed limiting in a clustered deploy.
   const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
-  const emailSendBuckets = new Map<string, { count: number; resetAt: number }>();
+  const emailSendBuckets = new Map<
+    string,
+    { count: number; resetAt: number }
+  >();
 
   function checkAuthRateLimit(ip: string): boolean {
     const now = Date.now();
@@ -186,7 +192,7 @@ export async function buildServer(): Promise<FastifyInstance> {
         : "";
 
       let allowRegister = true;
-      let socialProvidersJson = "[]";
+      let socialProvidersJson: string;
       if (appSlug) {
         const [appRow] = await db
           .select({
@@ -287,7 +293,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
     if (!session) {
       const rawUrl = req.raw.url ?? "";
-      const rawQs = rawUrl.includes("?") ? rawUrl.split("?").slice(1).join("?") : "";
+      const rawQs = rawUrl.includes("?")
+        ? rawUrl.split("?").slice(1).join("?")
+        : "";
       return reply.redirect(`/login${rawQs ? `?${rawQs}` : ""}`, 302);
     }
 
@@ -297,7 +305,9 @@ export async function buildServer(): Promise<FastifyInstance> {
 
     const query = req.query as Record<string, string>;
     const rawUrl = req.raw.url ?? "";
-    const rawQs = rawUrl.includes("?") ? rawUrl.split("?").slice(1).join("?") : "";
+    const rawQs = rawUrl.includes("?")
+      ? rawUrl.split("?").slice(1).join("?")
+      : "";
     const oauthQuery =
       query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
 
@@ -358,7 +368,11 @@ export async function buildServer(): Promise<FastifyInstance> {
       }
 
       const urlPath = req.url.split("?")[0] ?? "";
-      if (AUTH_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))) {
+      if (
+        AUTH_RATE_PATHS.some(
+          (p) => urlPath === p || urlPath.startsWith(p + "/"),
+        )
+      ) {
         const ip = req.ip ?? "unknown";
         if (!checkAuthRateLimit(ip)) {
           reply.raw.writeHead(429, { "Content-Type": "application/json" });
@@ -366,7 +380,11 @@ export async function buildServer(): Promise<FastifyInstance> {
           return;
         }
       }
-      if (EMAIL_SEND_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))) {
+      if (
+        EMAIL_SEND_PATHS.some(
+          (p) => urlPath === p || urlPath.startsWith(p + "/"),
+        )
+      ) {
         const ip = req.ip ?? "unknown";
         if (!checkEmailSendRateLimit(ip)) {
           reply.raw.writeHead(429, { "Content-Type": "application/json" });
@@ -384,9 +402,13 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // ── Routes ──────────────────────────────────────────────────────────────
   // Stripe webhook first — its raw Buffer parser must take precedence.
-  await fastify.register(stripeWebhookRoutes, { prefix: "/api/webhooks/stripe" });
+  await fastify.register(stripeWebhookRoutes, {
+    prefix: "/api/webhooks/stripe",
+  });
   await fastify.register(healthRoutes);
-  await fastify.register(applicationRoutes, { prefix: "/api/admin/applications" });
+  await fastify.register(applicationRoutes, {
+    prefix: "/api/admin/applications",
+  });
   await fastify.register(rolesRoutes, { prefix: "/api/admin" });
   await fastify.register(plansRoutes, { prefix: "/api/admin" });
   await fastify.register(adminConsumptionRoutes, { prefix: "/api/admin" });
@@ -394,7 +416,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
   await fastify.register(statsRoutes, { prefix: "/api/admin/stats" });
   await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
-  await fastify.register(organizationsRoutes, { prefix: "/api/admin/organizations" });
+  await fastify.register(organizationsRoutes, {
+    prefix: "/api/admin/organizations",
+  });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });
   await fastify.register(appConfigRoutes, { prefix: "/api/app-config" });
@@ -414,18 +438,21 @@ export async function buildServer(): Promise<FastifyInstance> {
       .send(body);
   });
 
-  fastify.get("/.well-known/oauth-authorization-server", async (_req, reply) => {
-    const res = await handleAuthServerMeta(
-      new Request(
-        config.betterAuth.url + "/.well-known/oauth-authorization-server",
-      ),
-    );
-    const body = await res.json();
-    return reply
-      .status(res.status)
-      .header("content-type", "application/json")
-      .send(body);
-  });
+  fastify.get(
+    "/.well-known/oauth-authorization-server",
+    async (_req, reply) => {
+      const res = await handleAuthServerMeta(
+        new Request(
+          config.betterAuth.url + "/.well-known/oauth-authorization-server",
+        ),
+      );
+      const body = await res.json();
+      return reply
+        .status(res.status)
+        .header("content-type", "application/json")
+        .send(body);
+    },
+  );
 
   // ── SPA fallback ────────────────────────────────────────────────────────
   fastify.setNotFoundHandler(async (req, reply) => {

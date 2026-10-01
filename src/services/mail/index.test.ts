@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import {
-  sendEmail,
-  setMailTransport,
-  getMailTransport,
-} from "./index.js";
+import { sendEmail, setMailTransport, getMailTransport } from "./index.js";
 import { MailCaptureTransport } from "./capture-transport.js";
 import { NoopMailTransport } from "./noop-transport.js";
 
@@ -20,11 +16,10 @@ describe("mail pipeline", () => {
   });
 
   it("renders the verify-email built-in template and ships it via the active transport", async () => {
-    await sendEmail(
-      "verify-email",
-      "alice@example.com",
-      { url: "https://auth.test/verify?token=abc", expiresInHours: 1 },
-    );
+    await sendEmail("verify-email", "alice@example.com", {
+      url: "https://auth.test/verify?token=abc",
+      expiresInHours: 1,
+    });
 
     expect(capture.messages).toHaveLength(1);
     const msg = capture.messages[0]!;

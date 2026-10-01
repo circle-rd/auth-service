@@ -96,7 +96,8 @@ export const ERR = {
   USR_003: (msg = "Invalid user data", details?: unknown) =>
     new ApiError(400, "USR_003", msg, details),
   // ── ORG ──────────────────────────────────────────────────────────────────
-  ORG_001: (msg = "Organization not found") => new ApiError(404, "ORG_001", msg),
+  ORG_001: (msg = "Organization not found") =>
+    new ApiError(404, "ORG_001", msg),
   ORG_002: (msg = "Organization slug already exists") =>
     new ApiError(409, "ORG_002", msg),
   ORG_003: (msg = "Invalid organization data", details?: unknown) =>

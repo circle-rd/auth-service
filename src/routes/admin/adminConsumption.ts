@@ -19,8 +19,7 @@ async function requireAdmin(
     return;
   }
   const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
+    string | undefined;
   if (role !== "admin" && role !== "superadmin") {
     await reply.status(403).send(ERR.AUTH_002().toJSON());
     return;

@@ -165,7 +165,12 @@ describe("Admin — plansRoutes", () => {
     const res = await app.inject({
       method: "POST",
       url: `/applications/${APP_ID}/plans/${PLAN_ID}/prices`,
-      payload: { name: "monthly", amount: -1, currency: "usd", interval: "month" },
+      payload: {
+        name: "monthly",
+        amount: -1,
+        currency: "usd",
+        interval: "month",
+      },
     });
     expect(res.statusCode).toBe(400);
   });

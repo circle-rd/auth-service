@@ -9,7 +9,12 @@ import {
   subscriptionPlanPrices,
   consumptionAggregates,
 } from "../db/schema.js";
-import { session as sessionTable, user as userTable, member as memberTable, organization as organizationTable } from "../db/auth-schema.js";
+import {
+  session as sessionTable,
+  user as userTable,
+  member as memberTable,
+  organization as organizationTable,
+} from "../db/auth-schema.js";
 import { and, eq, gt, inArray } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
@@ -212,7 +217,11 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Verify the target session belongs to the current user
       const [target] = await db
-        .select({ id: sessionTable.id, userId: sessionTable.userId })
+        .select({
+          id: sessionTable.id,
+          userId: sessionTable.userId,
+          token: sessionTable.token,
+        })
         .from(sessionTable)
         .where(eq(sessionTable.id, req.params.id))
         .limit(1);
@@ -221,9 +230,12 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         throw ERR.AUTH_001("Session not found");
       }
 
-      await db
-        .delete(sessionTable)
-        .where(eq(sessionTable.id, req.params.id));
+      // Route through BetterAuth so any plugin-managed session side effects
+      // (cookie invalidation, downstream hooks) still run.
+      await auth.api.revokeSession({
+        headers: fromNodeHeaders(req.headers),
+        body: { token: target.token },
+      });
 
       await reply.status(204).send();
     },
@@ -245,7 +257,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         role: memberTable.role,
       })
       .from(memberTable)
-      .innerJoin(organizationTable, eq(organizationTable.id, memberTable.organizationId))
+      .innerJoin(
+        organizationTable,
+        eq(organizationTable.id, memberTable.organizationId),
+      )
       .where(eq(memberTable.userId, userId))
       .orderBy(organizationTable.name);
 

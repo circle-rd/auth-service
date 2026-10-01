@@ -1,9 +1,48 @@
-import { verifyAccessToken } from "better-auth/oauth2";
+import { verifyJwsAccessToken } from "better-auth/oauth2";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { oauthAccessToken, oauthRefreshToken } from "../db/auth-schema.js";
+import {
+  jwks as jwksTable,
+  oauthAccessToken,
+  oauthRefreshToken,
+  oauthResource,
+} from "../db/auth-schema.js";
 import { config } from "../config.js";
-import { validAudiences } from "../runtime-config.js";
+
+type JwksFetchOptions = Parameters<typeof verifyJwsAccessToken>[1];
+type JwksFetchFn = Exclude<JwksFetchOptions["jwksFetch"], string>;
+type Jwks = Awaited<ReturnType<JwksFetchFn>>;
+
+/**
+ * Load the verification key set straight from the local `jwks` table instead
+ * of fetching our own `/jwks` endpoint over HTTP. Avoids a self network call
+ * (which would also be impossible when the app is driven via `inject()`), and
+ * mirrors the public JWKs the endpoint would serve — including the `kid`
+ * header mapping (key row id) the JWT is signed with.
+ */
+async function loadLocalJwks(): Promise<Jwks> {
+  const rows = await db
+    .select({
+      id: jwksTable.id,
+      publicKey: jwksTable.publicKey,
+      alg: jwksTable.alg,
+      crv: jwksTable.crv,
+      expiresAt: jwksTable.expiresAt,
+    })
+    .from(jwksTable);
+  const now = Date.now();
+  // Same default grace period as the jwt plugin (30 days).
+  const graceMs = 30 * 24 * 60 * 60 * 1000;
+  const keys = rows
+    .filter((row) => !row.expiresAt || row.expiresAt.getTime() + graceMs > now)
+    .map((row) => ({
+      alg: row.alg ?? "EdDSA",
+      ...(row.crv ? { crv: row.crv } : {}),
+      ...(JSON.parse(row.publicKey) as Record<string, unknown>),
+      kid: row.id,
+    }));
+  return { keys } as Jwks;
+}
 
 export interface VerifiedAccessToken {
   /** OAuth client id, which equals the application slug. */
@@ -14,12 +53,16 @@ export interface VerifiedAccessToken {
 }
 
 /**
- * The set of audiences a token may legitimately carry: every registered
- * application URL plus the issuer itself. Passed to the JWKS verifier so a
+ * The set of audiences a token may legitimately carry: every enabled
+ * protected resource plus the issuer itself. Passed to the JWKS verifier so a
  * token minted for one application cannot be replayed against another.
  */
-function acceptedAudiences(): string[] {
-  const all = new Set<string>(validAudiences);
+async function acceptedAudiences(): Promise<string[]> {
+  const rows = await db
+    .select({ identifier: oauthResource.identifier })
+    .from(oauthResource)
+    .where(eq(oauthResource.disabled, false));
+  const all = new Set<string>(rows.map((r) => r.identifier));
   all.add(config.betterAuth.url);
   return [...all];
 }
@@ -36,18 +79,22 @@ export async function verifyBearerAccessToken(
 ): Promise<VerifiedAccessToken | null> {
   if (token.split(".").length === 3) {
     try {
-      const payload = await verifyAccessToken(token, {
+      const payload = await verifyJwsAccessToken(token, {
+        jwksFetch: loadLocalJwks,
         verifyOptions: {
           issuer: config.betterAuth.url,
-          audience: acceptedAudiences(),
+          audience: await acceptedAudiences(),
         },
-        jwksUrl: `${config.betterAuth.url}/api/auth/jwks`,
       });
       const clientId = typeof payload.azp === "string" ? payload.azp : null;
       if (!clientId) return null;
+      const sub = typeof payload.sub === "string" ? payload.sub : null;
       return {
         clientId,
-        userId: typeof payload.sub === "string" ? payload.sub : null,
+        // For client_credentials tokens BetterAuth sets `sub` to the client id
+        // (there is no user) and `azp` to the same client id; a user-bound
+        // token has a distinct `sub`.
+        userId: sub && sub !== clientId ? sub : null,
         scopes:
           typeof payload.scope === "string" ? payload.scope.split(" ") : [],
       };
@@ -109,9 +156,7 @@ export async function revokeAllUserTokens(userId: string): Promise<void> {
     .update(oauthRefreshToken)
     .set({ revoked: new Date() })
     .where(eq(oauthRefreshToken.userId, userId));
-  await db
-    .delete(oauthAccessToken)
-    .where(eq(oauthAccessToken.userId, userId));
+  await db.delete(oauthAccessToken).where(eq(oauthAccessToken.userId, userId));
 }
 
 /** Revoke every token issued to a client (secret rotation, app deletion). */

@@ -31,8 +31,7 @@ async function requireAdmin(
     return;
   }
   const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
+    string | undefined;
   if (role !== "admin" && role !== "superadmin") {
     await reply
       .status(403)
@@ -46,7 +45,10 @@ async function getCallerRole(req: FastifyRequest): Promise<string> {
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(req.headers),
   });
-  return ((session!.user as Record<string, unknown>).role as string | undefined) ?? "admin";
+  return (
+    ((session!.user as Record<string, unknown>).role as string | undefined) ??
+    "admin"
+  );
 }
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
@@ -293,7 +295,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     const targetRole = targetRow.role ?? "user";
 
     // Admins cannot modify other admins or superadmins
-    if (callerRole !== "superadmin" && (targetRole === "admin" || targetRole === "superadmin")) {
+    if (
+      callerRole !== "superadmin" &&
+      (targetRole === "admin" || targetRole === "superadmin")
+    ) {
       throw ERR.AUTH_001("Insufficient permissions to modify this user");
     }
     // Only superadmin can promote someone to admin
@@ -335,7 +340,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       if (!targetRow) throw ERR.USR_001();
 
       const callerRole = await getCallerRole(req);
-      if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
+      if (
+        callerRole !== "superadmin" &&
+        (targetRow.role === "admin" || targetRow.role === "superadmin")
+      ) {
         throw ERR.AUTH_001("Insufficient permissions to disable this user");
       }
 
@@ -362,7 +370,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       if (!targetRow) throw ERR.USR_001();
 
       const callerRole = await getCallerRole(req);
-      if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
+      if (
+        callerRole !== "superadmin" &&
+        (targetRow.role === "admin" || targetRow.role === "superadmin")
+      ) {
         throw ERR.AUTH_001("Insufficient permissions to enable this user");
       }
 
@@ -395,7 +406,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     const callerRole = await getCallerRole(req);
 
     // Admins cannot delete other admins or superadmins
-    if (callerRole !== "superadmin" && (targetRow.role === "admin" || targetRow.role === "superadmin")) {
+    if (
+      callerRole !== "superadmin" &&
+      (targetRow.role === "admin" || targetRow.role === "superadmin")
+    ) {
       throw ERR.AUTH_001("Insufficient permissions to delete this user");
     }
 
@@ -413,11 +427,21 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // Delete the user — cascade constraints in auth-schema handle BetterAuth-owned records.
     // Our custom tables store userId as plain text without a FK, so we clean them manually.
     await db.transaction(async (tx) => {
-      await tx.delete(userAppRoles).where(eq(userAppRoles.userId, req.params.id));
-      await tx.delete(userSubscriptions).where(eq(userSubscriptions.userId, req.params.id));
-      await tx.delete(consumptionAggregates).where(eq(consumptionAggregates.userId, req.params.id));
-      await tx.delete(consumptionEntries).where(eq(consumptionEntries.userId, req.params.id));
-      await tx.delete(userApplications).where(eq(userApplications.userId, req.params.id));
+      await tx
+        .delete(userAppRoles)
+        .where(eq(userAppRoles.userId, req.params.id));
+      await tx
+        .delete(userSubscriptions)
+        .where(eq(userSubscriptions.userId, req.params.id));
+      await tx
+        .delete(consumptionAggregates)
+        .where(eq(consumptionAggregates.userId, req.params.id));
+      await tx
+        .delete(consumptionEntries)
+        .where(eq(consumptionEntries.userId, req.params.id));
+      await tx
+        .delete(userApplications)
+        .where(eq(userApplications.userId, req.params.id));
       await tx.delete(userTable).where(eq(userTable.id, req.params.id));
     });
 

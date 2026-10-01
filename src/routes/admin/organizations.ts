@@ -4,7 +4,11 @@ import { z } from "zod";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { db } from "../../db/index.js";
-import { organization, member, user as userTable } from "../../db/auth-schema.js";
+import {
+  organization,
+  member,
+  user as userTable,
+} from "../../db/auth-schema.js";
 import { count, ilike, or, eq, desc, asc, and } from "drizzle-orm";
 
 async function requireAdmin(
@@ -19,8 +23,7 @@ async function requireAdmin(
     return;
   }
   const role = (session.user as Record<string, unknown>).role as
-    | string
-    | undefined;
+    string | undefined;
   if (role !== "admin" && role !== "superadmin") {
     await reply
       .status(403)
@@ -31,7 +34,11 @@ async function requireAdmin(
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
-  slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/),
+  slug: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z0-9-]+$/),
   logo: z.string().url().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -39,7 +46,12 @@ const createOrgSchema = z.object({
 const updateOrgSchema = z
   .object({
     name: z.string().min(1).max(100).optional(),
-    slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/).optional(),
+    slug: z
+      .string()
+      .min(1)
+      .max(50)
+      .regex(/^[a-z0-9-]+$/)
+      .optional(),
     logo: z.string().url().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
@@ -68,18 +80,24 @@ export async function organizationsRoutes(
     const page = Math.max(1, parseInt(q.page ?? "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(q.limit ?? "20", 10)));
     const search = q.search?.trim() || undefined;
-    const sortBy = q.sortBy === "createdAt" || q.sortBy === "slug" ? q.sortBy : "name";
+    const sortBy =
+      q.sortBy === "createdAt" || q.sortBy === "slug" ? q.sortBy : "name";
     const sortOrder = q.sortOrder === "desc" ? "desc" : "asc";
     const offset = (page - 1) * limit;
 
     const searchFilter = search
-      ? or(ilike(organization.name, `%${search}%`), ilike(organization.slug, `%${search}%`))
+      ? or(
+          ilike(organization.name, `%${search}%`),
+          ilike(organization.slug, `%${search}%`),
+        )
       : undefined;
 
     const orderCol =
-      sortBy === "createdAt" ? organization.createdAt
-      : sortBy === "slug" ? organization.slug
-      : organization.name;
+      sortBy === "createdAt"
+        ? organization.createdAt
+        : sortBy === "slug"
+          ? organization.slug
+          : organization.name;
     const orderExpr = sortOrder === "desc" ? desc(orderCol) : asc(orderCol);
 
     const [rows, [{ total }]] = await Promise.all([
@@ -126,7 +144,8 @@ export async function organizationsRoutes(
       });
       await reply.status(201).send({ organization: org });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to create organization";
+      const msg =
+        e instanceof Error ? e.message : "Failed to create organization";
       if (msg.toLowerCase().includes("slug")) throw ERR.ORG_002(msg);
       throw ERR.ORG_003(msg);
     }
@@ -143,7 +162,8 @@ export async function organizationsRoutes(
       if (!org) throw ERR.ORG_001();
       await reply.send({ organization: org });
     } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes("not found")) throw ERR.ORG_001();
+      if (e instanceof Error && e.message.includes("not found"))
+        throw ERR.ORG_001();
       throw e;
     }
   });
@@ -218,7 +238,10 @@ export async function organizationsRoutes(
     const search = q.search?.trim() || undefined;
 
     const searchFilter = search
-      ? or(ilike(userTable.name, `%${search}%`), ilike(userTable.email, `%${search}%`))
+      ? or(
+          ilike(userTable.name, `%${search}%`),
+          ilike(userTable.email, `%${search}%`),
+        )
       : undefined;
 
     const rows = await db
@@ -284,7 +307,9 @@ export async function organizationsRoutes(
   // PATCH /api/admin/organizations/:id/members/:memberId/role — update member role
   fastify.patch("/:id/members/:memberId/role", async (req, reply) => {
     const { id, memberId } = req.params as { id: string; memberId: string };
-    const parsed = z.object({ role: z.enum(["owner", "admin", "member"]) }).safeParse(req.body);
+    const parsed = z
+      .object({ role: z.enum(["owner", "admin", "member"]) })
+      .safeParse(req.body);
     if (!parsed.success)
       throw ERR.ORG_003("Invalid role", parsed.error.flatten());
 
@@ -295,7 +320,8 @@ export async function organizationsRoutes(
       });
       await reply.status(204).send();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to update member role";
+      const msg =
+        e instanceof Error ? e.message : "Failed to update member role";
       throw ERR.ORG_004(msg);
     }
   });
@@ -309,9 +335,12 @@ export async function organizationsRoutes(
         headers: fromNodeHeaders(req.headers),
       });
       if (!org) throw ERR.ORG_001();
-      await reply.send({ invitations: (org as Record<string, unknown>).invitations ?? [] });
+      await reply.send({
+        invitations: (org as Record<string, unknown>).invitations ?? [],
+      });
     } catch (e: unknown) {
-      if (e instanceof Error && e.message.includes("not found")) throw ERR.ORG_001();
+      if (e instanceof Error && e.message.includes("not found"))
+        throw ERR.ORG_001();
       throw e;
     }
   });
@@ -331,7 +360,8 @@ export async function organizationsRoutes(
       });
       await reply.status(201).send({ invitation });
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to create invitation";
+      const msg =
+        e instanceof Error ? e.message : "Failed to create invitation";
       throw ERR.ORG_003(msg);
     }
   });
@@ -346,7 +376,8 @@ export async function organizationsRoutes(
       });
       await reply.status(204).send();
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to cancel invitation";
+      const msg =
+        e instanceof Error ? e.message : "Failed to cancel invitation";
       throw ERR.ORG_003(msg);
     }
   });

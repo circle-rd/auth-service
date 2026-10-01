@@ -10,7 +10,11 @@ import {
 import { plansRoutes } from "../routes/admin/plans.js";
 import { createTestApp } from "./helpers/app.js";
 import { db } from "../db/index.js";
-import { applications, subscriptionPlans, subscriptionPlanPrices, userSubscriptions } from "../db/schema.js";
+import {
+  applications,
+  subscriptionPlans,
+  userSubscriptions,
+} from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { cleanDb } from "./helpers/db.js";
 import { makeSuperadminSession } from "./helpers/auth.js";
@@ -72,23 +76,6 @@ async function seedPlan(appId: string, name = "basic", isDefault = false) {
     })
     .returning();
   return plan!;
-}
-
-async function seedPrice(
-  planId: string,
-  opts: { name?: string; amount?: string; currency?: string; interval?: string } = {},
-) {
-  const [price] = await db
-    .insert(subscriptionPlanPrices)
-    .values({
-      planId,
-      name: opts.name ?? "monthly",
-      amount: opts.amount ?? "999",
-      currency: opts.currency ?? "usd",
-      interval: opts.interval ?? "month",
-    })
-    .returning();
-  return price!;
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────

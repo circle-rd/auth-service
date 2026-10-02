@@ -17,7 +17,11 @@ import {
   assignDefaultRoleIfNeeded,
   assignDefaultPlanIfNeeded,
 } from "../../services/claims.js";
-import { oauthClient, user as userTable } from "../../db/auth-schema.js";
+import {
+  oauthClient,
+  member,
+  user as userTable,
+} from "../../db/auth-schema.js";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -222,6 +226,18 @@ const grantUserAccessSchema = z.object({
   userId: z.string().min(1),
   roleId: z.string().uuid().optional(),
 });
+
+const bulkGrantUserAccessSchema = z
+  .object({
+    // Either every member of an organization…
+    organizationId: z.string().min(1).optional(),
+    // …or an explicit list of user ids.
+    userIds: z.array(z.string().min(1)).min(1).max(1000).optional(),
+    roleId: z.string().uuid().optional(),
+  })
+  .refine((d) => Boolean(d.organizationId) !== Boolean(d.userIds), {
+    message: "Provide exactly one of organizationId or userIds",
+  });
 
 const updateUserAccessSchema = z.object({
   isActive: z.boolean().optional(),
@@ -600,8 +616,11 @@ export async function applicationRoutes(
   // from `login_history`). A single grouped sub-select keeps this to one round
   // trip even when the membership list is large.
   fastify.get<{ Params: { id: string } }>("/:id/users", async (req, reply) => {
+    // A user may hold several roles (user_app_roles PK is user+app+role), so the
+    // join would return one row per role. DISTINCT ON keeps exactly one row per
+    // user, otherwise the UI shows duplicate rows and deleting one "removes both".
     const rows = await db
-      .select({
+      .selectDistinctOn([userApplications.userId], {
         userId: userApplications.userId,
         isActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
@@ -620,7 +639,8 @@ export async function applicationRoutes(
           eq(userAppRoles.applicationId, userApplications.applicationId),
         ),
       )
-      .where(eq(userApplications.applicationId, req.params.id));
+      .where(eq(userApplications.applicationId, req.params.id))
+      .orderBy(userApplications.userId, userAppRoles.createdAt);
 
     const userIds = Array.from(new Set(rows.map((r) => r.userId)));
     const lastLoginByUser = new Map<
@@ -755,6 +775,105 @@ export async function applicationRoutes(
 
     await reply.status(201).send({ ok: true });
   });
+
+  // POST /api/admin/applications/:id/users/bulk — grant many users at once
+  fastify.post<{ Params: { id: string } }>(
+    "/:id/users/bulk",
+    async (req, reply) => {
+      const parsed = bulkGrantUserAccessSchema.safeParse(req.body);
+      if (!parsed.success)
+        throw ERR.APP_001("Invalid data", parsed.error.flatten());
+
+      const [app] = await db
+        .select({ id: applications.id })
+        .from(applications)
+        .where(eq(applications.id, req.params.id))
+        .limit(1);
+      if (!app) throw ERR.APP_002();
+
+      // Resolve the candidate users (id + email). Email lets us skip accounts
+      // that already have access through a duplicate user record.
+      let candidates: Array<{ id: string; email: string }>;
+      if (parsed.data.organizationId) {
+        candidates = await db
+          .select({ id: userTable.id, email: userTable.email })
+          .from(member)
+          .innerJoin(userTable, eq(member.userId, userTable.id))
+          .where(eq(member.organizationId, parsed.data.organizationId));
+        if (candidates.length === 0) {
+          throw ERR.APP_001("This organization has no members");
+        }
+      } else {
+        const ids = [...new Set(parsed.data.userIds ?? [])];
+        candidates = await db
+          .select({ id: userTable.id, email: userTable.email })
+          .from(userTable)
+          .where(inArray(userTable.id, ids));
+      }
+
+      // Dedupe within the request, then drop anyone who already has access.
+      const uniqueCandidates = [
+        ...new Map(candidates.map((c) => [c.id, c])).values(),
+      ];
+      const existing = await db
+        .select({ userId: userApplications.userId, email: userTable.email })
+        .from(userApplications)
+        .leftJoin(userTable, eq(userApplications.userId, userTable.id))
+        .where(eq(userApplications.applicationId, req.params.id));
+      const existingIds = new Set(existing.map((e) => e.userId));
+      const existingEmails = new Set(
+        existing
+          .map((e) => (e.email ?? "").toLowerCase())
+          .filter((e) => e !== ""),
+      );
+      const toGrant = uniqueCandidates.filter(
+        (c) =>
+          !existingIds.has(c.id) && !existingEmails.has(c.email.toLowerCase()),
+      );
+      const skipped = uniqueCandidates.length - toGrant.length;
+
+      if (parsed.data.roleId) {
+        await assertRoleBelongsToApp(parsed.data.roleId, req.params.id);
+      }
+
+      if (toGrant.length === 0) {
+        await reply.status(200).send({ granted: 0, skipped });
+        return;
+      }
+
+      await db
+        .insert(userApplications)
+        .values(
+          toGrant.map((c) => ({
+            userId: c.id,
+            applicationId: req.params.id,
+            isActive: true,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [userApplications.userId, userApplications.applicationId],
+          set: { isActive: true },
+        });
+
+      for (const { id: userId } of toGrant) {
+        if (parsed.data.roleId) {
+          await db
+            .insert(userAppRoles)
+            .values({
+              userId,
+              applicationId: req.params.id,
+              roleId: parsed.data.roleId,
+            })
+            .onConflictDoNothing();
+        } else {
+          await assignDefaultRoleIfNeeded(userId, req.params.id);
+        }
+        await assignDefaultPlanIfNeeded(userId, req.params.id);
+      }
+
+      await reply.status(201).send({ granted: toGrant.length, skipped });
+    },
+  );
 
   // PATCH /api/admin/applications/:id/users/:userId — update user access (toggle, role, plan)
   fastify.patch<{ Params: { id: string; userId: string } }>(

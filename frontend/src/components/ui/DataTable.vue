@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="Row extends Record<string, unknown>">
 import { computed, ref, watch } from 'vue';
-import { ChevronUp, ChevronDown, ChevronsUpDown, Columns3, Rows3, Rows4, Search, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { ChevronUp, ChevronDown, ChevronsUpDown, Search, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { ColumnDef, DataTablePagination, SortState } from '@/types/data-table';
 
@@ -26,10 +26,6 @@ const props = withDefaults(defineProps<{
   sort?: SortState | null;
   /** Show the built-in toolbar above the table when the toolbar slot is used. */
   toolbar?: boolean;
-  /** Allow users to toggle column visibility (built-in dropdown). */
-  enableColumnVisibility?: boolean;
-  /** Allow users to switch between comfortable and compact row density. */
-  enableDensityToggle?: boolean;
   /** Render the built-in search input (bound through `v-model:search`). */
   searchable?: boolean;
   /** Current search string. Use with `v-model:search` for two-way binding. */
@@ -50,8 +46,6 @@ const props = withDefaults(defineProps<{
   skeletonRows: 5,
   sort: null,
   toolbar: false,
-  enableColumnVisibility: false,
-  enableDensityToggle: false,
   searchable: false,
   search: '',
   searchPlaceholder: '',
@@ -69,23 +63,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const density = ref<'comfortable' | 'compact'>('comfortable');
-function toggleDensity() {
-  density.value = density.value === 'comfortable' ? 'compact' : 'comfortable';
-}
-const cellPaddingClass = computed(() => density.value === 'compact' ? 'px-3 py-1.5' : 'px-4 py-3');
-const headerPaddingClass = computed(() => density.value === 'compact' ? 'px-3 py-2' : 'px-4 py-3');
-
-const hiddenKeys = ref<Set<string>>(new Set(
-  (props.columns ?? []).filter(c => c.hidden).map(c => c.key),
-));
-function toggleColumn(key: string) {
-  const next = new Set(hiddenKeys.value);
-  if (next.has(key)) next.delete(key); else next.add(key);
-  hiddenKeys.value = next;
-}
-const visibleColumns = computed(() => (props.columns ?? []).filter(c => !hiddenKeys.value.has(c.key)));
-const showVisibilityMenu = ref(false);
+const cellPaddingClass = 'px-4 py-3';
+const headerPaddingClass = 'px-4 py-3';
 
 const internalSort = ref<SortState | null>(props.sort ?? null);
 watch(() => props.sort, v => { internalSort.value = v; });
@@ -137,7 +116,7 @@ const sortedItems = computed<Row[]>(() => {
 });
 
 const colCount = computed(() => props.columns
-  ? visibleColumns.value.length
+  ? props.columns.length
   : (props.skeletonCols ?? 4));
 
 function alignClass(col: ColumnDef<Row>): string {
@@ -206,12 +185,7 @@ function onLimitChange(event: Event) {
 const defaultPageSizes = [10, 20, 50, 100];
 const pageSizes = computed(() => props.pagination?.pageSizes ?? defaultPageSizes);
 
-const showToolbar = computed(() =>
-  props.toolbar
-  || props.enableColumnVisibility
-  || props.enableDensityToggle
-  || props.searchable,
-);
+const showToolbar = computed(() => props.toolbar || props.searchable);
 </script>
 
 <template>
@@ -233,45 +207,6 @@ const showToolbar = computed(() =>
       <div class="flex-1 min-w-0">
         <slot name="toolbar" />
       </div>
-      <div v-if="enableDensityToggle" class="flex items-center">
-        <button
-          type="button"
-          @click="toggleDensity"
-          class="p-2 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-800/60 transition-colors"
-          :title="density === 'compact' ? 'Comfortable density' : 'Compact density'"
-        >
-          <component :is="density === 'compact' ? Rows4 : Rows3" class="w-4 h-4" />
-        </button>
-      </div>
-      <div v-if="enableColumnVisibility && columns" class="relative">
-        <button
-          type="button"
-          @click="showVisibilityMenu = !showVisibilityMenu"
-          class="p-2 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-800/60 transition-colors"
-          title="Toggle columns"
-        >
-          <Columns3 class="w-4 h-4" />
-        </button>
-        <div
-          v-if="showVisibilityMenu"
-          class="absolute right-0 mt-1 w-52 bg-surface-800 border border-surface-700/50 rounded-xl shadow-xl z-20 py-1"
-          v-click-outside="() => (showVisibilityMenu = false)"
-        >
-          <label
-            v-for="col in columns"
-            :key="col.key"
-            class="flex items-center gap-2 px-3 py-2 text-sm text-surface-300 hover:bg-surface-700/40 cursor-pointer"
-          >
-            <input
-              type="checkbox"
-              :checked="!hiddenKeys.has(col.key)"
-              @change="toggleColumn(col.key)"
-              class="rounded border-surface-600 bg-surface-900 text-primary-500 focus:ring-primary-500/30"
-            />
-            <span class="truncate">{{ col.label }}</span>
-          </label>
-        </div>
-      </div>
     </div>
 
     <div class="rounded-xl overflow-hidden border border-surface-700/50 bg-surface-900/40">
@@ -281,7 +216,7 @@ const showToolbar = computed(() =>
             <tr class="border-b border-surface-700/50 bg-surface-800/30">
               <template v-if="columns">
                 <th
-                  v-for="col in visibleColumns"
+                  v-for="col in columns"
                   :key="col.key"
                   :class="[
                     headerPaddingClass,
@@ -344,7 +279,7 @@ const showToolbar = computed(() =>
               @click="emit('row-click', row)"
             >
               <td
-                v-for="col in visibleColumns"
+                v-for="col in columns"
                 :key="col.key"
                 :class="[cellPaddingClass, alignClass(col), responsiveClass(col)]"
               >

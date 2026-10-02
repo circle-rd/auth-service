@@ -120,6 +120,21 @@ export async function grantAppAccess(appId: string, body: { userId: string; role
   return apiFetch<{ access: UserApplication }>(`/admin/applications/${appId}/users`, { method: 'POST', body: JSON.stringify(body) });
 }
 
+/**
+ * Grant access to many users at once, either every member of an organization
+ * or an explicit list of user ids.
+ */
+export async function bulkGrantAppAccess(
+  appId: string,
+  body: { organizationId?: string; userIds?: string[]; roleId?: string },
+): Promise<{ granted: number; skipped?: number }> {
+  if (USE_MOCK) return { granted: body.userIds?.length ?? 0 };
+  return apiFetch<{ granted: number; skipped?: number }>(`/admin/applications/${appId}/users/bulk`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export async function updateAppAccess(appId: string, userId: string, body: { isActive?: boolean; roleId?: string; subscriptionPlanId?: string }): Promise<{ ok: true }> {
   if (USE_MOCK) {
     const ua = MOCK_USER_APPLICATIONS.find(u => u.applicationId === appId && u.userId === userId);

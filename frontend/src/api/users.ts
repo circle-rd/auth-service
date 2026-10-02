@@ -135,3 +135,38 @@ export async function markEmailVerified(id: string): Promise<{ ok: true }> {
     method: 'POST',
   });
 }
+
+export interface ImportUserRow {
+  name: string;
+  email: string;
+  password?: string;
+  role?: 'user' | 'admin';
+}
+
+export interface ImportResultRow {
+  email: string;
+  status: 'created' | 'error';
+  message?: string;
+  /** Present only when the row had no password (server-generated). */
+  password?: string;
+}
+
+export async function importUsers(
+  users: ImportUserRow[],
+): Promise<{ results: ImportResultRow[]; created: number; failed: number }> {
+  if (USE_MOCK) {
+    return {
+      results: users.map((u) => ({
+        email: u.email,
+        status: 'created' as const,
+        password: u.password ? undefined : 'mock-temp-pass',
+      })),
+      created: users.length,
+      failed: 0,
+    };
+  }
+  return apiFetch<{ results: ImportResultRow[]; created: number; failed: number }>(
+    '/admin/users/import',
+    { method: 'POST', body: JSON.stringify({ users }) },
+  );
+}

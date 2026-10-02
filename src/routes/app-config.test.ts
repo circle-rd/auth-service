@@ -27,9 +27,12 @@ describe("app-config routes", () => {
     const body = JSON.parse(res.body) as {
       allowRegister: boolean;
       enabledSocialProviders: string[];
+      emailVerificationEnabled: boolean;
     };
     expect(body.allowRegister).toBe(false);
     expect(Array.isArray(body.enabledSocialProviders)).toBe(true);
+    // No SMTP transport is configured in this test environment.
+    expect(body.emailVerificationEnabled).toBe(false);
   });
 
   it("returns APP_002 for an unknown client_id", async () => {

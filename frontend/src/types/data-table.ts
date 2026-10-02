@@ -12,8 +12,6 @@ import type { Component } from 'vue';
  * - `align`: cell alignment; default `left`.
  * - `sortable`: enables the sort caret in the header.
  * - `width`: optional fixed width class (e.g. `w-32`, `w-[180px]`).
- * - `hidden`: column-visibility toggle; managed by the table when the
- *   visibility dropdown is rendered, or controlled externally.
  */
 export interface ColumnDef<Row = Record<string, unknown>> {
   key: string;
@@ -23,7 +21,6 @@ export interface ColumnDef<Row = Record<string, unknown>> {
   align?: 'left' | 'right' | 'center';
   sortable?: boolean;
   width?: string;
-  hidden?: boolean;
   icon?: Component;
   /**
    * Optional value extractor used by client-side sort and default text

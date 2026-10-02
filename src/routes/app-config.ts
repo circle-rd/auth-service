@@ -4,6 +4,7 @@ import { applications } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { config } from "../config.js";
 import { ERR } from "../errors.js";
+import { isMailConfigured } from "../services/mail/index.js";
 
 export type SocialProvider =
   "google" | "github" | "linkedin" | "microsoft" | "apple";
@@ -33,6 +34,10 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const globalProviders = globallyEnabledProviders();
       const clientId = req.query.client_id;
+      // The admin UI only offers "resend / mark verified" actions when the
+      // deployment can actually deliver mail and verification is enforced.
+      const emailVerificationEnabled =
+        isMailConfigured() && config.email.requireVerification;
 
       if (!clientId) {
         return reply.send({
@@ -40,6 +45,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
           enabledSocialProviders: globalProviders,
           appName: config.appName,
           logoUrl: config.appLogoUrl ?? null,
+          emailVerificationEnabled,
         });
       }
 
@@ -73,6 +79,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
         icon: app.icon ?? null,
         appName: config.appName,
         logoUrl: config.appLogoUrl ?? null,
+        emailVerificationEnabled,
       });
     },
   );

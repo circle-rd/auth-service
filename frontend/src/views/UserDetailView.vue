@@ -5,6 +5,8 @@ import { useI18n } from 'vue-i18n';
 import { getUser, sendVerificationEmail, markEmailVerified } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
 import { useToast } from '@/composables/useToast';
+import { useAppBranding } from '@/composables/useAppBranding';
+import { useAuthStore } from '@/stores/auth';
 import type { User, UserApplicationDetail, ConsumptionAggregate } from '@/types';
 import type { ColumnDef } from '@/types/data-table';
 import AppLayout from '@/components/layout/AppLayout.vue';
@@ -19,6 +21,8 @@ const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
+const auth = useAuthStore();
+const { emailVerificationEnabled } = useAppBranding();
 
 const user = ref<User | null>(null);
 const userApps = ref<UserApplicationDetail[]>([]);
@@ -169,7 +173,10 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
             </div>
           </div>
 
-          <div class="mt-5 flex flex-wrap gap-2">
+          <div
+            v-if="emailVerificationEnabled && user && auth.canManageUser(user.role)"
+            class="mt-5 flex flex-wrap gap-2"
+          >
             <BaseButton
               variant="outline"
               size="sm"
@@ -207,8 +214,6 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
               :items="userApps"
               :empty="userApps.length === 0"
               :row-key="(ua: UserApplicationDetail) => ua.id"
-              enable-column-visibility
-              enable-density-toggle
             >
               <template #empty>
                 <EmptyState :title="t('users.applications')" :message="t('applications.noApps')" />

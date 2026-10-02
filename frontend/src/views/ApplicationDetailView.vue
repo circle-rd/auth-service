@@ -6,6 +6,7 @@ import { useServicesStore } from '@/stores/services';
 import * as appsApi from '@/api/applications';
 import * as consumptionApi from '@/api/consumption';
 import { listUsers } from '@/api/users';
+import { listOrganizations } from '@/api/organizations';
 import { useToast } from '@/composables/useToast';
 import { rotateSecret } from '@/api/applications';
 import type { Application, AppRole, AppPermission, SubscriptionPlan, UserApplication, ConsumptionAggregate, User } from '@/types';
@@ -27,7 +28,7 @@ import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
 import type { ColumnDef } from '@/types/data-table';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -50,6 +51,7 @@ const loading = ref(true);
 const showRoleModal = ref(false);
 const showPermModal = ref(false);
 const showUserModal = ref(false);
+const showBulkUserModal = ref(false);
 const showPlanModal = ref(false);
 const showPriceModal = ref(false);
 const showDeleteRoleConfirm = ref(false);
@@ -71,6 +73,7 @@ const selectedMetric = ref<{ userId: string; key: string } | null>(null);
 const roleForm = ref({ name: '', description: '', isDefault: false });
 const permForm = ref({ resource: '', action: 'read' as 'read' | 'write' });
 const userForm = ref({ userId: '', roleId: '' });
+const bulkForm = ref({ organizationId: '', roleId: '' });
 const planForm = ref({ name: '', description: '', isDefault: false });
 const priceForm = ref({ name: '', amount: '', currency: 'eur', interval: 'month' as 'month' | 'year' | 'one_time', planId: '' });
 const editingPlanId = ref<string | null>(null);
@@ -238,6 +241,28 @@ async function handleGrantAccess() {
     toast.success('Access granted');
     showUserModal.value = false;
     userForm.value = { userId: '', roleId: '' };
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed');
+  } finally {
+    formLoading.value = false;
+  }
+}
+
+async function handleBulkGrantAccess() {
+  if (!bulkForm.value.organizationId) return;
+  formLoading.value = true;
+  try {
+    const res = await appsApi.bulkGrantAppAccess(appId, {
+      organizationId: bulkForm.value.organizationId,
+      roleId: bulkForm.value.roleId || undefined,
+    });
+    appUsers.value = (await appsApi.listAppUsers(appId)).users;
+    toast.success(t('appDetail.bulkGrantSuccess', { count: res.granted }));
+    if ((res.skipped ?? 0) > 0) {
+      toast.info(t('appDetail.bulkGrantSkipped', { count: res.skipped }));
+    }
+    showBulkUserModal.value = false;
+    bulkForm.value = { organizationId: '', roleId: '' };
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed');
   } finally {
@@ -427,6 +452,11 @@ async function loadUserOptions(search: string) {
   return res.users.map(u => ({ value: u.id, label: u.name ?? u.email, sublabel: u.email }));
 }
 
+async function loadOrganizationOptions(search: string) {
+  const res = await listOrganizations({ search: search || undefined, limit: 10 });
+  return res.organizations.map(o => ({ value: o.id, label: o.name, sublabel: o.slug }));
+}
+
 function loadRoleOptions(search: string) {
   const lower = search.toLowerCase();
   const filtered = roles.value.filter(r => !search || r.name.toLowerCase().includes(lower));
@@ -574,8 +604,31 @@ server.addService({
 // request.sub         → OIDC subject (stable user ID)
 // request.roles       → string[]  (from \'roles\' scope)
 // request.permissions → string[]  (from \'permissions\' scope)
-// request.features    → object    (from \'features\' scope)`;
+// request.features    → object    (from 'features' scope)`;
 });
+
+const codeCopied = ref(false);
+let codeCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+const activeCodeExample = computed(() =>
+  activeCodeTab.value === 'typescript'
+    ? codeExampleTS.value
+    : activeCodeTab.value === 'python'
+      ? codeExamplePython.value
+      : codeExampleIOServer.value,
+);
+async function copyActiveCode(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(activeCodeExample.value);
+    codeCopied.value = true;
+    toast.success(t('common.copied'));
+    clearTimeout(codeCopiedTimer);
+    codeCopiedTimer = setTimeout(() => {
+      codeCopied.value = false;
+    }, 1500);
+  } catch {
+    toast.error(t('common.copyError'));
+  }
+}
 
 const PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type PKey = typeof PROVIDERS[number];
@@ -759,8 +812,9 @@ const financialKpis = computed(() => {
         </div>
 
         <div v-if="activeTab === 'users'" class="space-y-4">
-          <div class="flex justify-end">
+          <div class="flex justify-end gap-2">
             <BaseButton size="sm" @click="showUserModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
+            <BaseButton size="sm" variant="outline" @click="showBulkUserModal = true"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
           </div>
           <DataTable
             :columns="userColumns"
@@ -768,8 +822,6 @@ const financialKpis = computed(() => {
             :loading="loading"
             :empty="!loading && appUsers.length === 0"
             :row-key="(u: UserApplication) => u.userId"
-            enable-column-visibility
-            enable-density-toggle
           >
             <template #empty>
               <div class="px-5 py-8 text-center text-sm text-surface-500">No users with access</div>
@@ -891,7 +943,7 @@ const financialKpis = computed(() => {
           </div>
         </div>
 
-        <div v-if="activeTab === 'integration' && app" class="space-y-5 max-w-2xl">
+        <div v-if="activeTab === 'integration' && app" class="grid grid-cols-1 xl:grid-cols-2 gap-5">
 
           <!-- ── Credentials ────────────────────────────────────────────── -->
           <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 space-y-4">
@@ -937,10 +989,19 @@ const financialKpis = computed(() => {
           </div>
 
           <!-- ── Code Examples ──────────────────────────────────────────── -->
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 flex flex-col">
             <div class="flex items-center gap-2 mb-4">
               <Code class="w-4 h-4 text-primary-400" />
               <p class="text-sm font-semibold text-surface-200">{{ t('appDetail.codeSnippet') }}</p>
+              <button
+                type="button"
+                class="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-surface-400 hover:text-surface-100 hover:bg-surface-800/60 transition-colors"
+                :title="t('common.copy')"
+                @click="copyActiveCode"
+              >
+                <component :is="codeCopied ? Check : Copy" class="w-3.5 h-3.5" />
+                {{ codeCopied ? t('common.copied') : t('common.copy') }}
+              </button>
             </div>
             <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
               <button
@@ -950,7 +1011,7 @@ const financialKpis = computed(() => {
                 :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
               >{{ tab.label }}</button>
             </div>
-            <pre class="bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 overflow-x-auto border border-surface-800/50 leading-relaxed whitespace-pre">{{ activeCodeTab === 'typescript' ? codeExampleTS : activeCodeTab === 'python' ? codeExamplePython : codeExampleIOServer }}</pre>
+            <pre class="flex-1 min-h-0 overflow-auto bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 border border-surface-800/50 leading-relaxed whitespace-pre">{{ activeCodeExample }}</pre>
             <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
             <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
             <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
@@ -1149,6 +1210,29 @@ const financialKpis = computed(() => {
       <template #footer>
         <BaseButton variant="ghost" @click="showPermModal = false">{{ t('common.cancel') }}</BaseButton>
         <BaseButton :loading="formLoading" @click="handleCreatePerm">{{ t('common.create') }}</BaseButton>
+      </template>
+    </BaseModal>
+
+    <BaseModal :open="showBulkUserModal" :title="t('appDetail.bulkGrantAccess')" @close="showBulkUserModal = false">
+      <div class="space-y-4">
+        <p class="text-sm text-surface-400">{{ t('appDetail.bulkGrantHint') }}</p>
+        <SearchSelect
+          v-model="bulkForm.organizationId"
+          :label="t('appDetail.organization')"
+          :load-options="loadOrganizationOptions"
+          :placeholder="t('appDetail.searchOrganizations')"
+          required
+        />
+        <SearchSelect
+          v-model="bulkForm.roleId"
+          :label="t('appDetail.role')"
+          :load-options="loadRoleOptions"
+          :placeholder="t('appDetail.searchRoles')"
+        />
+      </div>
+      <template #footer>
+        <BaseButton variant="ghost" @click="showBulkUserModal = false">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton :loading="formLoading" :disabled="!bulkForm.organizationId" @click="handleBulkGrantAccess">{{ t('appDetail.grantAccess') }}</BaseButton>
       </template>
     </BaseModal>
 

@@ -49,6 +49,12 @@ export class SmtpTransport implements MailTransport {
       subject: msg.subject,
       html: msg.html,
       text: msg.text,
+      attachments: msg.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        cid: a.cid,
+        contentType: a.contentType,
+      })),
     });
   }
 }

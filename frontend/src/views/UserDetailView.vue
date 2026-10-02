@@ -2,8 +2,9 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { getUser } from '@/api/users';
+import { getUser, sendVerificationEmail, markEmailVerified } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
+import { useToast } from '@/composables/useToast';
 import type { User, UserApplicationDetail, ConsumptionAggregate } from '@/types';
 import type { ColumnDef } from '@/types/data-table';
 import AppLayout from '@/components/layout/AppLayout.vue';
@@ -12,18 +13,57 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert } from 'lucide-vue-next';
+import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
+const toast = useToast();
 
 const user = ref<User | null>(null);
 const userApps = ref<UserApplicationDetail[]>([]);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const loading = ref(true);
+const actionLoading = ref(false);
 
 const userId = route.params.id as string;
+
+async function reloadUser(): Promise<void> {
+  const res = await getUser(userId);
+  user.value = res.user;
+  userApps.value = res.applications;
+}
+
+async function handleResendVerification(): Promise<void> {
+  actionLoading.value = true;
+  try {
+    await sendVerificationEmail(userId);
+    // The endpoint reverts the account to unverified before sending.
+    await reloadUser();
+    toast.success(t('users.verificationSent'));
+  } catch (err) {
+    toast.error(
+      err instanceof Error ? err.message : t('users.verificationSendError'),
+    );
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
+async function handleMarkVerified(): Promise<void> {
+  actionLoading.value = true;
+  try {
+    await markEmailVerified(userId);
+    await reloadUser();
+    toast.success(t('users.markedVerified'));
+  } catch (err) {
+    toast.error(
+      err instanceof Error ? err.message : t('users.markVerifiedError'),
+    );
+  } finally {
+    actionLoading.value = false;
+  }
+}
 
 onMounted(async () => {
   try {
@@ -127,6 +167,28 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
               <p class="text-xs font-medium text-surface-500 uppercase tracking-wide mb-1">{{ t('users.createdAt') }}</p>
               <p class="text-sm text-surface-300">{{ formatDate(user.createdAt) }}</p>
             </div>
+          </div>
+
+          <div class="mt-5 flex flex-wrap gap-2">
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :loading="actionLoading"
+              @click="handleResendVerification"
+            >
+              <Mail class="w-4 h-4" />
+              {{ t('users.resendVerification') }}
+            </BaseButton>
+            <BaseButton
+              v-if="!user.emailVerified"
+              variant="outline"
+              size="sm"
+              :disabled="actionLoading"
+              @click="handleMarkVerified"
+            >
+              <MailCheck class="w-4 h-4" />
+              {{ t('users.markVerified') }}
+            </BaseButton>
           </div>
 
           <div v-if="user.banned" class="mt-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">

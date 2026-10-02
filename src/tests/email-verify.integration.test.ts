@@ -49,6 +49,9 @@ describe("Email — verification flow (integration)", () => {
 
     // 2. Pull the verification URL out of the rendered HTML and follow it.
     const verifyUrl = extractUrl(msg!.html, (u) => u.includes("/api/auth/verify-email"));
+    // The callback must land regular users on /profile, not the admin-only
+    // dashboard (which returns 403).
+    expect(verifyUrl).toContain("callbackURL=%2Fprofile");
     const verifyRes = await handle.app.inject({
       method: "GET",
       url: toPath(verifyUrl),
@@ -94,5 +97,8 @@ describe("Email — verification flow (integration)", () => {
     // BetterAuth returns 403 when emailVerification is required.
     expect(signIn.statusCode).toBeGreaterThanOrEqual(400);
     expect(signIn.statusCode).toBeLessThan(500);
+    // No duplicate activation mail: `sendOnSignIn` is intentionally disabled,
+    // so a failed sign-in must not (re)send a verification email.
+    expect(handle.capture.messages).toHaveLength(1);
   });
 });

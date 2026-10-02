@@ -75,6 +75,9 @@ describe("Email — admin-created user (integration)", () => {
     const msg = await waitFor(() => handle.capture.last("newuser@example.com"));
     expect(msg).toBeDefined();
     expect(msg!.subject).toMatch(/verify/i);
+    expect(
+      handle.capture.messages.filter((m) => m.to === "newuser@example.com"),
+    ).toHaveLength(1);
 
     const created = res.json<{ user: { id: string; emailVerified: boolean } }>();
     expect(created.user.emailVerified).toBe(false);
@@ -104,6 +107,14 @@ describe("Email — admin-created user (integration)", () => {
     });
     expect(resend.statusCode).toBe(200);
     expect(handle.capture.last("newuser2@example.com")).toBeDefined();
+
+    // Re-sending reverts the account to unverified.
+    const [afterResend] = await db
+      .select({ emailVerified: userTable.emailVerified })
+      .from(userTable)
+      .where(eq(userTable.id, userId))
+      .limit(1);
+    expect(afterResend?.emailVerified).toBe(false);
 
     const verify = await handle.app.inject({
       method: "POST",

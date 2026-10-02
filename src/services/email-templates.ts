@@ -107,6 +107,68 @@ function htmlToText(html: string): string {
     .trim();
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Wrap the inner content of a built-in template in a shared, email-client-safe
+ * shell (table layout, inline styles, embedded CID logo, footer). Applied only
+ * to bundled templates: external/tenant overrides stay in full control of
+ * their markup.
+ */
+function wrapEmailLayout(inner: string, vars: Record<string, unknown>): string {
+  const appName = escapeHtml(String(vars.appName ?? "Auth"));
+  const authUrl = String(vars.authUrl ?? "");
+  const supportEmail = String(vars.supportEmail ?? "");
+  const logoCid = String(vars.logoCid ?? "");
+  const hasLogo = Boolean(vars.hasLogo) && logoCid !== "";
+  const year = new Date().getFullYear();
+
+  const brand = hasLogo
+    ? `<img src="cid:${escapeHtml(logoCid)}" alt="${appName}" width="48" height="48" style="display:block;width:48px;height:48px;border:0;outline:none;text-decoration:none;" />`
+    : `<div style="font-size:18px;font-weight:700;color:#09090b;letter-spacing:-0.01em;">${appName}</div>`;
+
+  const footerContact = supportEmail
+    ? ` &middot; <a href="mailto:${escapeHtml(supportEmail)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(supportEmail)}</a>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light dark" />
+<title>${appName}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f5;padding:32px 12px;">
+<tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<tr><td align="center" style="padding:28px 32px 4px;">${brand}</td></tr>
+<tr><td style="padding:12px 32px 28px;color:#18181b;font-size:15px;line-height:1.6;">${inner}</td></tr>
+<tr><td style="padding:20px 32px 28px;border-top:1px solid #e4e4e7;color:#71717a;font-size:12px;line-height:1.6;">
+<p style="margin:0 0 6px;">${appName}${footerContact}</p>
+<p style="margin:0;">This is an automated message &mdash; please do not reply.</p>
+<p style="margin:6px 0 0;">&copy; ${year} ${appName}</p>
+</td></tr>
+</table>
+${
+  authUrl
+    ? `<p style="max-width:560px;margin:14px auto 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#a1a1aa;text-align:center;">${escapeHtml(authUrl)}</p>`
+    : ""
+}
+</td></tr>
+</table>
+</body>
+</html>`;
+}
+
 export function resolveEmailTemplate(
   name: string,
   appSlug: string | null,
@@ -165,11 +227,17 @@ export function renderEmail(
   // For the HTML section we re-render from the original file location so any
   // future include/partial resolves relative to the template dir if needed.
   // The file already contains the frontmatter, so we render a sliced string.
-  const html = renderTemplateString(htmlPart ?? "", vars).trim();
+  const innerHtml = renderTemplateString(htmlPart ?? "", vars).trim();
   const text =
     textPart !== undefined
       ? renderTemplateString(textPart, vars).trim()
-      : htmlToText(html);
+      : htmlToText(innerHtml);
+
+  // Bundled templates get the shared branded shell; external overrides are
+  // rendered verbatim so tenants keep full control.
+  const html = path.startsWith(BUILTIN_EMAIL_TEMPLATES_DIR)
+    ? wrapEmailLayout(innerHtml, vars)
+    : innerHtml;
 
   return {
     subject,

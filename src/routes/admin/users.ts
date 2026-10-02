@@ -399,18 +399,34 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       if (!canAdminTargetUser(callerRole, targetRow.role)) {
         throw ERR.AUTH_011("Insufficient permissions to email this user");
       }
-      if (targetRow.emailVerified) {
-        throw ERR.USR_003("This email address is already verified");
-      }
       if (!isMailConfigured()) {
         throw ERR.MAIL_002("SMTP is not configured for this deployment");
       }
 
+      // Re-sending also reverts the account to unverified: the new link must
+      // prove ownership again, exactly like a fresh sign-up.
+      await db
+        .update(userTable)
+        .set({ emailVerified: false })
+        .where(eq(userTable.id, req.params.id));
+
       // No session: BetterAuth only allows a mismatched target address on the
       // unauthenticated branch of /send-verification-email.
-      await auth.api.sendVerificationEmail({
-        body: { email: targetRow.email },
-      });
+      try {
+        await auth.api.sendVerificationEmail({
+          body: { email: targetRow.email },
+        });
+      } catch (err) {
+        // Do not leave a previously-verified account locked out (with
+        // REQUIRE_EMAIL_VERIFICATION) when the send fails.
+        if (targetRow.emailVerified) {
+          await db
+            .update(userTable)
+            .set({ emailVerified: true })
+            .where(eq(userTable.id, req.params.id));
+        }
+        throw err;
+      }
       await reply.send({ ok: true });
     },
   );

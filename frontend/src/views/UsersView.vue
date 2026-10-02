@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useUsersStore } from '@/stores/users';
-import { createUser, disableUser, enableUser } from '@/api/users';
+import { createUser, disableUser, enableUser, sendVerificationEmail } from '@/api/users';
 import { useToast } from '@/composables/useToast';
 import { useDebounce } from '@/composables/useDebounce';
 import type { User } from '@/types';
@@ -18,7 +18,7 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import AppIconStack from '@/components/ui/AppIconStack.vue';
-import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2 } from 'lucide-vue-next';
+import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail } from 'lucide-vue-next';
 import type { ColumnDef } from '@/types/data-table';
 import { useAuthStore } from '@/stores/auth';
 
@@ -169,6 +169,23 @@ async function handleUnban(user: User) {
     toast.success('User unbanned');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to unban user');
+  } finally {
+    actionLoading.value = false;
+    actionMenuUser.value = null;
+  }
+}
+
+async function handleResendVerification(user: User) {
+  actionLoading.value = true;
+  try {
+    await sendVerificationEmail(user.id);
+    // The endpoint reverts the account to unverified before sending.
+    await loadUsers();
+    toast.success(t('users.verificationSent'));
+  } catch (err) {
+    toast.error(
+      err instanceof Error ? err.message : t('users.verificationSendError'),
+    );
   } finally {
     actionLoading.value = false;
     actionMenuUser.value = null;
@@ -368,6 +385,7 @@ const editModalTags = computed(() => {
                   <button @click="openEdit(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Pencil class="w-4 h-4" />{{ t('users.editUser') }}</button>
                   <button v-if="(row as User).banned" @click="handleUnban(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-emerald-400 hover:bg-surface-700/50 flex items-center gap-2"><CheckCircle2 class="w-4 h-4" />{{ t('users.enable') }}</button>
                   <button v-else @click="openDisable(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-amber-400 hover:bg-surface-700/50 flex items-center gap-2"><Ban class="w-4 h-4" />{{ t('users.disable') }}</button>
+                  <button @click="handleResendVerification(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Mail class="w-4 h-4" />{{ t('users.resendVerification') }}</button>
                   <button @click="openDelete(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-surface-700/50 flex items-center gap-2"><Trash2 class="w-4 h-4" />{{ t('users.deleteUser') }}</button>
                 </div>
               </Teleport>

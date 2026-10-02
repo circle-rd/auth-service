@@ -46,6 +46,24 @@ import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
 
+/**
+ * BetterAuth builds the verification URL with `callbackURL=/` by default, which
+ * lands the user on the admin-only dashboard (403 for regular users). Default
+ * to the profile page whenever no explicit callback was supplied.
+ */
+function withProfileCallback(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const callback = parsed.searchParams.get("callbackURL");
+    if (!callback || callback === "/") {
+      parsed.searchParams.set("callbackURL", "/profile");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 const ADMIN_TARGET_USER_ID_PATHS = new Set([
   "/admin/ban-user",
   "/admin/unban-user",
@@ -354,15 +372,15 @@ export const auth = betterAuth({
   // when a new account is created.
   emailVerification: {
     sendOnSignUp: true,
-    // Re-send a fresh link when an unverified account tries to sign in rather
-    // than returning a bare EMAIL_NOT_VERIFIED with no way forward.
-    sendOnSignIn: true,
     autoSignInAfterVerification: true,
     sendVerificationEmail: async (params: {
       user: { email: string };
       url: string;
     }) => {
-      await sendVerificationEmail(params.user.email, params.url);
+      await sendVerificationEmail(
+        params.user.email,
+        withProfileCallback(params.url),
+      );
     },
   },
   // Email change confirmation: BetterAuth fires this when an authenticated

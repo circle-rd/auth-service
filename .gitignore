@@ -25,3 +25,7 @@ coverage/
 test_output.txt
 
 FRONTEND_PROMPT.md
+
+# Templates
+templates/*
+!templates/default/

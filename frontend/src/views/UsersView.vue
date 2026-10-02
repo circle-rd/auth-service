@@ -3,9 +3,11 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useUsersStore } from '@/stores/users';
-import { createUser, disableUser, enableUser, sendVerificationEmail } from '@/api/users';
+import { createUser, disableUser, enableUser, sendVerificationEmail, importUsers } from '@/api/users';
+import type { ImportUserRow, ImportResultRow } from '@/api/users';
 import { useToast } from '@/composables/useToast';
 import { useDebounce } from '@/composables/useDebounce';
+import { useAppBranding } from '@/composables/useAppBranding';
 import type { User } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
@@ -13,12 +15,14 @@ import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import EntityModal from '@/components/ui/EntityModal.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
+import BaseModal from '@/components/ui/BaseModal.vue';
+import { parseCsv, toCsv, downloadText } from '@/utils/csv';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import AppIconStack from '@/components/ui/AppIconStack.vue';
-import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail } from 'lucide-vue-next';
+import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail, Upload } from 'lucide-vue-next';
 import type { ColumnDef } from '@/types/data-table';
 import { useAuthStore } from '@/stores/auth';
 
@@ -27,6 +31,7 @@ const router = useRouter();
 const store = useUsersStore();
 const auth = useAuthStore();
 const toast = useToast();
+const { emailVerificationEnabled } = useAppBranding();
 
 const search = ref('');
 const debouncedSearch = useDebounce(search);
@@ -43,6 +48,13 @@ const actionLoading = ref(false);
 const deleteError = ref('');
 const selectedUser = ref<User | null>(null);
 const actionMenuUser = ref<string | null>(null);
+
+const showImportModal = ref(false);
+const importRows = ref<ImportUserRow[]>([]);
+const importError = ref('');
+const importLoading = ref(false);
+const importResults = ref<ImportResultRow[] | null>(null);
+const importFileName = ref('');
 
 const createForm = ref({ name: '', email: '', password: '', role: 'user' as 'user' | 'admin' });
 const editForm = ref({ name: '', role: 'user' as 'user' | 'admin', isMfaRequired: undefined as boolean | undefined });
@@ -192,6 +204,96 @@ async function handleResendVerification(user: User) {
   }
 }
 
+function openImportModal() {
+  importRows.value = [];
+  importError.value = '';
+  importResults.value = null;
+  importFileName.value = '';
+  showImportModal.value = true;
+}
+
+function csvToImportRows(text: string): ImportUserRow[] {
+  const rows = parseCsv(text);
+  if (rows.length === 0) return [];
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const hasHeader = header.includes('email');
+  const col = {
+    name: hasHeader ? header.indexOf('name') : 0,
+    email: hasHeader ? header.indexOf('email') : 1,
+    password: hasHeader ? header.indexOf('password') : 2,
+    role: hasHeader ? header.indexOf('role') : 3,
+  };
+  const data = hasHeader ? rows.slice(1) : rows;
+  return data
+    .map((r) => {
+      const role = col.role >= 0 ? r[col.role]?.trim().toLowerCase() : undefined;
+      const password = col.password >= 0 ? r[col.password]?.trim() : undefined;
+      return {
+        name: (col.name >= 0 ? r[col.name]?.trim() : '') ?? '',
+        email: (col.email >= 0 ? r[col.email]?.trim().toLowerCase() : '') ?? '',
+        ...(password ? { password } : {}),
+        role: role === 'admin' ? ('admin' as const) : ('user' as const),
+      };
+    })
+    .filter((u) => u.email !== '');
+}
+
+async function onImportFile(event: Event) {
+  importError.value = '';
+  importResults.value = null;
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  importFileName.value = file.name;
+  try {
+    const text = await file.text();
+    const rows = csvToImportRows(text);
+    if (rows.length === 0) {
+      importError.value = t('users.importNoRows');
+      importRows.value = [];
+      return;
+    }
+    const invalid = rows.filter((r) => !r.name || !r.email.includes('@'));
+    if (invalid.length > 0) {
+      importError.value = t('users.importInvalidRows', { count: invalid.length });
+    }
+    importRows.value = rows.filter((r) => r.name && r.email.includes('@'));
+  } catch {
+    importError.value = t('users.importReadError');
+    importRows.value = [];
+  }
+}
+
+async function handleImport() {
+  if (importRows.value.length === 0 || importLoading.value) return;
+  importLoading.value = true;
+  importError.value = '';
+  try {
+    const res = await importUsers(importRows.value);
+    importResults.value = res.results;
+    await loadUsers();
+    if (res.failed === 0) {
+      toast.success(t('users.importSuccess', { count: res.created }));
+    } else {
+      toast.error(t('users.importPartial', { created: res.created, failed: res.failed }));
+    }
+  } catch (err) {
+    importError.value = err instanceof Error ? err.message : t('users.importReadError');
+  } finally {
+    importLoading.value = false;
+  }
+}
+
+function downloadImportResults() {
+  const results = importResults.value;
+  if (!results) return;
+  const rows: string[][] = [[t('users.email'), t('users.importStatus'), t('users.importTempPassword'), t('users.importMessage')]];
+  for (const r of results) {
+    rows.push([r.email, r.status, r.password ?? '', r.message ?? '']);
+  }
+  downloadText('user-import-results.csv', toCsv(rows));
+}
+
 function openDisable(user: User) {
   selectedUser.value = user;
   showDisableConfirm.value = true;
@@ -293,10 +395,16 @@ const editModalTags = computed(() => {
           <BaseSelect v-model="filterRole" :options="roleOptions" class="w-40" />
           <BaseSelect v-model="filterStatus" :options="statusOptions" class="w-40" />
         </div>
-        <BaseButton @click="showCreateModal = true">
-          <UserPlus class="w-4 h-4" />
-          {{ t('users.createUser') }}
-        </BaseButton>
+        <div class="flex items-center gap-2">
+          <BaseButton variant="outline" @click="openImportModal">
+            <Upload class="w-4 h-4" />
+            {{ t('users.importUsers') }}
+          </BaseButton>
+          <BaseButton @click="showCreateModal = true">
+            <UserPlus class="w-4 h-4" />
+            {{ t('users.createUser') }}
+          </BaseButton>
+        </div>
       </div>
 
       <DataTable
@@ -305,8 +413,6 @@ const editModalTags = computed(() => {
         :loading="store.loading"
         :empty="!store.loading && filteredUsers.length === 0"
         :row-key="(u: User) => u.id"
-        enable-column-visibility
-        enable-density-toggle
         clickable-rows
         @row-click="(u: User) => router.push(`/users/${u.id}`)"
       >
@@ -382,11 +488,13 @@ const editModalTags = computed(() => {
                   v-click-outside="() => actionMenuUser = null"
                 >
                   <button @click="router.push(`/users/${(row as User).id}`); actionMenuUser = null;" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Eye class="w-4 h-4" />{{ t('common.view') }}</button>
-                  <button @click="openEdit(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Pencil class="w-4 h-4" />{{ t('users.editUser') }}</button>
-                  <button v-if="(row as User).banned" @click="handleUnban(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-emerald-400 hover:bg-surface-700/50 flex items-center gap-2"><CheckCircle2 class="w-4 h-4" />{{ t('users.enable') }}</button>
-                  <button v-else @click="openDisable(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-amber-400 hover:bg-surface-700/50 flex items-center gap-2"><Ban class="w-4 h-4" />{{ t('users.disable') }}</button>
-                  <button @click="handleResendVerification(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Mail class="w-4 h-4" />{{ t('users.resendVerification') }}</button>
-                  <button @click="openDelete(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-surface-700/50 flex items-center gap-2"><Trash2 class="w-4 h-4" />{{ t('users.deleteUser') }}</button>
+                  <button v-if="auth.canManageUser((row as User).role)" @click="openEdit(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Pencil class="w-4 h-4" />{{ t('users.editUser') }}</button>
+                  <button v-if="emailVerificationEnabled && auth.canManageUser((row as User).role)" @click="handleResendVerification(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"><Mail class="w-4 h-4" />{{ t('users.resendVerification') }}</button>
+                  <template v-if="(row as User).id !== auth.user?.id && auth.canManageUser((row as User).role)">
+                    <button v-if="(row as User).banned" @click="handleUnban(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-emerald-400 hover:bg-surface-700/50 flex items-center gap-2"><CheckCircle2 class="w-4 h-4" />{{ t('users.enable') }}</button>
+                    <button v-else @click="openDisable(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-amber-400 hover:bg-surface-700/50 flex items-center gap-2"><Ban class="w-4 h-4" />{{ t('users.disable') }}</button>
+                    <button @click="openDelete(row as User)" class="w-full text-left px-3 py-2.5 text-sm text-red-400 hover:bg-surface-700/50 flex items-center gap-2"><Trash2 class="w-4 h-4" />{{ t('users.deleteUser') }}</button>
+                  </template>
                 </div>
               </Teleport>
             </div>
@@ -476,5 +584,62 @@ const editModalTags = computed(() => {
       @confirm="handleDisable"
       @cancel="showDisableConfirm = false"
     />
+
+    <BaseModal :open="showImportModal" :title="t('users.importUsers')" @close="showImportModal = false">
+      <div class="space-y-4">
+        <p class="text-sm text-surface-400">{{ t('users.importHint') }}</p>
+        <label class="flex items-center justify-center gap-2 px-4 py-6 border border-dashed border-surface-600 rounded-xl cursor-pointer hover:border-primary-500 text-sm text-surface-300">
+          <Upload class="w-4 h-4" />
+          <span class="truncate">{{ importFileName || t('users.importChooseFile') }}</span>
+          <input type="file" accept=".csv,text/csv" class="hidden" @change="onImportFile" />
+        </label>
+        <p v-if="importError" class="text-sm text-red-400">{{ importError }}</p>
+
+        <div v-if="importRows.length > 0 && !importResults" class="text-sm text-surface-300">
+          <p>{{ t('users.importPreview', { count: importRows.length }) }}</p>
+          <ul class="mt-2 max-h-40 overflow-auto rounded-lg border border-surface-700/40 divide-y divide-surface-800/40">
+            <li v-for="(r, i) in importRows.slice(0, 20)" :key="i" class="px-3 py-1.5 flex items-center gap-3">
+              <span class="truncate">{{ r.name }}</span>
+              <span class="text-surface-500 truncate flex-1">{{ r.email }}</span>
+              <BaseBadge :variant="r.role === 'admin' ? 'warning' : 'neutral'" size="sm">{{ r.role }}</BaseBadge>
+            </li>
+          </ul>
+          <p v-if="importRows.length > 20" class="mt-1 text-xs text-surface-500">+{{ importRows.length - 20 }}</p>
+        </div>
+
+        <div v-if="importResults" class="space-y-2">
+          <p class="text-sm text-surface-300">
+            {{ t('users.importResults', {
+              created: importResults.filter(r => r.status === 'created').length,
+              failed: importResults.filter(r => r.status === 'error').length,
+            }) }}
+          </p>
+          <div class="max-h-64 overflow-auto rounded-lg border border-surface-700/40 divide-y divide-surface-800/40">
+            <div v-for="(r, i) in importResults" :key="i" class="px-3 py-2 text-sm flex items-start gap-2">
+              <component
+                :is="r.status === 'created' ? CheckCircle : XCircle"
+                :class="r.status === 'created' ? 'text-emerald-400' : 'text-red-400'"
+                class="w-4 h-4 mt-0.5 shrink-0"
+              />
+              <div class="min-w-0">
+                <p class="text-surface-200 truncate">{{ r.email }}</p>
+                <p v-if="r.password" class="text-xs text-surface-500 font-mono">{{ t('users.importTempPassword') }}: {{ r.password }}</p>
+                <p v-if="r.message" class="text-xs text-red-400">{{ r.message }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <template v-if="importResults">
+          <BaseButton variant="ghost" @click="downloadImportResults">{{ t('users.importDownload') }}</BaseButton>
+          <BaseButton @click="showImportModal = false">{{ t('common.close') }}</BaseButton>
+        </template>
+        <template v-else>
+          <BaseButton variant="ghost" @click="showImportModal = false">{{ t('common.cancel') }}</BaseButton>
+          <BaseButton :loading="importLoading" :disabled="importRows.length === 0" @click="handleImport">{{ t('users.importRun') }}</BaseButton>
+        </template>
+      </template>
+    </BaseModal>
   </AppLayout>
 </template>

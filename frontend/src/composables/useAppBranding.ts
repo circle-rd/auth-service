@@ -12,6 +12,10 @@ const state = ref<BrandingState>({
   loaded: false,
 });
 
+// Whether the deployment can send verification emails (SMTP configured) AND
+// enforces email verification. Drives the visibility of the admin actions.
+const emailVerificationEnabled = ref(false);
+
 let inflight: Promise<void> | null = null;
 
 async function load(): Promise<void> {
@@ -21,9 +25,14 @@ async function load(): Promise<void> {
     try {
       const res = await fetch('/api/app-config');
       if (!res.ok) return;
-      const data = (await res.json()) as { appName?: string; logoUrl?: string | null };
+      const data = (await res.json()) as {
+        appName?: string;
+        logoUrl?: string | null;
+        emailVerificationEnabled?: boolean;
+      };
       if (data.appName) state.value.appName = data.appName;
       if (data.logoUrl) state.value.logoUrl = data.logoUrl;
+      emailVerificationEnabled.value = data.emailVerificationEnabled === true;
       state.value.loaded = true;
       applyFavicon(state.value.logoUrl);
       if (typeof document !== 'undefined') document.title = state.value.appName;
@@ -62,5 +71,5 @@ function applyFavicon(url: string | null): void {
 }
 
 export function useAppBranding() {
-  return { branding: state, load };
+  return { branding: state, emailVerificationEnabled, load };
 }

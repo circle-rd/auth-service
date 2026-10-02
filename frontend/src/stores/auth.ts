@@ -110,6 +110,17 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value?.role === 'superadmin';
   }
 
+  /**
+   * Mirrors the server's admin-route policy: a superadmin may manage anyone; an
+   * admin may only manage non-admin users. Used to hide actions the caller
+   * cannot perform.
+   */
+  function canManageUser(targetRole: string | null | undefined): boolean {
+    if (user.value?.role === 'superadmin') return true;
+    if (user.value?.role !== 'admin') return false;
+    return targetRole !== 'admin' && targetRole !== 'superadmin';
+  }
+
   return {
     user,
     session,
@@ -127,5 +138,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     isAdmin,
     isSuperAdmin,
+    canManageUser,
   };
 });

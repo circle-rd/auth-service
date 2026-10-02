@@ -362,8 +362,6 @@ void d;
             searchable
             :search="sessionSearch"
             :pagination="sessionPagination"
-            enable-column-visibility
-            enable-density-toggle
             @update:search="sessionSearch = $event"
             @update:page="sessionPage = $event"
             @update:limit="sessionLimit = $event"

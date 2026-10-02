@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { randomBytes } from "node:crypto";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { db } from "../../db/index.js";
@@ -36,6 +37,24 @@ const createUserSchema = z.object({
   // Only superadmin can create admin users. "superadmin" is never assignable via API.
   role: z.enum(["user", "admin"]).default("user"),
 });
+
+const importUserRowSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().email(),
+  // Optional: when omitted the server generates a temporary password and
+  // returns it once so the operator can hand it over.
+  password: z.string().min(8).optional(),
+  role: z.enum(["user", "admin"]).default("user"),
+});
+
+const importUsersSchema = z.object({
+  users: z.array(importUserRowSchema).min(1).max(500),
+});
+
+/** 12-char URL-safe temporary password (min length is 8). */
+function generateTempPassword(): string {
+  return randomBytes(9).toString("base64url");
+}
 
 export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
@@ -180,6 +199,72 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       const msg = e instanceof Error ? e.message : "Failed to create user";
       throw ERR.USR_003(msg);
     }
+  });
+
+  // POST /api/admin/users/import — bulk create users (CSV parsed client-side)
+  fastify.post("/import", async (req, reply) => {
+    const parsed = importUsersSchema.safeParse(req.body);
+    if (!parsed.success)
+      throw ERR.USR_003("Invalid import payload", parsed.error.flatten());
+
+    const callerRole = await getCallerRole(req);
+    const mailConfigured = isMailConfigured();
+
+    const results: Array<{
+      email: string;
+      status: "created" | "error";
+      message?: string;
+      /** Only returned when no password was supplied in the CSV. */
+      password?: string;
+    }> = [];
+
+    for (const row of parsed.data.users) {
+      const email = row.email.toLowerCase();
+      if (row.role === "admin" && callerRole !== "superadmin") {
+        results.push({
+          email,
+          status: "error",
+          message: "Only superadmins can create admin users",
+        });
+        continue;
+      }
+
+      const password = row.password ?? generateTempPassword();
+      try {
+        await auth.api.createUser({
+          headers: fromNodeHeaders(req.headers),
+          body: { name: row.name, email, password, role: row.role },
+        });
+        if (mailConfigured) {
+          void auth.api
+            .sendVerificationEmail({ body: { email } })
+            .catch((err: unknown) =>
+              req.log.warn(
+                { err: String(err), email },
+                "[admin] failed to send verification email during import",
+              ),
+            );
+        }
+        results.push({
+          email,
+          status: "created",
+          ...(row.password ? {} : { password }),
+        });
+      } catch (e: unknown) {
+        results.push({
+          email,
+          status: "error",
+          message: e instanceof Error ? e.message : "Failed to create user",
+        });
+      }
+    }
+
+    const created = results.filter((r) => r.status === "created").length;
+    await reply.status(201).send({
+      results,
+      created,
+      failed: results.length - created,
+    });
   });
 
   // GET /api/admin/users/:id

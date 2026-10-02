@@ -1,8 +1,36 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { renderAuthPage } from "./templates.js";
 
 // The built-in login/register templates are used (no external templates dir).
 const NO_EXTERNAL_DIR = null;
+
+describe("renderAuthPage external volume without default/", () => {
+  it("falls back to the built-in page when the volume only holds per-app overrides", () => {
+    const dir = mkdtempSync(join(tmpdir(), "auth-pages-test-"));
+    try {
+      mkdirSync(join(dir, "my-app"), { recursive: true });
+      writeFileSync(join(dir, "my-app", "login.html"), "<p>custom login</p>");
+      const vars = {
+        actionUrl: "/a",
+        redirectTo: "/r",
+        appSlug: "my-app",
+        authUrl: "https://auth.example.com",
+      };
+
+      expect(renderAuthPage("login", vars, "my-app", dir)).toContain(
+        "custom login",
+      );
+      // register.html is not overridden and the volume has no default/ dir.
+      const fallback = renderAuthPage("register", vars, "my-app", dir);
+      expect(fallback).toContain("https://auth.example.com");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("renderAuthPage", () => {
   describe("variable substitution", () => {
@@ -162,7 +190,7 @@ describe("renderAuthPage", () => {
   });
 
   describe("allowRegister substitution", () => {
-    it("renders ALLOW_REGISTER as 'true' when allowRegister is true", () => {
+    it("injects ALLOW_REGISTER as the boolean literal true", () => {
       const html = renderAuthPage(
         "login",
         {
@@ -177,10 +205,11 @@ describe("renderAuthPage", () => {
       );
 
       expect(html).not.toContain("{{ALLOW_REGISTER}}");
-      expect(html).toContain("'true'");
+      expect(html).toContain("const allowRegister = true");
+      expect(html).not.toContain("const allowRegister = 'true'");
     });
 
-    it("renders ALLOW_REGISTER as 'false' when allowRegister is false", () => {
+    it("injects ALLOW_REGISTER as the boolean literal false", () => {
       const html = renderAuthPage(
         "login",
         {
@@ -195,10 +224,10 @@ describe("renderAuthPage", () => {
       );
 
       expect(html).not.toContain("{{ALLOW_REGISTER}}");
-      expect(html).toContain("'false'");
+      expect(html).toContain("const allowRegister = false");
     });
 
-    it("defaults ALLOW_REGISTER to 'true' when allowRegister is omitted", () => {
+    it("defaults ALLOW_REGISTER to the boolean true when allowRegister is omitted", () => {
       const html = renderAuthPage(
         "login",
         {
@@ -213,7 +242,7 @@ describe("renderAuthPage", () => {
       );
 
       expect(html).not.toContain("{{ALLOW_REGISTER}}");
-      expect(html).toContain("'true'");
+      expect(html).toContain("const allowRegister = true");
     });
   });
 });

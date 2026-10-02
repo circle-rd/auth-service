@@ -1,10 +1,9 @@
 import type { MailMessage, MailTransport } from "./types.js";
-import { logger } from "../../logger.js";
 
 /**
- * No-op transport used in development when no SMTP is configured. Logs a
- * warning with the message subject so developers can see which emails would
- * have been delivered, but never performs network I/O.
+ * No-op transport used when no SMTP is configured. It accepts the message and
+ * intentionally does nothing; `sendEmail()` detects `name === "noop"` and
+ * logs the drop itself, so no delivery log can be mistaken for a real send.
  *
  * Production boot rejects this transport (see config validation): if a flow
  * that requires email is enabled, `SMTP_HOST` must be set.
@@ -12,9 +11,7 @@ import { logger } from "../../logger.js";
 export class NoopMailTransport implements MailTransport {
   readonly name = "noop";
 
-  async send(msg: MailMessage): Promise<void> {
-    logger.warn(
-      `[mail:noop] SMTP not configured — dropping email to ${msg.to} ("${msg.subject}")`,
-    );
+  async send(_msg: MailMessage): Promise<void> {
+    // Intentionally empty — see the class comment.
   }
 }

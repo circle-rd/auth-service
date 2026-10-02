@@ -93,6 +93,13 @@
     .btn-primary { background: var(--primary); color: #fff; }
     .btn-primary:hover:not(:disabled) { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .resend-email {
+      width: 100%; margin-top: 1rem; padding: 0.5625rem 0.75rem;
+      border-radius: var(--radius); border: 1px solid var(--border);
+      background: var(--surface-inner); color: var(--text);
+      font-family: inherit; font-size: 0.9375rem; text-align: center;
+    }
+    .resend-email:focus { outline: none; border-color: var(--border-focus); }
     .cooldown-note { margin-top: 0.75rem; font-size: 0.8125rem; color: var(--text-subtle); display: none; }
   </style>
 </head>
@@ -111,7 +118,8 @@
 
     <div class="card">
       <div class="status-box" id="status-box"></div>
-      <p>Didn't receive the email? Click below to resend the verification link.</p>
+      <p>Didn't receive the email? Enter your address below to resend the verification link.</p>
+      <input type="email" id="resend-email" class="resend-email" placeholder="you@example.com" autocomplete="email" />
       <button type="button" class="btn btn-primary" id="resend-btn">Resend verification email</button>
       <p class="cooldown-note" id="cooldown-note"></p>
     </div>
@@ -120,9 +128,13 @@
   <script type="module">
     const AUTH_URL = '<%= it.AUTH_URL %>';
     const resendBtn = document.getElementById('resend-btn');
+    const emailInput = document.getElementById('resend-email');
     const statusBox = document.getElementById('status-box');
     const cooldownNote = document.getElementById('cooldown-note');
     let cooldownTimer = null;
+
+    const prefillEmail = new URLSearchParams(window.location.search).get('email');
+    if (prefillEmail) emailInput.value = prefillEmail;
 
     function showStatus(type, message) {
       statusBox.className = 'status-box ' + type;
@@ -150,12 +162,19 @@
 
     resendBtn.addEventListener('click', async () => {
       statusBox.style.display = 'none';
+      const email = emailInput.value.trim();
+      if (!email) {
+        showStatus('error', 'Please enter your email address.');
+        emailInput.focus();
+        return;
+      }
       resendBtn.disabled = true;
       resendBtn.textContent = 'Sending…';
       try {
         const res = await fetch(`${AUTH_URL}/api/auth/send-verification-email`, {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body: JSON.stringify({ email }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {

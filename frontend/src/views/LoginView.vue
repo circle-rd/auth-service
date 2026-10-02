@@ -9,6 +9,7 @@ import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import MfaChallengeForm from '@/components/auth/MfaChallengeForm.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
+import { ApiError, apiFetch } from '@/api/client';
 
 const { t } = useI18n();
 const router = useRouter();
@@ -20,19 +21,41 @@ const email = ref('');
 const password = ref('');
 const loading = ref(false);
 const error = ref('');
+const needsVerification = ref(false);
+const resending = ref(false);
+const resendStatus = ref('');
 
 function nextRoute(): string {
   // Preserve a `redirectTo` query param so OAuth flows (which carry signed
   // params via `?client_id=...&sig=...`) resume after a successful sign-in.
   const redirect = route.query.redirectTo;
   if (typeof redirect === 'string' && redirect.startsWith('/')) return redirect;
-  return '/dashboard';
+  return '/profile';
+}
+
+async function resendVerification() {
+  if (!email.value || resending.value) return;
+  resending.value = true;
+  resendStatus.value = '';
+  try {
+    await apiFetch('/auth/send-verification-email', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.value, callbackURL: '/profile' }),
+    });
+    resendStatus.value = t('auth.verificationResent');
+  } catch {
+    resendStatus.value = t('auth.verificationResendError');
+  } finally {
+    resending.value = false;
+  }
 }
 
 async function handleLogin() {
   if (!email.value || !password.value) return;
   loading.value = true;
   error.value = '';
+  needsVerification.value = false;
+  resendStatus.value = '';
   try {
     await auth.signInEmail(email.value, password.value);
     if (auth.mfaPending) {
@@ -45,7 +68,12 @@ async function handleLogin() {
       error.value = t('auth.invalidCredentials');
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : t('auth.invalidCredentials');
+    if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
+      needsVerification.value = true;
+      error.value = t('auth.emailNotVerified');
+    } else {
+      error.value = err instanceof Error ? err.message : t('auth.invalidCredentials');
+    }
   } finally {
     loading.value = false;
   }
@@ -108,6 +136,17 @@ if (import.meta.env.VITE_USE_MOCK === 'true') {
             required
           />
           <p v-if="error" class="text-sm text-red-400 text-center">{{ error }}</p>
+          <div v-if="needsVerification" class="text-center space-y-2">
+            <button
+              type="button"
+              class="text-sm text-primary-400 hover:text-primary-300 underline underline-offset-2 disabled:opacity-50"
+              :disabled="resending"
+              @click="resendVerification"
+            >
+              {{ resending ? t('common.loading') : t('auth.resendVerification') }}
+            </button>
+            <p v-if="resendStatus" class="text-xs text-surface-400">{{ resendStatus }}</p>
+          </div>
           <BaseButton type="submit" class="w-full" :loading="loading" size="lg">
             <LogIn class="w-4 h-4" />
             {{ t('auth.login') }}

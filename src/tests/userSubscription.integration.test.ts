@@ -47,7 +47,7 @@ type SessionLike = ReturnType<typeof auth.api.getSession> extends Promise<infer 
 
 function asUser(id = "user-1") {
   vi.spyOn(auth.api, "getSession").mockResolvedValue(
-    makeUserSession(id) as SessionLike,
+    makeUserSession(id) as unknown as SessionLike,
   );
 }
 

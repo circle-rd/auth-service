@@ -9,7 +9,7 @@
  * `app.inject()` without binding a real port. Production entry point lives
  * in `index.ts`.
  */
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
@@ -47,6 +47,7 @@ import {
 } from "./routes/app-config.js";
 import { ApiError, ERR } from "./errors.js";
 import { renderAuthPage } from "./services/templates.js";
+import { createRateLimitStore } from "./services/rate-limit-store.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
 import { eq } from "drizzle-orm";
@@ -80,11 +81,20 @@ const EMAIL_SEND_PATHS = [
   "/api/auth/forget-password",
   "/api/auth/send-verification-email",
   "/api/auth/sign-in/magic-link",
+  "/api/auth/change-email",
+  "/api/auth/organization/invite-member",
   "/api/auth/email-otp/send-verification-otp",
   "/api/auth/email-otp/request-password-reset",
 ];
 const EMAIL_SEND_MAX = 5;
 const EMAIL_SEND_WINDOW = 60_000;
+
+// Device authorization (RFC 8628, opt-in). `/device/code` is unauthenticated
+// and writes a row per call; `/device/token` is polled every few seconds per
+// device, so it needs a looser ceiling than credential endpoints.
+const DEVICE_RATE_PATHS = ["/api/auth/device"];
+const DEVICE_RATE_MAX = 60;
+const DEVICE_RATE_WINDOW = 60_000;
 
 export async function buildServer(): Promise<FastifyInstance> {
   const fastify = Fastify({
@@ -164,50 +174,38 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   });
 
-  // ── Strict in-memory rate buckets for sensitive auth + email endpoints ──
-  // Not multi-instance safe; use Redis-backed limiting in a clustered deploy.
-  const authRateBuckets = new Map<string, { count: number; resetAt: number }>();
-  const emailSendBuckets = new Map<
-    string,
-    { count: number; resetAt: number }
-  >();
-
-  function checkAuthRateLimit(ip: string): boolean {
-    const now = Date.now();
-    let bucket = authRateBuckets.get(ip);
-    if (!bucket || now >= bucket.resetAt) {
-      bucket = { count: 0, resetAt: now + AUTH_RATE_WINDOW };
-      authRateBuckets.set(ip, bucket);
-    }
-    bucket.count += 1;
-    return bucket.count <= AUTH_RATE_MAX;
-  }
-
-  function checkEmailSendRateLimit(ip: string): boolean {
-    const now = Date.now();
-    let bucket = emailSendBuckets.get(ip);
-    if (!bucket || now >= bucket.resetAt) {
-      bucket = { count: 0, resetAt: now + EMAIL_SEND_WINDOW };
-      emailSendBuckets.set(ip, bucket);
-    }
-    bucket.count += 1;
-    return bucket.count <= EMAIL_SEND_MAX;
-  }
-
-  const evictInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [ip, bucket] of authRateBuckets) {
-      if (now >= bucket.resetAt) authRateBuckets.delete(ip);
-    }
-    for (const [ip, bucket] of emailSendBuckets) {
-      if (now >= bucket.resetAt) emailSendBuckets.delete(ip);
-    }
-  }, 5 * 60_000);
-  evictInterval.unref();
-  fastify.addHook("onClose", async () => clearInterval(evictInterval));
+  // ── Strict rate buckets for sensitive auth + email endpoints ────────────
+  // Backed by an in-process counter by default; when REDIS_URL is set the
+  // store is shared across instances (see services/rate-limit-store.ts).
+  const rateLimitStore = await createRateLimitStore(config.redis.url);
+  fastify.addHook("onClose", async () => {
+    await rateLimitStore.close();
+  });
 
   // ── Static frontend (built Vue SPA) ─────────────────────────────────────
   const frontendDist = join(__dirname, "..", "frontend-dist");
+
+  // Server-rendered auth pages fall back to the Vue SPA when a template cannot
+  // be rendered. Surface the reason: otherwise a broken or missing override
+  // silently serves the SPA design and the misconfiguration goes unnoticed.
+  // Only the page name, slug and error message are logged (never the request
+  // URL or query string, which can carry tokens).
+  function sendSpaFallback(
+    reply: FastifyReply,
+    page: string,
+    appSlug: string | null,
+    err: unknown,
+  ) {
+    fastify.log.warn(
+      { page, appSlug, err: err instanceof Error ? err.message : String(err) },
+      "[templates] auth page template failed to render; serving the SPA instead",
+    );
+    if (existsSync(frontendDist)) {
+      return reply.sendFile("index.html", frontendDist);
+    }
+    return reply.status(404).send({ error: "Not found" });
+  }
+
   if (existsSync(frontendDist)) {
     await fastify.register(staticFiles, {
       root: frontendDist,
@@ -315,11 +313,8 @@ export async function buildServer(): Promise<FastifyInstance> {
           .status(200)
           .header("content-type", "text/html; charset=utf-8")
           .send(html);
-      } catch {
-        if (existsSync(frontendDist)) {
-          return reply.sendFile("index.html", frontendDist);
-        }
-        return reply.status(404).send({ error: "Not found" });
+      } catch (err) {
+        return sendSpaFallback(reply, page, appSlug || null, err);
       }
     });
   }
@@ -381,68 +376,130 @@ export async function buildServer(): Promise<FastifyInstance> {
         .status(200)
         .header("content-type", "text/html; charset=utf-8")
         .send(html);
-    } catch {
+    } catch (err) {
+      return sendSpaFallback(reply, "select-org", query.client_id ?? null, err);
+    }
+  });
+
+  // ── Device authorization approval page (RFC 8628, opt-in) ───────────────
+  fastify.get("/device", async (req, reply) => {
+    if (!config.features.deviceAuthorization) {
+      return reply
+        .status(404)
+        .send({ error: { code: "SRV_001", message: "Not found" } });
+    }
+
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    if (!session) {
+      const code = (req.query as Record<string, string>).user_code;
+      const suffix = code ? `?user_code=${encodeURIComponent(code)}` : "";
+      return reply.redirect(`/login?redirectTo=/device${suffix}`, 302);
+    }
+
+    if (!config.templatesDir) {
       if (existsSync(frontendDist)) {
         return reply.sendFile("index.html", frontendDist);
       }
       return reply.status(404).send({ error: "Not found" });
     }
+
+    try {
+      const html = renderAuthPage(
+        "device",
+        {
+          actionUrl: "",
+          redirectTo: "",
+          appSlug: "",
+          authUrl: config.betterAuth.url,
+        },
+        null,
+        config.templatesDir,
+      );
+      return reply
+        .status(200)
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
+    } catch (err) {
+      return sendSpaFallback(reply, "device", null, err);
+    }
   });
 
   // ── BetterAuth handler — intercept before Fastify body-parsing ──────────
   const betterAuthHandler = toNodeHandler(auth);
-  fastify.addHook("onRequest", (req, reply, done) => {
-    if (req.url?.startsWith("/api/auth/")) {
-      const origin = req.headers.origin;
-      if (origin && corsOrigins.has(origin)) {
-        reply.raw.setHeader("Access-Control-Allow-Origin", origin);
-        reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
-        reply.raw.setHeader(
-          "Access-Control-Allow-Headers",
-          "Content-Type, Authorization, X-Requested-With",
-        );
-        reply.raw.setHeader(
-          "Access-Control-Allow-Methods",
-          "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        );
-      }
-      if (req.method === "OPTIONS") {
-        reply.raw.writeHead(204);
-        reply.raw.end();
+  fastify.addHook("onRequest", async (req, reply) => {
+    if (!req.url?.startsWith("/api/auth/")) return;
+
+    const origin = req.headers.origin;
+    if (origin && corsOrigins.has(origin)) {
+      reply.raw.setHeader("Access-Control-Allow-Origin", origin);
+      reply.raw.setHeader("Access-Control-Allow-Credentials", "true");
+      reply.raw.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, X-Requested-With",
+      );
+      reply.raw.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      );
+    }
+    if (req.method === "OPTIONS") {
+      reply.raw.writeHead(204);
+      reply.raw.end();
+      return;
+    }
+
+    const urlPath = req.url.split("?")[0] ?? "";
+    const ip = req.ip ?? "unknown";
+    if (
+      AUTH_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))
+    ) {
+      const allowed = await rateLimitStore.hit(
+        `auth:${ip}`,
+        AUTH_RATE_MAX,
+        AUTH_RATE_WINDOW,
+      );
+      if (!allowed) {
+        reply.raw.writeHead(429, { "Content-Type": "application/json" });
+        reply.raw.end(JSON.stringify(ERR.RATE_001().toJSON()));
         return;
       }
-
-      const urlPath = req.url.split("?")[0] ?? "";
-      if (
-        AUTH_RATE_PATHS.some(
-          (p) => urlPath === p || urlPath.startsWith(p + "/"),
-        )
-      ) {
-        const ip = req.ip ?? "unknown";
-        if (!checkAuthRateLimit(ip)) {
-          reply.raw.writeHead(429, { "Content-Type": "application/json" });
-          reply.raw.end(JSON.stringify(ERR.RATE_001().toJSON()));
-          return;
-        }
-      }
-      if (
-        EMAIL_SEND_PATHS.some(
-          (p) => urlPath === p || urlPath.startsWith(p + "/"),
-        )
-      ) {
-        const ip = req.ip ?? "unknown";
-        if (!checkEmailSendRateLimit(ip)) {
-          reply.raw.writeHead(429, { "Content-Type": "application/json" });
-          reply.raw.end(JSON.stringify(ERR.MAIL_003().toJSON()));
-          return;
-        }
-      }
-
-      reply.hijack();
-      betterAuthHandler(req.raw, reply.raw);
-    } else {
-      done();
     }
+    if (
+      EMAIL_SEND_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))
+    ) {
+      const allowed = await rateLimitStore.hit(
+        `email:${ip}`,
+        EMAIL_SEND_MAX,
+        EMAIL_SEND_WINDOW,
+      );
+      if (!allowed) {
+        reply.raw.writeHead(429, { "Content-Type": "application/json" });
+        reply.raw.end(JSON.stringify(ERR.MAIL_003().toJSON()));
+        return;
+      }
+    }
+    if (
+      config.features.deviceAuthorization &&
+      DEVICE_RATE_PATHS.some(
+        (p) => urlPath === p || urlPath.startsWith(p + "/"),
+      )
+    ) {
+      const allowed = await rateLimitStore.hit(
+        `device:${ip}`,
+        DEVICE_RATE_MAX,
+        DEVICE_RATE_WINDOW,
+      );
+      if (!allowed) {
+        reply.raw.writeHead(429, { "Content-Type": "application/json" });
+        reply.raw.end(JSON.stringify(ERR.RATE_001().toJSON()));
+        return;
+      }
+    }
+
+    reply.hijack();
+    betterAuthHandler(req.raw, reply.raw);
   });
 
   // ── Routes ──────────────────────────────────────────────────────────────

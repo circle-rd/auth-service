@@ -27,7 +27,12 @@ const BUILTIN_TEMPLATES_DIR = join(
 );
 
 type PageName =
-  "login" | "register" | "verify-email" | "select-org" | "two-factor";
+  | "login"
+  | "register"
+  | "verify-email"
+  | "select-org"
+  | "two-factor"
+  | "device";
 
 // Application slugs are constrained to this charset everywhere else (admin
 // route + OAuth client ids). Validating again here prevents `client_id` from
@@ -92,7 +97,9 @@ export function renderAuthPage(
     AUTH_URL: vars.authUrl,
     ERROR_MESSAGE: vars.errorMessage ?? "",
     OAUTH_QUERY: vars.oauthQuery ?? "",
-    ALLOW_REGISTER: vars.allowRegister !== false ? "true" : "false",
+    // Real boolean (not the string "true"/"false"): `if (it.ALLOW_REGISTER)`
+    // must behave correctly, and `<%~ it.ALLOW_REGISTER %>` emits a JS literal.
+    ALLOW_REGISTER: vars.allowRegister !== false,
     // Forward-slash escape prevents `</script>` injection when these JSON
     // blobs are inlined inside a <script> tag with `<%~` (raw output).
     ORGANIZATIONS_JSON: (vars.organizationsJson ?? "[]").replace(/\//g, "\\/"),

@@ -119,3 +119,19 @@ export async function enableUser(id: string): Promise<{ ok: true }> {
   if (USE_MOCK) return { ok: true };
   return apiFetch<{ ok: true }>(`/admin/users/${id}/enable`, { method: 'POST' });
 }
+
+/** Re-send the verification email; this also reverts the user to unverified. */
+export async function sendVerificationEmail(id: string): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/users/${id}/send-verification`, {
+    method: 'POST',
+  });
+}
+
+/** Mark a user's email as verified without them clicking the link. */
+export async function markEmailVerified(id: string): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/users/${id}/verify-email`, {
+    method: 'POST',
+  });
+}

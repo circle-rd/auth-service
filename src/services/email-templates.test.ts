@@ -108,6 +108,32 @@ subject: Tenant A subject
     expect(tenant.html).toContain("tenant a");
   });
 
+  it("falls back to the built-in template when the mounted volume has no default/ directory", () => {
+    // Typical deployment: TEMPLATES_DIR mounts a volume holding only per-app
+    // overrides. Templates that are not overridden must still resolve.
+    writeTemplate(
+      "tenant-a",
+      "magic-link",
+      `---
+subject: Tenant A magic link
+---
+<p>tenant a</p>
+`,
+    );
+
+    const overridden = renderEmail("magic-link", {}, "tenant-a", dir);
+    expect(overridden.subject).toBe("Tenant A magic link");
+
+    const fallback = renderEmail(
+      "verify-email",
+      { appName: "Test", url: "https://x.test/v", expiresInHours: 1 },
+      "tenant-a",
+      dir,
+    );
+    expect(fallback.subject).toContain("Test");
+    expect(fallback.html).toContain("https://x.test/v");
+  });
+
   it("falls back to built-in template when no override exists", () => {
     // No external dir, no override — should resolve the bundled built-in.
     const out = renderEmail(

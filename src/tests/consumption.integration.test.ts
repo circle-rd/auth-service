@@ -48,7 +48,7 @@ type SessionLike = ReturnType<typeof auth.api.getSession> extends Promise<infer 
 
 function asAdmin() {
   vi.spyOn(auth.api, "getSession").mockResolvedValue(
-    makeSuperadminSession() as SessionLike,
+    makeSuperadminSession() as unknown as SessionLike,
   );
 }
 

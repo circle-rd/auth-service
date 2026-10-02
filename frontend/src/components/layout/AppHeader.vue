@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useTheme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/auth';
-import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
+import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen, LayoutDashboard } from 'lucide-vue-next';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';
 import { useMobileNav } from '@/composables/useMobileNav';
@@ -103,6 +103,16 @@ async function handleLogout() {
 
             <!-- Actions -->
             <div class="py-1">
+              <RouterLink
+                v-if="auth.isAdmin()"
+                to="/dashboard"
+                @click="menuOpen = false"
+                class="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-300 hover:bg-surface-800/60 hover:text-surface-100 transition-colors"
+              >
+                <LayoutDashboard class="w-4 h-4 shrink-0 text-surface-500" />
+                {{ t('nav.dashboard') }}
+              </RouterLink>
+
               <RouterLink
                 to="/profile"
                 @click="menuOpen = false"

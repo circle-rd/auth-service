@@ -8,6 +8,10 @@ import {
   organization,
   magicLink,
   emailOTP,
+  haveIBeenPwned,
+  captcha,
+  lastLoginMethod,
+  deviceAuthorization,
 } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { oauthProvider } from "@better-auth/oauth-provider";
@@ -36,10 +40,29 @@ import {
 import { userMustSetupMfa } from "./services/mfa.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
+import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
 
 const schema = { ...authSchema, ...customSchema };
+
+/**
+ * BetterAuth builds the verification URL with `callbackURL=/` by default, which
+ * lands the user on the admin-only dashboard (403 for regular users). Default
+ * to the profile page whenever no explicit callback was supplied.
+ */
+function withProfileCallback(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const callback = parsed.searchParams.get("callbackURL");
+    if (!callback || callback === "/") {
+      parsed.searchParams.set("callbackURL", "/profile");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
 
 const ADMIN_TARGET_USER_ID_PATHS = new Set([
   "/admin/ban-user",
@@ -51,17 +74,6 @@ const ADMIN_TARGET_USER_ID_PATHS = new Set([
   "/admin/impersonate-user",
   "/admin/revoke-user-sessions",
 ]);
-
-const ROLE_RANK: Record<string, number> = { user: 0, admin: 1, superadmin: 2 };
-
-function roleRank(role: string | null | undefined): number {
-  return role ? (ROLE_RANK[role] ?? 0) : 0;
-}
-
-/** A caller may only manage users that strictly outrank below them. */
-function canManageRole(callerRole: string, targetRole: string): boolean {
-  return roleRank(callerRole) > roleRank(targetRole);
-}
 
 /**
  * Resolve the user id targeted by a native BetterAuth admin endpoint, or null
@@ -365,7 +377,10 @@ export const auth = betterAuth({
       user: { email: string };
       url: string;
     }) => {
-      await sendVerificationEmail(params.user.email, params.url);
+      await sendVerificationEmail(
+        params.user.email,
+        withProfileCallback(params.url),
+      );
     },
   },
   // Email change confirmation: BetterAuth fires this when an authenticated
@@ -527,6 +542,29 @@ export const auth = betterAuth({
     }),
     twoFactor({ issuer: config.appName }),
     passkey(),
+    // ── Optional Phase 5b plugins (opt-in via env) ──────────────────────────
+    // Every entry below is gated so the default deployment stays identical.
+    ...(config.features.haveIBeenPwned ? [haveIBeenPwned()] : []),
+    ...(config.features.lastLoginMethod ? [lastLoginMethod()] : []),
+    ...(config.captcha.enabled
+      ? [
+          captcha({
+            provider: config.captcha.provider as
+              | "cloudflare-turnstile"
+              | "google-recaptcha"
+              | "hcaptcha"
+              | "captchafox",
+            secretKey: config.captcha.secretKey as string,
+            siteKey: config.captcha.siteKey,
+            ...(config.captcha.endpoints
+              ? { endpoints: config.captcha.endpoints }
+              : {}),
+          } as Parameters<typeof captcha>[0]),
+        ]
+      : []),
+    ...(config.features.deviceAuthorization
+      ? [deviceAuthorization({ verificationUri: "/device" })]
+      : []),
     // Organization support — only admins/superadmins can create orgs via admin API.
     // Regular users can be members of orgs but cannot create them.
     organization({

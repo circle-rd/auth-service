@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Device authorization</title>
+  <style>
+    :root {
+      --bg: #f4f4f5; --surface: #ffffff; --border: rgba(212,212,216,0.7);
+      --text: #09090b; --text-muted: #71717a; --primary: #2563eb;
+      --danger: #ef4444; --radius: 8px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #09090b; --surface: #18181b; --border: rgba(63,63,70,0.6); --text: #fafafa; --text-muted: #a1a1aa; }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text);
+      min-height: 100svh; display: flex; align-items: center; justify-content: center; padding: 1.5rem 1rem;
+    }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 1.75rem; width: 100%; max-width: 24rem; text-align: center;
+      box-shadow: 0 8px 24px rgba(0,0,0,.08);
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; }
+    p { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; }
+    label { display: block; text-align: left; font-size: 0.8125rem; margin: 1.25rem 0 0.375rem; color: var(--text-muted); }
+    input {
+      width: 100%; padding: 0.625rem 0.75rem; border-radius: var(--radius);
+      border: 1px solid var(--border); background: transparent; color: var(--text);
+      font-family: inherit; font-size: 1rem; text-align: center; letter-spacing: 0.15em; text-transform: uppercase;
+    }
+    input:focus { outline: none; border-color: var(--primary); }
+    .actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
+    button {
+      flex: 1; padding: 0.625rem 1rem; border-radius: var(--radius); border: 1px solid transparent;
+      font-family: inherit; font-size: 0.9375rem; font-weight: 600; cursor: pointer;
+    }
+    .approve { background: var(--primary); color: #fff; }
+    .deny { background: transparent; color: var(--danger); border-color: var(--danger); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-top: 1rem; font-size: 0.875rem; display: none; }
+    .status.error { color: var(--danger); }
+    .status.success { color: #22c55e; }
+    .details { margin-top: 1rem; font-size: 0.8125rem; color: var(--text-muted); display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Device authorization</h1>
+    <p>Enter the code shown on your device to grant it access.</p>
+    <label for="user-code">Device code</label>
+    <input id="user-code" type="text" inputmode="text" autocomplete="one-time-code" placeholder="XXXXXXXX" />
+    <div class="actions">
+      <button type="button" class="deny" id="deny-btn" disabled>Deny</button>
+      <button type="button" class="approve" id="approve-btn" disabled>Approve</button>
+    </div>
+    <p class="details" id="details"></p>
+    <p class="status" id="status"></p>
+  </div>
+
+  <script type="module">
+    const AUTH_URL = '<%= it.AUTH_URL %>';
+    const input = document.getElementById('user-code');
+    const approveBtn = document.getElementById('approve-btn');
+    const denyBtn = document.getElementById('deny-btn');
+    const statusEl = document.getElementById('status');
+    const detailsEl = document.getElementById('details');
+    let currentCode = '';
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('user_code')) {
+      input.value = params.get('user_code');
+      // Prefill does not fire an `input` event, so trigger the lookup
+      // explicitly for the verification_uri_complete path.
+      lookup();
+    }
+
+    function showStatus(type, message) {
+      statusEl.className = 'status ' + type;
+      statusEl.textContent = message;
+      statusEl.style.display = 'block';
+    }
+
+    function setEnabled(enabled) {
+      approveBtn.disabled = !enabled;
+      denyBtn.disabled = !enabled;
+    }
+
+    async function lookup() {
+      const code = input.value.trim();
+      if (!code) return;
+      detailsEl.style.display = 'none';
+      statusEl.style.display = 'none';
+      try {
+        const res = await fetch(`${AUTH_URL}/api/auth/device?user_code=${encodeURIComponent(code)}`, {
+          credentials: 'include',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showStatus('error', data?.error_description ?? 'Invalid or expired code.');
+          setEnabled(false);
+          return;
+        }
+        currentCode = code;
+        setEnabled(true);
+        detailsEl.textContent = `Application: ${data.client_id ?? 'unknown'}${data.scope ? ' — scopes: ' + data.scope : ''}`;
+        detailsEl.style.display = 'block';
+      } catch {
+        showStatus('error', 'A network error occurred. Please try again.');
+      }
+    }
+
+    input.addEventListener('input', () => {
+      setEnabled(false);
+      if (input.value.trim().length >= 4) lookup();
+    });
+
+    async function decide(action) {
+      if (!currentCode) return;
+      setEnabled(false);
+      try {
+        const res = await fetch(`${AUTH_URL}/api/auth/device/${action}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body: JSON.stringify({ userCode: currentCode }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showStatus('error', data?.error_description ?? 'Request failed. Please try again.');
+          setEnabled(true);
+          return;
+        }
+        showStatus('success', action === 'approve' ? 'Device approved. You can return to your device.' : 'Device denied.');
+        detailsEl.style.display = 'none';
+        input.value = '';
+        currentCode = '';
+      } catch {
+        showStatus('error', 'A network error occurred. Please try again.');
+        setEnabled(true);
+      }
+    }
+
+    approveBtn.addEventListener('click', () => decide('approve'));
+    denyBtn.addEventListener('click', () => decide('deny'));
+  </script>
+</body>
+</html>

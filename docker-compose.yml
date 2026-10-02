@@ -73,12 +73,25 @@ services:
       APP_NAME: ${APP_NAME:-CIRCLE Auth}
       APP_LOGO_URL: ${APP_LOGO_URL:-https://avatars.githubusercontent.com/u/266095592?v=4}
 
-      # SMTP (optional).
+      # SMTP (optional). Start the local catcher with `--profile mail` and set
+      # SMTP_HOST=mailpit SMTP_PORT=1025 to inspect outbound mail at :8025.
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
-      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM: ${SMTP_FROM:-auth-service <no-reply@localhost>}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
+
+      # Phase 5b optional features (all off by default).
+      HAVEIBEENPWNED_ENABLED: ${HAVEIBEENPWNED_ENABLED:-false}
+      LAST_LOGIN_METHOD_ENABLED: ${LAST_LOGIN_METHOD_ENABLED:-false}
+      DEVICE_AUTHORIZATION_ENABLED: ${DEVICE_AUTHORIZATION_ENABLED:-false}
+      CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
+      CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-}
+      CAPTCHA_SECRET_KEY: ${CAPTCHA_SECRET_KEY:-}
+      CAPTCHA_SITE_KEY: ${CAPTCHA_SITE_KEY:-}
+      CAPTCHA_ENDPOINTS: ${CAPTCHA_ENDPOINTS:-}
+      REDIS_URL: ${REDIS_URL:-}
 
       # Social providers (optional).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -112,6 +125,25 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    restart: unless-stopped
+
+  # Optional local mail catcher. Hidden behind a profile so the default stack
+  # is unchanged: `docker compose --profile mail up -d`. SMTP on :1025, web UI
+  # on http://localhost:8025. Set SMTP_HOST=mailpit SMTP_PORT=1025 to use it.
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: ["mail"]
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
+  # Optional Redis for shared rate-limit state. Start with `--profile redis`
+  # and set REDIS_URL=redis://redis:6379 on the auth-service.
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
     restart: unless-stopped
 
 volumes:

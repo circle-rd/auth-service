@@ -41,7 +41,7 @@ type SessionLike = ReturnType<typeof auth.api.getSession> extends Promise<infer 
 
 function asAdmin() {
   vi.spyOn(auth.api, "getSession").mockResolvedValue(
-    makeSuperadminSession() as SessionLike,
+    makeSuperadminSession() as unknown as SessionLike,
   );
 }
 
@@ -84,7 +84,7 @@ describe("adminConsumptionRoutes integration", () => {
   it("403 when not admin", async () => {
     vi.spyOn(auth.api, "getSession").mockResolvedValue({
       user: { id: "u1", role: "user" },
-    } as SessionLike);
+    } as unknown as SessionLike);
     const res = await app.inject({
       method: "GET",
       url: "/applications/00000000-0000-0000-0000-000000000001/consumption/monthly",

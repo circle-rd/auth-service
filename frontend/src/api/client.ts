@@ -29,7 +29,12 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   });
 
   if (!response.ok) {
-    let body: { error?: { code?: string; message?: string; details?: unknown } } = {};
+    let body: {
+      error?: { code?: string; message?: string; details?: unknown };
+      // BetterAuth returns top-level { code, message } for APIError responses.
+      code?: string;
+      message?: string;
+    } = {};
     try {
       body = await response.json() as typeof body;
     } catch {
@@ -37,8 +42,8 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     }
     const err = body.error;
     throw new ApiError(
-      err?.code ?? `HTTP_${response.status}`,
-      err?.message ?? `Request failed with status ${response.status}`,
+      err?.code ?? body.code ?? `HTTP_${response.status}`,
+      err?.message ?? body.message ?? `Request failed with status ${response.status}`,
       err?.details,
     );
   }

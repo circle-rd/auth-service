@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 const routes = [
-  { path: '/', redirect: '/dashboard' },
+  { path: '/', redirect: '/profile' },
   {
     path: '/dashboard',
     name: 'dashboard',
@@ -61,6 +61,12 @@ const routes = [
     path: '/oauth2/consent',
     name: 'consent',
     component: () => import('@/views/ConsentView.vue'),
+    meta: { requiresAdmin: false },
+  },
+  {
+    path: '/device',
+    name: 'device',
+    component: () => import('@/views/DeviceView.vue'),
     meta: { requiresAdmin: false },
   },
   {

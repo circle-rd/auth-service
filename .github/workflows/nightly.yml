@@ -37,21 +37,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get short SHA
+      - name: Get commit SHA
         id: sha
-        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: echo "full=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nightly-${{ inputs.branch }}-${{ steps.sha.outputs.short }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:nightly
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+            org.opencontainers.image.revision=${{ steps.sha.outputs.full }}
+          # Attestation manifests would show up as untagged versions and be purged below
+          provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The previous `nightly` image loses its tag on each push and becomes untagged
+      - name: Delete untagged image versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}
+          package-type: container
+          delete-only-untagged-versions: true

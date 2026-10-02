@@ -9,7 +9,7 @@
  * `app.inject()` without binding a real port. Production entry point lives
  * in `index.ts`.
  */
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
@@ -184,6 +184,28 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // ── Static frontend (built Vue SPA) ─────────────────────────────────────
   const frontendDist = join(__dirname, "..", "frontend-dist");
+
+  // Server-rendered auth pages fall back to the Vue SPA when a template cannot
+  // be rendered. Surface the reason: otherwise a broken or missing override
+  // silently serves the SPA design and the misconfiguration goes unnoticed.
+  // Only the page name, slug and error message are logged (never the request
+  // URL or query string, which can carry tokens).
+  function sendSpaFallback(
+    reply: FastifyReply,
+    page: string,
+    appSlug: string | null,
+    err: unknown,
+  ) {
+    fastify.log.warn(
+      { page, appSlug, err: err instanceof Error ? err.message : String(err) },
+      "[templates] auth page template failed to render; serving the SPA instead",
+    );
+    if (existsSync(frontendDist)) {
+      return reply.sendFile("index.html", frontendDist);
+    }
+    return reply.status(404).send({ error: "Not found" });
+  }
+
   if (existsSync(frontendDist)) {
     await fastify.register(staticFiles, {
       root: frontendDist,
@@ -291,11 +313,8 @@ export async function buildServer(): Promise<FastifyInstance> {
           .status(200)
           .header("content-type", "text/html; charset=utf-8")
           .send(html);
-      } catch {
-        if (existsSync(frontendDist)) {
-          return reply.sendFile("index.html", frontendDist);
-        }
-        return reply.status(404).send({ error: "Not found" });
+      } catch (err) {
+        return sendSpaFallback(reply, page, appSlug || null, err);
       }
     });
   }
@@ -357,11 +376,8 @@ export async function buildServer(): Promise<FastifyInstance> {
         .status(200)
         .header("content-type", "text/html; charset=utf-8")
         .send(html);
-    } catch {
-      if (existsSync(frontendDist)) {
-        return reply.sendFile("index.html", frontendDist);
-      }
-      return reply.status(404).send({ error: "Not found" });
+    } catch (err) {
+      return sendSpaFallback(reply, "select-org", query.client_id ?? null, err);
     }
   });
 
@@ -405,11 +421,8 @@ export async function buildServer(): Promise<FastifyInstance> {
         .status(200)
         .header("content-type", "text/html; charset=utf-8")
         .send(html);
-    } catch {
-      if (existsSync(frontendDist)) {
-        return reply.sendFile("index.html", frontendDist);
-      }
-      return reply.status(404).send({ error: "Not found" });
+    } catch (err) {
+      return sendSpaFallback(reply, "device", null, err);
     }
   });
 

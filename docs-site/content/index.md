@@ -49,6 +49,6 @@ What it does
 ::::
 ::::u-page-feature{icon="i-lucide-terminal" title="MCP server integration" description="Any MCP client can authenticate via OAuth 2.1 Authorization Code + PKCE and receive a JWT access token with roles, permissions, and feature claims. See the MCP integration guide for complete examples."}
 ::::
-::::u-page-feature{icon="i-lucide-palette" title="Custom templates & branding" description="Override login, register, and verify-email pages per application via TEMPLATES_DIR. Dynamic APP_NAME and APP_LOGO_URL drive the entire UI."}
+::::u-page-feature{icon="i-lucide-palette" title="Custom templates & branding" description="Override login, register, verify-email pages and transactional emails per application via TEMPLATES_DIR. Dynamic APP_NAME and APP_LOGO_URL drive the entire UI."}
 ::::
 :::

@@ -97,7 +97,9 @@ export function renderAuthPage(
     AUTH_URL: vars.authUrl,
     ERROR_MESSAGE: vars.errorMessage ?? "",
     OAUTH_QUERY: vars.oauthQuery ?? "",
-    ALLOW_REGISTER: vars.allowRegister !== false ? "true" : "false",
+    // Real boolean (not the string "true"/"false"): `if (it.ALLOW_REGISTER)`
+    // must behave correctly, and `<%~ it.ALLOW_REGISTER %>` emits a JS literal.
+    ALLOW_REGISTER: vars.allowRegister !== false,
     // Forward-slash escape prevents `</script>` injection when these JSON
     // blobs are inlined inside a <script> tag with `<%~` (raw output).
     ORGANIZATIONS_JSON: (vars.organizationsJson ?? "[]").replace(/\//g, "\\/"),

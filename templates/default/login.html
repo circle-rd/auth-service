@@ -300,6 +300,8 @@
     const iconLogin   = document.getElementById('icon-login');
     const iconMfa     = document.getElementById('icon-mfa');
     const registerFtr = document.getElementById('register-footer');
+    // Injected as a real boolean literal (true/false), not a quoted string.
+    const allowRegister = <%~ it.ALLOW_REGISTER %>;
 
     // ── Step 1: sign-in form ──────────────────────────────────────────
     const form      = document.getElementById('login-form');
@@ -349,7 +351,7 @@
       }
     });
 
-    if ('<%~ it.ALLOW_REGISTER %>' !== 'true') registerFtr?.remove();
+    if (!allowRegister) registerFtr?.remove();
 
     // ── Step 2: MFA challenge ────────────────────────────────────────
     const otpGroup   = document.getElementById('otp-group');
@@ -382,7 +384,7 @@
       subtitle.textContent = 'Sign in to your account to continue.';
       iconLogin.style.display = '';
       iconMfa.style.display = 'none';
-      if (registerFtr && '<%~ it.ALLOW_REGISTER %>' === 'true') registerFtr.style.display = '';
+      if (registerFtr && allowRegister) registerFtr.style.display = '';
       slider.classList.remove('step-mfa');
       resetOtp();
       backupInp.value = '';

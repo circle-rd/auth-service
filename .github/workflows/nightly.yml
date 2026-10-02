@@ -41,6 +41,15 @@ jobs:
         id: sha
         run: echo "full=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Find current nightly version
+        id: previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id=$(gh api --paginate "/orgs/${{ github.repository_owner }}/packages/container/${{ github.event.repository.name }}/versions" \
+            --jq '.[] | select(.metadata.container.tags | index("nightly")) | .id' | head -n1)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -50,15 +59,19 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ steps.sha.outputs.full }}
-          # Attestation manifests would show up as untagged versions and be purged below
+          # Attestation manifests would leave untagged versions behind
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # The previous `nightly` image loses its tag on each push and becomes untagged
-      - name: Delete untagged image versions
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: ${{ github.event.repository.name }}
-          package-type: container
-          delete-only-untagged-versions: true
+      # A rebuild with identical content keeps the same version, so skip when the id did not change
+      - name: Delete superseded nightly version
+        if: steps.previous.outputs.id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          base="/orgs/${{ github.repository_owner }}/packages/container/${{ github.event.repository.name }}/versions"
+          current=$(gh api --paginate "$base" --jq '.[] | select(.metadata.container.tags | index("nightly")) | .id' | head -n1)
+          if [ "$current" != "${{ steps.previous.outputs.id }}" ]; then
+            gh api -X DELETE "$base/${{ steps.previous.outputs.id }}"
+          fi

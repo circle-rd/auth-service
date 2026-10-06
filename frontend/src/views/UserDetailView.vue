@@ -15,7 +15,8 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck } from 'lucide-vue-next';
+import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck, KeyRound } from 'lucide-vue-next';
+import SetPasswordModal from '@/components/users/SetPasswordModal.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -29,6 +30,7 @@ const userApps = ref<UserApplicationDetail[]>([]);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const loading = ref(true);
 const actionLoading = ref(false);
+const showSetPassword = ref(false);
 
 const userId = route.params.id as string;
 
@@ -198,6 +200,26 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
             </BaseButton>
           </div>
 
+          <!--
+            Password reset. Guarded by the STRICT policy (`canManageRole`), not by
+            `canManageUser`: the server refuses a reset against a peer, so a
+            superadmin must not be shown this action on another superadmin.
+          -->
+          <div
+            v-if="user && auth.canManageRole(user.role)"
+            class="mt-5 flex flex-wrap gap-2"
+          >
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :disabled="actionLoading"
+              @click="showSetPassword = true"
+            >
+              <KeyRound class="w-4 h-4" />
+              {{ t('users.setPassword') }}
+            </BaseButton>
+          </div>
+
           <div v-if="user.banned" class="mt-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
             <p class="text-sm font-medium text-red-400 mb-1">{{ t('users.banReason') }}: {{ user.banReason }}</p>
             <p v-if="user.banExpires" class="text-xs text-red-400/70">{{ t('users.banExpires') }}: {{ formatDate(user.banExpires) }}</p>
@@ -260,5 +282,11 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
         </div>
       </template>
     </div>
+    <SetPasswordModal
+      :open="showSetPassword"
+      :user-id="userId"
+      @close="showSetPassword = false"
+      @success="reloadUser"
+    />
   </AppLayout>
 </template>

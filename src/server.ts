@@ -46,7 +46,12 @@ import {
   globallyEnabledProviders,
 } from "./routes/app-config.js";
 import { ApiError, ERR } from "./errors.js";
-import { renderAuthPage } from "./services/templates.js";
+import {
+  CONFIRMATION_STATUSES,
+  EMAIL_VERIFIED_PATH,
+  renderAuthPage,
+  type PageName,
+} from "./services/templates.js";
 import { createRateLimitStore } from "./services/rate-limit-store.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
@@ -119,7 +124,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   });
 
-  // ── Security headers ────────────────────────────────────────────────────
+  // ── Security headers ────────────────────────────────────────────
   // HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy. CSP keeps
   // 'unsafe-inline' because the auth pages ship small inline scripts; tighten
   // once those move to bundled files.
@@ -147,7 +152,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   });
 
-  // ── CORS ────────────────────────────────────────────────────────────────
+  // ── CORS ────────────────────────────────────────────────────────
   // Only the dashboard origins (CORS_ORIGINS) get credentialed CORS on the
   // API. Registered application origins are handled separately for
   // /api/auth/* in the onRequest hook below, so an application origin can
@@ -162,7 +167,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
 
-  // ── Generic global rate-limit ───────────────────────────────────────────
+  // ── Generic global rate-limit ───────────────────────────────────
   await fastify.register(rateLimit, {
     global: true,
     max: 600,
@@ -174,7 +179,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   });
 
-  // ── Strict rate buckets for sensitive auth + email endpoints ────────────
+  // ── Strict rate buckets for sensitive auth + email endpoints ────
   // Backed by an in-process counter by default; when REDIS_URL is set the
   // store is shared across instances (see services/rate-limit-store.ts).
   const rateLimitStore = await createRateLimitStore(config.redis.url);
@@ -182,7 +187,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     await rateLimitStore.close();
   });
 
-  // ── Static frontend (built Vue SPA) ─────────────────────────────────────
+  // ── Static frontend (built Vue SPA) ─────────────────────────────
   const frontendDist = join(__dirname, "..", "frontend-dist");
 
   // Server-rendered auth pages fall back to the Vue SPA when a template cannot
@@ -214,14 +219,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
   }
 
-  // ── Auth page routes ────────────────────────────────────────────────────
+  // ── Auth page routes ────────────────────────────────────────────
+  // `email-verified` is the post-verification confirmation page. It is the
+  // `callbackURL` both verification flows redirect to, so it must be reachable
+  // without a session — it reads only the `status` query parameter and never
+  // touches the session.
   const authPageRoutes: Array<{
     path: string;
-    page: "login" | "register" | "verify-email" | "two-factor";
+    page: PageName;
   }> = [
     { path: "/login", page: "login" },
     { path: "/register", page: "register" },
     { path: "/verify-email", page: "verify-email" },
+    { path: EMAIL_VERIFIED_PATH, page: "email-verified" },
     { path: "/two-factor", page: "two-factor" },
   ];
 
@@ -229,6 +239,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     fastify.get(path, async (req, reply) => {
       const query = req.query as Record<string, string>;
       const appSlug = query.client_id ?? "";
+      // The confirmation page reports which flow completed. Anything else is
+      // not one of our statuses, so it stays empty and the page falls back to
+      // its neutral wording rather than echoing untrusted input.
+      const confirmationStatus = CONFIRMATION_STATUSES.find(
+        (value) => value === query.status,
+      );
       const rawUrl = req.raw.url ?? "";
       const rawQs = rawUrl.includes("?")
         ? rawUrl.split("?").slice(1).join("?")
@@ -305,6 +321,7 @@ export async function buildServer(): Promise<FastifyInstance> {
             socialProvidersJson,
             loginUrl,
             registerUrl,
+            confirmationStatus,
           },
           appSlug || null,
           config.templatesDir,
@@ -319,7 +336,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
   }
 
-  // ── Organization selection page ─────────────────────────────────────────
+  // ── Organization selection page ─────────────────────────────────
   fastify.get("/select-org", async (req, reply) => {
     if (!config.templatesDir) {
       if (existsSync(frontendDist)) {
@@ -381,7 +398,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // ── Device authorization approval page (RFC 8628, opt-in) ───────────────
+  // ── Device authorization approval page (RFC 8628, opt-in) ───────
   fastify.get("/device", async (req, reply) => {
     if (!config.features.deviceAuthorization) {
       return reply
@@ -426,7 +443,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // ── BetterAuth handler — intercept before Fastify body-parsing ──────────
+  // ── BetterAuth handler — intercept before Fastify body-parsing ──
   const betterAuthHandler = toNodeHandler(auth);
   fastify.addHook("onRequest", async (req, reply) => {
     if (!req.url?.startsWith("/api/auth/")) return;
@@ -502,7 +519,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     betterAuthHandler(req.raw, reply.raw);
   });
 
-  // ── Routes ──────────────────────────────────────────────────────────────
+  // ── Routes ──────────────────────────────────────────────────────
   // Stripe webhook first — its raw Buffer parser must take precedence.
   await fastify.register(stripeWebhookRoutes, {
     prefix: "/api/webhooks/stripe",
@@ -525,23 +542,45 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(userRoutes, { prefix: "/api/user" });
   await fastify.register(appConfigRoutes, { prefix: "/api/app-config" });
 
-  // ── OIDC / OAuth 2.0 discovery at root ──────────────────────────────────
+  // ── OIDC / OAuth 2.0 discovery at root ──────────────────────────
   const handleOpenIdConfig = oauthProviderOpenIdConfigMetadata(auth);
   const handleAuthServerMeta = oauthProviderAuthServerMetadata(auth);
 
-  fastify.get("/.well-known/openid-configuration", async (_req, reply) => {
-    const res = await handleOpenIdConfig(
-      new Request(config.betterAuth.url + "/.well-known/openid-configuration"),
-    );
-    const body = await res.json();
-    return reply
-      .status(res.status)
-      .header("content-type", "application/json")
-      .send(body);
-  });
+  // Both documents are public metadata (RFC 8414 §3.1, OpenID Connect Discovery
+  // §4) that a client application's browser fetches *before* any credential
+  // exists, so there is no origin to scope them to: a client whose origin has
+  // not been registered yet still has to resolve the issuer. Per-route CORS
+  // overrides below serve them with `Access-Control-Allow-Origin: *` and never
+  // with credentials, and drop the CORP header helmet adds to every other
+  // response, which would otherwise contradict that. `CORS_ORIGINS` keeps
+  // governing every authenticated route; nothing else is widened.
+  const DISCOVERY_ROUTE_OPTIONS = {
+    // Read by @fastify/cors' onRequest hook in place of the global options.
+    config: { cors: { origin: "*", credentials: false } },
+    // Read by @fastify/helmet's onRequest hook in place of the global options.
+    helmet: { crossOriginResourcePolicy: false },
+  };
+
+  fastify.get(
+    "/.well-known/openid-configuration",
+    DISCOVERY_ROUTE_OPTIONS,
+    async (_req, reply) => {
+      const res = await handleOpenIdConfig(
+        new Request(
+          config.betterAuth.url + "/.well-known/openid-configuration",
+        ),
+      );
+      const body = await res.json();
+      return reply
+        .status(res.status)
+        .header("content-type", "application/json")
+        .send(body);
+    },
+  );
 
   fastify.get(
     "/.well-known/oauth-authorization-server",
+    DISCOVERY_ROUTE_OPTIONS,
     async (_req, reply) => {
       const res = await handleAuthServerMeta(
         new Request(
@@ -556,7 +595,23 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   );
 
-  // ── SPA fallback ────────────────────────────────────────────────────────
+  // The catch-all `OPTIONS *` route installed by @fastify/cors answers a
+  // preflight from an origin outside CORS_ORIGINS with a 404, which fails the
+  // discovery preflight. A static route on the same path takes precedence over
+  // the wildcard; the preflight response carries the headers @fastify/cors
+  // derived from the `cors` override above.
+  fastify.options(
+    "/.well-known/openid-configuration",
+    DISCOVERY_ROUTE_OPTIONS,
+    async (_req, reply) => reply.status(204).send(),
+  );
+  fastify.options(
+    "/.well-known/oauth-authorization-server",
+    DISCOVERY_ROUTE_OPTIONS,
+    async (_req, reply) => reply.status(204).send(),
+  );
+
+  // ── SPA fallback ────────────────────────────────────────────────
   fastify.setNotFoundHandler(async (req, reply) => {
     if (
       !req.url.startsWith("/api/") &&
@@ -570,7 +625,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       .send({ error: { code: "SRV_001", message: "Not found" } });
   });
 
-  // ── Global error handler ────────────────────────────────────────────────
+  // ── Global error handler ────────────────────────────────────────
   fastify.setErrorHandler(async (error, _req, reply) => {
     if (error instanceof ApiError) {
       await reply.status(error.statusCode).send(error.toJSON());

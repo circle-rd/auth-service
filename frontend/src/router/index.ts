@@ -58,6 +58,25 @@ const routes = [
     meta: { requiresAdmin: false, isPublic: true },
   },
   {
+    path: '/forgot-password',
+    name: 'forgot-password',
+    component: () => import('@/views/ForgotPasswordView.vue'),
+    meta: { requiresAdmin: false, isPublic: true },
+  },
+  {
+    // Two entry shapes reach this view:
+    //  - the e-mailed link is `…/api/auth/reset-password/<token>?callbackURL=`,
+    //    and BetterAuth's callback redirects to `callbackURL?token=<token>`;
+    //  - a direct `/reset-password/<token>` link, which the server's SPA
+    //    fallback serves.
+    // The token therefore arrives in the query for the first shape, in the
+    // path for the second, and is optional here.
+    path: '/reset-password/:token?',
+    name: 'reset-password',
+    component: () => import('@/views/ResetPasswordView.vue'),
+    meta: { requiresAdmin: false, isPublic: true },
+  },
+  {
     path: '/oauth2/consent',
     name: 'consent',
     component: () => import('@/views/ConsentView.vue'),

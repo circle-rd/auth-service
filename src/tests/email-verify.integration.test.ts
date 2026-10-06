@@ -49,15 +49,21 @@ describe("Email — verification flow (integration)", () => {
 
     // 2. Pull the verification URL out of the rendered HTML and follow it.
     const verifyUrl = extractUrl(msg!.html, (u) => u.includes("/api/auth/verify-email"));
-    // The callback must land regular users on /profile, not the admin-only
-    // dashboard (which returns 403).
-    expect(verifyUrl).toContain("callbackURL=%2Fprofile");
+    // The callback must land on the public confirmation page, never in a
+    // protected area: the link is a control-of-address proof, not a credential.
+    // (This assertion used to require `callbackURL=/profile`, which encoded the
+    // auto-sign-in behaviour this change removes — it is a deliberate update,
+    // not a regression.)
+    expect(verifyUrl).toContain("callbackURL=%2Femail-verified");
+    expect(verifyUrl).not.toContain("callbackURL=%2Fprofile");
     const verifyRes = await handle.app.inject({
       method: "GET",
       url: toPath(verifyUrl),
     });
     // BetterAuth returns 302 to the callbackURL on success.
     expect([200, 302]).toContain(verifyRes.statusCode);
+    // Following the link must NOT hand out a session.
+    expect(verifyRes.headers["set-cookie"]).toBeUndefined();
 
     // 3. Sign-in must now succeed (no further verification email).
     handle.capture.clear();

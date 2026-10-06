@@ -189,6 +189,83 @@ describe("renderAuthPage", () => {
     });
   });
 
+  describe("email-verified confirmation page", () => {
+    const baseVars = {
+      actionUrl: "/api/auth/sign-in/email",
+      redirectTo: "/",
+      appSlug: "",
+      authUrl: "https://auth.example.com",
+    };
+
+    it("tells the two flows apart from the status marker", () => {
+      const activated = renderAuthPage(
+        "email-verified",
+        { ...baseVars, confirmationStatus: "activated" },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+      const updated = renderAuthPage(
+        "email-verified",
+        { ...baseVars, confirmationStatus: "updated" },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      // Distinct wording per flow, and neither carries the other's label.
+      expect(activated).toContain("Account activated");
+      expect(activated).not.toContain("Email address updated");
+      expect(updated).toContain("Email address updated");
+      expect(updated).not.toContain("Account activated");
+    });
+
+    it("renders the neutral wording when no status is supplied", () => {
+      const html = renderAuthPage(
+        "email-verified",
+        baseVars,
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).toContain("Email confirmed");
+      // The status variable is empty, never a raw query echo.
+      expect(html).not.toContain("ACTIVATED");
+    });
+
+    it("links to the sign-in page and never to a protected area", () => {
+      const html = renderAuthPage(
+        "email-verified",
+        { ...baseVars, loginUrl: "/login" },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).toContain('href="/login"');
+      expect(html).not.toContain("/profile");
+    });
+
+    it("honours a per-application override of the confirmation page", () => {
+      const dir = mkdtempSync(join(tmpdir(), "auth-pages-test-"));
+      try {
+        mkdirSync(join(dir, "my-app"), { recursive: true });
+        writeFileSync(
+          join(dir, "my-app", "email-verified.html"),
+          "<p>custom <%= it.CONFIRMATION_HEADING %></p>",
+        );
+
+        const html = renderAuthPage(
+          "email-verified",
+          { ...baseVars, appSlug: "my-app", confirmationStatus: "activated" },
+          "my-app",
+          dir,
+        );
+
+        expect(html).toContain("custom Account activated");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("allowRegister substitution", () => {
     it("injects ALLOW_REGISTER as the boolean literal true", () => {
       const html = renderAuthPage(

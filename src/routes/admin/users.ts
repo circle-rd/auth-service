@@ -21,7 +21,7 @@ import { auth } from "../../auth.js";
 import { isMailConfigured } from "../../services/mail/index.js";
 import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
 import { getCallerRole, requireAdmin } from "../../middleware.js";
-import { canAdminTargetUser } from "../../services/roles.js";
+import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = z.object({
@@ -49,6 +49,10 @@ const importUserRowSchema = z.object({
 
 const importUsersSchema = z.object({
   users: z.array(importUserRowSchema).min(1).max(500),
+});
+
+const setPasswordSchema = z.object({
+  newPassword: z.string().min(1),
 });
 
 /** 12-char URL-safe temporary password (min length is 8). */
@@ -461,6 +465,80 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         headers: fromNodeHeaders(req.headers),
         body: { userId: req.params.id },
       });
+      await reply.send({ ok: true });
+    },
+  );
+
+  // POST /api/admin/users/:id/set-password — set a new password for a
+  // strictly lower-ranked user and invalidate everything that authenticated
+  // before. The native `/admin/set-user-password` endpoint is deliberately not
+  // used: it writes the credential and nothing else, so a caller reaching it
+  // would reset the password while leaving the account's existing sessions and
+  // OAuth tokens alive — the opposite of a remediation. The admin role is not
+  // granted `user:set-password` either (src/auth.ts), so this route is the only
+  // path that can change a password and the revocation below cannot be skipped.
+  fastify.post<{ Params: { id: string } }>(
+    "/:id/set-password",
+    async (req, reply) => {
+      const parsed = setPasswordSchema.safeParse(req.body);
+      if (!parsed.success)
+        throw ERR.USR_003("Invalid password data", parsed.error.flatten());
+      const { newPassword } = parsed.data;
+
+      const [targetRow] = await db
+        .select({ role: userTable.role })
+        .from(userTable)
+        .where(eq(userTable.id, req.params.id))
+        .limit(1);
+      if (!targetRow) throw ERR.USR_001();
+
+      const callerRole = await getCallerRole(req);
+      // Strict hierarchy — the same rule the native admin guard applies
+      // (`src/auth.ts`), NOT the looser `canAdminTargetUser` the neighbouring
+      // routes use: a superadmin may not reset a peer's password either.
+      if (!canManageRole(callerRole, targetRow.role)) {
+        throw ERR.AUTH_011(
+          "Insufficient permissions to set this user's password",
+        );
+      }
+
+      const authCtx = await auth.$context;
+      // Length policy comes from the running auth instance (min 8 / max 128,
+      // `emailAndPassword` in src/auth.ts) so this route can never accept a
+      // password the native credential writer would refuse.
+      if (
+        newPassword.length < authCtx.password.config.minPasswordLength ||
+        newPassword.length > authCtx.password.config.maxPasswordLength
+      ) {
+        throw ERR.AUTH_009();
+      }
+
+      const passwordHash = await authCtx.password.hash(newPassword);
+      const credential = await authCtx.internalAdapter.findCredentialAccount(
+        req.params.id,
+      );
+      if (credential) {
+        await authCtx.internalAdapter.updatePassword(
+          req.params.id,
+          passwordHash,
+        );
+      } else {
+        await authCtx.internalAdapter.createAccount({
+          userId: req.params.id,
+          providerId: "credential",
+          accountId: req.params.id,
+          password: passwordHash,
+        });
+      }
+
+      // Unconditional and not configurable: a session or refresh token minted
+      // before the reset is exactly what the reset is meant to take away.
+      await authCtx.internalAdapter.deleteUserSessions(req.params.id);
+      // Sessions and OAuth tokens are separate credentials here — deleting the
+      // session rows only nulls the tokens' `sessionId` (onDelete: "set null"),
+      // so a stolen refresh token would keep minting access tokens.
+      await revokeAllUserTokens(req.params.id);
+
       await reply.send({ ok: true });
     },
   );

@@ -136,6 +136,22 @@ export async function markEmailVerified(id: string): Promise<{ ok: true }> {
   });
 }
 
+/**
+ * Set a new password for a user without an e-mail round-trip. The server also
+ * invalidates every session and OAuth token the target held, so this doubles as
+ * the remediation path for a compromised account.
+ */
+export async function setUserPassword(
+  id: string,
+  newPassword: string,
+): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/users/${id}/set-password`, {
+    method: 'POST',
+    body: JSON.stringify({ newPassword }),
+  });
+}
+
 export interface ImportUserRow {
   name: string;
   email: string;

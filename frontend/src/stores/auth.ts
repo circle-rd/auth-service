@@ -8,6 +8,10 @@ import {
   verifyTotp as apiVerifyTotp,
   verifyBackupCode as apiVerifyBackupCode,
 } from '@/api/auth';
+import {
+  canAdminTargetUser,
+  canManageRole as canManageRoleByRank,
+} from '@/utils/roles';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
@@ -114,11 +118,21 @@ export const useAuthStore = defineStore('auth', () => {
    * Mirrors the server's admin-route policy: a superadmin may manage anyone; an
    * admin may only manage non-admin users. Used to hide actions the caller
    * cannot perform.
+   *
+   * Delegates to the shared rank table (`@/utils/roles`) instead of re-writing
+   * the comparison, so this gate cannot drift from `canAdminTargetUser`.
    */
   function canManageUser(targetRole: string | null | undefined): boolean {
-    if (user.value?.role === 'superadmin') return true;
-    if (user.value?.role !== 'admin') return false;
-    return targetRole !== 'admin' && targetRole !== 'superadmin';
+    return canAdminTargetUser(user.value?.role, targetRole);
+  }
+
+  /**
+   * STRICT policy, for the actions the server guards with `canManageRole` — the
+   * password reset in particular. A superadmin may NOT act on a peer, so this
+   * deliberately does not answer the same as `canManageUser`.
+   */
+  function canManageRole(targetRole: string | null | undefined): boolean {
+    return canManageRoleByRank(user.value?.role, targetRole);
   }
 
   return {
@@ -139,5 +153,6 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
     isSuperAdmin,
     canManageUser,
+    canManageRole,
   };
 });

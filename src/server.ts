@@ -46,7 +46,12 @@ import {
   globallyEnabledProviders,
 } from "./routes/app-config.js";
 import { ApiError, ERR } from "./errors.js";
-import { renderAuthPage } from "./services/templates.js";
+import {
+  CONFIRMATION_STATUSES,
+  EMAIL_VERIFIED_PATH,
+  renderAuthPage,
+  type PageName,
+} from "./services/templates.js";
 import { createRateLimitStore } from "./services/rate-limit-store.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
@@ -215,13 +220,18 @@ export async function buildServer(): Promise<FastifyInstance> {
   }
 
   // ── Auth page routes ────────────────────────────────────────────
+  // `email-verified` is the post-verification confirmation page. It is the
+  // `callbackURL` both verification flows redirect to, so it must be reachable
+  // without a session — it reads only the `status` query parameter and never
+  // touches the session.
   const authPageRoutes: Array<{
     path: string;
-    page: "login" | "register" | "verify-email" | "two-factor";
+    page: PageName;
   }> = [
     { path: "/login", page: "login" },
     { path: "/register", page: "register" },
     { path: "/verify-email", page: "verify-email" },
+    { path: EMAIL_VERIFIED_PATH, page: "email-verified" },
     { path: "/two-factor", page: "two-factor" },
   ];
 
@@ -229,6 +239,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     fastify.get(path, async (req, reply) => {
       const query = req.query as Record<string, string>;
       const appSlug = query.client_id ?? "";
+      // The confirmation page reports which flow completed. Anything else is
+      // not one of our statuses, so it stays empty and the page falls back to
+      // its neutral wording rather than echoing untrusted input.
+      const confirmationStatus = CONFIRMATION_STATUSES.find(
+        (value) => value === query.status,
+      );
       const rawUrl = req.raw.url ?? "";
       const rawQs = rawUrl.includes("?")
         ? rawUrl.split("?").slice(1).join("?")
@@ -305,6 +321,7 @@ export async function buildServer(): Promise<FastifyInstance> {
             socialProvidersJson,
             loginUrl,
             registerUrl,
+            confirmationStatus,
           },
           appSlug || null,
           config.templatesDir,

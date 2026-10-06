@@ -26,18 +26,71 @@ const BUILTIN_TEMPLATES_DIR = join(
   "default",
 );
 
-type PageName =
+export type PageName =
   | "login"
   | "register"
   | "verify-email"
+  | "email-verified"
   | "select-org"
   | "two-factor"
   | "device";
+
+/**
+ * Path of the post-verification confirmation page, and the flows it can report.
+ * `activated` — a sign-up address was confirmed. `pending` — the request to
+ * change the address was confirmed and the new address now has to be verified.
+ * `updated` — a change of address was completed. The value travels in the
+ * page's query string (`?status=`), which is what makes the two flows tell
+ * different stories on one shared page.
+ */
+export const EMAIL_VERIFIED_PATH = "/email-verified";
+export const CONFIRMATION_STATUSES = [
+  "activated",
+  "pending",
+  "updated",
+] as const;
+export type ConfirmationStatus = (typeof CONFIRMATION_STATUSES)[number];
 
 // Application slugs are constrained to this charset everywhere else (admin
 // route + OAuth client ids). Validating again here prevents `client_id` from
 // being used as a path-traversal vector when resolving per-app templates.
 const APP_SLUG_RE = /^[a-z0-9-]+$/;
+
+/**
+ * Copy for the post-verification page, keyed by the flow that completed. The
+ * server template system is standalone (Eta, English, one file per page), so
+ * the wording lives here beside the other derived variables rather than being
+ * branched inside the template — an override only has to lay the strings out.
+ */
+const CONFIRMATION_COPY: Record<
+  ConfirmationStatus | "unknown",
+  { heading: string; subtitle: string; badge: string; body: string }
+> = {
+  activated: {
+    heading: "Account activated",
+    subtitle: "Your email address is confirmed and your account is ready.",
+    badge: "Account activated",
+    body: "Thanks for confirming your address. You can now sign in with your password.",
+  },
+  pending: {
+    heading: "Email change requested",
+    subtitle: "We have confirmed your request to change your address.",
+    badge: "Change requested",
+    body: "We have sent a verification link to your new address. Follow it to complete the change.",
+  },
+  updated: {
+    heading: "Email address updated",
+    subtitle: "Your new email address is confirmed.",
+    badge: "Email address updated",
+    body: "Your account now uses your new address. Your password is unchanged.",
+  },
+  unknown: {
+    heading: "Email confirmed",
+    subtitle: "Your email address has been confirmed.",
+    badge: "Email confirmed",
+    body: "You can now sign in with your password.",
+  },
+};
 
 export interface TemplateVars {
   actionUrl: string;
@@ -51,6 +104,19 @@ export interface TemplateVars {
   socialProvidersJson?: string;
   loginUrl?: string;
   registerUrl?: string;
+  confirmationStatus?: ConfirmationStatus;
+}
+
+function confirmationCopy(
+  status: ConfirmationStatus | undefined,
+): Record<string, string> {
+  const copy = CONFIRMATION_COPY[status ?? "unknown"];
+  return {
+    CONFIRMATION_HEADING: copy.heading,
+    CONFIRMATION_SUBTITLE: copy.subtitle,
+    CONFIRMATION_BADGE: copy.badge,
+    CONFIRMATION_BODY: copy.body,
+  };
 }
 
 function resolveTemplate(
@@ -109,6 +175,9 @@ export function renderAuthPage(
     ),
     LOGIN_URL: vars.loginUrl ?? "/login",
     REGISTER_URL: vars.registerUrl ?? "/register",
+    // `status` query value for the confirmation page; empty on every other page.
+    CONFIRMATION_STATUS: vars.confirmationStatus ?? "",
+    ...confirmationCopy(vars.confirmationStatus),
   };
 
   return renderTemplateFile(path, it);

@@ -584,5 +584,26 @@ export default {
       subtitle: 'Vous n\'avez pas la permission d\'accéder à cette page.',
       back: 'Retour au profil',
     },
+    // Page d'atterrissage après vérification. Le flux concerné arrive dans
+    // `?status=` ; une valeur absente ou inconnue utilise le libellé neutre.
+    emailVerified: {
+      activatedTitle: 'Compte activé',
+      activatedSubtitle: 'Votre adresse e-mail est confirmée et votre compte est prêt.',
+      activatedBody:
+        'Merci d\'avoir confirmé votre adresse. Connectez-vous avec votre mot de passe pour continuer.',
+      pendingTitle: 'Changement d\'adresse demandé',
+      pendingSubtitle: 'Nous avons confirmé votre demande de changement d\'adresse.',
+      pendingBody:
+        'Nous avons envoyé un lien de vérification à votre nouvelle adresse. Suivez-le pour terminer le changement.',
+      updatedTitle: 'Adresse e-mail mise à jour',
+      updatedSubtitle: 'Votre nouvelle adresse e-mail est confirmée.',
+      updatedBody:
+        'Votre compte utilise désormais votre nouvelle adresse. Votre mot de passe est inchangé.',
+      unknownTitle: 'E-mail confirmé',
+      unknownSubtitle: 'Votre adresse e-mail a été confirmée.',
+      unknownBody: 'Connectez-vous avec votre mot de passe pour continuer.',
+      signedOut: 'Vous n\'êtes pas connecté.',
+      signIn: 'Se connecter',
+    },
   },
 };

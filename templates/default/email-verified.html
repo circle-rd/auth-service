@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Email confirmed</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:             #f4f4f5;
+      --surface:        rgba(255,255,255,0.9);
+      --surface-inner:  #f4f4f5;
+      --border:         rgba(212,212,216,0.7);
+      --border-focus:   #2563eb;
+      --text:           #09090b;
+      --text-muted:     #71717a;
+      --text-subtle:    #a1a1aa;
+      --primary:        #2563eb;
+      --primary-hover:  #3b82f6;
+      --primary-glow:   rgba(37,99,235,0.15);
+      --danger:         #ef4444;
+      --danger-bg:      rgba(239,68,68,0.08);
+      --danger-border:  rgba(239,68,68,0.25);
+      --success:        #22c55e;
+      --success-bg:     rgba(34,197,94,0.08);
+      --success-border: rgba(34,197,94,0.25);
+      --radius-sm: 4px; --radius: 7px; --radius-lg: 9px; --radius-xl: 12px;
+      --shadow-lg: 0 8px 24px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:             #09090b;
+        --surface:        rgba(24,24,27,0.6);
+        --surface-inner:  rgba(39,39,42,0.6);
+        --border:         rgba(63,63,70,0.4);
+        --border-focus:   #3b82f6;
+        --text:           #fafafa;
+        --text-muted:     #a1a1aa;
+        --text-subtle:    #52525b;
+        --primary:        #2563eb;
+        --primary-hover:  #3b82f6;
+        --primary-glow:   rgba(59,130,246,0.12);
+        --danger:         #f87171;
+        --danger-bg:      rgba(239,68,68,0.1);
+        --danger-border:  rgba(239,68,68,0.3);
+        --success:        #4ade80;
+        --success-bg:     rgba(34,197,94,0.1);
+        --success-border: rgba(34,197,94,0.3);
+        --shadow-lg: 0 8px 32px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", system-ui, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100svh; display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem 1rem; -webkit-font-smoothing: antialiased;
+    }
+    .auth-container { width: 100%; max-width: 22rem; display: flex; flex-direction: column; align-items: center; }
+    .auth-header { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 1.75rem; text-align: center; }
+    .auth-icon {
+      width: 3rem; height: 3rem; border-radius: var(--radius-xl);
+      background: var(--success); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 20px rgba(34,197,94,0.35); margin-bottom: 0.25rem;
+    }
+    .auth-icon svg { width: 1.375rem; height: 1.375rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    .subtitle { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-xl); padding: 1.5rem; width: 100%;
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      text-align: center;
+    }
+    .card p { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; }
+    .card p + p { margin-top: 0.75rem; }
+    .badge {
+      display: inline-block; border-radius: var(--radius-sm); padding: 0.25rem 0.5rem;
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em;
+      background: var(--success-bg); color: var(--success);
+      border: 1px solid var(--success-border); margin-bottom: 0.875rem;
+    }
+    .badge.pending { background: var(--primary-glow); color: var(--primary); border-color: var(--primary-glow); }
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+      width: 100%; padding: 0.5625rem 1rem; border-radius: var(--radius);
+      font-size: 0.9375rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: background .15s, box-shadow .15s;
+      border: 1px solid transparent; line-height: 1.5; margin-top: 1.25rem;
+      text-decoration: none; background: var(--primary); color: #fff;
+    }
+    .btn:hover { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
+  </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-header">
+      <div class="auth-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6 9 17l-5-5"/>
+        </svg>
+      </div>
+      <h1><%= it.CONFIRMATION_HEADING %></h1>
+      <p class="subtitle"><%= it.CONFIRMATION_SUBTITLE %></p>
+    </div>
+
+    <div class="card">
+      <span class="badge<%= it.CONFIRMATION_STATUS === 'pending' ? ' pending' : '' %>"><%= it.CONFIRMATION_BADGE %></span>
+      <p><%= it.CONFIRMATION_BODY %></p>
+      <p>You are not signed in. Use your password to sign in and continue.</p>
+      <a class="btn" href="<%= it.LOGIN_URL %>">Sign in</a>
+    </div>
+  </div>
+</body>
+</html>

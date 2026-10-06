@@ -583,5 +583,25 @@ export default {
       subtitle: 'You do not have permission to access this page.',
       back: 'Back to Profile',
     },
+    // Post-verification landing page. Which flow completed arrives in
+    // `?status=`; an absent or unknown value uses the neutral wording.
+    emailVerified: {
+      activatedTitle: 'Account activated',
+      activatedSubtitle: 'Your email address is confirmed and your account is ready.',
+      activatedBody:
+        'Thanks for confirming your address. Sign in with your password to continue.',
+      pendingTitle: 'Email change requested',
+      pendingSubtitle: 'We have confirmed your request to change your address.',
+      pendingBody:
+        'We have sent a verification link to your new address. Follow it to complete the change.',
+      updatedTitle: 'Email address updated',
+      updatedSubtitle: 'Your new email address is confirmed.',
+      updatedBody: 'Your account now uses your new address. Your password is unchanged.',
+      unknownTitle: 'Email confirmed',
+      unknownSubtitle: 'Your email address has been confirmed.',
+      unknownBody: 'Sign in with your password to continue.',
+      signedOut: 'You are not signed in.',
+      signIn: 'Sign in',
+    },
   },
 };

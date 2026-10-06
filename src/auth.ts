@@ -43,21 +43,64 @@ import { recordLogin } from "./services/login-history.js";
 import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
+import { deleteSessionCookie } from "better-auth/cookies";
+import {
+  CONFIRMATION_STATUSES,
+  EMAIL_VERIFIED_PATH,
+  type ConfirmationStatus,
+} from "./services/templates.js";
 
 const schema = { ...authSchema, ...customSchema };
 
+/** The status a confirmation callback marks, or null when it is not one of ours. */
+function confirmationStatusOf(
+  callbackURL: string | null,
+): ConfirmationStatus | null {
+  if (!callbackURL?.startsWith(`${EMAIL_VERIFIED_PATH}?`)) return null;
+  const value = new URLSearchParams(
+    callbackURL.slice(EMAIL_VERIFIED_PATH.length + 1),
+  ).get("status");
+  return CONFIRMATION_STATUSES.find((status) => status === value) ?? null;
+}
+
+/** The `client_id` an OAuth or confirmation callback carries, if any. */
+function clientIdOf(callbackURL: string | null): string | null {
+  if (!callbackURL) return null;
+  try {
+    return new URL(callbackURL, config.betterAuth.url).searchParams.get(
+      "client_id",
+    );
+  } catch {
+    return null;
+  }
+}
+
 /**
- * BetterAuth builds the verification URL with `callbackURL=/` by default, which
- * lands the user on the admin-only dashboard (403 for regular users). Default
- * to the profile page whenever no explicit callback was supplied.
+ * Point the `callbackURL` of a verification link at the confirmation page
+ * instead of an authenticated area.
+ *
+ * The target is always replaced — a verification click must never land in a
+ * protected area, and this service owns the post-verification landing for every
+ * flow it drives. `resolve` receives the status the link already marks (null on
+ * a first-leg link) and answers the status to write, so the change-email leg can
+ * tell its two hops apart. A `client_id` carried by the previous callback is
+ * preserved so the page still resolves that application's own template. An
+ * unparseable URL is returned untouched rather than guessed at.
  */
-function withProfileCallback(url: string): string {
+function withConfirmationCallback(
+  url: string,
+  resolve: (marked: ConfirmationStatus | null) => ConfirmationStatus,
+): string {
   try {
     const parsed = new URL(url);
-    const callback = parsed.searchParams.get("callbackURL");
-    if (!callback || callback === "/") {
-      parsed.searchParams.set("callbackURL", "/profile");
-    }
+    const previous = parsed.searchParams.get("callbackURL");
+
+    const params = new URLSearchParams({
+      status: resolve(confirmationStatusOf(previous)),
+    });
+    const clientId = clientIdOf(previous);
+    if (clientId) params.set("client_id", clientId);
+    parsed.searchParams.set("callbackURL", `${EMAIL_VERIFIED_PATH}?${params}`);
     return parsed.toString();
   } catch {
     return url;
@@ -370,16 +413,29 @@ export const auth = betterAuth({
   // `emailVerification` (NOT inside `emailAndPassword` — that field is
   // silently ignored). `sendOnSignUp: true` fires the email automatically
   // when a new account is created.
+  //
+  // `autoSignInAfterVerification` is off: a verification link must never be a
+  // bearer credential. Without it, anyone who can read the mailbox (a forward,
+  // a backup, a shared workstation, a leak) would obtain a fully authenticated
+  // session without ever presenting the password or a second factor. The click
+  // only proves control of the address; it lands on a confirmation page, and
+  // reaching a protected area still requires an explicit sign-in.
   emailVerification: {
     sendOnSignUp: true,
-    autoSignInAfterVerification: true,
+    autoSignInAfterVerification: false,
     sendVerificationEmail: async (params: {
       user: { email: string };
       url: string;
     }) => {
       await sendVerificationEmail(
         params.user.email,
-        withProfileCallback(params.url),
+        withConfirmationCallback(params.url, (marked) =>
+          // The change-of-address flow's second hop comes back through this
+          // same sender (BetterAuth mails it to the new address). A link that
+          // already reported `pending` is therefore completing a change, not
+          // activating a new account.
+          marked === "pending" ? "updated" : "activated",
+        ),
       );
     },
   },
@@ -397,10 +453,14 @@ export const auth = betterAuth({
         newEmail: string;
         url: string;
       }) => {
+        // The change-of-address flow is two hops over the same endpoint: the
+        // first confirms the request and mails the new address, the second
+        // completes the swap. `pending` and `updated` keep them apart, because
+        // only the second one leaves a verified address behind.
         await sendChangeEmailVerification(
           params.user.email,
           params.newEmail,
-          params.url,
+          withConfirmationCallback(params.url, () => "pending"),
         );
       },
     },
@@ -496,6 +556,22 @@ export const auth = betterAuth({
     // password + second-factor flow instead. Passkey is deliberately excluded
     // (a passkey is already a strong, possession-based factor).
     after: createAuthMiddleware(async (ctx) => {
+      // A verification click must never hand out a session. BetterAuth's
+      // `change-email-verification` branch mints one unconditionally — unlike
+      // the sign-up path it is NOT governed by `autoSignInAfterVerification` —
+      // so revoke whatever this endpoint created for a caller that arrived
+      // without a session. A caller that already had one keeps it: the endpoint
+      // re-issues that same session there, and dropping it would sign the user
+      // out of a session they legitimately hold.
+      if (ctx.path === "/verify-email") {
+        const minted = ctx.context.newSession;
+        if (minted && !ctx.context.session) {
+          deleteSessionCookie(ctx);
+          await ctx.context.internalAdapter.deleteSession(minted.session.token);
+          ctx.context.setNewSession(null);
+        }
+      }
+
       const passwordlessSignInPaths = [
         "/callback/",
         "/magic-link/verify",

@@ -10,6 +10,7 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import MfaChallengeForm from '@/components/auth/MfaChallengeForm.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
 import { ApiError, apiFetch } from '@/api/client';
+import { authPagePath } from '@/utils/authRedirect';
 
 const { t } = useI18n();
 const router = useRouter();
@@ -31,6 +32,12 @@ function nextRoute(): string {
   const redirect = route.query.redirectTo;
   if (typeof redirect === 'string' && redirect.startsWith('/')) return redirect;
   return '/profile';
+}
+
+// The reset screens are a detour, not a destination: they must carry the same
+// signed OAuth params so the flow resumes when the user comes back to /login.
+function forgotPasswordRoute(): string {
+  return authPagePath('/forgot-password', route.query);
 }
 
 async function resendVerification() {
@@ -135,6 +142,13 @@ if (import.meta.env.VITE_USE_MOCK === 'true') {
             autocomplete="current-password"
             required
           />
+          <button
+            type="button"
+            class="text-sm text-primary-400 hover:text-primary-300 underline underline-offset-2 text-left"
+            @click="router.push(forgotPasswordRoute())"
+          >
+            {{ t('auth.forgotPassword') }}
+          </button>
           <p v-if="error" class="text-sm text-red-400 text-center">{{ error }}</p>
           <div v-if="needsVerification" class="text-center space-y-2">
             <button

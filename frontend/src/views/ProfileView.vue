@@ -17,7 +17,8 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import MfaSetupModal from '@/components/profile/MfaSetupModal.vue';
 import MfaDisableModal from '@/components/profile/MfaDisableModal.vue';
 import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw } from 'lucide-vue-next';
+import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
+import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw, Lock } from 'lucide-vue-next';
 
 interface SubscriptionPlanPrice {
   id: string
@@ -184,6 +185,9 @@ async function handleRevoke(session: Session) {
 const showSetupMfa = ref(false);
 const showDisableMfa = ref(false);
 const showRegenerateBackup = ref(false);
+
+// ── Password modal state ───────────────────────────────────────────────────
+const showChangePassword = ref(false);
 </script>
 
 <template>
@@ -260,6 +264,21 @@ const showRegenerateBackup = ref(false);
           <div class="flex items-center justify-between gap-4 py-3 border-b border-surface-800/40">
             <div class="flex items-center gap-3 min-w-0">
               <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center shrink-0">
+                <Lock class="w-4 h-4 text-primary-400" />
+              </div>
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-surface-200">{{ t('profile.changePassword') }}</p>
+                <p class="text-xs text-surface-500 mt-0.5">{{ t('profile.changePasswordDesc') }}</p>
+              </div>
+            </div>
+            <BaseButton variant="outline" size="sm" @click="showChangePassword = true">
+              {{ t('profile.changePasswordAction') }}
+            </BaseButton>
+          </div>
+
+          <div class="flex items-center justify-between gap-4 py-3 border-b border-surface-800/40">
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center shrink-0">
                 <ShieldCheck class="w-4 h-4 text-primary-400" />
               </div>
               <div class="min-w-0">
@@ -321,6 +340,7 @@ const showRegenerateBackup = ref(false);
       <MfaSetupModal :open="showSetupMfa" @close="showSetupMfa = false" @success="showSetupMfa = false" />
       <MfaDisableModal :open="showDisableMfa" @close="showDisableMfa = false" @success="showDisableMfa = false" />
       <MfaBackupCodesModal :open="showRegenerateBackup" @close="showRegenerateBackup = false" />
+      <ChangePasswordModal :open="showChangePassword" @close="showChangePassword = false" @success="showChangePassword = false" />
 
       <!-- Active sessions -->
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">

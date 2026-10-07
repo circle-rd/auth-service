@@ -36,6 +36,7 @@ import { adminConsumptionRoutes } from "./routes/admin/adminConsumption.js";
 import { usersRoutes } from "./routes/admin/users.js";
 import { sessionsRoutes } from "./routes/admin/sessions.js";
 import { statsRoutes } from "./routes/admin/stats.js";
+import { eventsRoutes } from "./routes/admin/events.js";
 import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
@@ -53,6 +54,7 @@ import {
   type PageName,
 } from "./services/templates.js";
 import { createRateLimitStore } from "./services/rate-limit-store.js";
+import { createEventBus, setEventBus } from "./services/event-bus.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
 import { eq } from "drizzle-orm";
@@ -185,6 +187,18 @@ export async function buildServer(): Promise<FastifyInstance> {
   const rateLimitStore = await createRateLimitStore(config.redis.url);
   fastify.addHook("onClose", async () => {
     await rateLimitStore.close();
+  });
+
+  // ── Admin event bus ─────────────────────────────────────────────
+  // In-process by default; when REDIS_URL is set the same optional-Redis
+  // pattern as the rate-limit store fans events out across instances. The bus
+  // is installed process-wide so `recordLogin()` can publish without importing
+  // this module.
+  const eventBus = await createEventBus(config.redis.url);
+  setEventBus(eventBus);
+  fastify.addHook("onClose", async () => {
+    await eventBus.close();
+    setEventBus(null);
   });
 
   // ── Static frontend (built Vue SPA) ─────────────────────────────
@@ -534,6 +548,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
   await fastify.register(statsRoutes, { prefix: "/api/admin/stats" });
+  await fastify.register(eventsRoutes, { prefix: "/api/admin/events" });
   await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
   await fastify.register(organizationsRoutes, {
     prefix: "/api/admin/organizations",

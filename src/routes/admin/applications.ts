@@ -34,7 +34,7 @@ import {
   revokeUserClientTokens,
   revokeClientTokens,
 } from "../../services/oauth-tokens.js";
-import { requireAdmin } from "../../middleware.js";
+import { getRequestSession, requireAdmin } from "../../middleware.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -279,6 +279,14 @@ export async function applicationRoutes(
     }
     const data = parsed.data;
 
+    // The creator is resolved from its session, never from the request body.
+    // `requireAdmin` runs as a preHandler and proves the session exists, so the
+    // creator is known before the application is written. Resolving it here
+    // keeps the bootstrap below outside the creation transaction.
+    const creatorSession = await getRequestSession(req);
+    if (!creatorSession) throw ERR.AUTH_001();
+    const creatorId = creatorSession.user.id;
+
     // Check slug uniqueness (slug is used as the OAuth clientId)
     const [existing] = await db
       .select({ id: applications.id })
@@ -382,19 +390,25 @@ export async function applicationRoutes(
       })
       .returning();
 
-    // c) Assign all existing superadmins to the app with the "admin" role and "free" plan
+    // c) Assign every existing superadmin — and the caller who just created the
+    // application — to the app with the "admin" role and the "free" plan.
     if (adminRole && freePlan) {
       const superadmins = await db
         .select({ id: userTable.id })
         .from(userTable)
         .where(eq(userTable.role, "superadmin"));
 
-      for (const sa of superadmins) {
+      // A superadmin creator is already listed by the query above, so the Set
+      // also guarantees it is never written twice.
+      const recipients = new Set(superadmins.map((sa) => sa.id));
+      recipients.add(creatorId);
+
+      for (const userId of recipients) {
         // Grant access (upsert in case of edge-case duplicate)
         await db
           .insert(userApplications)
           .values({
-            userId: sa.id,
+            userId,
             applicationId: app!.id,
             isActive: true,
             subscriptionPlanId: freePlan.id,
@@ -408,7 +422,7 @@ export async function applicationRoutes(
         await db
           .insert(userAppRoles)
           .values({
-            userId: sa.id,
+            userId,
             applicationId: app!.id,
             roleId: adminRole.id,
           })
@@ -418,7 +432,7 @@ export async function applicationRoutes(
         await db
           .insert(userSubscriptions)
           .values({
-            userId: sa.id,
+            userId,
             applicationId: app!.id,
             planId: freePlan.id,
             isActive: true,

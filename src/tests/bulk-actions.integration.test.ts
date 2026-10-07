@@ -62,13 +62,13 @@ function asSuperadmin() {
   );
 }
 
-async function seedUser(id: string, email: string) {
+async function seedUser(id: string, email: string, role = "user") {
   await db.insert(userTable).values({
     id,
     name: `User ${id}`,
     email,
     emailVerified: true,
-    role: "user",
+    role,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
@@ -136,6 +136,9 @@ describe("bulk actions integration", () => {
 
   it("grants access to every member of an organization", async () => {
     asSuperadmin();
+    // A session always belongs to a real user row; the creator is attached to
+    // the application on creation, so it must exist here too.
+    await seedUser("superadmin-1", "superadmin-1@example.com", "superadmin");
     const createRes = await appsApp.inject({
       method: "POST",
       url: "/",
@@ -179,11 +182,17 @@ describe("bulk actions integration", () => {
     expect(res.statusCode).toBe(201);
     expect(res.json<{ granted: number }>().granted).toBe(2);
 
+    // The two organization members plus the creator, who was attached when the
+    // application was created.
     const rows = await db
       .select({ userId: userApplications.userId })
       .from(userApplications)
       .where(eq(userApplications.applicationId, appId));
-    expect(rows.map((r) => r.userId).sort()).toEqual(["u1", "u2"]);
+    expect(rows.map((r) => r.userId).sort()).toEqual([
+      "superadmin-1",
+      "u1",
+      "u2",
+    ]);
 
     // Re-running the same bulk grant must not duplicate anything.
     const again = await appsApp.inject({
@@ -200,7 +209,7 @@ describe("bulk actions integration", () => {
       .select({ userId: userApplications.userId })
       .from(userApplications)
       .where(eq(userApplications.applicationId, appId));
-    expect(rowsAfter).toHaveLength(2);
+    expect(rowsAfter).toHaveLength(3);
   });
 
   it("lists one row per user even when they hold several roles", async () => {

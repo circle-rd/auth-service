@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+} from "vitest";
 import Fastify from "fastify";
 import { applicationRoutes } from "./applications.js";
 
@@ -71,6 +79,12 @@ describe("Admin — applicationRoutes", () => {
   });
 
   afterAll(() => app.close());
+
+  // The create route resolves the creator from the session, so every case needs
+  // a session unless it deliberately overrides one with `mockResolvedValueOnce`.
+  beforeEach(() => {
+    mockGetSession.mockResolvedValue(adminSession);
+  });
 
   // ── Auth guard ─────────────────────────────────────────────────────────
 

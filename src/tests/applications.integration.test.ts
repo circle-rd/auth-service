@@ -11,19 +11,29 @@ import type * as BetterAuthModule from "better-auth";
 import { applicationRoutes } from "../routes/admin/applications.js";
 import { createTestApp } from "./helpers/app.js";
 import { db } from "../db/index.js";
-import { applications, appRoles, subscriptionPlans } from "../db/schema.js";
+import {
+  applications,
+  appRoles,
+  subscriptionPlans,
+  userApplications,
+  userAppRoles,
+  userSubscriptions,
+} from "../db/schema.js";
 import { user as userTable } from "../db/auth-schema.js";
 import { eq } from "drizzle-orm";
 import { cleanDb } from "./helpers/db.js";
-import { makeSuperadminSession } from "./helpers/auth.js";
+import { makeAdminSession, makeSuperadminSession } from "./helpers/auth.js";
 import { auth } from "../auth.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
 vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
+// `generateId` feeds the `oauth_client` primary key, so a constant would make a
+// test that creates two applications collide on that key.
+let generatedIds = 0;
 vi.mock("better-auth", async (importOriginal) => {
   const actual = await importOriginal<typeof BetterAuthModule>();
-  return { ...actual, generateId: vi.fn(() => "mock-oauth-id") };
+  return { ...actual, generateId: vi.fn(() => `mock-oauth-id-${++generatedIds}`) };
 });
 
 // ── App ────────────────────────────────────────────────────────────────────
@@ -64,6 +74,38 @@ async function createApp(slug = "test-app") {
     },
   });
   return res;
+}
+
+/** Create an application as the given session and return the created row id. */
+async function createAppAs(
+  session: SessionLike,
+  slug: string,
+): Promise<string> {
+  vi.spyOn(auth.api, "getSession").mockResolvedValue(session);
+  const res = await app.inject({
+    method: "POST",
+    url: "/",
+    payload: { name: "Test App", slug, isPublic: false },
+  });
+  expect(res.statusCode).toBe(201);
+  return res.json<{ application: { id: string } }>().application.id;
+}
+
+function asSession(session: ReturnType<typeof makeAdminSession>) {
+  return session as unknown as SessionLike;
+}
+
+/** Seed a global-role user row so it can be the caller of a request. */
+async function seedUser(id: string, role: string, email = `${id}@example.com`) {
+  await db.insert(userTable).values({
+    id,
+    name: id,
+    email,
+    emailVerified: true,
+    role,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -136,24 +178,15 @@ describe("applicationRoutes integration", () => {
   });
 
   it("POST / auto-assigns superadmins to new app", async () => {
-    // Seed a superadmin
-    await db.insert(userTable).values({
-      id: "sa-1",
-      name: "Super Admin",
-      email: "sa@example.com",
-      emailVerified: true,
-      role: "superadmin",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    // Seed a superadmin and make it the creator, as a real caller always is.
+    await seedUser("sa-1", "superadmin", "sa@example.com");
 
-    const res = await createApp("sa-app");
-    expect(res.statusCode).toBe(201);
-    const body = res.json<{ application: { id: string } }>();
-    const appId = body.application.id;
+    const appId = await createAppAs(
+      asSession(makeSuperadminSession("sa-1")),
+      "sa-app",
+    );
 
     // The superadmin should have access to the app
-    const { userApplications } = await import("../db/schema.js");
     const access = await db
       .select()
       .from(userApplications)
@@ -161,6 +194,108 @@ describe("applicationRoutes integration", () => {
     expect(access).toHaveLength(1);
     expect(access[0]!.userId).toBe("sa-1");
     expect(access[0]!.isActive).toBe(true);
+  });
+
+  it("POST / → the superadmin creator is attached exactly once", async () => {
+    // The creator is itself a superadmin, so it is listed by the superadmin
+    // query AND added as creator: the two must collapse into one set of rows.
+    await seedUser("sa-1", "superadmin", "sa@example.com");
+    const appId = await createAppAs(
+      asSession(makeSuperadminSession("sa-1")),
+      "sa-self",
+    );
+
+    const access = await db
+      .select()
+      .from(userApplications)
+      .where(eq(userApplications.applicationId, appId));
+    const roles = await db
+      .select()
+      .from(userAppRoles)
+      .where(eq(userAppRoles.applicationId, appId));
+    const subs = await db
+      .select()
+      .from(userSubscriptions)
+      .where(eq(userSubscriptions.applicationId, appId));
+
+    expect(access).toHaveLength(1);
+    expect(roles).toHaveLength(1);
+    expect(subs).toHaveLength(1);
+    expect(access[0]!.userId).toBe("sa-1");
+  });
+
+  it("POST / → attaches the admin creator with the app admin role and free plan", async () => {
+    await seedUser("admin-1", "admin");
+
+    const appId = await createAppAs(
+      asSession(makeAdminSession("admin-1")),
+      "admin-app",
+    );
+
+    const [freePlan] = await db
+      .select({ id: subscriptionPlans.id })
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.applicationId, appId));
+
+    // Access row: active, on the free plan.
+    const access = await db
+      .select()
+      .from(userApplications)
+      .where(eq(userApplications.applicationId, appId));
+    expect(access).toHaveLength(1);
+    expect(access[0]!.userId).toBe("admin-1");
+    expect(access[0]!.isActive).toBe(true);
+    expect(access[0]!.subscriptionPlanId).toBe(freePlan!.id);
+
+    // Application role: the `admin` one, not the default `user`.
+    const roles = await db
+      .select({ name: appRoles.name })
+      .from(userAppRoles)
+      .innerJoin(appRoles, eq(userAppRoles.roleId, appRoles.id))
+      .where(eq(userAppRoles.applicationId, appId));
+    expect(roles).toHaveLength(1);
+    expect(roles[0]!.name).toBe("admin");
+
+    // Subscription: the free plan.
+    const subs = await db
+      .select()
+      .from(userSubscriptions)
+      .where(eq(userSubscriptions.applicationId, appId));
+    expect(subs).toHaveLength(1);
+    expect(subs[0]!.userId).toBe("admin-1");
+    expect(subs[0]!.planId).toBe(freePlan!.id);
+  });
+
+  it("POST / → an admin creator is admin only on the application it created", async () => {
+    await seedUser("admin-1", "admin");
+    await seedUser("sa-1", "superadmin", "sa@example.com");
+
+    const ownAppId = await createAppAs(
+      asSession(makeAdminSession("admin-1")),
+      "admin-own-app",
+    );
+    // Someone else creates a second application.
+    const otherAppId = await createAppAs(
+      asSession(makeSuperadminSession("sa-1")),
+      "other-app",
+    );
+
+    // Exactly one application role row exists for this admin, on its own app.
+    const roleRows = await db
+      .select({ applicationId: userAppRoles.applicationId })
+      .from(userAppRoles)
+      .where(eq(userAppRoles.userId, "admin-1"));
+    expect(roleRows).toHaveLength(1);
+    expect(roleRows[0]!.applicationId).toBe(ownAppId);
+
+    // Nothing leaked onto the application it did not create.
+    const accessRows = await db
+      .select({ applicationId: userApplications.applicationId })
+      .from(userApplications)
+      .where(eq(userApplications.userId, "admin-1"));
+    expect(accessRows).toHaveLength(1);
+    expect(accessRows[0]!.applicationId).toBe(ownAppId);
+    expect(otherAppId).not.toBe(ownAppId);
   });
 
   it("DELETE /:id → removes the application", async () => {

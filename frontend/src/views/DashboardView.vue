@@ -10,6 +10,7 @@ import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
 import { getActiveUsers, getLogins, type LoginsSeriesPoint } from '@/api/stats';
 import { useDebounce } from '@/composables/useDebounce';
+import { useAdminEvents } from '@/composables/useAdminEvents';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import StatCard from '@/components/ui/StatCard.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
@@ -67,16 +68,31 @@ async function fetchOnline() {
   }
 }
 
-async function fetchLogins() {
-  loginsLoading.value = true;
+// `silent` is what the real-time path uses: an event-driven refresh must not
+// flip the chart back to its skeleton, otherwise a sustained login stream would
+// keep the logins chart unreadable. The value swaps in place instead.
+async function fetchLogins(options: { silent?: boolean } = {}) {
+  const silent = options.silent === true;
+  if (!silent) loginsLoading.value = true;
   try {
     const res = await getLogins({ range: timeRange.value });
     loginsSeries.value = res.series;
     loginsTotal.value = res.total;
   } finally {
-    loginsLoading.value = false;
+    if (!silent) loginsLoading.value = false;
   }
 }
+
+// Real-time signal: a `login.recorded` frame re-reads the logins series and the
+// online counter instead of waiting for the poll below. The composable coalesces
+// a burst of frames into a single refresh, and the server is the only access
+// control — a refused stream stays silent.
+const adminEvents = useAdminEvents({
+  'login.recorded': () => {
+    void fetchLogins({ silent: true });
+    void fetchOnline();
+  },
+});
 
 onMounted(async () => {
   await Promise.all([
@@ -128,6 +144,7 @@ watch(sessionPage, () => { void loadSessions(); });
 
 onUnmounted(() => {
   if (onlinePollHandle) clearInterval(onlinePollHandle);
+  adminEvents.close();
 });
 
 const activeApplications = computed(() => applications.value.filter(a => a.isActive).length);

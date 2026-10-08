@@ -11,6 +11,7 @@ import {
 } from "../../db/auth-schema.js";
 import { count, ilike, or, eq, desc, asc, and } from "drizzle-orm";
 import { requireAdmin } from "../../middleware.js";
+import { publishEvent } from "../../services/event-bus.js";
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
@@ -105,6 +106,7 @@ export async function organizationsRoutes(
   });
 
   // POST /api/admin/organizations — create an organization (server-side, admin only)
+  // The BetterAuth plugin's afterCreateOrganization hook publishes the event.
   fastify.post("/", async (req, reply) => {
     const parsed = createOrgSchema.safeParse(req.body);
     if (!parsed.success)
@@ -149,6 +151,7 @@ export async function organizationsRoutes(
   });
 
   // DELETE /api/admin/organizations/:id — delete an organization
+  // Direct Drizzle write: publish the event manually.
   fastify.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const existing = await db
@@ -158,10 +161,12 @@ export async function organizationsRoutes(
       .limit(1);
     if (existing.length === 0) throw ERR.ORG_001();
     await db.delete(organization).where(eq(organization.id, id));
+    publishEvent("organization.changed");
     await reply.status(204).send();
   });
 
   // PATCH /api/admin/organizations/:id — update an organization
+  // Direct Drizzle write: publish the event manually.
   fastify.patch("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = updateOrgSchema.safeParse(req.body);
@@ -197,6 +202,8 @@ export async function organizationsRoutes(
       .set(updates)
       .where(eq(organization.id, id))
       .returning();
+
+    publishEvent("organization.changed");
 
     await reply.send({
       organization: {
@@ -249,6 +256,7 @@ export async function organizationsRoutes(
   });
 
   // POST /api/admin/organizations/:id/members — add a member directly (no invite)
+  // The BetterAuth plugin's afterAddMember hook publishes the event.
   fastify.post("/:id/members", async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = addMemberSchema.safeParse(req.body);
@@ -270,6 +278,7 @@ export async function organizationsRoutes(
   });
 
   // DELETE /api/admin/organizations/:id/members/:userId — remove a member
+  // Direct Drizzle write: publish the event manually.
   fastify.delete("/:id/members/:userId", async (req, reply) => {
     const { id, userId } = req.params as { id: string; userId: string };
     const existing = await db
@@ -281,10 +290,12 @@ export async function organizationsRoutes(
     await db
       .delete(member)
       .where(and(eq(member.organizationId, id), eq(member.userId, userId)));
+    publishEvent("organization.changed");
     await reply.status(204).send();
   });
 
   // PATCH /api/admin/organizations/:id/members/:memberId/role — update member role
+  // The BetterAuth plugin's afterUpdateMemberRole hook publishes the event.
   fastify.patch("/:id/members/:memberId/role", async (req, reply) => {
     const { id, memberId } = req.params as { id: string; memberId: string };
     const parsed = z
@@ -326,6 +337,7 @@ export async function organizationsRoutes(
   });
 
   // POST /api/admin/organizations/:id/invitations — create an invitation
+  // The BetterAuth plugin's afterCreateInvitation hook publishes the event.
   fastify.post("/:id/invitations", async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = createInvitationSchema.safeParse(req.body);
@@ -347,6 +359,7 @@ export async function organizationsRoutes(
   });
 
   // DELETE /api/admin/organizations/:id/invitations/:invitationId — cancel an invitation
+  // The BetterAuth plugin's afterCancelInvitation hook publishes the event.
   fastify.delete("/:id/invitations/:invitationId", async (req, reply) => {
     const { invitationId } = req.params as { id: string; invitationId: string };
     try {

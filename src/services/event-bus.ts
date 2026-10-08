@@ -16,8 +16,21 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { logger } from "../logger.js";
 
-/** The closed set of event types the channel may carry. */
-export const DOMAIN_EVENT_TYPES = ["login.recorded"] as const;
+/**
+ * The closed set of event types the channel may carry.
+ *
+ * Every type is a name and nothing else. A type that would need a payload to be
+ * useful is a type that is wrong — the fix for it is a better type, never a
+ * wider frame (see `src/routes/admin/events.ts`).
+ */
+export const DOMAIN_EVENT_TYPES = [
+  "login.recorded",
+  "session.created",
+  "session.revoked",
+  "user.changed",
+  "application.changed",
+  "organization.changed",
+] as const;
 
 export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number];
 

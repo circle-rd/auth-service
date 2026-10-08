@@ -22,6 +22,7 @@ import { isMailConfigured } from "../../services/mail/index.js";
 import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
 import { getCallerRole, requireAdmin } from "../../middleware.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
+import { publishEvent } from "../../services/event-bus.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = z.object({
@@ -436,6 +437,18 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .where(eq(userTable.id, req.params.id));
     }
 
+    // One announcement per completed request, and only when something was
+    // actually written: an empty PATCH is not a change. The role change and the
+    // profile change above are one edit of one user as far as the admin screen
+    // is concerned.
+    if (
+      role !== undefined ||
+      name !== undefined ||
+      isMfaRequired !== undefined
+    ) {
+      publishEvent("user.changed");
+    }
+
     await reply.send({ ok: true });
   });
 
@@ -611,6 +624,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         }
         throw err;
       }
+      publishEvent("user.changed");
       await reply.send({ ok: true });
     },
   );
@@ -635,6 +649,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .update(userTable)
         .set({ emailVerified: true })
         .where(eq(userTable.id, req.params.id));
+      publishEvent("user.changed");
       await reply.send({ ok: true });
     },
   );
@@ -695,6 +710,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .where(eq(userApplications.userId, req.params.id));
       await tx.delete(userTable).where(eq(userTable.id, req.params.id));
     });
+
+    // After the transaction, so the row is really gone before any client
+    // re-reads the user list.
+    publishEvent("user.changed");
 
     await reply.status(204).send();
   });

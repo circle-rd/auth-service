@@ -35,6 +35,7 @@ import {
   revokeClientTokens,
 } from "../../services/oauth-tokens.js";
 import { getRequestSession, requireAdmin } from "../../middleware.js";
+import { publishEvent } from "../../services/event-bus.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -468,6 +469,10 @@ export async function applicationRoutes(
       name: data.name,
     });
 
+    // Announced last: the row and every bootstrap write above are committed by
+    // now, so a client that reacts by re-reading sees the finished application.
+    publishEvent("application.changed");
+
     await reply.status(201).send(response);
   });
 
@@ -559,6 +564,7 @@ export async function applicationRoutes(
     });
 
     const view = await fetchOauthClientView(app.slug);
+    publishEvent("application.changed");
     await reply.send({ application: mergeOauthView(app, view) });
   });
 
@@ -585,6 +591,8 @@ export async function applicationRoutes(
     if (deleted.url) {
       removeCorsOrigin(deleted.url);
     }
+
+    publishEvent("application.changed");
 
     await reply.status(204).send();
   });
@@ -1081,6 +1089,8 @@ export async function applicationRoutes(
         .set({ enabledSocialProviders: parsed.data.enabledSocialProviders })
         .where(eq(applications.id, req.params.id))
         .returning();
+
+      publishEvent("application.changed");
 
       await reply.send({ application: updated });
     },

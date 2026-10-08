@@ -11,6 +11,7 @@ import {
 } from "../../db/auth-schema.js";
 import { count, ilike, or, eq, desc, asc, and } from "drizzle-orm";
 import { requireAdmin } from "../../middleware.js";
+import { publishEvent } from "../../services/event-bus.js";
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
@@ -158,6 +159,7 @@ export async function organizationsRoutes(
       .limit(1);
     if (existing.length === 0) throw ERR.ORG_001();
     await db.delete(organization).where(eq(organization.id, id));
+    publishEvent("organization.changed");
     await reply.status(204).send();
   });
 
@@ -197,6 +199,8 @@ export async function organizationsRoutes(
       .set(updates)
       .where(eq(organization.id, id))
       .returning();
+
+    publishEvent("organization.changed");
 
     await reply.send({
       organization: {
@@ -281,6 +285,7 @@ export async function organizationsRoutes(
     await db
       .delete(member)
       .where(and(eq(member.organizationId, id), eq(member.userId, userId)));
+    publishEvent("organization.changed");
     await reply.status(204).send();
   });
 

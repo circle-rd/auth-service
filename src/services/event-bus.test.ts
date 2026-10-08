@@ -114,7 +114,32 @@ describe("createEventBus", () => {
 });
 
 describe("the event vocabulary", () => {
-  it("only exposes login.recorded", () => {
-    expect([...DOMAIN_EVENT_TYPES]).toEqual(["login.recorded"]);
+  it("exposes the widened closed set, login.recorded first", () => {
+    // The channel is a closed set on purpose: `RedisEventBus` validates remote
+    // messages with `z.enum(DOMAIN_EVENT_TYPES)`, so a type that is emitted but
+    // absent here would never survive the fan-out. `login.recorded` stays first
+    // so this list reads as the original vocabulary plus the WP3 additions.
+    expect([...DOMAIN_EVENT_TYPES]).toEqual([
+      "login.recorded",
+      "session.created",
+      "session.revoked",
+      "user.changed",
+      "application.changed",
+      "organization.changed",
+    ]);
+  });
+
+  it("carries each type through the fan-out envelope unchanged", () => {
+    // Whatever the type, the wire form is a type name and a timestamp — the
+    // remote schema has no room for anything else.
+    for (const type of DOMAIN_EVENT_TYPES) {
+      const bus = new MemoryEventBus();
+      const seen: DomainEvent[] = [];
+      bus.subscribe((e) => seen.push(e));
+      bus.publish(type);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.type).toBe(type);
+      expect(Object.keys(seen[0]!).sort()).toEqual(["at", "type"]);
+    }
   });
 });

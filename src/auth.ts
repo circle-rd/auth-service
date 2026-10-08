@@ -40,6 +40,7 @@ import {
 import { userMustSetupMfa } from "./services/mfa.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
+import { publishEvent } from "./services/event-bus.js";
 import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
@@ -490,6 +491,17 @@ export const auth = betterAuth({
   // are complementary (one per token issuance, with an app id and IP/UA
   // from the OAuth context). Fire-and-forget: failures must never break
   // session creation.
+  //
+  // The same `session` hooks are also the emission points of the admin event
+  // channel: `create.after` announces `session.created` and `delete.after`
+  // announces `session.revoked`. BetterAuth routes every session write through
+  // the hook-wrapped internal adapter (`createWithHooks` / `deleteWithHooks` /
+  // `deleteManyWithHooks`), so those two hooks see every session this service
+  // ever creates or removes — including the native `/api/auth/*` endpoints and
+  // the `internalAdapter.deleteUserSessions()` calls our own routes make.
+  // `user.*` is wired the same way for the writes that go through the adapter;
+  // the direct Drizzle writes that bypass it announce `user.changed`
+  // themselves (src/bootstrap.ts, src/routes/user.ts, src/routes/admin/users.ts).
   databaseHooks: {
     session: {
       create: {
@@ -514,6 +526,31 @@ export const auth = betterAuth({
               "[login-history] failed to record dashboard login",
             );
           }
+          // Outside the catch: the session row exists regardless of whether its
+          // login row could be recorded, and the announcement is non-fatal.
+          publishEvent("session.created");
+        },
+      },
+      delete: {
+        after: async () => {
+          publishEvent("session.revoked");
+        },
+      },
+    },
+    user: {
+      create: {
+        after: async () => {
+          publishEvent("user.changed");
+        },
+      },
+      update: {
+        after: async () => {
+          publishEvent("user.changed");
+        },
+      },
+      delete: {
+        after: async () => {
+          publishEvent("user.changed");
         },
       },
     },
@@ -667,6 +704,27 @@ export const auth = betterAuth({
           orgName: data.organization.name,
           role: data.role,
         });
+      },
+      // The plugin writes organizations, members and invitations through its own
+      // adapter, which the core `databaseHooks` above do not intercept — these
+      // hooks are the only place that sees those writes wherever they come from
+      // (the native `/api/auth/organization/*` endpoints as well as the admin
+      // routes calling `auth.api.*`). One announcement per completed write; the
+      // organization, its members and its invitations are the same admin screen.
+      organizationHooks: {
+        afterCreateOrganization: async () =>
+          publishEvent("organization.changed"),
+        afterUpdateOrganization: async () =>
+          publishEvent("organization.changed"),
+        afterDeleteOrganization: async () =>
+          publishEvent("organization.changed"),
+        afterAddMember: async () => publishEvent("organization.changed"),
+        afterRemoveMember: async () => publishEvent("organization.changed"),
+        afterUpdateMemberRole: async () => publishEvent("organization.changed"),
+        afterCreateInvitation: async () => publishEvent("organization.changed"),
+        afterAcceptInvitation: async () => publishEvent("organization.changed"),
+        afterRejectInvitation: async () => publishEvent("organization.changed"),
+        afterCancelInvitation: async () => publishEvent("organization.changed"),
       },
     }),
     admin({

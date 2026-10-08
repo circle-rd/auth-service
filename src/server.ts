@@ -627,11 +627,22 @@ export async function buildServer(): Promise<FastifyInstance> {
   );
 
   // ── SPA fallback ────────────────────────────────────────────────
+  // Asset-shaped paths (file extension or under /assets/) return 404;
+  // extensionless paths get the SPA shell so client-side routing works.
+  function isAssetPath(url: string): boolean {
+    const path = url.split("?")[0] ?? "";
+    if (path.startsWith("/assets/")) return true;
+    const segments = path.split("/");
+    const last = segments[segments.length - 1];
+    return last.includes(".");
+  }
+
   fastify.setNotFoundHandler(async (req, reply) => {
     if (
       !req.url.startsWith("/api/") &&
       !req.url.startsWith("/api/auth/") &&
-      existsSync(frontendDist)
+      existsSync(frontendDist) &&
+      !isAssetPath(req.url)
     ) {
       return reply.sendFile("index.html", frontendDist);
     }

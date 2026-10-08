@@ -25,10 +25,10 @@ export type AdminEventType = (typeof ADMIN_EVENT_TYPES)[number];
 export type AdminEventHandlers = Partial<Record<AdminEventType, () => void>>;
 
 /**
- * Coalescing window. A burst of frames — a login spike — must become one
+ * Coalescing window. A burst of frames — a login spike — must become **one**
  * refresh, not one per login: the callers hit the database. Kept an order of
- * magnitude below the dashboard's 30 s poll so a single event still lands
- * "immediately" while a sustained stream is capped at one refresh per window.
+ * magnitude below the dashboard's 30 s poll, so an event still lands promptly
+ * while a busy instance stays capped.
  */
 export const DEFAULT_COALESCE_MS = 1_000;
 
@@ -45,39 +45,40 @@ export interface AdminEventsHandle {
 }
 
 /**
- * Collapse repeated triggers inside `windowMs` into a single call without
- * starving: the first trigger runs now and re-arms the window, so a stream whose
- * events are always closer together than the window still refreshes — once per
- * window — instead of waiting for a gap that never comes.
+ * Collapse a burst of triggers into a single call.
+ *
+ * The window is a **settle** window: every event restarts it, and the refresh
+ * runs once the stream has been quiet for `windowMs`. A burst of N events
+ * therefore costs exactly **one** round of requests — and because it runs after
+ * the burst, that round already sees every login in it, which a refresh fired on
+ * the first event of the burst could not.
+ *
+ * A settle window alone starves a stream that never falls quiet, so the wait is
+ * capped at `windowMs` from the first event of the window: an uninterrupted
+ * stream refreshes once per window instead of not at all.
  */
 function createCoalescer(fire: () => void, windowMs: number) {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let queued = false;
-
-  function run(): void {
-    timer = null;
-    fire();
-    timer = setTimeout(() => {
-      timer = null;
-      if (queued) {
-        queued = false;
-        run();
-      }
-    }, windowMs);
-  }
+  /** Absolute instant the open window must fire by, however busy the stream is. */
+  let deadline = 0;
 
   return {
     trigger(): void {
-      if (timer) {
-        queued = true;
-        return;
-      }
-      run();
+      const now = Date.now();
+      if (timer === null) deadline = now + windowMs;
+      const wait = Math.max(0, Math.min(windowMs, deadline - now));
+      if (timer) clearTimeout(timer);
+      // The cap can already have passed on a saturated stream; fire immediately
+      // rather than compute a negative delay.
+      timer = setTimeout(() => {
+        timer = null;
+        fire();
+      }, wait);
     },
     dispose(): void {
       if (timer) clearTimeout(timer);
       timer = null;
-      queued = false;
+      deadline = 0;
     },
   };
 }

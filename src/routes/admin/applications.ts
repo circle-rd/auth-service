@@ -35,6 +35,7 @@ import {
   revokeClientTokens,
 } from "../../services/oauth-tokens.js";
 import { getRequestSession, requireAdmin } from "../../middleware.js";
+import { publishEvent } from "../../services/event-bus.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -468,6 +469,9 @@ export async function applicationRoutes(
       name: data.name,
     });
 
+    // Announce the new application to the admin event channel.
+    publishEvent("application.changed");
+
     await reply.status(201).send(response);
   });
 
@@ -497,7 +501,7 @@ export async function applicationRoutes(
       .limit(1);
 
     // `enableEndSession` and `postLogoutRedirectUris` live exclusively on the
-    // BetterAuth `oauthClient` row, not on `applications` \u2014 strip them before
+    // BetterAuth `oauthClient` row, not on `applications` — strip them before
     // updating the application table.
     const {
       enableEndSession: _ees,
@@ -558,6 +562,9 @@ export async function applicationRoutes(
       name: app.name,
     });
 
+    // Announce the application change to the admin event channel.
+    publishEvent("application.changed");
+
     const view = await fetchOauthClientView(app.slug);
     await reply.send({ application: mergeOauthView(app, view) });
   });
@@ -585,6 +592,9 @@ export async function applicationRoutes(
     if (deleted.url) {
       removeCorsOrigin(deleted.url);
     }
+
+    // Announce the application deletion to the admin event channel.
+    publishEvent("application.changed");
 
     await reply.status(204).send();
   });
@@ -787,6 +797,9 @@ export async function applicationRoutes(
     // Auto-assign the app's default subscription plan if one is configured
     await assignDefaultPlanIfNeeded(parsed.data.userId, req.params.id);
 
+    // Announce the access grant to the admin event channel.
+    publishEvent("application.changed");
+
     await reply.status(201).send({ ok: true });
   });
 
@@ -885,6 +898,9 @@ export async function applicationRoutes(
         await assignDefaultPlanIfNeeded(userId, req.params.id);
       }
 
+      // Announce the bulk access grant to the admin event channel.
+      publishEvent("application.changed");
+
       await reply.status(201).send({ granted: toGrant.length, skipped });
     },
   );
@@ -965,6 +981,9 @@ export async function applicationRoutes(
         await assignDefaultPlanIfNeeded(req.params.userId, req.params.id);
       }
 
+      // Announce the access change to the admin event channel.
+      publishEvent("application.changed");
+
       await reply.send({ ok: true });
     },
   );
@@ -1028,6 +1047,10 @@ export async function applicationRoutes(
             ),
           );
       });
+
+      // Announce the access revocation to the admin event channel.
+      publishEvent("application.changed");
+
       await reply.status(204).send();
     },
   );
@@ -1081,6 +1104,9 @@ export async function applicationRoutes(
         .set({ enabledSocialProviders: parsed.data.enabledSocialProviders })
         .where(eq(applications.id, req.params.id))
         .returning();
+
+      // Announce the provider change to the admin event channel.
+      publishEvent("application.changed");
 
       await reply.send({ application: updated });
     },

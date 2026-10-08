@@ -6,7 +6,7 @@ import {
   type AuthServerHandle,
 } from "./helpers/server.js";
 import { openEventStream } from "./helpers/sse.js";
-import { getEventBus } from "../services/event-bus.js";
+import { getEventBus, publishEvent } from "../services/event-bus.js";
 import { recordLogin } from "../services/login-history.js";
 import { buildServer } from "../server.js";
 import { cleanDb } from "./helpers/db.js";
@@ -116,6 +116,53 @@ describe("GET /api/admin/events — authorization against the real server", () =
     const data = lines[1]!.slice("data: ".length);
     expect(Number.isNaN(Date.parse(data))).toBe(false);
     expect(frame).not.toMatch(/admin-1|example\.com|count|user/i);
+
+    stream.close();
+    expect(await waitForSubscribers(0)).toBe(0);
+  });
+});
+
+describe("event vocabulary — all six types reach the stream", () => {
+  let cookie: string;
+
+  beforeAll(async () => {
+    const { cookie: c } = await signUpAndSignIn(handle, {
+      email: "vocab-admin@example.com",
+      password: "Password123!",
+      name: "Vocab Admin",
+    });
+    await promote("vocab-admin@example.com", "admin");
+    cookie = c;
+  });
+
+  it.each([
+    "login.recorded",
+    "session.created",
+    "session.revoked",
+    "user.changed",
+    "application.changed",
+    "organization.changed",
+  ])("delivers %s with a parseable timestamp and no payload", async (type) => {
+    const stream = await openEventStream(baseUrl, cookie);
+    await stream.readUntil((text) => text.includes(": connected"));
+    expect(await waitForSubscribers(1)).toBe(1);
+
+    if (type === "login.recorded") {
+      await recordLogin({ userId: "vocab-test" });
+    } else {
+      publishEvent(type);
+    }
+
+    const text = await stream.readUntil((t) => t.includes(`event: ${type}`));
+    const start = text.indexOf(`event: ${type}`);
+    const frame = text.slice(start, text.indexOf("\n\n", start));
+    const lines = frame.split("\n");
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(`event: ${type}`);
+    const data = lines[1]!.slice("data: ".length);
+    expect(Number.isNaN(Date.parse(data))).toBe(false);
+    expect(frame).not.toMatch(/vocab-test|example\.com|count|user/i);
 
     stream.close();
     expect(await waitForSubscribers(0)).toBe(0);

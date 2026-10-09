@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -6,9 +7,11 @@ import {
   timestamp,
   jsonb,
   numeric,
+  bigint,
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 
 // ── Applications ──────────────────────────────────────────────────────────────
@@ -298,3 +301,95 @@ export const stripeEvents = pgTable("stripe_events", {
     .defaultNow()
     .notNull(),
 });
+
+// ── Wallet Accounts ───────────────────────────────────────────────────────────
+// Prepaid credit shared by every application. Amounts are integer micro-euros
+// (1 EUR = 1_000_000): tokens and tool calls are priced into the same balance
+// and sub-cent costs stay exact. The balance can never go below zero: the CHECK
+// is the last line of defence behind the service-level overdraft guard.
+// `owner_id` has no FK on purpose: it points at a user or an organization.
+export const walletAccounts = pgTable(
+  "wallet_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerType: text("owner_type").notNull(),
+    ownerId: text("owner_id").notNull(),
+    balance: bigint("balance", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`),
+    // Explicit unlimited-access flag: usage is still recorded in the ledger but
+    // the balance is left untouched. Never a magic balance value.
+    isUnlimited: boolean("is_unlimited").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("wallet_accounts_owner_idx").on(t.ownerType, t.ownerId),
+    check(
+      "wallet_accounts_owner_type_check",
+      sql`${t.ownerType} IN ('user', 'org')`,
+    ),
+    check("wallet_accounts_balance_check", sql`${t.balance} >= 0`),
+  ],
+);
+
+// ── Wallet Transactions ───────────────────────────────────────────────────────
+// Append-only ledger. `amount` is the signed value of the operation; `delta` is
+// its effect on the balance (equal to `amount`, or 0 for usage on an unlimited
+// account), so the account balance always equals the sum of `delta`.
+// `idempotency_key` makes retried operations (webhooks, LiteLLM callbacks)
+// replay-safe. `metadata` carries raw quantities (model, tokens, tool) for
+// re-pricing and audit and must never hold secrets.
+export const walletTransactions = pgTable(
+  "wallet_transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => walletAccounts.id, { onDelete: "restrict" }),
+    type: text("type").notNull(),
+    amount: bigint("amount", { mode: "bigint" }).notNull(),
+    delta: bigint("delta", { mode: "bigint" }).notNull(),
+    balanceAfter: bigint("balance_after", { mode: "bigint" }).notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    applicationId: uuid("application_id").references(() => applications.id, {
+      onDelete: "set null",
+    }),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("wallet_transactions_account_key_idx").on(
+      t.accountId,
+      t.idempotencyKey,
+    ),
+    index("wallet_transactions_account_created_idx").on(
+      t.accountId,
+      t.createdAt,
+    ),
+    index("wallet_transactions_app_created_idx").on(
+      t.applicationId,
+      t.createdAt,
+    ),
+    check(
+      "wallet_transactions_type_check",
+      sql`${t.type} IN ('topup', 'grant', 'refund', 'usage', 'adjust')`,
+    ),
+    check("wallet_transactions_amount_check", sql`${t.amount} <> 0`),
+    check(
+      "wallet_transactions_sign_check",
+      sql`(${t.type} IN ('topup', 'grant', 'refund') AND ${t.amount} > 0) OR (${t.type} = 'usage' AND ${t.amount} < 0) OR ${t.type} = 'adjust'`,
+    ),
+    check(
+      "wallet_transactions_delta_check",
+      sql`${t.delta} = ${t.amount} OR (${t.delta} = 0 AND ${t.type} = 'usage')`,
+    ),
+    check("wallet_transactions_balance_check", sql`${t.balanceAfter} >= 0`),
+  ],
+);

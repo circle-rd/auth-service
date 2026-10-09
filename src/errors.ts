@@ -90,6 +90,16 @@ export const ERR = {
   CONS_005: (msg = "Invalid consumption identifier", details?: unknown) =>
     new ApiError(400, "CONS_005", msg, details),
 
+  // ── WAL ───────────────────────────────────────────────────────────────────
+  WAL_001: (msg = "Wallet account not found") =>
+    new ApiError(404, "WAL_001", msg),
+  WAL_002: (msg = "Insufficient credit balance", details?: unknown) =>
+    new ApiError(402, "WAL_002", msg, details),
+  WAL_003: (msg = "Idempotency key already used with different parameters") =>
+    new ApiError(409, "WAL_003", msg),
+  WAL_004: (msg = "Invalid wallet amount", details?: unknown) =>
+    new ApiError(400, "WAL_004", msg, details),
+
   // ── USR ───────────────────────────────────────────────────────────────────
   USR_001: (msg = "User not found") => new ApiError(404, "USR_001", msg),
   USR_002: (msg = "Cannot delete the last superadmin") =>

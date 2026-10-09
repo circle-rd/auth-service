@@ -127,6 +127,36 @@ CREATE TABLE "user_subscriptions" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "wallet_accounts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"owner_type" text NOT NULL,
+	"owner_id" text NOT NULL,
+	"balance" bigint DEFAULT 0 NOT NULL,
+	"is_unlimited" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "wallet_accounts_owner_type_check" CHECK ("wallet_accounts"."owner_type" IN ('user', 'org')),
+	CONSTRAINT "wallet_accounts_balance_check" CHECK ("wallet_accounts"."balance" >= 0)
+);
+--> statement-breakpoint
+CREATE TABLE "wallet_transactions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"account_id" uuid NOT NULL,
+	"type" text NOT NULL,
+	"amount" bigint NOT NULL,
+	"delta" bigint NOT NULL,
+	"balance_after" bigint NOT NULL,
+	"idempotency_key" text NOT NULL,
+	"application_id" uuid,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "wallet_transactions_type_check" CHECK ("wallet_transactions"."type" IN ('topup', 'grant', 'refund', 'usage', 'adjust')),
+	CONSTRAINT "wallet_transactions_amount_check" CHECK ("wallet_transactions"."amount" <> 0),
+	CONSTRAINT "wallet_transactions_sign_check" CHECK (("wallet_transactions"."type" IN ('topup', 'grant', 'refund') AND "wallet_transactions"."amount" > 0) OR ("wallet_transactions"."type" = 'usage' AND "wallet_transactions"."amount" < 0) OR "wallet_transactions"."type" = 'adjust'),
+	CONSTRAINT "wallet_transactions_delta_check" CHECK ("wallet_transactions"."delta" = "wallet_transactions"."amount" OR ("wallet_transactions"."delta" = 0 AND "wallet_transactions"."type" = 'usage')),
+	CONSTRAINT "wallet_transactions_balance_check" CHECK ("wallet_transactions"."balance_after" >= 0)
+);
+--> statement-breakpoint
 CREATE TABLE "account" (
 	"id" text PRIMARY KEY NOT NULL,
 	"account_id" text NOT NULL,
@@ -141,6 +171,19 @@ CREATE TABLE "account" (
 	"password" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "device_code" (
+	"id" text PRIMARY KEY NOT NULL,
+	"device_code" text NOT NULL,
+	"user_code" text NOT NULL,
+	"user_id" text,
+	"expires_at" timestamp NOT NULL,
+	"status" text NOT NULL,
+	"last_polled_at" timestamp,
+	"polling_interval" integer,
+	"client_id" text,
+	"scope" text
 );
 --> statement-breakpoint
 CREATE TABLE "invitation" (
@@ -391,7 +434,10 @@ ALTER TABLE "user_applications" ADD CONSTRAINT "user_applications_application_id
 ALTER TABLE "user_applications" ADD CONSTRAINT "user_applications_subscription_plan_id_subscription_plans_id_fk" FOREIGN KEY ("subscription_plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_subscriptions" ADD CONSTRAINT "user_subscriptions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_subscriptions" ADD CONSTRAINT "user_subscriptions_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "wallet_transactions" ADD CONSTRAINT "wallet_transactions_account_id_wallet_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."wallet_accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "wallet_transactions" ADD CONSTRAINT "wallet_transactions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "device_code" ADD CONSTRAINT "device_code_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitation" ADD CONSTRAINT "invitation_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "invitation" ADD CONSTRAINT "invitation_inviter_id_user_id_fk" FOREIGN KEY ("inviter_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "member" ADD CONSTRAINT "member_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -420,7 +466,13 @@ CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("app
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_subscriptions_user_app_idx" ON "user_subscriptions" USING btree ("user_id","application_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "wallet_accounts_owner_idx" ON "wallet_accounts" USING btree ("owner_type","owner_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "wallet_transactions_account_key_idx" ON "wallet_transactions" USING btree ("account_id","idempotency_key");--> statement-breakpoint
+CREATE INDEX "wallet_transactions_account_created_idx" ON "wallet_transactions" USING btree ("account_id","created_at");--> statement-breakpoint
+CREATE INDEX "wallet_transactions_app_created_idx" ON "wallet_transactions" USING btree ("application_id","created_at");--> statement-breakpoint
 CREATE INDEX "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "deviceCode_deviceCode_idx" ON "device_code" USING btree ("device_code");--> statement-breakpoint
+CREATE UNIQUE INDEX "deviceCode_userCode_idx" ON "device_code" USING btree ("user_code");--> statement-breakpoint
 CREATE INDEX "invitation_organizationId_idx" ON "invitation" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "invitation_email_idx" ON "invitation" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "member_organizationId_idx" ON "member" USING btree ("organization_id");--> statement-breakpoint
@@ -446,20 +498,4 @@ CREATE INDEX "passkey_credentialID_idx" ON "passkey" USING btree ("credential_id
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "twoFactor_secret_idx" ON "two_factor" USING btree ("secret");--> statement-breakpoint
 CREATE INDEX "twoFactor_userId_idx" ON "two_factor" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
-CREATE TABLE "device_code" (
-	"id" text PRIMARY KEY NOT NULL,
-	"device_code" text NOT NULL,
-	"user_code" text NOT NULL,
-	"user_id" text,
-	"expires_at" timestamp NOT NULL,
-	"status" text NOT NULL,
-	"last_polled_at" timestamp,
-	"polling_interval" integer,
-	"client_id" text,
-	"scope" text
-);
---> statement-breakpoint
-ALTER TABLE "device_code" ADD CONSTRAINT "device_code_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "deviceCode_deviceCode_idx" ON "device_code" USING btree ("device_code");--> statement-breakpoint
-CREATE UNIQUE INDEX "deviceCode_userCode_idx" ON "device_code" USING btree ("user_code");
+CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");

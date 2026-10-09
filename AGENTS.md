@@ -285,7 +285,7 @@ throw ERR.APP_001("Custom message", { field: "slug" });
 
 Adding a new code:
 1. Pick the right domain prefix (`AUTH_`, `APP_`, `PERM_`, `SUB_`, `CONS_`,
-   `USR_`, `ORG_`, `MAIL_`, `RATE_`, `SRV_`).
+   `WAL_`, `USR_`, `ORG_`, `MAIL_`, `RATE_`, `SRV_`).
 2. Take the next sequential number in that domain.
 3. Add the entry in `src/errors.ts` following the existing pattern.
 4. Document it in the specifications

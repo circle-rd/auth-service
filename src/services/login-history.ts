@@ -2,6 +2,7 @@ import { db } from "../db/index.js";
 import { loginHistory } from "../db/schema.js";
 import { user as userTable } from "../db/auth-schema.js";
 import { eq } from "drizzle-orm";
+import { publishEvent } from "./event-bus.js";
 
 export interface RecordLoginInput {
   userId: string;
@@ -15,11 +16,12 @@ export interface RecordLoginInput {
 }
 
 /**
- * Append a successful-login row to `login_history` and refresh the
- * denormalised `user.last_login_at` timestamp. Both writes succeed or fail
- * together; callers in token-issuance hot paths should not block on failures
- * (see hook callers in src/auth.ts which wrap this call in try/catch with a
- * warn-level log).
+ * Append a successful-login row to `login_history`, refresh the denormalised
+ * `user.last_login_at` timestamp, and announce the login on the admin event
+ * bus. The two writes succeed or fail together; callers in token-issuance hot
+ * paths should not block on failures (see hook callers in src/auth.ts which
+ * wrap this call in try/catch with a warn-level log), and the announcement is
+ * equally non-fatal — it follows a committed write and never fails it.
  */
 export async function recordLogin(input: RecordLoginInput): Promise<void> {
   const loggedAt = input.loggedAt ?? new Date();
@@ -35,4 +37,10 @@ export async function recordLogin(input: RecordLoginInput): Promise<void> {
     .update(userTable)
     .set({ lastLoginAt: loggedAt })
     .where(eq(userTable.id, input.userId));
+
+  // Both login paths (dashboard sign-in through the session hook, OAuth token
+  // issuance) funnel through this function, so one announcement covers both.
+  // The channel is a signal only: the event carries its type and this instant,
+  // never the user id or any other field of the row just written.
+  publishEvent("login.recorded");
 }

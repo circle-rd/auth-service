@@ -22,6 +22,7 @@ import { isMailConfigured } from "../../services/mail/index.js";
 import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
 import { getCallerRole, requireAdmin } from "../../middleware.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
+import { publishEvent } from "../../services/event-bus.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = z.object({
@@ -35,6 +36,8 @@ const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   // Only superadmin can create admin users. "superadmin" is never assignable via API.
+  // The default is not forwarded to BetterAuth: the native endpoint demands
+  // `user:set-role` as soon as a role is present, and `admin` does not hold it.
   role: z.enum(["user", "admin"]).default("user"),
 });
 
@@ -169,7 +172,8 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
 
     const { name, email, password, role } = parsed.data;
 
-    // Only superadmin can create admin-role users
+    // Only superadmin can create admin-role users. The gate runs before the
+    // native call so a refused request never reaches BetterAuth.
     if (role === "admin") {
       const callerRole = await getCallerRole(req);
       if (callerRole !== "superadmin") {
@@ -180,7 +184,17 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       const result = await auth.api.createUser({
         headers: fromNodeHeaders(req.headers),
-        body: { name, email, password, role: role as "user" | "admin" },
+        // Forward `role` only when an explicit non-default role is requested:
+        // the native endpoint requires `user:set-role` for ANY supplied role
+        // and `admin` deliberately lacks it. Without the field BetterAuth
+        // applies the plugin's `defaultRole` ("user"), which is exactly what a
+        // plain admin is allowed to provision.
+        body: {
+          name,
+          email,
+          password,
+          ...(role === "admin" ? { role } : {}),
+        },
       });
       // The native `/admin/create-user` endpoint does not trigger the
       // verification mail that `/sign-up/email` sends, so an admin-provisioned
@@ -237,7 +251,15 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         await auth.api.createUser({
           headers: fromNodeHeaders(req.headers),
-          body: { name: row.name, email, password, role: row.role },
+          // Same reason as the single creation above, applied per row: only an
+          // explicit admin row carries a role, and only a superadmin reaches
+          // this point with one (the guard above refuses the others).
+          body: {
+            name: row.name,
+            email,
+            password,
+            ...(row.role === "admin" ? { role: row.role } : {}),
+          },
         });
         if (mailConfigured) {
           void auth.api
@@ -415,6 +437,18 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .where(eq(userTable.id, req.params.id));
     }
 
+    // One announcement per completed request, and only when something was
+    // actually written: an empty PATCH is not a change. The role change and the
+    // profile change above are one edit of one user as far as the admin screen
+    // is concerned.
+    if (
+      role !== undefined ||
+      name !== undefined ||
+      isMfaRequired !== undefined
+    ) {
+      publishEvent("user.changed");
+    }
+
     await reply.send({ ok: true });
   });
 
@@ -590,6 +624,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         }
         throw err;
       }
+      publishEvent("user.changed");
       await reply.send({ ok: true });
     },
   );
@@ -614,6 +649,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .update(userTable)
         .set({ emailVerified: true })
         .where(eq(userTable.id, req.params.id));
+      publishEvent("user.changed");
       await reply.send({ ok: true });
     },
   );
@@ -674,6 +710,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .where(eq(userApplications.userId, req.params.id));
       await tx.delete(userTable).where(eq(userTable.id, req.params.id));
     });
+
+    // After the transaction, so the row is really gone before any client
+    // re-reads the user list.
+    publishEvent("user.changed");
 
     await reply.status(204).send();
   });

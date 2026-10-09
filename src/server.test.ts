@@ -38,6 +38,7 @@ function notFoundRoutes(): Record<string, unknown> {
     usersRoutes: noop,
     sessionsRoutes: noop,
     statsRoutes: noop,
+    eventsRoutes: noop,
     servicesRoutes: noop,
     consumptionRoutes: noop,
     userRoutes: noop,
@@ -83,6 +84,19 @@ vi.mock("../routes/admin/sessions.js", () => ({
 }));
 vi.mock("../routes/admin/stats.js", () => ({
   statsRoutes: notFoundRoutes().statsRoutes,
+}));
+vi.mock("../routes/admin/events.js", () => ({
+  eventsRoutes: notFoundRoutes().eventsRoutes,
+}));
+vi.mock("../services/event-bus.js", () => ({
+  createEventBus: async () => ({
+    publish: () => undefined,
+    subscribe: () => () => undefined,
+    close: async () => undefined,
+    subscriberCount: 0,
+    name: "memory",
+  }),
+  setEventBus: () => undefined,
 }));
 vi.mock("../routes/admin/services.js", () => ({
   servicesRoutes: notFoundRoutes().servicesRoutes,

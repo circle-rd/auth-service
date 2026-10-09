@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { user as userTable } from "./db/auth-schema.js";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { publishEvent } from "./services/event-bus.js";
 
 // Known default/placeholder bootstrap passwords that must never be accepted in
 // production. Matching is exact so a legitimate password that merely contains a
@@ -68,6 +69,12 @@ export async function bootstrap(): Promise<void> {
       .update(userTable)
       .set({ emailVerified: true })
       .where(eq(userTable.role, "superadmin"));
+    // Emitted for completeness of the vocabulary, not to wake a dashboard:
+    // bootstrap runs during startup, before any admin client can be connected,
+    // so this announcement is always lost. Announcing the same "the users table
+    // changed" signal from here keeps one rule — every write to `user`
+    // announces — instead of an exception a reader has to remember.
+    publishEvent("user.changed");
     logger.info(
       "[bootstrap] Superadmin already exists — ensured email is verified.",
     );
@@ -104,4 +111,6 @@ export async function bootstrap(): Promise<void> {
     .update(userTable)
     .set({ emailVerified: true })
     .where(eq(userTable.email, adminEmail));
+
+  publishEvent("user.changed");
 }

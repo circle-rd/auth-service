@@ -19,6 +19,7 @@ import { and, eq, gt, inArray } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
 import { requireSession, requireFullSession } from "../middleware.js";
+import { publishEvent } from "../services/event-bus.js";
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -264,6 +265,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         updatedAt: new Date(),
       })
       .where(eq(userTable.id, userId));
+
+    // A self-service profile edit is a user write like any other: the admin user
+    // list renders these fields, so it must refresh too.
+    publishEvent("user.changed");
 
     await reply.send({ ok: true });
   });

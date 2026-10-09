@@ -28,6 +28,8 @@ export interface CreateApplicationBody {
   allowedScopes?: string[]
   redirectUris?: string[]
   url?: string
+  /** Resource identifiers (URLs of other applications, e.g. the LLM gateway) the app may request tokens for. */
+  allowedResources?: string[]
   icon?: string
   enabledSocialProviders?: string[] | null
   /** Allow this client to call /oauth2/end-session (RP-Initiated Logout). */
@@ -59,6 +61,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       redirectUris: body.redirectUris ?? [],
       isPublic: body.isPublic ?? false,
       url: body.url ?? null,
+      allowedResources: body.allowedResources ?? [],
       icon: body.icon ?? null,
       enabledSocialProviders: body.enabledSocialProviders ?? null,
       enableEndSession: body.enableEndSession ?? false,

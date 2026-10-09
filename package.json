@@ -29,6 +29,8 @@
         "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
         "test:e2e:ui": "playwright test --ui --config tests/e2e/playwright.config.ts",
         "test:e2e:docker": "docker compose -f tests/e2e/docker-compose.yml up --build --wait && playwright test --config tests/e2e/playwright.config.ts",
+        "llm:setup": "tsx src/scripts/litellm-setup.ts",
+        "llm:smoke": "tsx src/scripts/litellm-smoke.ts",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",

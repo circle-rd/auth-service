@@ -27,6 +27,7 @@ import { ERR } from "../../errors.js";
 import { randomBytes, createHash } from "node:crypto";
 import { addCorsOrigin, removeCorsOrigin } from "../../runtime-config.js";
 import {
+  assertAllowedResources,
   replaceClientResource,
   deleteClientResource,
 } from "../../services/oauth-resources.js";
@@ -187,6 +188,10 @@ async function assertRoleBelongsToApp(
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
+const allowedResourcesSchema = z
+  .array(z.string().url())
+  .transform((list) => [...new Set(list)]);
+
 const createAppSchema = z.object({
   name: z.string().min(1).max(100),
   slug: z
@@ -211,6 +216,9 @@ const createAppSchema = z.object({
   // the end-session endpoint. Empty array = no post-logout redirect allowed.
   postLogoutRedirectUris: z.array(z.string().url()).default([]),
   url: z.string().url().optional().nullable(),
+  // Protected resources (other applications' URLs, e.g. the LiteLLM gateway)
+  // this application may request access tokens for (RFC 8707 `resource`).
+  allowedResources: allowedResourcesSchema.default([]),
   icon: z.string().optional().nullable(),
   enabledSocialProviders: z
     .array(z.enum(["google", "github", "linkedin", "microsoft", "apple"]))
@@ -219,9 +227,12 @@ const createAppSchema = z.object({
   metadata: metadataSchema.optional().default({}),
 });
 
+// `allowedResources` is re-declared without its create-time default: a partial
+// update that omits it must leave the stored list untouched.
 const updateAppSchema = createAppSchema
   .partial()
-  .omit({ slug: true, isPublic: true });
+  .omit({ slug: true, isPublic: true })
+  .extend({ allowedResources: allowedResourcesSchema.optional() });
 
 const grantUserAccessSchema = z.object({
   userId: z.string().min(1),
@@ -296,6 +307,8 @@ export async function applicationRoutes(
       .limit(1);
     if (existing) throw ERR.APP_003();
 
+    await assertAllowedResources(data.allowedResources, data.url ?? null);
+
     // Generate and hash the client secret (only for confidential clients)
     const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
     const hashedSecret = rawSecret ? hashClientSecret(rawSecret) : null;
@@ -316,6 +329,7 @@ export async function applicationRoutes(
           allowedScopes: data.allowedScopes,
           redirectUris: data.redirectUris,
           url: data.url,
+          allowedResources: data.allowedResources,
           icon: data.icon,
           enabledSocialProviders: data.enabledSocialProviders ?? null,
           metadata: data.metadata ?? {},
@@ -467,6 +481,7 @@ export async function applicationRoutes(
       clientId: data.slug,
       identifier: data.url ?? null,
       name: data.name,
+      allowedResources: data.allowedResources,
     });
 
     // Announced last: the row and every bootstrap write above are committed by
@@ -496,10 +511,21 @@ export async function applicationRoutes(
 
     // Fetch the current URL before applying the update so we can diff it.
     const [before] = await db
-      .select({ url: applications.url })
+      .select({
+        url: applications.url,
+        allowedResources: applications.allowedResources,
+      })
       .from(applications)
       .where(eq(applications.id, req.params.id))
       .limit(1);
+    if (!before) throw ERR.APP_002();
+
+    // Re-validated on every update so a resource that disappeared since the
+    // last save is reported instead of failing on the link insert.
+    await assertAllowedResources(
+      parsed.data.allowedResources ?? before.allowedResources,
+      parsed.data.url !== undefined ? parsed.data.url : before.url,
+    );
 
     // `enableEndSession` and `postLogoutRedirectUris` live exclusively on the
     // BetterAuth `oauthClient` row, not on `applications` \u2014 strip them before
@@ -521,8 +547,8 @@ export async function applicationRoutes(
 
     // Sync CORS origin + protected resource when the URL field changes.
     // The OAuth resource link is refreshed unconditionally below.
-    if (parsed.data.url !== undefined && parsed.data.url !== before?.url) {
-      if (before?.url) {
+    if (parsed.data.url !== undefined && parsed.data.url !== before.url) {
+      if (before.url) {
         removeCorsOrigin(before.url);
       }
       if (parsed.data.url) {
@@ -561,6 +587,7 @@ export async function applicationRoutes(
       clientId: app.slug,
       identifier: app.url,
       name: app.name,
+      allowedResources: app.allowedResources,
     });
 
     const view = await fetchOauthClientView(app.slug);

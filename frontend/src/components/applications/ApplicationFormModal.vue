@@ -44,6 +44,7 @@ const form = ref({
   allowRegister: true,
   allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'] as string[],
   redirectUris: [''] as string[],
+  allowedResources: [] as string[],
   enabledSocialProviders: null as string[] | null,
   // OIDC RP-Initiated Logout (1.0). Off by default — only opt in if the
   // application actually needs to terminate the central SSO session.
@@ -111,6 +112,7 @@ watch(
         allowRegister: a.allowRegister,
         allowedScopes: [...a.allowedScopes],
         redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
+        allowedResources: [...(a.allowedResources ?? [])],
         enabledSocialProviders: a.enabledSocialProviders
           ? [...a.enabledSocialProviders]
           : null,
@@ -138,6 +140,7 @@ watch(
         allowRegister: true,
         allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'],
         redirectUris: [''],
+        allowedResources: [],
         enabledSocialProviders: null,
         enableEndSession: false,
         postLogoutRedirectUris: [],
@@ -202,6 +205,13 @@ function removeRedirectUri(i: number) {
   form.value.redirectUris.splice(i, 1);
 }
 
+function addAllowedResource() {
+  form.value.allowedResources.push('');
+}
+function removeAllowedResource(i: number) {
+  form.value.allowedResources.splice(i, 1);
+}
+
 function addPostLogoutRedirectUri() {
   form.value.postLogoutRedirectUris.push('');
 }
@@ -262,6 +272,7 @@ async function submit() {
       allowRegister: form.value.allowRegister,
       allowedScopes: form.value.allowedScopes,
       redirectUris: form.value.redirectUris.filter(Boolean),
+      allowedResources: form.value.allowedResources.filter(Boolean),
       enabledSocialProviders: form.value.enabledSocialProviders,
       enableEndSession: form.value.enableEndSession,
       postLogoutRedirectUris: form.value.postLogoutRedirectUris.filter(Boolean),
@@ -464,6 +475,49 @@ async function submit() {
             <button
               type="button"
               @click="removePostLogoutRedirectUri(i)"
+              class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!--
+        Allowed resources: URLs of other applications (protected resources,
+        e.g. the LLM gateway) this application may request access tokens for
+        through the RFC 8707 `resource` parameter.
+      -->
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
+            {{ t('applications.allowedResources') }}
+          </p>
+          <button
+            type="button"
+            @click="addAllowedResource"
+            class="text-xs text-primary-400 hover:text-primary-300 transition-colors font-medium"
+          >
+            + {{ t('applications.addAllowedResource') }}
+          </button>
+        </div>
+        <p class="text-xs text-surface-500 mb-2">
+          {{ t('applications.allowedResourcesHint') }}
+        </p>
+        <div class="space-y-2">
+          <div
+            v-for="(_, i) in form.allowedResources"
+            :key="i"
+            class="flex gap-2"
+          >
+            <input
+              v-model="form.allowedResources[i]"
+              placeholder="https://llm.your-domain.com"
+              class="flex-1 px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
+            />
+            <button
+              type="button"
+              @click="removeAllowedResource(i)"
               class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
             >
               ✕

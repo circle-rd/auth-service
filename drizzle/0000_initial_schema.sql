@@ -34,6 +34,7 @@ CREATE TABLE "applications" (
 	"redirect_uris" text[] DEFAULT '{}' NOT NULL,
 	"is_public" boolean DEFAULT false NOT NULL,
 	"url" text,
+	"allowed_resources" text[] DEFAULT '{}' NOT NULL,
 	"icon" text,
 	"enabled_social_providers" text[],
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,

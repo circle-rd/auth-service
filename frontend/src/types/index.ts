@@ -80,6 +80,8 @@ export interface Application {
   redirectUris: string[]
   isPublic: boolean
   url: string | null
+  /** Protected resources (other applications' URLs) this app may request tokens for. */
+  allowedResources: string[]
   icon: string | null
   enabledSocialProviders: string[] | null
   metadata: Record<string, string>

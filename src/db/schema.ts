@@ -32,6 +32,9 @@ export const applications = pgTable(
     redirectUris: text("redirect_uris").array().notNull().default([]),
     isPublic: boolean("is_public").notNull().default(false),
     url: text("url"),
+    // RFC 8707 resource identifiers (other applications' URLs, e.g. LiteLLM)
+    // this application may request access tokens for.
+    allowedResources: text("allowed_resources").array().notNull().default([]),
     icon: text("icon"),
     enabledSocialProviders: text("enabled_social_providers").array(),
     // Free-form per-application metadata. Stored as a flat string→string map

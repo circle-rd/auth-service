@@ -6,6 +6,7 @@ frontend-dist/
 *.js.map
 *.tsbuildinfo
 *.py
+!litellm/*.py
 
 # Drizzle generated migrations — track journal and SQL, ignore snapshots
 drizzle/meta/0*_snapshot.json

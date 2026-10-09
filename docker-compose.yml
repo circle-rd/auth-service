@@ -146,5 +146,71 @@ services:
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     restart: unless-stopped
 
+  # Optional LiteLLM gateway (LLMs + MCP), authenticated with auth-service
+  # access tokens. Start with `--profile llm` after `pnpm llm:setup` has
+  # generated LITELLM_MASTER_KEY / LITELLM_SALT_KEY and registered the gateway
+  # as a protected resource. See docs: getting-started / LiteLLM gateway.
+  litellm-db-init:
+    image: postgres:17-alpine
+    profiles: ["llm"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-auth}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-auth}
+    # Idempotent: the LiteLLM database is created next to the auth one even
+    # when the postgres volume already exists (initdb.d only runs on first boot).
+    command:
+      - sh
+      - -c
+      - >-
+        psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='litellm'" | grep -q 1
+        || psql -d postgres -c "CREATE DATABASE litellm"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  litellm:
+    # Pinned: custom_auth relies on LiteLLM internals, re-run `pnpm llm:smoke`
+    # before bumping the tag.
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.104.2}
+    profiles: ["llm"]
+    command: ["--config", "/app/litellm/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      # Encrypts provider credentials stored in the database: never change it
+      # once models have been added.
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/litellm
+      # Token validation (litellm/custom_auth.py, which refuses to start when a
+      # value is empty; `:?` is avoided because compose also interpolates
+      # services of inactive profiles). The JWKS is fetched over the Docker
+      # network; iss/aud must match what auth-service puts in the token.
+      JWT_PUBLIC_KEY_URL: http://auth-service:${PORT:-3001}/api/auth/jwks
+      JWT_ISSUER: ${BETTER_AUTH_URL:-http://localhost:3001}
+      JWT_AUDIENCE: ${LITELLM_PUBLIC_URL:-}
+    volumes:
+      - ./litellm:/app/litellm:ro
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    depends_on:
+      litellm-db-init:
+        condition: service_completed_successfully
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+
 volumes:
   postgres_data:

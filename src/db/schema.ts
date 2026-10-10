@@ -393,3 +393,32 @@ export const walletTransactions = pgTable(
     check("wallet_transactions_balance_check", sql`${t.balanceAfter} >= 0`),
   ],
 );
+
+// ── Wallet Account Events ─────────────────────────────────────────────────────
+// Audit trail of administrative changes that do not move money and therefore
+// cannot live in the ledger (a ledger row must have a non-zero amount).
+export const walletAccountEvents = pgTable(
+  "wallet_account_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => walletAccounts.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id").notNull(),
+    action: text("action").notNull(),
+    details: jsonb("details").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("wallet_account_events_account_created_idx").on(
+      t.accountId,
+      t.createdAt,
+    ),
+    check(
+      "wallet_account_events_action_check",
+      sql`${t.action} IN ('unlimited_enabled', 'unlimited_disabled')`,
+    ),
+  ],
+);

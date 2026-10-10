@@ -11,7 +11,12 @@ const scriptEnvSchema = z.object({
   LITELLM_PUBLIC_URL: z.string().url(),
   LITELLM_URL: z.string().url().optional(),
   LITELLM_MASTER_KEY: z.string().min(1).optional(),
+  LITELLM_WALLET_CLIENT_SECRET: z.string().min(1).optional(),
 });
+
+/** Machine application the gateway uses to call the wallet API. */
+export const WALLET_CLIENT_SLUG = "litellm-wallet";
+export const WALLET_SCOPES = ["wallet:debit", "wallet:read"];
 
 export type ScriptEnv = z.infer<typeof scriptEnvSchema> & {
   authUrl: string;
@@ -45,6 +50,20 @@ export function upsertEnvValue(
   const match = assignment.exec(content);
   if (match) {
     if (match[1]!.trim() !== "") return content;
+    return content.replace(assignment, `${key}=${value}`);
+  }
+  const separator = content === "" || content.endsWith("\n") ? "" : "\n";
+  return `${content}${separator}${key}=${value}\n`;
+}
+
+/** Return `content` with `KEY=value`, replacing any existing assignment. */
+export function replaceEnvValue(
+  content: string,
+  key: string,
+  value: string,
+): string {
+  const assignment = new RegExp(`^${key}=.*$`, "m");
+  if (assignment.test(content)) {
     return content.replace(assignment, `${key}=${value}`);
   }
   const separator = content === "" || content.endsWith("\n") ? "" : "\n";
@@ -192,6 +211,58 @@ export class AuthAdminClient {
     );
   }
 
+  async getMachineScopes(id: string): Promise<string[]> {
+    const res = await this.expectOk(
+      await this.send(`/api/admin/applications/${id}/machine-scopes`),
+      "Read machine scopes",
+    );
+    return z.object({ scopes: z.array(z.string()) }).parse(await res.json())
+      .scopes;
+  }
+
+  async setMachineScopes(id: string, scopes: string[]): Promise<void> {
+    await this.expectOk(
+      await this.send(`/api/admin/applications/${id}/machine-scopes`, {
+        method: "PUT",
+        json: { scopes },
+      }),
+      "Set machine scopes",
+    );
+  }
+
+  /** Invalidates the previous secret and every token issued with it. */
+  async rotateSecret(id: string): Promise<string> {
+    const res = await this.expectOk(
+      await this.send(`/api/admin/applications/${id}/rotate-secret`, {
+        method: "POST",
+      }),
+      "Rotate client secret",
+    );
+    return z.object({ clientSecret: z.string() }).parse(await res.json())
+      .clientSecret;
+  }
+
+  /** True when the client credentials are accepted for the requested scope. */
+  async canObtainToken(opts: {
+    clientId: string;
+    clientSecret: string;
+    scope: string;
+  }): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}/api/auth/oauth2/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Origin: new URL(this.baseUrl).origin,
+        Authorization: `Basic ${Buffer.from(`${opts.clientId}:${opts.clientSecret}`).toString("base64")}`,
+      },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        scope: opts.scope,
+      }),
+    });
+    return res.ok;
+  }
+
   async deleteApplication(id: string): Promise<void> {
     await this.expectOk(
       await this.send(`/api/admin/applications/${id}`, { method: "DELETE" }),
@@ -248,13 +319,14 @@ export class AuthAdminClient {
   async requestClientCredentialsToken(opts: {
     clientId: string;
     clientSecret: string;
-    resource: string;
+    resource?: string;
+    scope?: string;
   }): Promise<string> {
     return this.exchange(
       {
         grant_type: "client_credentials",
-        scope: "m2m",
-        resource: opts.resource,
+        scope: opts.scope ?? "m2m",
+        ...(opts.resource ? { resource: opts.resource } : {}),
       },
       opts.clientId,
       opts.clientSecret,

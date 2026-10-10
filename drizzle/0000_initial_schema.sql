@@ -127,6 +127,16 @@ CREATE TABLE "user_subscriptions" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "wallet_account_events" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"account_id" uuid NOT NULL,
+	"actor_user_id" text NOT NULL,
+	"action" text NOT NULL,
+	"details" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "wallet_account_events_action_check" CHECK ("wallet_account_events"."action" IN ('unlimited_enabled', 'unlimited_disabled'))
+);
+--> statement-breakpoint
 CREATE TABLE "wallet_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"owner_type" text NOT NULL,
@@ -434,6 +444,7 @@ ALTER TABLE "user_applications" ADD CONSTRAINT "user_applications_application_id
 ALTER TABLE "user_applications" ADD CONSTRAINT "user_applications_subscription_plan_id_subscription_plans_id_fk" FOREIGN KEY ("subscription_plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_subscriptions" ADD CONSTRAINT "user_subscriptions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_subscriptions" ADD CONSTRAINT "user_subscriptions_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "wallet_account_events" ADD CONSTRAINT "wallet_account_events_account_id_wallet_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."wallet_accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_transactions" ADD CONSTRAINT "wallet_transactions_account_id_wallet_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."wallet_accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_transactions" ADD CONSTRAINT "wallet_transactions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -466,6 +477,7 @@ CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("app
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_subscriptions_user_app_idx" ON "user_subscriptions" USING btree ("user_id","application_id");--> statement-breakpoint
+CREATE INDEX "wallet_account_events_account_created_idx" ON "wallet_account_events" USING btree ("account_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_accounts_owner_idx" ON "wallet_accounts" USING btree ("owner_type","owner_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_transactions_account_key_idx" ON "wallet_transactions" USING btree ("account_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "wallet_transactions_account_created_idx" ON "wallet_transactions" USING btree ("account_id","created_at");--> statement-breakpoint

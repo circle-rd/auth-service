@@ -99,6 +99,8 @@ export const ERR = {
     new ApiError(409, "WAL_003", msg),
   WAL_004: (msg = "Invalid wallet amount", details?: unknown) =>
     new ApiError(400, "WAL_004", msg, details),
+  WAL_005: (msg = "Invalid pagination cursor") =>
+    new ApiError(400, "WAL_005", msg),
 
   // ── USR ───────────────────────────────────────────────────────────────────
   USR_001: (msg = "User not found") => new ApiError(404, "USR_001", msg),

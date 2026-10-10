@@ -15,8 +15,6 @@ import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
 import rateLimit from "@fastify/rate-limit";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
-import { APIError } from "better-auth";
-import { ZodError } from "zod";
 import {
   oauthProviderOpenIdConfigMetadata,
   oauthProviderAuthServerMetadata,
@@ -40,13 +38,18 @@ import { eventsRoutes } from "./routes/admin/events.js";
 import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
+import { walletRoutes } from "./routes/wallet.js";
+import { walletInternalRoutes } from "./routes/wallet-internal.js";
+import { adminWalletRoutes } from "./routes/admin/wallets.js";
+import { applicationMachineScopesRoutes } from "./routes/admin/application-machine-scopes.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
 import {
   appConfigRoutes,
   globallyEnabledProviders,
 } from "./routes/app-config.js";
-import { ApiError, ERR } from "./errors.js";
+import { ERR } from "./errors.js";
+import { globalErrorHandler } from "./error-handler.js";
 import {
   CONFIRMATION_STATUSES,
   EMAIL_VERIFIED_PATH,
@@ -533,6 +536,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     betterAuthHandler(req.raw, reply.raw);
   });
 
+  // ── Global error handler ────────────────────────────────────────
+  // Registered before the routes: a handler set after a plugin has been
+  // registered is not inherited by it, and thrown ApiError / ZodError would
+  // fall back to Fastify's default serialisation.
+  fastify.setErrorHandler(globalErrorHandler);
+
   // ── Routes ──────────────────────────────────────────────────────
   // Stripe webhook first — its raw Buffer parser must take precedence.
   await fastify.register(stripeWebhookRoutes, {
@@ -540,6 +549,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   await fastify.register(healthRoutes);
   await fastify.register(applicationRoutes, {
+    prefix: "/api/admin/applications",
+  });
+  await fastify.register(applicationMachineScopesRoutes, {
     prefix: "/api/admin/applications",
   });
   await fastify.register(rolesRoutes, { prefix: "/api/admin" });
@@ -555,6 +567,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });
+  await fastify.register(walletRoutes, { prefix: "/api/user/wallet" });
+  await fastify.register(walletInternalRoutes, {
+    prefix: "/api/internal/wallet",
+  });
+  await fastify.register(adminWalletRoutes, { prefix: "/api/admin/wallets" });
   await fastify.register(appConfigRoutes, { prefix: "/api/app-config" });
 
   // ── OIDC / OAuth 2.0 discovery at root ──────────────────────────
@@ -649,60 +666,6 @@ export async function buildServer(): Promise<FastifyInstance> {
     await reply
       .status(404)
       .send({ error: { code: "SRV_001", message: "Not found" } });
-  });
-
-  // ── Global error handler ────────────────────────────────────────
-  fastify.setErrorHandler(async (error, _req, reply) => {
-    if (error instanceof ApiError) {
-      await reply.status(error.statusCode).send(error.toJSON());
-      return;
-    }
-
-    // Zod validation errors from route schemas map to 400 without leaking the
-    // raw stack.
-    if (error instanceof ZodError) {
-      await reply.status(400).send({
-        error: {
-          code: "APP_001",
-          message: "Validation error",
-          details: error.flatten(),
-        },
-      });
-      return;
-    }
-
-    // BetterAuth throws APIError with an HTTP status and a sanitised body.
-    if (error instanceof APIError) {
-      const status =
-        error.statusCode ??
-        (typeof error.status === "number" ? error.status : 500);
-      const body = error.body as
-        { code?: string; message?: string } | undefined;
-      await reply.status(status).send({
-        error: {
-          code: body?.code ?? "AUTH_001",
-          message: body?.message ?? error.message,
-        },
-      });
-      return;
-    }
-
-    const err = error as { validation?: unknown };
-    if (err.validation) {
-      await reply.status(400).send({
-        error: {
-          code: "APP_001",
-          message: "Validation error",
-          details: err.validation,
-        },
-      });
-      return;
-    }
-
-    fastify.log.error(error);
-    await reply.status(500).send({
-      error: { code: "SRV_001", message: "Internal server error" },
-    });
   });
 
   return fastify;

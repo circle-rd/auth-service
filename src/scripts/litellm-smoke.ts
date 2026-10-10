@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import {
   AuthAdminClient,
+  WALLET_CLIENT_SLUG,
+  WALLET_SCOPES,
   decodeJwtClaims,
   loadScriptEnv,
   type AdminApplication,
@@ -17,6 +19,11 @@ const modelCreatedSchema = z.object({
 });
 const completionSchema = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string() }) })),
+});
+
+const walletBalanceSchema = z.object({
+  balance: z.string().regex(/^[0-9]+$/),
+  currency: z.literal("eur"),
 });
 
 let failures = 0;
@@ -181,6 +188,59 @@ async function main(): Promise<void> {
       chat("not-a-jwt"),
     );
     await expectStatus("missing token is rejected", 401, () => chat(null));
+    // Wallet API (auth-service). Authorization checks only: no money moves, so
+    // the append-only ledger is left untouched.
+    const walletSecret = env.LITELLM_WALLET_CLIENT_SECRET;
+    if (!walletSecret) {
+      throw new Error(
+        "LITELLM_WALLET_CLIENT_SECRET is required (run pnpm llm:setup)",
+      );
+    }
+    const userId = z.string().parse(claims.sub);
+    const walletToken = await admin.requestClientCredentialsToken({
+      clientId: WALLET_CLIENT_SLUG,
+      clientSecret: walletSecret,
+      scope: WALLET_SCOPES.join(" "),
+    });
+    const wallet = (
+      path: string,
+      token: string | null,
+      init: RequestInit = {},
+    ) =>
+      fetch(`${env.authUrl}/api/internal/wallet${path}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+    const balance = await expectStatus(
+      "wallet: gateway credentials read a balance",
+      200,
+      () => wallet(`/users/${userId}`, walletToken),
+    );
+    if (balance.ok) {
+      const body = walletBalanceSchema.safeParse(await balance.json());
+      report(body.success, "wallet: balance is an integer string in euros");
+    }
+    await expectStatus(
+      "wallet: invalid usage is rejected before any debit",
+      400,
+      () =>
+        wallet(`/users/${userId}/usage`, walletToken, {
+          method: "POST",
+          body: JSON.stringify({ amount: "0", idempotencyKey: "smoke" }),
+        }),
+    );
+    await expectStatus("wallet: generic m2m token is refused", 403, () =>
+      wallet(`/users/${userId}`, clientCredentials),
+    );
+    await expectStatus("wallet: user-bound token is refused", 403, () =>
+      wallet(`/users/${userId}`, publicToken),
+    );
+    await expectStatus("wallet: missing token is refused", 401, () =>
+      wallet(`/users/${userId}`, null),
+    );
   } finally {
     if (modelId) {
       await litellm("/model/delete", masterKey, {

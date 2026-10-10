@@ -4,6 +4,7 @@ import {
   createPkcePair,
   decodeJwtClaims,
   generateSecret,
+  replaceEnvValue,
   upsertEnvValue,
 } from "./litellm-lib.js";
 
@@ -29,6 +30,24 @@ describe("upsertEnvValue", () => {
 
   it("does not match a key that merely ends with the name", () => {
     expect(upsertEnvValue("XB=1\n", "B", "2")).toBe("XB=1\nB=2\n");
+  });
+});
+
+describe("replaceEnvValue", () => {
+  it("overwrites an existing value, empty or not", () => {
+    expect(replaceEnvValue("A=1\nB=old\nC=3\n", "B", "new")).toBe(
+      "A=1\nB=new\nC=3\n",
+    );
+    expect(replaceEnvValue("B=\n", "B", "new")).toBe("B=new\n");
+  });
+
+  it("appends a missing key", () => {
+    expect(replaceEnvValue("A=1", "B", "2")).toBe("A=1\nB=2\n");
+    expect(replaceEnvValue("", "B", "2")).toBe("B=2\n");
+  });
+
+  it("leaves other keys with the same suffix alone", () => {
+    expect(replaceEnvValue("XB=1\n", "B", "2")).toBe("XB=1\nB=2\n");
   });
 });
 

@@ -76,18 +76,39 @@ export const MOCK_ADMIN_STATS: AdminWalletStats = {
   spend: { total: '12480000', calls: 1830, series: series(30, 21000) },
   topUps: { total: '40000000', count: 9, series: series(30, 0) },
   topConsumers: [
-    { ownerType: 'user', ownerId: 'u1', name: 'Alice Martin', email: 'alice@example.com', amount: '4200000', count: 610 },
-    { ownerType: 'user', ownerId: 'u2', name: 'Bob Durand', email: 'bob@example.com', amount: '2900000', count: 402 },
+    { ownerType: 'user', ownerId: 'u1', name: 'Emma Laurent', email: 'emma.laurent@example.com', amount: '6420000', count: 910 },
+    { ownerType: 'user', ownerId: 'u2', name: 'Lucas Bernard', email: 'lucas.bernard@example.com', amount: '4200000', count: 610 },
+    { ownerType: 'user', ownerId: 'u4', name: 'Hugo Petit', email: 'hugo.petit@example.com', amount: '2900000', count: 402 },
+    { ownerType: 'user', ownerId: 'u3', name: 'Chloé Moreau', email: 'chloe.moreau@example.com', amount: '1830000', count: 255 },
+    { ownerType: 'user', ownerId: 'u5', name: 'Inès Roux', email: 'ines.roux@example.com', amount: '1210000', count: 171 },
   ],
   byApplication: MOCK_USER_STATS.byApplication,
   byKind: MOCK_USER_STATS.byKind,
 };
 
-export const MOCK_WALLET_LIST: WalletListItem[] = [
-  { id: 'w1', ownerType: 'user', ownerId: 'u1', name: 'Alice Martin', email: 'alice@example.com', balance: '3482150', isUnlimited: false, canSpend: true, spent30d: '4200000', updatedAt: new Date().toISOString() },
-  { id: 'w2', ownerType: 'user', ownerId: 'u2', name: 'Bob Durand', email: 'bob@example.com', balance: '-420000', isUnlimited: false, canSpend: false, spent30d: '2900000', updatedAt: new Date().toISOString() },
-  { id: 'w3', ownerType: 'user', ownerId: 'u3', name: 'Dave Staff', email: 'dave@example.com', balance: '0', isUnlimited: true, canSpend: true, spent30d: '180000', updatedAt: new Date().toISOString() },
+const WALLET_ROWS: Array<[string, string, string, string, string, boolean]> = [
+  ['Emma Laurent', 'emma.laurent@example.com', '12480000', '6420000', '0', false],
+  ['Lucas Bernard', 'lucas.bernard@example.com', '3482150', '4200000', '0', false],
+  ['Chloé Moreau', 'chloe.moreau@example.com', '25000000', '1830000', '0', false],
+  ['Hugo Petit', 'hugo.petit@example.com', '-420000', '2900000', '0', false],
+  ['Inès Roux', 'ines.roux@example.com', '880000', '1210000', '0', false],
+  ['Noah Fournier', 'noah.fournier@example.com', '0', '180000', '0', true],
+  ['Jade Girard', 'jade.girard@example.com', '5600000', '760000', '0', false],
+  ['Louis Bonnet', 'louis.bonnet@example.com', '-310000', '540000', '0', false],
 ];
+
+export const MOCK_WALLET_LIST: WalletListItem[] = WALLET_ROWS.map(([name, email, balance, spent30d, , unlimited], i) => ({
+  id: `w${i + 1}`,
+  ownerType: 'user',
+  ownerId: `u${i + 1}`,
+  name,
+  email,
+  balance,
+  isUnlimited: unlimited,
+  canSpend: unlimited || BigInt(balance) > 0n,
+  spent30d,
+  updatedAt: new Date(Date.now() - i * 3_600_000 * 5).toISOString(),
+}));
 
 const MOCK_CHANGES: PricingChange[] = [
   { id: 'p2', usdToEurRate: '0.92', marginPercent: 20, reason: 'Monthly rate update', actor: { id: 'a1', name: 'Alexandre Dubois' }, createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString() },

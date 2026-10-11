@@ -10,6 +10,10 @@ subscription billing.
 [![Container](https://img.shields.io/badge/ghcr.io-auth--service-blue?logo=docker&logoColor=white)](https://github.com/circle-rd/auth-service/pkgs/container/auth-service)
 [![Tests](https://img.shields.io/badge/tests-vitest-6da55f?logo=vitest&logoColor=white)](https://vitest.dev)
 
+![Auth Service admin dashboard](docs-site/public/screenshots/dashboard.png)
+
+_The admin dashboard, shown with demo data._
+
 ---
 
 ## Principles
@@ -50,6 +54,16 @@ subscription billing.
 - Stripe integration with an idempotent webhook handler.
 - Usage / consumption tracking API, scoped per application.
 
+**Credit wallet & LLM gateway**
+
+- One prepaid euro wallet per user, shared by every application: top-ups (Stripe
+  or manual invoice), a signed append-only ledger, spend statistics.
+- Optional [LiteLLM](https://docs.litellm.ai) gateway (models and MCP servers)
+  that accepts auth-service access tokens, checks the credit before each call and
+  bills the cost afterwards; the admin interface signs in through auth-service.
+- Exchange rate and margin editable by superadmins; a reconciliation script
+  compares the gateway's spend logs with the ledger.
+
 **Platform**
 
 - Node.js 22 · Fastify 5 · BetterAuth 1.7 · Drizzle ORM · PostgreSQL 17 · Zod.
@@ -57,6 +71,16 @@ subscription billing.
 - SMTP email pipeline with Eta templates, overridable per application.
 - Helmet security headers, rate limiting, structured (pino) logging, `/health`.
 - Published Docker images (`nightly`, `latest`, version tags) and GitHub Actions CI.
+
+## Screenshots
+
+All captures use demo data.
+
+| | |
+| --- | --- |
+| ![Users](docs-site/public/screenshots/users.png)<br>**Users** — roles, MFA, applications, last login | ![Applications](docs-site/public/screenshots/applications.png)<br>**Applications** — OAuth clients, system applications hidden by default |
+| ![Application detail](docs-site/public/screenshots/application-detail.png)<br>**Roles and permissions** — per application, with a permission matrix | ![Wallets](docs-site/public/screenshots/wallets.png)<br>**Wallets** — credit held, spend, pricing, top consumers |
+| ![User wallet](docs-site/public/screenshots/user-detail.png)<br>**User credit** — balance, spend and ledger, with admin operations | ![Profile credit](docs-site/public/screenshots/profile-credit.png)<br>**My credit** — balance, top-up and consumption for the user |
 
 ## Architecture
 

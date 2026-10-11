@@ -4,7 +4,9 @@ import {
   createPkcePair,
   decodeJwtClaims,
   generateSecret,
+  readEnvValue,
   replaceEnvValue,
+  resolveSecret,
   upsertEnvValue,
 } from "./litellm-lib.js";
 
@@ -48,6 +50,54 @@ describe("replaceEnvValue", () => {
 
   it("leaves other keys with the same suffix alone", () => {
     expect(replaceEnvValue("XB=1\n", "B", "2")).toBe("XB=1\nB=2\n");
+  });
+});
+
+describe("resolveSecret", () => {
+  const gen = () => "generated";
+
+  it("generates a secret nobody has set", () => {
+    expect(resolveSecret("", "K", undefined, gen)).toEqual({
+      content: "K=generated\n",
+      action: "generated",
+    });
+  });
+
+  it("treats an empty assignment as unset", () => {
+    expect(resolveSecret("K=\n", "K", "", gen).action).toBe("generated");
+  });
+
+  it("keeps a stored secret rather than regenerating it", () => {
+    expect(resolveSecret("K=stored\n", "K", undefined, gen)).toEqual({
+      content: "K=stored\n",
+      action: "kept",
+    });
+  });
+
+  it("stores a value supplied by the operator", () => {
+    expect(resolveSecret("", "K", "mine", gen)).toEqual({
+      content: "K=mine\n",
+      action: "supplied",
+    });
+  });
+
+  it("lets a supplied value replace a different stored one", () => {
+    expect(resolveSecret("K=old\n", "K", "new", gen)).toEqual({
+      content: "K=new\n",
+      action: "replaced",
+    });
+  });
+
+  it("does nothing when the supplied value is the stored one", () => {
+    expect(resolveSecret("K=same\n", "K", "same", gen).action).toBe("kept");
+  });
+});
+
+describe("readEnvValue", () => {
+  it("reads a value and ignores empty, missing and commented keys", () => {
+    expect(readEnvValue("A=1\nB=\n# C=3\n", "A")).toBe("1");
+    expect(readEnvValue("A=1\nB=\n# C=3\n", "B")).toBeUndefined();
+    expect(readEnvValue("A=1\nB=\n# C=3\n", "C")).toBeUndefined();
   });
 });
 

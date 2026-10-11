@@ -7,8 +7,9 @@ import {
   WALLET_SCOPES,
   generateSecret,
   loadScriptEnv,
+  readEnvValue,
   replaceEnvValue,
-  upsertEnvValue,
+  resolveSecret,
   type AdminApplication,
   type ScriptEnv,
 } from "./litellm-lib.js";
@@ -19,22 +20,34 @@ function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-/** Generate the LiteLLM secrets into `.env` without ever overwriting one. */
-function ensureSecrets(envPath: string): void {
-  const original = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+/**
+ * Settle the gateway's master and salt keys in the state file: values supplied
+ * through the environment win, stored ones are kept, and only a missing one is
+ * generated.
+ */
+function ensureSecrets(statePath: string): void {
+  const original = existsSync(statePath) ? readFileSync(statePath, "utf8") : "";
   let content = original;
-  content = upsertEnvValue(
-    content,
-    "LITELLM_MASTER_KEY",
-    generateSecret("sk-"),
-  );
-  content = upsertEnvValue(content, "LITELLM_SALT_KEY", generateSecret("sk-"));
+  for (const key of ["LITELLM_MASTER_KEY", "LITELLM_SALT_KEY"] as const) {
+    const result = resolveSecret(content, key, process.env[key], () =>
+      generateSecret("sk-"),
+    );
+    content = result.content;
+    if (result.action === "replaced" && key === "LITELLM_SALT_KEY") {
+      out(
+        "! LITELLM_SALT_KEY changed: provider credentials stored by LiteLLM can no longer be read",
+      );
+    }
+    if (result.action === "generated") out(`✓ Generated ${key}`);
+    if (result.action === "supplied") out(`✓ Stored the ${key} you supplied`);
+    if (result.action === "replaced")
+      out(`✓ Updated ${key} from the environment`);
+  }
   if (content === original) {
     out("✓ LITELLM_MASTER_KEY / LITELLM_SALT_KEY already set");
     return;
   }
-  writeFileSync(envPath, content, { mode: 0o600 });
-  out("✓ Generated missing LITELLM_MASTER_KEY / LITELLM_SALT_KEY in .env");
+  writeFileSync(statePath, content, { mode: 0o600 });
 }
 
 function storeWalletSecret(envPath: string, secret: string): void {
@@ -48,10 +61,10 @@ function storeWalletSecret(envPath: string, secret: string): void {
 
 function currentWalletSecret(envPath: string): string | undefined {
   if (!existsSync(envPath)) return undefined;
-  const match = /^LITELLM_WALLET_CLIENT_SECRET=(.*)$/m.exec(
+  return readEnvValue(
     readFileSync(envPath, "utf8"),
+    "LITELLM_WALLET_CLIENT_SECRET",
   );
-  return match?.[1]?.trim() || undefined;
 }
 
 function sameScopes(a: string[], b: string[]): boolean {
@@ -82,7 +95,7 @@ async function ensureWalletClient(
     wallet = created.application;
     storeWalletSecret(envPath, created.clientSecret);
     out(
-      `✓ Registered the "${WALLET_CLIENT_SLUG}" application and stored its secret in .env`,
+      `✓ Registered the "${WALLET_CLIENT_SLUG}" application and stored its secret`,
     );
   }
 
@@ -103,11 +116,11 @@ async function ensureWalletClient(
       scope: WALLET_SCOPES.join(" "),
     }));
   if (works) {
-    out(`✓ "${WALLET_CLIENT_SLUG}" credentials in .env are valid`);
+    out(`✓ "${WALLET_CLIENT_SLUG}" credentials are valid`);
     return;
   }
   storeWalletSecret(envPath, await client.rotateSecret(wallet.id));
-  out(`✓ Rotated the "${WALLET_CLIENT_SLUG}" secret and stored it in .env`);
+  out(`✓ Rotated the "${WALLET_CLIENT_SLUG}" secret and stored it`);
 }
 
 /** `--grant=app-a,app-b`: applications allowed to request LiteLLM tokens. */
@@ -124,11 +137,14 @@ function grantedSlugs(): string[] {
 
 async function main(): Promise<void> {
   const env = loadScriptEnv();
-  // Same file dotenv loaded, so a custom DOTENV_CONFIG_PATH is honoured.
-  const envPath = resolve(process.env.DOTENV_CONFIG_PATH ?? ".env");
+  // In a container the secrets live in a file of the volume shared with the
+  // gateway; from a checkout they go to `.env`, the file dotenv loaded.
+  const envPath = resolve(
+    process.env.LITELLM_STATE_FILE ?? process.env.DOTENV_CONFIG_PATH ?? ".env",
+  );
   ensureSecrets(envPath);
 
-  const client = new AuthAdminClient(env.authUrl);
+  const client = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
   await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
   const apps = await client.listApplications();
 
@@ -170,8 +186,10 @@ async function main(): Promise<void> {
     out(`✓ "${slug}" allowed to request LiteLLM tokens`);
   }
 
-  out("");
-  out("Next: docker compose --profile llm up -d, then pnpm llm:smoke");
+  if (!process.env.LITELLM_STATE_FILE) {
+    out("");
+    out("Next: docker compose --profile llm up -d, then pnpm llm:smoke");
+  }
 }
 
 main().catch((err: unknown) => {

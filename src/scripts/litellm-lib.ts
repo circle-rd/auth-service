@@ -25,7 +25,11 @@ export type ScriptEnv = z.infer<typeof scriptEnvSchema> & {
 };
 
 export function loadScriptEnv(): ScriptEnv {
-  const parsed = scriptEnvSchema.safeParse(process.env);
+  // Compose passes unset variables as empty strings: treat them as absent.
+  const present = Object.fromEntries(
+    Object.entries(process.env).filter(([, value]) => value !== ""),
+  );
+  const parsed = scriptEnvSchema.safeParse(present);
   if (!parsed.success) {
     const fields = parsed.error.issues.map((i) => i.path.join(".")).join(", ");
     throw new Error(`Missing or invalid environment variables: ${fields}`);
@@ -55,6 +59,43 @@ export function upsertEnvValue(
   }
   const separator = content === "" || content.endsWith("\n") ? "" : "\n";
   return `${content}${separator}${key}=${value}\n`;
+}
+
+/** Value of `KEY=value` in `content`, or undefined when absent or empty. */
+export function readEnvValue(content: string, key: string): string | undefined {
+  const match = new RegExp(`^${key}=(.*)$`, "m").exec(content);
+  return match?.[1]?.trim() || undefined;
+}
+
+export type SecretAction = "kept" | "generated" | "supplied" | "replaced";
+
+/**
+ * Settle one secret of a state file. A value supplied by the operator (through
+ * the environment) wins and is stored; otherwise the stored one is kept; only
+ * when there is neither is a new one generated. Nothing stored is ever
+ * regenerated: a lost salt key would make the stored provider credentials
+ * unreadable.
+ */
+export function resolveSecret(
+  content: string,
+  key: string,
+  supplied: string | undefined,
+  generate: () => string,
+): { content: string; action: SecretAction } {
+  const stored = readEnvValue(content, key);
+  const wanted = supplied?.trim() || undefined;
+  if (wanted && wanted === stored) return { content, action: "kept" };
+  if (wanted) {
+    return {
+      content: replaceEnvValue(content, key, wanted),
+      action: stored ? "replaced" : "supplied",
+    };
+  }
+  if (stored) return { content, action: "kept" };
+  return {
+    content: replaceEnvValue(content, key, generate()),
+    action: "generated",
+  };
 }
 
 /** Return `content` with `KEY=value`, replacing any existing assignment. */
@@ -144,7 +185,15 @@ const tokenResponseSchema = z.object({ access_token: z.string() });
 export class AuthAdminClient {
   private readonly cookies = new Map<string, string>();
 
-  constructor(private readonly baseUrl: string) {}
+  /**
+   * `origin` is the public origin sent with requests: auth-service only trusts
+   * its own public URL, which differs from `baseUrl` when the script reaches it
+   * over an internal network address.
+   */
+  constructor(
+    private readonly baseUrl: string,
+    private readonly origin: string = new URL(baseUrl).origin,
+  ) {}
 
   private async send(
     path: string,
@@ -152,7 +201,7 @@ export class AuthAdminClient {
   ): Promise<Response> {
     const { json, ...rest } = init;
     const headers = new Headers(rest.headers);
-    headers.set("Origin", new URL(this.baseUrl).origin);
+    headers.set("Origin", this.origin);
     if (json !== undefined) headers.set("Content-Type", "application/json");
     if (this.cookies.size > 0) {
       headers.set(
@@ -271,7 +320,7 @@ export class AuthAdminClient {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
-        Origin: new URL(this.baseUrl).origin,
+        Origin: this.origin,
         Authorization: `Basic ${Buffer.from(`${opts.clientId}:${opts.clientSecret}`).toString("base64")}`,
       },
       body: new URLSearchParams({
@@ -279,7 +328,13 @@ export class AuthAdminClient {
         scope: opts.scope,
       }),
     });
-    return res.ok;
+    if (res.ok) return true;
+    // Only a refusal of the credentials means they are wrong: a rate limit or an
+    // outage must not make the caller rotate a secret that still works.
+    if (res.status === 400 || res.status === 401) return false;
+    throw new Error(
+      `Checking the "${opts.clientId}" credentials failed: HTTP ${res.status} ${await res.text()}`,
+    );
   }
 
   async getWallet(
@@ -410,7 +465,7 @@ export class AuthAdminClient {
   ): Promise<string> {
     const headers = new Headers({
       "Content-Type": "application/x-www-form-urlencoded",
-      Origin: new URL(this.baseUrl).origin,
+      Origin: this.origin,
     });
     if (clientSecret) {
       headers.set(

@@ -75,7 +75,7 @@ async function main(): Promise<void> {
   const masterKey = env.LITELLM_MASTER_KEY;
   const gatewayUrl = env.LITELLM_PUBLIC_URL;
 
-  const admin = new AuthAdminClient(env.authUrl);
+  const admin = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
   await admin.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
 
   const suffix = randomBytes(4).toString("hex");

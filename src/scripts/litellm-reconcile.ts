@@ -93,7 +93,7 @@ async function main(): Promise<void> {
   const from = new Date(to.getTime() - hours * 3_600_000);
   out(`Reconciling ${from.toISOString()} → ${to.toISOString()}`);
 
-  const admin = new AuthAdminClient(env.authUrl);
+  const admin = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
   await admin.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
 
   const [logs, ledger] = await Promise.all([

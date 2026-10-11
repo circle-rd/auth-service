@@ -170,12 +170,27 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Copies the gateway config shipped in the auth-service image into a shared
+  # volume. Re-run on every image change, so the config follows the version of
+  # auth-service whose tokens it validates.
+  litellm-config-init:
+    image: ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:nightly}
+    profiles: ["llm"]
+    user: root
+    entrypoint: ["sh", "-c", "cp -f /app/litellm/* /config/"]
+    volumes:
+      - litellm_config:/config
+    depends_on:
+      auth-service:
+        condition: service_started
+    restart: "no"
+
   litellm:
     # Pinned: custom_auth relies on LiteLLM internals, re-run `pnpm llm:smoke`
     # before bumping the tag.
     image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.104.2}
     profiles: ["llm"]
-    command: ["--config", "/app/litellm/config.yaml", "--port", "4000"]
+    command: ["--config", "/app/gateway/config.yaml", "--port", "4000"]
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
       # Encrypts provider credentials stored in the database: never change it
@@ -190,11 +205,14 @@ services:
       JWT_ISSUER: ${BETTER_AUTH_URL:-http://localhost:3001}
       JWT_AUDIENCE: ${LITELLM_PUBLIC_URL:-}
     volumes:
-      - ./litellm:/app/litellm:ro
+      # Chemin dédié : ne masque rien de ce que l'image LiteLLM place dans /app/litellm.
+      - litellm_config:/app/gateway:ro
     ports:
       - "${LITELLM_PORT:-4000}:4000"
     depends_on:
       litellm-db-init:
+        condition: service_completed_successfully
+      litellm-config-init:
         condition: service_completed_successfully
       auth-service:
         condition: service_healthy
@@ -214,3 +232,4 @@ services:
 
 volumes:
   postgres_data:
+  litellm_config:

@@ -33,6 +33,7 @@ CREATE TABLE "applications" (
 	"allowed_scopes" text[] DEFAULT '{"openid","profile","email"}' NOT NULL,
 	"redirect_uris" text[] DEFAULT '{}' NOT NULL,
 	"is_public" boolean DEFAULT false NOT NULL,
+	"is_system" boolean DEFAULT false NOT NULL,
 	"url" text,
 	"allowed_resources" text[] DEFAULT '{}' NOT NULL,
 	"icon" text,

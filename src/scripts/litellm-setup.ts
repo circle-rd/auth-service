@@ -8,6 +8,7 @@ import {
   generateSecret,
   loadScriptEnv,
   readEnvValue,
+  removeEnvValue,
   replaceEnvValue,
   resolveSecret,
   type AdminApplication,
@@ -15,6 +16,10 @@ import {
 } from "./litellm-lib.js";
 
 const GATEWAY_SLUG = "litellm";
+
+// Sign-in to the LiteLLM admin interface through auth-service (generic OIDC).
+const UI_SLUG = "litellm-ui";
+const UI_SCOPES = ["openid", "profile", "email", "roles"];
 
 function out(line: string): void {
   process.stdout.write(`${line}\n`);
@@ -88,6 +93,7 @@ async function ensureWalletClient(
       name: "LiteLLM wallet",
       slug: WALLET_CLIENT_SLUG,
       description: "LLM gateway machine client for the wallet API",
+      isSystem: true,
     });
     if (!created.clientSecret) {
       throw new Error("Wallet client was created without a secret");
@@ -123,6 +129,114 @@ async function ensureWalletClient(
   out(`✓ Rotated the "${WALLET_CLIENT_SLUG}" secret and stored it`);
 }
 
+/** The applications this script provisions are infrastructure: hidden and undeletable. */
+async function ensureSystemFlag(
+  client: AuthAdminClient,
+  app: AdminApplication,
+): Promise<void> {
+  if (app.isSystem) return;
+  await client.updateApplication(app.id, { isSystem: true });
+  out(`✓ Marked "${app.slug}" as a system application`);
+}
+
+function setStateValues(
+  statePath: string,
+  change: (content: string) => string,
+): void {
+  const content = existsSync(statePath) ? readFileSync(statePath, "utf8") : "";
+  writeFileSync(statePath, change(content), { mode: 0o600 });
+}
+
+/**
+ * Let administrators sign in to the LiteLLM interface with their auth-service
+ * account. The gateway reads `GENERIC_CLIENT_ID` / `GENERIC_CLIENT_SECRET` from
+ * the state file: writing them turns the sign-in on, removing them turns it off.
+ * The application is private, so only users granted access in auth-service can
+ * sign in: the `admin` role of the application makes a LiteLLM administrator,
+ * the `user` role a read-only viewer. Creating the application gives its creator
+ * (the administrator running the setup) the `admin` role.
+ */
+async function ensureUiSso(
+  client: AuthAdminClient,
+  apps: AdminApplication[],
+  env: ScriptEnv,
+  statePath: string,
+  adminUserId: string,
+): Promise<void> {
+  if (env.LITELLM_SSO_ENABLED === "false") {
+    setStateValues(statePath, (c) =>
+      removeEnvValue(
+        removeEnvValue(c, "GENERIC_CLIENT_ID"),
+        "GENERIC_CLIENT_SECRET",
+      ),
+    );
+    out("✓ Admin interface sign-in through auth-service is turned off");
+    return;
+  }
+
+  const callback = `${env.LITELLM_PUBLIC_URL.replace(/\/$/, "")}/sso/callback`;
+  let ui = apps.find((a) => a.slug === UI_SLUG);
+  let issuedSecret: string | undefined;
+  if (!ui) {
+    const created = await client.createApplication({
+      name: "LiteLLM admin interface",
+      slug: UI_SLUG,
+      description: "Sign-in to the LiteLLM admin interface",
+      isPublic: false,
+      isSystem: true,
+      allowRegister: false,
+      skipConsent: true,
+      allowedScopes: UI_SCOPES,
+      redirectUris: [callback],
+    });
+    ui = created.application;
+    issuedSecret = created.clientSecret;
+    if (!issuedSecret)
+      throw new Error("Admin UI client was created without a secret");
+    out(`✓ Registered the "${UI_SLUG}" application (${callback})`);
+  } else if (
+    !ui.redirectUris.includes(callback) ||
+    !UI_SCOPES.every((scope) => ui!.allowedScopes.includes(scope))
+  ) {
+    await client.updateApplication(ui.id, {
+      redirectUris: [...new Set([...ui.redirectUris, callback])],
+      allowedScopes: [...new Set([...ui.allowedScopes, ...UI_SCOPES])],
+    });
+    out(`✓ Updated the "${UI_SLUG}" redirect URI and scopes`);
+  }
+
+  // The creator holds the `admin` role from the start; this only repairs an
+  // account left without any role. A role chosen since (a demotion to `user`) stays.
+  const adminRole = (await client.listRoles(ui.id)).find(
+    (r) => r.name === "admin",
+  );
+  const member = (await client.listApplicationUsers(ui.id)).find(
+    (u) => u.userId === adminUserId,
+  );
+  if (adminRole && !member?.roleId) {
+    await client.grantAccess(ui.id, {
+      userId: adminUserId,
+      roleId: adminRole.id,
+    });
+    out(`✓ Gave ${env.ADMIN_EMAIL} the admin role on "${UI_SLUG}"`);
+  }
+
+  const content = existsSync(statePath) ? readFileSync(statePath, "utf8") : "";
+  let secret = issuedSecret ?? readEnvValue(content, "GENERIC_CLIENT_SECRET");
+  if (!secret) {
+    secret = await client.rotateSecret(ui.id);
+    out(`✓ Issued a new secret for "${UI_SLUG}"`);
+  }
+  setStateValues(statePath, (c) =>
+    replaceEnvValue(
+      replaceEnvValue(c, "GENERIC_CLIENT_ID", UI_SLUG),
+      "GENERIC_CLIENT_SECRET",
+      secret,
+    ),
+  );
+  out("✓ Admin interface sign-in through auth-service is on");
+}
+
 /** `--grant=app-a,app-b`: applications allowed to request LiteLLM tokens. */
 function grantedSlugs(): string[] {
   const arg = process.argv.find((a) => a.startsWith("--grant="));
@@ -145,8 +259,12 @@ async function main(): Promise<void> {
   ensureSecrets(envPath);
 
   const client = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
-  await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
+  const adminUserId = await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
   const apps = await client.listApplications();
+  for (const slug of [GATEWAY_SLUG, WALLET_CLIENT_SLUG, UI_SLUG]) {
+    const existing = apps.find((a) => a.slug === slug);
+    if (existing) await ensureSystemFlag(client, existing);
+  }
 
   const gateway = apps.find((a) => a.slug === GATEWAY_SLUG);
   if (!gateway) {
@@ -155,6 +273,7 @@ async function main(): Promise<void> {
       slug: GATEWAY_SLUG,
       description: "LLM and MCP gateway (protected resource)",
       url: env.LITELLM_PUBLIC_URL,
+      isSystem: true,
     });
     out(
       `✓ Registered the "${GATEWAY_SLUG}" application (${env.LITELLM_PUBLIC_URL})`,
@@ -169,6 +288,10 @@ async function main(): Promise<void> {
   }
 
   await ensureWalletClient(client, apps, env, envPath);
+  // Only in a container, where the secrets live in a file the gateway reads.
+  if (process.env.LITELLM_STATE_FILE) {
+    await ensureUiSso(client, apps, env, envPath, adminUserId);
+  }
 
   for (const slug of grantedSlugs()) {
     const app = apps.find((a) => a.slug === slug);

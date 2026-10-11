@@ -79,6 +79,8 @@ export interface Application {
   allowedScopes: string[]
   redirectUris: string[]
   isPublic: boolean
+  /** Infrastructure application (provisioned by scripts): hidden by default, not deletable. */
+  isSystem: boolean
   url: string | null
   /** Protected resources (other applications' URLs) this app may request tokens for. */
   allowedResources: string[]

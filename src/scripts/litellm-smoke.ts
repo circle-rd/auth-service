@@ -228,8 +228,9 @@ async function main(): Promise<void> {
       litellm("/spend/logs", publicToken),
     );
 
-    // The admin UI signs in with the master key, then calls the API with a
-    // virtual key that LiteLLM itself issued: the auth hook must let it through.
+    // Virtual keys are LiteLLM's own: the auth hook must let them through. With
+    // the sign-in through auth-service on, the shared master-key login of the
+    // admin UI must be closed, so a key is minted over the API instead.
     const login = await fetch(`${env.litellmUrl}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -239,16 +240,41 @@ async function main(): Promise<void> {
     const sessionCookie = login.headers
       .getSetCookie()
       .find((c) => c.startsWith("token="));
-    const uiKey = sessionCookie
-      ? uiSessionSchema.safeParse(
-          decodeJwtClaims(sessionCookie.slice(6).split(";")[0] ?? ""),
-        )
-      : undefined;
-    report(uiKey?.success === true, "admin UI sign-in returns a session key");
-    if (uiKey?.success) {
-      await expectStatus("admin UI session key → /v2/model/info", 200, () =>
-        litellm("/v2/model/info", uiKey.data.key),
+    if (env.LITELLM_SSO_ENABLED === "true") {
+      report(
+        sessionCookie === undefined,
+        "the master key no longer signs in to the admin UI",
+        `HTTP ${login.status}`,
       );
+    } else {
+      const uiKey = sessionCookie
+        ? uiSessionSchema.safeParse(
+            decodeJwtClaims(sessionCookie.slice(6).split(";")[0] ?? ""),
+          )
+        : undefined;
+      report(uiKey?.success === true, "admin UI sign-in returns a session key");
+      if (uiKey?.success) {
+        await expectStatus("admin UI session key → /v2/model/info", 200, () =>
+          litellm("/v2/model/info", uiKey.data.key),
+        );
+      }
+    }
+    const generated = await litellm("/key/generate", masterKey, {
+      method: "POST",
+      body: JSON.stringify({ key_alias: `llm-smoke-${suffix}` }),
+    });
+    const virtualKey = z
+      .object({ key: z.string().startsWith("sk-") })
+      .safeParse(await generated.json());
+    report(virtualKey.success, "the master key can mint a virtual key");
+    if (virtualKey.success) {
+      await expectStatus("a virtual key → /v1/models", 200, () =>
+        litellm("/v1/models", virtualKey.data.key),
+      );
+      await litellm("/key/delete", masterKey, {
+        method: "POST",
+        body: JSON.stringify({ keys: [virtualKey.data.key] }),
+      });
     }
     await expectStatus("an unknown virtual key is refused", 401, () =>
       litellm("/v1/models", "sk-not-a-real-key-0123456789"),

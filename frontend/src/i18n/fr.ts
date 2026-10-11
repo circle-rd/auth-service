@@ -262,6 +262,8 @@ export default {
     title: 'Applications',
     subtitle: 'Gérer les applications OAuth2',
     createApp: 'Créer une application',
+    showSystem: 'Afficher les applications système',
+    system: 'Système',
     activity: {
       online: 'En ligne',
       last7d: 'Connexions 7 j',

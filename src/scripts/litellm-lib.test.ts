@@ -5,6 +5,7 @@ import {
   decodeJwtClaims,
   generateSecret,
   readEnvValue,
+  removeEnvValue,
   replaceEnvValue,
   resolveSecret,
   upsertEnvValue,
@@ -98,6 +99,17 @@ describe("readEnvValue", () => {
     expect(readEnvValue("A=1\nB=\n# C=3\n", "A")).toBe("1");
     expect(readEnvValue("A=1\nB=\n# C=3\n", "B")).toBeUndefined();
     expect(readEnvValue("A=1\nB=\n# C=3\n", "C")).toBeUndefined();
+  });
+});
+
+describe("removeEnvValue", () => {
+  it("drops the assignment and keeps the other lines", () => {
+    expect(removeEnvValue("A=1\nB=2\nC=3\n", "B")).toBe("A=1\nC=3\n");
+  });
+
+  it("does nothing for a missing key or a key that only ends with the name", () => {
+    expect(removeEnvValue("XB=1\n", "B")).toBe("XB=1\n");
+    expect(removeEnvValue("A=1\n", "B")).toBe("A=1\n");
   });
 });
 

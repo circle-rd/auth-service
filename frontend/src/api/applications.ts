@@ -60,6 +60,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       allowedScopes: body.allowedScopes ?? ['openid'],
       redirectUris: body.redirectUris ?? [],
       isPublic: body.isPublic ?? false,
+      isSystem: false,
       url: body.url ?? null,
       allowedResources: body.allowedResources ?? [],
       icon: body.icon ?? null,

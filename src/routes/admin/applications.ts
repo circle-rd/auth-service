@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { generateId } from "better-auth";
 import { z } from "zod";
 import { db } from "../../db/index.js";
@@ -202,6 +202,7 @@ const createAppSchema = z.object({
   description: z.string().max(500).optional(),
   isActive: z.boolean().default(true),
   isPublic: z.boolean().default(false),
+  isSystem: z.boolean().default(false),
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(false),
@@ -232,7 +233,10 @@ const createAppSchema = z.object({
 const updateAppSchema = createAppSchema
   .partial()
   .omit({ slug: true, isPublic: true })
-  .extend({ allowedResources: allowedResourcesSchema.optional() });
+  .extend({
+    allowedResources: allowedResourcesSchema.optional(),
+    isSystem: z.boolean().optional(),
+  });
 
 const grantUserAccessSchema = z.object({
   userId: z.string().min(1),
@@ -256,6 +260,15 @@ const updateUserAccessSchema = z.object({
   roleId: z.string().uuid().optional().nullable(),
   subscriptionPlanId: z.string().uuid().optional().nullable(),
 });
+
+/** Hiding an application and protecting it from deletion is a superadmin decision. */
+async function assertMaySetSystemFlag(req: FastifyRequest): Promise<void> {
+  const session = await getRequestSession(req);
+  if (!session) throw ERR.AUTH_001();
+  if ((session.user as Record<string, unknown>).role !== "superadmin") {
+    throw ERR.AUTH_011("Only superadmins can change the system flag");
+  }
+}
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -290,6 +303,7 @@ export async function applicationRoutes(
       throw ERR.APP_001("Invalid application data", parsed.error.flatten());
     }
     const data = parsed.data;
+    if (data.isSystem) await assertMaySetSystemFlag(req);
 
     // The creator is resolved from its session, never from the request body.
     // `requireAdmin` runs as a preHandler and proves the session exists, so the
@@ -323,6 +337,7 @@ export async function applicationRoutes(
           description: data.description,
           isActive: data.isActive,
           isPublic: data.isPublic,
+          isSystem: data.isSystem,
           skipConsent: data.skipConsent,
           isMfaRequired: data.isMfaRequired,
           allowRegister: data.allowRegister,
@@ -508,6 +523,7 @@ export async function applicationRoutes(
     const parsed = updateAppSchema.safeParse(req.body);
     if (!parsed.success)
       throw ERR.APP_001("Invalid data", parsed.error.flatten());
+    if (parsed.data.isSystem !== undefined) await assertMaySetSystemFlag(req);
 
     // Fetch the current URL before applying the update so we can diff it.
     const [before] = await db
@@ -598,6 +614,14 @@ export async function applicationRoutes(
   // DELETE /api/admin/applications/:id
   // All related rows (roles, plans, user_applications, etc.) are cascade-deleted via FK constraints.
   fastify.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
+    const [existing] = await db
+      .select({ isSystem: applications.isSystem })
+      .from(applications)
+      .where(eq(applications.id, req.params.id))
+      .limit(1);
+    if (!existing) throw ERR.APP_002();
+    if (existing.isSystem) throw ERR.APP_007();
+
     const [deleted] = await db
       .delete(applications)
       .where(eq(applications.id, req.params.id))

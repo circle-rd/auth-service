@@ -56,6 +56,8 @@ export const ERR = {
     new ApiError(403, "APP_005", msg),
   APP_006: (msg = "Social provider not enabled for this application") =>
     new ApiError(403, "APP_006", msg),
+  APP_007: (msg = "System applications cannot be deleted") =>
+    new ApiError(403, "APP_007", msg),
 
   // ── PERM ──────────────────────────────────────────────────────────────────
   PERM_001: (msg = "Invalid permission format") =>

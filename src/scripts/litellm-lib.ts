@@ -13,6 +13,7 @@ const scriptEnvSchema = z.object({
   LITELLM_URL: z.string().url().optional(),
   LITELLM_MASTER_KEY: z.string().min(1).optional(),
   LITELLM_WALLET_CLIENT_SECRET: z.string().min(1).optional(),
+  LITELLM_SSO_ENABLED: z.enum(["true", "false"]).default("true"),
 });
 
 /** Machine application the gateway uses to call the wallet API. */
@@ -112,6 +113,11 @@ export function replaceEnvValue(
   return `${content}${separator}${key}=${value}\n`;
 }
 
+/** Return `content` without any `KEY=` assignment. */
+export function removeEnvValue(content: string, key: string): string {
+  return content.replace(new RegExp(`^${key}=.*\\n?`, "m"), "");
+}
+
 export function generateSecret(prefix = ""): string {
   return `${prefix}${randomBytes(32).toString("hex")}`;
 }
@@ -139,6 +145,9 @@ const applicationSchema = z.object({
   slug: z.string(),
   url: z.string().nullable(),
   allowedResources: z.array(z.string()),
+  isSystem: z.boolean().default(false),
+  redirectUris: z.array(z.string()).default([]),
+  allowedScopes: z.array(z.string()).default([]),
 });
 export type AdminApplication = z.infer<typeof applicationSchema>;
 
@@ -230,7 +239,8 @@ export class AuthAdminClient {
     return res;
   }
 
-  async signIn(email: string, password: string): Promise<void> {
+  /** Signs in and returns the id of the signed-in user. */
+  async signIn(email: string, password: string): Promise<string> {
     const res = await this.send("/api/auth/sign-in/email", {
       method: "POST",
       json: { email, password },
@@ -241,6 +251,51 @@ export class AuthAdminClient {
         "Admin sign-in returned no session cookie (MFA or email verification required?)",
       );
     }
+    return z
+      .object({ user: z.object({ id: z.string() }) })
+      .parse(await res.json()).user.id;
+  }
+
+  async listRoles(appId: string): Promise<{ id: string; name: string }[]> {
+    const res = await this.expectOk(
+      await this.send(`/api/admin/applications/${appId}/roles`),
+      "List roles",
+    );
+    return z
+      .object({
+        roles: z.array(z.object({ id: z.string(), name: z.string() })),
+      })
+      .parse(await res.json()).roles;
+  }
+
+  /** Users with access to the application, with their role id when they have one. */
+  async listApplicationUsers(
+    appId: string,
+  ): Promise<{ userId: string; roleId: string | null }[]> {
+    const res = await this.expectOk(
+      await this.send(`/api/admin/applications/${appId}/users`),
+      "List application users",
+    );
+    return z
+      .object({
+        users: z.array(
+          z.object({ userId: z.string(), roleId: z.string().nullable() }),
+        ),
+      })
+      .parse(await res.json()).users;
+  }
+
+  async grantAccess(
+    appId: string,
+    body: { userId: string; roleId?: string },
+  ): Promise<void> {
+    await this.expectOk(
+      await this.send(`/api/admin/applications/${appId}/users`, {
+        method: "POST",
+        json: body,
+      }),
+      "Grant application access",
+    );
   }
 
   async listApplications(): Promise<AdminApplication[]> {

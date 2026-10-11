@@ -202,6 +202,8 @@ services:
       LITELLM_PUBLIC_URL: ${LITELLM_PUBLIC_URL:-}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
       LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-}
+      # Admin interface sign-in through auth-service: set to false to turn it off.
+      LITELLM_SSO_ENABLED: ${LITELLM_SSO_ENABLED:-true}
       LITELLM_STATE_FILE: /config/secrets.env
     volumes:
       - litellm_config:/config
@@ -226,6 +228,28 @@ services:
       - litellm
     command: ["--config", "/app/gateway/config.yaml", "--port", "4000"]
     environment:
+      # Admin interface sign-in through auth-service (generic OIDC). It is active
+      # when litellm-setup stored GENERIC_CLIENT_ID / GENERIC_CLIENT_SECRET in
+      # secrets.env. The browser goes to the public authorize URL; the gateway
+      # itself calls the token and userinfo endpoints over the Docker network.
+      # The roles claim of the "litellm-ui" application sets the LiteLLM role:
+      # admin gives a LiteLLM administrator, user a read-only viewer.
+      PROXY_BASE_URL: ${LITELLM_PUBLIC_URL:-}
+      GENERIC_AUTHORIZATION_ENDPOINT: ${BETTER_AUTH_URL:-http://localhost:3001}/api/auth/oauth2/authorize
+      GENERIC_TOKEN_ENDPOINT: http://auth-service:${PORT:-3001}/api/auth/oauth2/token
+      GENERIC_USERINFO_ENDPOINT: http://auth-service:${PORT:-3001}/api/auth/oauth2/userinfo
+      GENERIC_SCOPE: openid profile email roles
+      # auth-service requires PKCE (OAuth 2.1).
+      GENERIC_CLIENT_USE_PKCE: "true"
+      # Straight to auth-service from the login page; the master key still signs in
+      # at /fallback/login.
+      AUTO_REDIRECT_UI_LOGIN_TO_SSO: "true"
+      GENERIC_USER_ID_ATTRIBUTE: sub
+      GENERIC_USER_EMAIL_ATTRIBUTE: email
+      GENERIC_USER_DISPLAY_NAME_ATTRIBUTE: name
+      GENERIC_ROLE_MAPPINGS_GROUP_CLAIM: roles
+      GENERIC_ROLE_MAPPINGS_ROLES: '{"proxy_admin": ["admin"], "proxy_admin_viewer": ["user"]}'
+      GENERIC_ROLE_MAPPINGS_DEFAULT_ROLE: proxy_admin_viewer
       DATABASE_URL: postgresql://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/litellm
       # Token validation (litellm/custom_auth.py, which refuses to start when a
       # value is empty; `:?` is avoided because compose also interpolates

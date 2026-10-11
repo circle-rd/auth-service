@@ -35,6 +35,10 @@ export const applications = pgTable(
       .default(["openid", "profile", "email"]),
     redirectUris: text("redirect_uris").array().notNull().default([]),
     isPublic: boolean("is_public").notNull().default(false),
+    // Infrastructure applications (the gateway, its machine client, its admin
+    // sign-in) provisioned by scripts: hidden from the admin list by default and
+    // not deletable.
+    isSystem: boolean("is_system").notNull().default(false),
     url: text("url"),
     // RFC 8707 resource identifiers (other applications' URLs, e.g. LiteLLM)
     // this application may request access tokens for.

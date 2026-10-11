@@ -7,12 +7,19 @@ LiteLLM's native JWT auth is Enterprise-only, so this hook is wired through
 import asyncio
 import hmac
 import os
+import re
 import time
 
 import httpx
 import jwt
 from fastapi import Request
-from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+from litellm.proxy._types import (
+    LiteLLM_ObjectPermissionTable,
+    LitellmUserRoles,
+    ProxyException,
+    UserAPIKeyAuth,
+)
+from litellm.proxy.auth.route_checks import RouteChecks
 
 
 
@@ -32,6 +39,13 @@ _required_env("LITELLM_SALT_KEY")
 ALGORITHMS = ["EdDSA"]
 REFRESH_COOLDOWN_S = 30
 
+# MCP servers registered in this access group are available to every signed-in
+# user; any other server stays private to administrators.
+MCP_USER_ACCESS_GROUP = os.environ.get("MCP_USER_ACCESS_GROUP", "circle-users")
+
+# Per-server MCP routes (/{server}/mcp) are not part of LiteLLM's LLM route list.
+MCP_SERVER_ROUTE_RE = re.compile(r"^/[^/]+/mcp(/.*)?$")
+
 _keys: dict[str, jwt.PyJWK] = {}
 _last_fetch = 0.0
 _lock = asyncio.Lock()
@@ -39,6 +53,12 @@ _lock = asyncio.Lock()
 
 def _reject(message: str) -> ProxyException:
     return ProxyException(message=message, type="auth_error", param="api_key", code=401)
+
+
+def _is_client_route(path: str) -> bool:
+    return RouteChecks.is_llm_api_route(route=path) or bool(
+        MCP_SERVER_ROUTE_RE.match(path)
+    )
 
 
 async def _signing_key(kid: str) -> jwt.PyJWK:
@@ -60,11 +80,20 @@ async def _signing_key(kid: str) -> jwt.PyJWK:
     return _keys[kid]
 
 
-async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
+async def user_api_key_auth(
+    request: Request, api_key: str
+) -> UserAPIKeyAuth | None:
     if not api_key:
         raise _reject("No api key passed in")
     if hmac.compare_digest(api_key, MASTER_KEY):
         return UserAPIKeyAuth(api_key=api_key, user_role="proxy_admin")
+
+    # LiteLLM virtual keys: the admin UI signs in with one created at login, and
+    # administrators may issue service keys. Returning None lets LiteLLM validate
+    # them itself; an unknown key is refused there. Users cannot mint them (see
+    # the route allow list below), and an auth-service token is a JWT, never `sk-`.
+    if api_key.startswith("sk-"):
+        return None
 
     try:
         kid = jwt.get_unverified_header(api_key).get("kid")
@@ -88,8 +117,24 @@ async def user_api_key_auth(request: Request, api_key: str) -> UserAPIKeyAuth:
     if claims["sub"] == claims["azp"]:
         raise _reject("User-bound access token required")
 
+    # Users only reach the LLM and MCP routes: without this, a valid token could
+    # mint LiteLLM virtual keys (/key/generate) that outlive auth-service access,
+    # or create users and teams. Administration stays on the master key.
+    if not _is_client_route(request.url.path):
+        raise ProxyException(
+            message="This endpoint is not available to users",
+            type="auth_error",
+            param="route",
+            code=403,
+        )
+
     return UserAPIKeyAuth(
         api_key=f"jwt:{claims['sub']}",
         user_id=claims["sub"],
+        user_role=LitellmUserRoles.CUSTOMER,
+        object_permission=LiteLLM_ObjectPermissionTable(
+            object_permission_id=f"{MCP_USER_ACCESS_GROUP}-access",
+            mcp_access_groups=[MCP_USER_ACCESS_GROUP],
+        ),
         metadata={"azp": claims["azp"]},
     )

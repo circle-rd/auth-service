@@ -145,12 +145,12 @@ describe("debitWallet", () => {
     expect(state.updates[0]).toMatchObject({ balance: 0n });
   });
 
-  it("rejects an overdraft and writes nothing", async () => {
+  it("rejects a manual debit that would overdraw and writes nothing", async () => {
     script(account(299n));
     const err = await rejection(
       debitWallet({
         accountId: ACCOUNT_ID,
-        type: "usage",
+        type: "adjust",
         amount: 300n,
         idempotencyKey: "k",
       }),
@@ -160,6 +160,51 @@ describe("debitWallet", () => {
     expect(err.details).toEqual({ balance: "299", required: "300" });
     expect(state.updates).toHaveLength(0);
     expect(state.inserts).toHaveLength(0);
+  });
+
+  it.each(["usage", "reversal"] as const)(
+    "lets %s take the balance below zero",
+    async (type) => {
+      script(account(100n));
+      await debitWallet({
+        accountId: ACCOUNT_ID,
+        type,
+        amount: 300n,
+        idempotencyKey: "k",
+      });
+      expect(state.updates[0]).toMatchObject({ balance: -200n });
+      expect(state.inserts[0]).toMatchObject({
+        type,
+        amount: -300n,
+        delta: -300n,
+        balanceAfter: -200n,
+      });
+    },
+  );
+
+  it("lets a credit leave the balance negative while repaying a debt", async () => {
+    script(account(-500n));
+    await creditWallet({
+      accountId: ACCOUNT_ID,
+      type: "topup",
+      amount: 200n,
+      idempotencyKey: "k",
+    });
+    expect(state.inserts[0]).toMatchObject({
+      delta: 200n,
+      balanceAfter: -300n,
+    });
+  });
+
+  it("still deducts a reversal on an unlimited account", async () => {
+    script(account(50n, true));
+    await debitWallet({
+      accountId: ACCOUNT_ID,
+      type: "reversal",
+      amount: 80n,
+      idempotencyKey: "k",
+    });
+    expect(state.inserts[0]).toMatchObject({ delta: -80n, balanceAfter: -30n });
   });
 
   it("records usage on an unlimited account without changing its balance", async () => {

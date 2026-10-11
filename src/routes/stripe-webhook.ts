@@ -11,6 +11,7 @@ import {
   userApplications,
 } from "../db/schema.js";
 import { eq, and, sql } from "drizzle-orm";
+import { handleWalletStripeEvent } from "../services/wallet/index.js";
 
 /**
  * Maps a Stripe subscription status to our internal isActive flag.
@@ -476,11 +477,16 @@ export async function stripeWebhookRoutes(
           );
           break;
 
-        default:
-          fastify.log.debug(
-            { type: event.type },
-            "stripe-webhook: unhandled event type",
-          );
+        default: {
+          // Wallet top-ups, refunds and disputes live in the wallet service.
+          const handled = await handleWalletStripeEvent(event);
+          if (!handled) {
+            fastify.log.debug(
+              { type: event.type },
+              "stripe-webhook: unhandled event type",
+            );
+          }
+        }
       }
     } catch (err) {
       fastify.log.error(

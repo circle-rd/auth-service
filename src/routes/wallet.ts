@@ -1,11 +1,19 @@
 import type { FastifyInstance } from "fastify";
-import { requireSession } from "../middleware.js";
+import { z } from "zod";
+import { ERR } from "../errors.js";
+import { getRequestSession, requireSession } from "../middleware.js";
 import {
+  createTopupCheckout,
   getOrCreateWalletAccount,
+  getTopupOptions,
   listWalletTransactions,
   toAccountView,
 } from "../services/wallet/index.js";
 import { listTransactionsQuerySchema } from "./wallet-schemas.js";
+
+const checkoutBodySchema = z.object({
+  amountCents: z.number().int().positive(),
+});
 
 /** The signed-in user's own wallet. */
 export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
@@ -15,6 +23,26 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
     if (!userId) return;
     const account = await getOrCreateWalletAccount("user", userId);
     await reply.send(toAccountView(account));
+  });
+
+  // GET /api/user/wallet/topup-options
+  fastify.get("/topup-options", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    await reply.send(getTopupOptions());
+  });
+
+  // POST /api/user/wallet/checkout
+  fastify.post("/checkout", async (req, reply) => {
+    const session = await getRequestSession(req);
+    if (!session) throw ERR.AUTH_001();
+    const body = checkoutBodySchema.parse(req.body);
+    const checkout = await createTopupCheckout({
+      userId: session.user.id,
+      email: session.user.email ?? null,
+      amountCents: body.amountCents,
+    });
+    await reply.status(201).send(checkout);
   });
 
   // GET /api/user/wallet/transactions

@@ -101,6 +101,10 @@ export const ERR = {
     new ApiError(400, "WAL_004", msg, details),
   WAL_005: (msg = "Invalid pagination cursor") =>
     new ApiError(400, "WAL_005", msg),
+  WAL_006: (msg = "Online payment is not configured") =>
+    new ApiError(503, "WAL_006", msg),
+  WAL_007: (msg = "Usage pricing is not configured") =>
+    new ApiError(503, "WAL_007", msg),
 
   // ── USR ───────────────────────────────────────────────────────────────────
   USR_001: (msg = "User not found") => new ApiError(404, "USR_001", msg),

@@ -305,8 +305,9 @@ export const stripeEvents = pgTable("stripe_events", {
 // ── Wallet Accounts ───────────────────────────────────────────────────────────
 // Prepaid credit shared by every application. Amounts are integer micro-euros
 // (1 EUR = 1_000_000): tokens and tool calls are priced into the same balance
-// and sub-cent costs stay exact. The balance can never go below zero: the CHECK
-// is the last line of defence behind the service-level overdraft guard.
+// and sub-cent costs stay exact. The balance goes negative only when an
+// operation that already happened is recorded (usage, payment reversal): the
+// debt is repaid by the next top-up and meanwhile blocks new spending.
 // `owner_id` has no FK on purpose: it points at a user or an organization.
 export const walletAccounts = pgTable(
   "wallet_accounts",
@@ -333,7 +334,6 @@ export const walletAccounts = pgTable(
       "wallet_accounts_owner_type_check",
       sql`${t.ownerType} IN ('user', 'org')`,
     ),
-    check("wallet_accounts_balance_check", sql`${t.balance} >= 0`),
   ],
 );
 
@@ -379,18 +379,23 @@ export const walletTransactions = pgTable(
     ),
     check(
       "wallet_transactions_type_check",
-      sql`${t.type} IN ('topup', 'grant', 'refund', 'usage', 'adjust')`,
+      sql`${t.type} IN ('topup', 'grant', 'refund', 'usage', 'adjust', 'reversal')`,
     ),
     check("wallet_transactions_amount_check", sql`${t.amount} <> 0`),
     check(
       "wallet_transactions_sign_check",
-      sql`(${t.type} IN ('topup', 'grant', 'refund') AND ${t.amount} > 0) OR (${t.type} = 'usage' AND ${t.amount} < 0) OR ${t.type} = 'adjust'`,
+      sql`(${t.type} IN ('topup', 'grant', 'refund') AND ${t.amount} > 0) OR (${t.type} IN ('usage', 'reversal') AND ${t.amount} < 0) OR ${t.type} = 'adjust'`,
     ),
     check(
       "wallet_transactions_delta_check",
       sql`${t.delta} = ${t.amount} OR (${t.delta} = 0 AND ${t.type} = 'usage')`,
     ),
-    check("wallet_transactions_balance_check", sql`${t.balanceAfter} >= 0`),
+    // A manual debit never takes the balance below zero; usage and reversals
+    // record events that already happened and may.
+    check(
+      "wallet_transactions_adjust_check",
+      sql`${t.type} <> 'adjust' OR ${t.amount} > 0 OR ${t.balanceAfter} >= 0`,
+    ),
   ],
 );
 

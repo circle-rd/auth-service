@@ -119,6 +119,21 @@ const envSchema = z
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
+    // Bounds of an online wallet top-up, in whole euros. Currency conversion for
+    // the customer is delegated to Stripe (Adaptive Pricing).
+    WALLET_TOPUP_MIN_EUR: z.coerce.number().int().positive().default(5),
+    WALLET_TOPUP_MAX_EUR: z.coerce.number().int().positive().default(500),
+
+    // Pricing of LLM usage reported by the gateway in US dollars: the rate is
+    // explicit on purpose (no silent default for money) and the margin is a
+    // percentage added on top of the provider cost.
+    WALLET_USD_TO_EUR_RATE: z
+      .string()
+      .regex(/^[0-9]{1,3}(\.[0-9]{1,8})?$/)
+      .refine((v) => Number(v) > 0, "must be positive")
+      .optional(),
+    WALLET_MARGIN_PERCENT: z.coerce.number().int().min(0).max(1000).default(0),
+
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -132,6 +147,13 @@ const envSchema = z
     APPLE_CLIENT_SECRET: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.WALLET_TOPUP_MIN_EUR > data.WALLET_TOPUP_MAX_EUR) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["WALLET_TOPUP_MIN_EUR"],
+        message: "must not exceed WALLET_TOPUP_MAX_EUR",
+      });
+    }
     // A half-configured CAPTCHA would otherwise silently stay disabled (all
     // three fields are required by `captcha.enabled`), or — if it did activate
     // without a site key — lock every credential flow out. Fail fast instead.
@@ -252,6 +274,12 @@ export const config = {
   stripe: {
     secretKey: parsed.data.STRIPE_SECRET_KEY,
     webhookSecret: parsed.data.STRIPE_WEBHOOK_SECRET,
+  },
+  wallet: {
+    minTopupCents: parsed.data.WALLET_TOPUP_MIN_EUR * 100,
+    maxTopupCents: parsed.data.WALLET_TOPUP_MAX_EUR * 100,
+    usdToEurRate: parsed.data.WALLET_USD_TO_EUR_RATE,
+    marginPercent: parsed.data.WALLET_MARGIN_PERCENT,
   },
   templatesDir: parsed.data.TEMPLATES_DIR ?? null,
   providers: {

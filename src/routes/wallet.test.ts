@@ -11,18 +11,33 @@ import { createTestApp } from "../tests/helpers/app.js";
 import { ERR } from "../errors.js";
 
 import type * as WalletModule from "../services/wallet/index.js";
-const { mockRequireSession, mockGetOrCreate, mockList } = vi.hoisted(() => ({
+const {
+  mockRequireSession,
+  mockGetSession,
+  mockGetOrCreate,
+  mockList,
+  mockCheckout,
+  mockOptions,
+} = vi.hoisted(() => ({
   mockRequireSession: vi.fn(),
+  mockGetSession: vi.fn(),
   mockGetOrCreate: vi.fn(),
   mockList: vi.fn(),
+  mockCheckout: vi.fn(),
+  mockOptions: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({ db: {} }));
-vi.mock("../middleware.js", () => ({ requireSession: mockRequireSession }));
+vi.mock("../middleware.js", () => ({
+  requireSession: mockRequireSession,
+  getRequestSession: mockGetSession,
+}));
 vi.mock("../services/wallet/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof WalletModule>()),
   getOrCreateWalletAccount: mockGetOrCreate,
   listWalletTransactions: mockList,
+  createTopupCheckout: mockCheckout,
+  getTopupOptions: mockOptions,
 }));
 
 const { walletRoutes } = await import("./wallet.js");
@@ -42,6 +57,18 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ id: "acc", balance: 42n, isUnlimited: true });
   mockList.mockReset().mockResolvedValue({ items: [], nextCursor: null });
+  mockGetSession
+    .mockReset()
+    .mockResolvedValue({ user: { id: "user-1", email: "u@example.com" } });
+  mockCheckout
+    .mockReset()
+    .mockResolvedValue({ url: "https://checkout.test/s" });
+  mockOptions.mockReset().mockReturnValue({
+    enabled: true,
+    currency: "eur",
+    minCents: 500,
+    maxCents: 50000,
+  });
 });
 
 function signedOut() {
@@ -65,6 +92,7 @@ describe("GET /", () => {
     expect(res.json()).toEqual({
       balance: "42",
       isUnlimited: true,
+      canSpend: true,
       currency: "eur",
     });
   });
@@ -111,4 +139,73 @@ describe("GET /transactions", () => {
       expect(mockList).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("GET /topup-options", () => {
+  it("returns the online top-up options to a signed-in user", async () => {
+    const res = await app.inject({ method: "GET", url: "/topup-options" });
+    expect(res.json()).toEqual({
+      enabled: true,
+      currency: "eur",
+      minCents: 500,
+      maxCents: 50000,
+    });
+  });
+
+  it("answers 401 without a session", async () => {
+    signedOut();
+    const res = await app.inject({ method: "GET", url: "/topup-options" });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("POST /checkout", () => {
+  it("opens a checkout for the session user, never for a user named in the body", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/checkout",
+      payload: { amountCents: 1000, userId: "someone-else" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toEqual({ url: "https://checkout.test/s" });
+    expect(mockCheckout).toHaveBeenCalledWith({
+      userId: "user-1",
+      email: "u@example.com",
+      amountCents: 1000,
+    });
+  });
+
+  it("answers 401 without a session and opens nothing", async () => {
+    mockGetSession.mockResolvedValue(null);
+    const res = await app.inject({
+      method: "POST",
+      url: "/checkout",
+      payload: { amountCents: 1000 },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(mockCheckout).not.toHaveBeenCalled();
+  });
+
+  it("propagates the unconfigured-payment error", async () => {
+    mockCheckout.mockRejectedValue(ERR.WAL_006());
+    const res = await app.inject({
+      method: "POST",
+      url: "/checkout",
+      payload: { amountCents: 1000 },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe("WAL_006");
+  });
+
+  it.each([
+    ["a missing amount", {}],
+    ["a decimal amount", { amountCents: 10.5 }],
+    ["a string amount", { amountCents: "1000" }],
+    ["a negative amount", { amountCents: -5 }],
+    ["a zero amount", { amountCents: 0 }],
+  ])("rejects %s before calling Stripe", async (_label, payload) => {
+    const res = await app.inject({ method: "POST", url: "/checkout", payload });
+    expect(res.statusCode).toBe(400);
+    expect(mockCheckout).not.toHaveBeenCalled();
+  });
 });

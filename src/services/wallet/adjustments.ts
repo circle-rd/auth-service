@@ -35,3 +35,27 @@ export async function adjustBalance(
     ? creditWallet({ ...operation, amount: input.amount })
     : debitWallet({ ...operation, amount: -input.amount });
 }
+
+/**
+ * Credit bought outside Stripe (manual invoice, bank transfer). `reference` ties
+ * the ledger row to the invoice the administrator issued.
+ */
+export async function recordManualTopup(input: {
+  accountId: string;
+  amount: bigint;
+  idempotencyKey: string;
+  actorId: string;
+  reference: string;
+}): Promise<WalletOperationResult> {
+  return creditWallet({
+    accountId: input.accountId,
+    type: "topup",
+    amount: input.amount,
+    idempotencyKey: input.idempotencyKey,
+    metadata: {
+      source: "manual",
+      reference: input.reference,
+      actorId: input.actorId,
+    },
+  });
+}

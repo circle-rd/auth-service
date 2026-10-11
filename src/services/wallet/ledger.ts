@@ -4,6 +4,7 @@ import { walletAccounts, walletTransactions } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
 import {
   MAX_WALLET_AMOUNT,
+  NEGATIVE_BALANCE_TYPES,
   type WalletCreditInput,
   type WalletDebitInput,
   type WalletOperationResult,
@@ -57,7 +58,7 @@ function assertSameOperation(
 /**
  * Apply one ledger operation atomically. The account row is locked for the
  * duration of the transaction, so concurrent operations on a wallet are
- * serialised: the overdraft check, the balance update and the ledger insert
+ * serialised: the overdraft rule, the balance update and the ledger insert
  * cannot interleave, and a retried idempotency key always finds the first
  * attempt. A rejected operation leaves no trace.
  */
@@ -97,7 +98,11 @@ async function applyOperation(
     // Unlimited accounts keep their balance: usage is recorded, not deducted.
     const delta = account.isUnlimited && op.type === "usage" ? 0n : op.amount;
     const balanceAfter = account.balance + delta;
-    if (balanceAfter < 0n) {
+    // Usage and reversals record something that already happened, so refusing
+    // them would only hide the debt: they may take the balance below zero, which
+    // blocks further spending until the next top-up repays it.
+    const mayOverdraw = NEGATIVE_BALANCE_TYPES.includes(op.type);
+    if (op.amount < 0n && balanceAfter < 0n && !mayOverdraw) {
       throw ERR.WAL_002("Insufficient credit balance", {
         balance: account.balance.toString(),
         required: (-op.amount).toString(),

@@ -12,4 +12,6 @@ export function applyBaseEnv(): void {
   process.env.BETTER_AUTH_SECRET ??= "test-secret-that-is-long-enough";
   process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
   process.env.NODE_ENV ??= "test";
+  process.env.WALLET_USD_TO_EUR_RATE ??= "0.90";
+  process.env.WALLET_MARGIN_PERCENT ??= "10";
 }

@@ -1,0 +1,534 @@
+# =============================================================================
+# Stack de production — Traefik v3 + Let's Encrypt + website (GHCR)
+# =============================================================================
+
+# Tag unique de l'image auth-service (nightly = branche develop, latest = release).
+# Partagé par circle-auth et par l'init de la config LiteLLM, qui embarque
+# litellm/config.yaml + custom_auth.py : les deux doivent rester synchronisés.
+x-circle-auth-image: &circle-auth-image ghcr.io/circle-rd/auth-service:nightly
+
+services:
+  # ---------------------------------------------------------------------------
+  # Traefik — Reverse proxy + TLS Let's Encrypt
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3
+    container_name: lagarde-traefik
+    restart: unless-stopped
+    command:
+      # API & Dashboard
+      - --api.dashboard=true
+      - --api.insecure=false
+
+      # Provider Docker
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=lagarde-cyber
+
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+
+      # Redirection HTTP → HTTPS globale
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+
+      # Let's Encrypt (ACME - TLS Challenge)
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=admin@lagarde-cyber.com
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+
+      # Add support for PROXY Protocol v2
+      - --entrypoints.websecure.proxyProtocol.trustedIPs=10.0.0.0/24
+      - --entrypoints.web.proxyProtocol.trustedIPs=10.0.0.0/24
+      - --entrypoints.websecure.forwardedHeaders.trustedIPs=10.0.0.0/24
+      - --entrypoints.web.forwardedHeaders.trustedIPs=10.0.0.0/24
+
+      # Logs
+      - --log.level=INFO
+      - --accesslog=true
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8080:8080"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+
+    networks:
+      - lagarde-cyber
+
+    labels:
+      - traefik.enable=true
+
+      # Dashboard Traefik (https://traefik.lagarde-cyber.com)
+      #- traefik.http.routers.traefik-dashboard.rule=Host(`traefik.lagarde-cyber.lan`)
+      #- traefik.http.routers.traefik-dashboard.entrypoints=websecure
+      #- traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt
+      #- traefik.http.routers.traefik-dashboard.service=api@internal
+      #- traefik.http.routers.traefik-dashboard.middlewares=dashboard-auth
+
+      # Basic auth dashboard — générer avec : echo $(htpasswd -nB admin) | sed -e s/\\$/\\$\\$/g
+      #- "traefik.http.middlewares.dashboard-auth.basicauth.users=admin:$$2y$$05$$XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+  # ---------------------------------------------------------------------------
+  # LaGarde Website — image GHCR produite par le workflow GitHub Actions
+  # ---------------------------------------------------------------------------
+  lagarde-website:
+    image: ghcr.io/lagarde-cyber/website:latest
+    container_name: lagarde-website
+    restart: unless-stopped
+
+    networks:
+      - lagarde-cyber
+
+    labels:
+      - traefik.enable=true
+
+      # Routeur principal (apex)
+      - traefik.http.routers.lagarde.rule=Host(`lagarde-cyber.com`)
+      - traefik.http.routers.lagarde.entrypoints=websecure
+      - traefik.http.routers.lagarde.tls.certresolver=letsencrypt
+      - traefik.http.routers.lagarde.middlewares=lagarde-headers
+
+      # Routeur www → redirect vers apex
+      - traefik.http.routers.lagarde-www.rule=Host(`www.lagarde-cyber.com`)
+      - traefik.http.routers.lagarde-www.entrypoints=websecure
+      - traefik.http.routers.lagarde-www.tls.certresolver=letsencrypt
+      - traefik.http.routers.lagarde-www.middlewares=redirect-lagarde
+
+      # Routeur beta
+      #- traefik.http.routers.lagarde-beta.rule=Host(`beta.lagarde-cyber.com`)
+      #- traefik.http.routers.lagarde-beta.entrypoints=websecure
+      #- traefik.http.routers.lagarde-beta.tls.certresolver=letsencrypt
+      #- traefik.http.routers.lagarde-beta.middlewares=lagarde-headers
+
+      # Middleware : redirect www → apex
+      - traefik.http.middlewares.redirect-lagarde.redirectregex.regex=^https://www\.lagarde-cyber\.com/(.*)
+      - traefik.http.middlewares.redirect-lagarde.redirectregex.replacement=https://lagarde-cyber.com/$${1}
+      - traefik.http.middlewares.redirect-lagarde.redirectregex.permanent=true
+
+      # Middleware : security headers
+      - traefik.http.middlewares.lagarde-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.lagarde-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.lagarde-headers.headers.stsPreload=true
+      - traefik.http.middlewares.lagarde-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.lagarde-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.lagarde-headers.headers.browserXssFilter=true
+      - traefik.http.middlewares.lagarde-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+
+      # Service (port NGINX)
+      - traefik.http.services.lagarde.loadbalancer.server.port=3000
+
+  lagarde-postgres:
+    image: postgres:17-alpine
+    container_name: lagarde-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${LAGARDE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${LAGARDE_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${LAGARDE_POSTGRES_DB}
+      PGPORT: ${LAGARDE_POSTGRES_PORT}
+
+    volumes:
+      - ./lagarde/data:/var/lib/postgresql/data
+
+    networks:
+      - lagarde-cyber
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${LAGARDE_POSTGRES_USER} -d ${LAGARDE_POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  lagarde-auth:
+    image: ghcr.io/circle-rd/auth-service:latest
+    container_name: lagarde-auth
+    restart: unless-stopped
+
+    environment:
+      PORT: ${PORT:-3001}
+      HOST: ${HOST:-0.0.0.0}
+      NODE_ENV: production
+      # Override DATABASE_URL to use the docker-internal hostname
+      DATABASE_URL: "postgres://${LAGARDE_POSTGRES_USER}:${LAGARDE_POSTGRES_PASSWORD}@lagarde-postgres:${LAGARDE_POSTGRES_PORT}/${LAGARDE_POSTGRES_DB}"
+      BETTER_AUTH_SECRET: ${LAGARDE_BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${LAGARDE_BETTER_AUTH_URL}
+
+      ADMIN_EMAIL: ${LAGARDE_ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${LAGARDE_ADMIN_PASSWORD:-}
+      CORS_ORIGINS: ${LAGARDE_CORS_ORIGINS:-}
+      OAUTH_VALID_AUDIENCES: ${LAGARDE_VALID_AUDIENCES:-}
+
+      # Auth flows. Email verification defaults to false here so the stack
+      # boots without SMTP; set REQUIRE_EMAIL_VERIFICATION=true and configure
+      # SMTP_HOST in production.
+      REQUIRE_EMAIL_VERIFICATION: ${LAGARDE_REQUIRE_EMAIL_VERIFICATION:-false}
+      MAGIC_LINK_ENABLED: ${LAGARDE_MAGIC_LINK_ENABLED:-false}
+      EMAIL_OTP_ENABLED: ${LAGARDE_EMAIL_OTP_ENABLED:-false}
+
+      # SMTP settings for email notifications
+      SMTP_HOST: ${LAGARDE_SMTP_HOST:-}
+      SMTP_PORT: ${LAGARDE_SMTP_PORT:-587}
+      SMTP_USER: ${LAGARDE_SMTP_USER:-}
+      SMTP_PASS: ${LAGARDE_SMTP_PASS:-}
+      SMTP_FROM: ${LAGARDE_SMTP_FROM:-}
+
+      # Application branding
+      APP_NAME: ${LAGARDE_APP_NAME:-Authentication}
+      APP_LOGO_URL: ${LAGARDE_APP_LOGO_URL:-}
+      TEMPLATES_DIR: /templates
+
+      # Social provider credentials (optional)
+      GOOGLE_CLIENT_ID: ${LAGARDE_GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${LAGARDE_GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${LAGARDE_GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${LAGARDE_GITHUB_CLIENT_SECRET:-}
+
+    networks:
+      - lagarde-cyber
+
+    labels:
+      - traefik.enable=true
+
+      # Routeur principal (apex)
+      - traefik.http.routers.lagarde-auth.rule=Host(`auth.lagarde-cyber.com`)
+      - traefik.http.routers.lagarde-auth.entrypoints=websecure
+      - traefik.http.routers.lagarde-auth.tls.certresolver=letsencrypt
+
+      # Middleware : security headers
+      - traefik.http.middlewares.lagarde-auth.headers.stsSeconds=31536000
+      - traefik.http.middlewares.lagarde-auth.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.lagarde-auth.headers.stsPreload=true
+      - traefik.http.middlewares.lagarde-auth.headers.forceSTSHeader=true
+      - traefik.http.middlewares.lagarde-auth.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.lagarde-auth.headers.browserXssFilter=true
+      - traefik.http.middlewares.lagarde-auth.headers.referrerPolicy=strict-origin-when-cross-origin
+
+      # Service (port Next)
+      - traefik.http.services.lagarde-auth.loadbalancer.server.port=3001
+
+    volumes:
+      - ./lagarde/templates:/templates
+
+    depends_on:
+      lagarde-postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Circle Website — image GHCR produite par le workflow GitHub Actions
+  # ---------------------------------------------------------------------------
+  circle-website:
+    image: ghcr.io/circle-rd/website:latest
+    container_name: circle-website
+    restart: unless-stopped
+
+    networks:
+      - lagarde-cyber
+
+    labels:
+      - traefik.enable=true
+
+      # Routeur principal (apex)
+      - traefik.http.routers.circle.rule=Host(`circle-cyber.com`)
+      - traefik.http.routers.circle.entrypoints=websecure
+      - traefik.http.routers.circle.tls.certresolver=letsencrypt
+      - traefik.http.routers.circle.middlewares=circle-headers
+
+      # Routeur www → redirect vers apex
+      - traefik.http.routers.circle-www.rule=Host(`www.circle-cyber.com`)
+      - traefik.http.routers.circle-www.entrypoints=websecure
+      - traefik.http.routers.circle-www.tls.certresolver=letsencrypt
+      - traefik.http.routers.circle-www.middlewares=redirect-circle
+
+      # Middleware : redirect www → apex
+      - traefik.http.middlewares.redirect-circle.redirectregex.regex=^https://www\.circle-cyber\.com/(.*)
+      - traefik.http.middlewares.redirect-circle.redirectregex.replacement=https://circle-cyber.com/$${1}
+      - traefik.http.middlewares.redirect-circle.redirectregex.permanent=true
+
+      # Middleware : security headers
+      - traefik.http.middlewares.circle-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.circle-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.circle-headers.headers.stsPreload=true
+      - traefik.http.middlewares.circle-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.circle-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.circle-headers.headers.browserXssFilter=true
+      - traefik.http.middlewares.circle-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+
+      # Service (port Next)
+      - traefik.http.services.circle.loadbalancer.server.port=3000
+
+  circle-postgres:
+    image: postgres:17-alpine
+    container_name: circle-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${CIRCLE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${CIRCLE_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${CIRCLE_POSTGRES_DB}
+      PGPORT: ${CIRCLE_POSTGRES_PORT}
+
+    volumes:
+      - ./circle/data:/var/lib/postgresql/data
+
+    networks:
+      - lagarde-cyber
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${CIRCLE_POSTGRES_USER} -d ${CIRCLE_POSTGRES_DB}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Redis pour l'état partagé des limites de débit (REDIS_URL de circle-auth).
+  circle-redis:
+    image: redis:7-alpine
+    container_name: circle-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+    networks:
+      - lagarde-cyber
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  circle-auth:
+    image: *circle-auth-image
+    container_name: circle-auth
+    restart: unless-stopped
+
+    environment:
+      PORT: ${PORT:-3001}
+      HOST: ${HOST:-0.0.0.0}
+      NODE_ENV: production
+      # Override DATABASE_URL to use the docker-internal hostname
+      DATABASE_URL: "postgres://${CIRCLE_POSTGRES_USER}:${CIRCLE_POSTGRES_PASSWORD}@circle-postgres:${CIRCLE_POSTGRES_PORT}/${CIRCLE_POSTGRES_DB}"
+      BETTER_AUTH_SECRET: ${CIRCLE_BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: ${CIRCLE_BETTER_AUTH_URL}
+
+      ADMIN_EMAIL: ${CIRCLE_ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${CIRCLE_ADMIN_PASSWORD:-}
+      CORS_ORIGINS: ${CIRCLE_CORS_ORIGINS:-}
+      OAUTH_VALID_AUDIENCES: ${CIRCLE_VALID_AUDIENCES:-}
+      REDIS_URL: ${CIRCLE_REDIS_URL:-redis://circle-redis:6379}
+
+      # Wallet : prix de l'usage LLM (taux USD→EUR explicite, marge en %).
+      WALLET_USD_TO_EUR_RATE: ${CIRCLE_WALLET_USD_TO_EUR_RATE:-}
+      WALLET_MARGIN_PERCENT: ${CIRCLE_WALLET_MARGIN_PERCENT:-0}
+
+      # Auth flows. Email verification defaults to false here so the stack
+      # boots without SMTP; set REQUIRE_EMAIL_VERIFICATION=true and configure
+      # SMTP_HOST in production.
+      REQUIRE_EMAIL_VERIFICATION: ${CIRCLE_REQUIRE_EMAIL_VERIFICATION:-false}
+      MAGIC_LINK_ENABLED: ${CIRCLE_MAGIC_LINK_ENABLED:-false}
+      EMAIL_OTP_ENABLED: ${CIRCLE_EMAIL_OTP_ENABLED:-false}
+
+      # SMTP settings for email notifications
+      SMTP_HOST: ${CIRCLE_SMTP_HOST:-}
+      SMTP_PORT: ${CIRCLE_SMTP_PORT:-587}
+      SMTP_USER: ${CIRCLE_SMTP_USER:-}
+      SMTP_PASS: ${CIRCLE_SMTP_PASS:-}
+      SMTP_FROM: ${CIRCLE_SMTP_FROM:-}
+
+      # Application branding
+      APP_NAME: ${CIRCLE_APP_NAME:-Authentication}
+      APP_LOGO_URL: ${CIRCLE_APP_LOGO_URL:-}
+      TEMPLATES_DIR: /templates
+
+      # Social provider credentials (optional)
+      GOOGLE_CLIENT_ID: ${CIRCLE_GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${CIRCLE_GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${CIRCLE_GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${CIRCLE_GITHUB_CLIENT_SECRET:-}
+
+    networks:
+      - lagarde-cyber
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+    volumes:
+      - ./circle/templates:/templates
+
+    labels:
+      - traefik.enable=true
+
+      # Routeur principal (apex)
+      - traefik.http.routers.circle-auth.rule=Host(`auth.circle-cyber.com`)
+      - traefik.http.routers.circle-auth.entrypoints=websecure
+      - traefik.http.routers.circle-auth.tls.certresolver=letsencrypt
+
+      # Middleware : security headers
+      - traefik.http.middlewares.circle-auth.headers.stsSeconds=31536000
+      - traefik.http.middlewares.circle-auth.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.circle-auth.headers.stsPreload=true
+      - traefik.http.middlewares.circle-auth.headers.forceSTSHeader=true
+      - traefik.http.middlewares.circle-auth.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.circle-auth.headers.browserXssFilter=true
+      - traefik.http.middlewares.circle-auth.headers.referrerPolicy=strict-origin-when-cross-origin
+
+      # Service (port Next)
+      - traefik.http.services.circle-auth.loadbalancer.server.port=3001
+
+    depends_on:
+      circle-postgres:
+        condition: service_healthy
+
+  # Optional LiteLLM gateway (LLMs + MCP), authenticated with auth-service
+  # access tokens. Nécessite CIRCLE_LITELLM_MASTER_KEY et CIRCLE_LITELLM_SALT_KEY
+  # dans le .env, et la passerelle enregistrée dans auth-service (pnpm llm:setup).
+  # Voir le guide « LiteLLM gateway ».
+  circle-litellm-init:
+    image: postgres:17-alpine
+    container_name: circle-litellm-init
+    environment:
+      PGHOST: circle-postgres
+      PGUSER: ${CIRCLE_POSTGRES_USER:-auth}
+      PGPASSWORD: ${CIRCLE_POSTGRES_PASSWORD:-auth}
+    # Idempotent: the LiteLLM database is created next to the auth one even
+    # when the postgres volume already exists (initdb.d only runs on first boot).
+    command:
+      - sh
+      - -c
+      - >-
+        psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='litellm'" | grep -q 1
+        || psql -d postgres -c "CREATE DATABASE litellm"
+
+    depends_on:
+      circle-postgres:
+        condition: service_healthy
+
+    restart: "no"
+
+    networks:
+      - lagarde-cyber
+
+  # Recopie la config de la passerelle embarquée dans l'image auth-service vers un
+  # volume partagé : plus rien à copier à la main dans ./circle/litellm. Rejoué à
+  # chaque changement d'image, la config suit donc la version d'auth-service.
+  circle-litellm-config-init:
+    image: *circle-auth-image
+    container_name: circle-litellm-config-init
+    user: root
+    entrypoint: ["sh", "-c", "cp -f /app/litellm/* /config/"]
+    volumes:
+      - litellm_config:/config
+    depends_on:
+      circle-auth:
+        condition: service_started
+    restart: "no"
+    networks:
+      - lagarde-cyber
+
+  circle-litellm:
+    # Épinglé : custom_auth dépend d'éléments internes de LiteLLM.
+    image: ghcr.io/berriai/litellm:v1.105.0
+    container_name: circle-litellm
+    command: ["--config", "/app/gateway/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${CIRCLE_LITELLM_MASTER_KEY:-}
+      # Encrypts provider credentials stored in the database: never change it
+      # once models have been added.
+      LITELLM_SALT_KEY: ${CIRCLE_LITELLM_SALT_KEY:-}
+      DATABASE_URL: postgresql://${CIRCLE_POSTGRES_USER}:${CIRCLE_POSTGRES_PASSWORD}@circle-postgres:5432/litellm
+      # Token validation (litellm/custom_auth.py, which refuses to start when a
+      # value is empty). The JWKS is fetched over the Docker network; iss/aud
+      # must match what auth-service puts in the token.
+      JWT_PUBLIC_KEY_URL: http://circle-auth:3001/api/auth/jwks
+      JWT_ISSUER: ${CIRCLE_BETTER_AUTH_URL:-https://auth.circle-cyber.com}
+      # Doit être l'URL de l'application "litellm" enregistrée dans auth-service.
+      JWT_AUDIENCE: https://llm.circle-cyber.com
+      # Hook wallet (litellm/circle_wallet.py) : vérifie le crédit avant l'appel et
+      # facture le coût après, via l'API wallet d'auth-service.
+      WALLET_AUTH_URL: http://circle-auth:3001
+      WALLET_CLIENT_ID: litellm-wallet
+      WALLET_CLIENT_SECRET: ${CIRCLE_LITELLM_WALLET_CLIENT_SECRET:-}
+      WALLET_SPOOL_DIR: /var/lib/circle-wallet
+    volumes:
+      # Chemin dédié : ne masque rien de ce que l'image LiteLLM place dans /app/litellm.
+      - litellm_config:/app/gateway:ro
+      # Les débits pas encore livrés survivent à un redémarrage.
+      - litellm_spool:/var/lib/circle-wallet
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.circle-litellm.loadbalancer.server.port=4000
+
+      # Routes clientes (API LLM + MCP) : ouvertes sur Internet. Liste blanche :
+      # toute nouvelle route de LiteLLM reste privée tant qu'elle n'est pas ajoutée.
+      - traefik.http.routers.circle-litellm.rule=Host(`llm.circle-cyber.com`) && PathRegexp(`^/(v1|chat|completions|embeddings|models|responses|images|audio|rerank|moderations|files|batches|anthropic|mcp|mcp-rest)(/.*)?$$|^/[^/]+/mcp(/.*)?$$`)
+      - traefik.http.routers.circle-litellm.priority=100
+      - traefik.http.routers.circle-litellm.entrypoints=websecure
+      - traefik.http.routers.circle-litellm.tls.certresolver=letsencrypt
+
+      # Tout le reste (interface admin /ui, /key, /model, /docs, /health…) :
+      # réseau d'administration uniquement.
+      - traefik.http.routers.circle-litellm-admin.rule=Host(`llm.circle-cyber.com`)
+      - traefik.http.routers.circle-litellm-admin.priority=1
+      - traefik.http.routers.circle-litellm-admin.entrypoints=websecure
+      - traefik.http.routers.circle-litellm-admin.tls.certresolver=letsencrypt
+      - traefik.http.routers.circle-litellm-admin.middlewares=circle-litellm-admin
+      - traefik.http.middlewares.circle-litellm-admin.ipallowlist.sourcerange=${CIRCLE_LITELLM_ADMIN_CIDR:-10.1.0.0/24}
+    depends_on:
+      circle-litellm-init:
+        condition: service_completed_successfully
+      circle-litellm-config-init:
+        condition: service_completed_successfully
+      circle-auth:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - lagarde-cyber
+
+# =============================================================================
+# Réseaux & Volumes
+# =============================================================================
+
+networks:
+  lagarde-cyber:
+    name: lagarde-cyber
+    driver: bridge
+
+volumes:
+  letsencrypt:
+    driver: local
+  litellm_config:
+  litellm_spool:

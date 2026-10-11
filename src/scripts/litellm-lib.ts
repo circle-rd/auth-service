@@ -120,6 +120,11 @@ async function redirectTarget(res: Response): Promise<string> {
   return body.success ? body.data.url : "";
 }
 
+const walletAccountSchema = z.object({
+  balance: z.string().regex(/^-?[0-9]+$/),
+  canSpend: z.boolean(),
+});
+
 const tokenResponseSchema = z.object({ access_token: z.string() });
 
 export class AuthAdminClient {
@@ -261,6 +266,33 @@ export class AuthAdminClient {
       }),
     });
     return res.ok;
+  }
+
+  async getWallet(
+    userId: string,
+  ): Promise<{ balance: bigint; canSpend: boolean }> {
+    const res = await this.expectOk(
+      await this.send(`/api/admin/wallets/users/${userId}`),
+      "Read wallet",
+    );
+    const account = walletAccountSchema.parse(await res.json());
+    return { balance: BigInt(account.balance), canSpend: account.canSpend };
+  }
+
+  /** Record credit as an administrator would for a manual invoice. */
+  async topUp(
+    userId: string,
+    micro: bigint,
+    reference: string,
+    idempotencyKey: string,
+  ): Promise<void> {
+    await this.expectOk(
+      await this.send(`/api/admin/wallets/users/${userId}/topups`, {
+        method: "POST",
+        json: { amount: micro.toString(), idempotencyKey, reference },
+      }),
+      "Top up wallet",
+    );
   }
 
   async deleteApplication(id: string): Promise<void> {

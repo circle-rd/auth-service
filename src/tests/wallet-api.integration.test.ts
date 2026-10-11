@@ -23,6 +23,7 @@ import {
 import { cleanDb } from "./helpers/db.js";
 import {
   creditWallet,
+  debitWallet,
   getOrCreateWalletAccount,
 } from "../services/wallet/index.js";
 
@@ -220,7 +221,12 @@ describe("internal wallet API", () => {
     const { customer, token } = await setup();
     const res = await api("GET", balanceUrl(customer.id), { bearer: token });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ balance: "0", isUnlimited: false, currency: "eur" });
+    expect(res.body).toEqual({
+      balance: "0",
+      isUnlimited: false,
+      canSpend: false,
+      currency: "eur",
+    });
   });
 
   it("accepts a JWT machine token as well as an opaque one", async () => {
@@ -297,7 +303,53 @@ describe("internal wallet API", () => {
     expect(res.body.transaction.metadata.applicationSlug).toBe("deleted-app");
   });
 
-  it("answers 402 when the balance is insufficient and leaves it untouched", async () => {
+  it("prices a provider cost in dollars with the configured rate and margin", async () => {
+    const { customer, token } = await setup();
+    await creditWallet({
+      accountId: (await walletOf(customer.id)).id,
+      type: "topup",
+      amount: 10_000n,
+      idempotencyKey: "seed",
+    });
+    const body = {
+      costUsd: "0.001",
+      idempotencyKey: "litellm:req-1",
+      applicationSlug: "wallet-client",
+      metadata: { model: "gpt-x", totalTokens: 42 },
+    };
+    const first = await api("POST", usageUrl(customer.id), { bearer: token, body });
+    expect(first.status).toBe(201);
+    // 0.001 USD × 0.90 EUR/USD × 1.10 margin = 990 micro-euros
+    expect(first.body.transaction).toMatchObject({
+      amount: "-990",
+      balanceAfter: "9010",
+      metadata: {
+        model: "gpt-x",
+        totalTokens: 42,
+        costUsd: "0.001",
+        usdToEurRate: "0.90",
+        marginPercent: 10,
+        applicationSlug: "wallet-client",
+      },
+    });
+
+    const replay = await api("POST", usageUrl(customer.id), { bearer: token, body });
+    expect(replay.status).toBe(200);
+    expect(replay.body.replayed).toBe(true);
+    expect((await walletOf(customer.id)).balance).toBe(9_010n);
+  });
+
+  it("never charges a positive provider cost less than one micro-euro", async () => {
+    const { customer, token } = await setup();
+    const res = await api("POST", usageUrl(customer.id), {
+      bearer: token,
+      body: { costUsd: "0.000000000001", idempotencyKey: "tiny" },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.transaction.amount).toBe("-1");
+  });
+
+  it("records usage beyond the balance as a debt that blocks further spending", async () => {
     const { customer, token } = await setup();
     await creditWallet({
       accountId: (await walletOf(customer.id)).id,
@@ -307,14 +359,27 @@ describe("internal wallet API", () => {
     });
     const res = await api("POST", usageUrl(customer.id), {
       bearer: token,
-      body: { amount: "101", idempotencyKey: "k" },
+      body: { amount: "130", idempotencyKey: "k" },
     });
-    expect(res.status).toBe(402);
-    expect(res.body.error).toMatchObject({
-      code: "WAL_002",
-      details: { balance: "100", required: "101" },
+    expect(res.status).toBe(201);
+    expect(res.body.transaction).toMatchObject({ amount: "-130", balanceAfter: "-30" });
+
+    const balance = await api("GET", balanceUrl(customer.id), { bearer: token });
+    expect(balance.body).toEqual({
+      balance: "-30",
+      isUnlimited: false,
+      canSpend: false,
+      currency: "eur",
     });
-    expect((await walletOf(customer.id)).balance).toBe(100n);
+
+    await creditWallet({
+      accountId: (await walletOf(customer.id)).id,
+      type: "topup",
+      amount: 500n,
+      idempotencyKey: "refill",
+    });
+    const repaid = await api("GET", balanceUrl(customer.id), { bearer: token });
+    expect(repaid.body).toMatchObject({ balance: "470", canSpend: true });
   });
 
   it("answers 409 when a key is reused with another amount", async () => {
@@ -468,6 +533,7 @@ describe("user wallet API", () => {
     expect((await api("GET", "/api/user/wallet", { cookie: alice.cookie })).body).toEqual({
       balance: "4200",
       isUnlimited: false,
+      canSpend: true,
       currency: "eur",
     });
     expect((await api("GET", "/api/user/wallet", { cookie: bob.cookie })).body.balance).toBe("0");
@@ -503,6 +569,18 @@ describe("user wallet API", () => {
     expect(res.body.items).toHaveLength(1);
     expect(res.body.items[0].type).toBe("grant");
     expect(JSON.stringify(res.body)).not.toContain("secret-key");
+  });
+
+  it("reports online payment as unavailable when Stripe is not configured", async () => {
+    const options = await api("GET", "/api/user/wallet/topup-options", { cookie: alice.cookie });
+    expect(options.body).toMatchObject({ enabled: false, currency: "eur", minCents: 500, maxCents: 50000 });
+
+    const checkout = await api("POST", "/api/user/wallet/checkout", {
+      cookie: alice.cookie,
+      body: { amountCents: 1000 },
+    });
+    expect(checkout.status).toBe(503);
+    expect(checkout.body.error.code).toBe("WAL_006");
   });
 
   it.each([
@@ -570,6 +648,38 @@ describe("admin wallet API", () => {
     expect(replay.status).toBe(200);
     expect(replay.body.replayed).toBe(true);
     expect((await walletOf(customer.id)).balance).toBe(5_000_000n);
+  });
+
+  it("records a manual top-up against an invoice, repaying a debt first, replay-safe", async () => {
+    const { superadmin, customer } = await actors();
+    const accountId = (await walletOf(customer.id)).id;
+    await debitWallet({ accountId, type: "usage", amount: 3_000_000n, idempotencyKey: "u1" });
+    expect((await walletOf(customer.id)).balance).toBe(-3_000_000n);
+
+    const body = { amount: "50000000", idempotencyKey: "inv-2026-001", reference: "INV-2026-001" };
+    const first = await api("POST", walletUrl(customer.id, "/topups"), { cookie: superadmin.cookie, body });
+    expect(first.status).toBe(201);
+    expect(first.body.transaction).toMatchObject({
+      type: "topup",
+      amount: "50000000",
+      balanceAfter: "47000000",
+      metadata: { source: "manual", reference: "INV-2026-001", actorId: superadmin.id },
+    });
+
+    const replay = await api("POST", walletUrl(customer.id, "/topups"), { cookie: superadmin.cookie, body });
+    expect(replay.status).toBe(200);
+    expect(replay.body.replayed).toBe(true);
+    expect((await walletOf(customer.id)).balance).toBe(47_000_000n);
+  });
+
+  it("refuses a manual top-up from a plain admin", async () => {
+    const { admin, customer } = await actors();
+    const res = await api("POST", walletUrl(customer.id, "/topups"), {
+      cookie: admin.cookie,
+      body: { amount: "100", idempotencyKey: "k", reference: "INV-1" },
+    });
+    expect(res.status).toBe(403);
+    expect((await walletOf(customer.id)).balance).toBe(0n);
   });
 
   it("applies signed adjustments and refuses to overdraw", async () => {

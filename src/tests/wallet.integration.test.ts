@@ -152,24 +152,56 @@ describe("wallet ledger", () => {
     expect(rows.find((r) => r.idempotencyKey === "k")!.applicationId).toBeNull();
   });
 
-  it("allows spending the exact balance and nothing more", async () => {
+  it("records usage that exceeds the balance as a debt and repays it on the next top-up", async () => {
     const id = await newAccount();
     await topup(id, 100n, "k1");
     await usage(id, 100n, "k2");
     expect(await balanceOf(id)).toBe(0n);
-    const err = await rejection(usage(id, 1n, "k3"));
-    expect(err.code).toBe("WAL_002");
-    expect(err.statusCode).toBe(402);
+
+    const over = await usage(id, 40n, "k3");
+    expect(over.transaction).toMatchObject({ amount: -40n, delta: -40n, balanceAfter: -40n });
+    expect(await balanceOf(id)).toBe(-40n);
+
+    const partial = await topup(id, 30n, "k4");
+    expect(partial.transaction.balanceAfter).toBe(-10n);
+    const repaid = await topup(id, 100n, "k5");
+    expect(repaid.transaction.balanceAfter).toBe(90n);
   });
 
-  it("rejects an overdraft without changing the balance or the ledger", async () => {
+  it("lets a payment reversal take the balance below zero", async () => {
     const id = await newAccount();
     await topup(id, 100n, "k1");
-    const err = await rejection(usage(id, 101n, "k2"));
+    await usage(id, 80n, "k2");
+    const reversal = await debitWallet({
+      accountId: id,
+      type: "reversal",
+      amount: 100n,
+      idempotencyKey: "k3",
+    });
+    expect(reversal.transaction).toMatchObject({ type: "reversal", amount: -100n, balanceAfter: -80n });
+  });
+
+  it("rejects a manual debit that would overdraw, leaving no trace", async () => {
+    const id = await newAccount();
+    await topup(id, 100n, "k1");
+    const err = await rejection(
+      debitWallet({ accountId: id, type: "adjust", amount: 101n, idempotencyKey: "k2" }),
+    );
     expect(err.code).toBe("WAL_002");
+    expect(err.statusCode).toBe(402);
     expect(err.details).toEqual({ balance: "100", required: "101" });
     expect(await balanceOf(id)).toBe(100n);
     expect(await ledgerOf(id)).toHaveLength(1);
+  });
+
+  it("refuses a manual debit while the balance is already negative", async () => {
+    const id = await newAccount();
+    await usage(id, 10n, "k1");
+    const err = await rejection(
+      debitWallet({ accountId: id, type: "adjust", amount: 1n, idempotencyKey: "k2" }),
+    );
+    expect(err.code).toBe("WAL_002");
+    expect(await balanceOf(id)).toBe(-10n);
   });
 
   it("applies a replayed key once and returns the original transaction", async () => {
@@ -206,11 +238,13 @@ describe("wallet ledger", () => {
     expect(other.replayed).toBe(false);
   });
 
-  it("serialises concurrent debits: never overdraws, exactly the affordable ones succeed", async () => {
+  it("serialises concurrent manual debits: exactly the affordable ones succeed", async () => {
     const id = await newAccount();
     await topup(id, 100n, "seed");
     const results = await Promise.allSettled(
-      Array.from({ length: 25 }, (_, i) => usage(id, 10n, `c${i}`)),
+      Array.from({ length: 25 }, (_, i) =>
+        debitWallet({ accountId: id, type: "adjust", amount: 10n, idempotencyKey: `c${i}` }),
+      ),
     );
     const ok = results.filter((r) => r.status === "fulfilled");
     const failed = results.filter((r) => r.status === "rejected");
@@ -221,6 +255,19 @@ describe("wallet ledger", () => {
     }
     expect(await balanceOf(id)).toBe(0n);
     expect(await ledgerOf(id)).toHaveLength(11);
+  });
+
+  it("serialises concurrent usage: every call is recorded and the debt is exact", async () => {
+    const id = await newAccount();
+    await topup(id, 100n, "seed");
+    const results = await Promise.all(
+      Array.from({ length: 25 }, (_, i) => usage(id, 10n, `u${i}`)),
+    );
+    expect(results.every((r) => !r.replayed)).toBe(true);
+    expect(await balanceOf(id)).toBe(-150n);
+    const rows = await ledgerOf(id);
+    expect(rows).toHaveLength(26);
+    expect(new Set(rows.map((r) => r.balanceAfter)).size).toBe(26);
   });
 
   it("applies one of many concurrent attempts with the same key", async () => {
@@ -312,13 +359,46 @@ describe("unlimited accounts", () => {
 });
 
 describe("database constraints", () => {
-  it("refuses a negative balance written behind the service", async () => {
+  it("refuses a manual debit row that leaves a negative balance", async () => {
     const id = await newAccount();
     await expect(
-      db
-        .update(walletAccounts)
-        .set({ balance: -1n })
-        .where(eq(walletAccounts.id, id)),
+      db.insert(walletTransactions).values({
+        accountId: id,
+        type: "adjust",
+        amount: -5n,
+        delta: -5n,
+        balanceAfter: -5n,
+        idempotencyKey: "bad",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("accepts usage and reversal rows that leave a negative balance", async () => {
+    const id = await newAccount();
+    for (const type of ["usage", "reversal"] as const) {
+      await db.insert(walletTransactions).values({
+        accountId: id,
+        type,
+        amount: -5n,
+        delta: -5n,
+        balanceAfter: -5n,
+        idempotencyKey: `ok-${type}`,
+      });
+    }
+    expect(await ledgerOf(id)).toHaveLength(2);
+  });
+
+  it("refuses a reversal row with a positive amount", async () => {
+    const id = await newAccount();
+    await expect(
+      db.insert(walletTransactions).values({
+        accountId: id,
+        type: "reversal",
+        amount: 5n,
+        delta: 5n,
+        balanceAfter: 5n,
+        idempotencyKey: "bad",
+      }),
     ).rejects.toThrow();
   });
 

@@ -16,6 +16,12 @@ export const signedAmountSchema = z
   .regex(/^-?[1-9][0-9]{0,18}$/, "amount must be a non-zero integer string")
   .transform((v) => BigInt(v));
 
+// Provider cost in US dollars as a plain decimal string, never a float.
+export const positiveDecimalSchema = z
+  .string()
+  .regex(/^(0|[1-9][0-9]{0,11})(\.[0-9]{1,18})?$/, "must be a plain decimal")
+  .refine((v) => /[1-9]/.test(v), "must be greater than zero");
+
 export const idempotencyKeySchema = z.string().min(1).max(255);
 
 export const reasonSchema = z.string().trim().min(1).max(500);

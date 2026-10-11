@@ -10,7 +10,8 @@ vi.mock("./ledger.js", () => ({
   debitWallet: mockDebit,
 }));
 
-const { grantCredit, adjustBalance } = await import("./adjustments.js");
+const { grantCredit, adjustBalance, recordManualTopup } =
+  await import("./adjustments.js");
 
 const base = {
   accountId: "acc",
@@ -57,5 +58,24 @@ describe("adjustBalance", () => {
       }),
     );
     expect(mockCredit).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordManualTopup", () => {
+  it("credits a top-up that carries the invoice reference and the actor", async () => {
+    await recordManualTopup({
+      accountId: "acc",
+      amount: 25n,
+      idempotencyKey: "inv-1",
+      actorId: "admin-1",
+      reference: "INV-1",
+    });
+    expect(mockCredit).toHaveBeenCalledWith({
+      accountId: "acc",
+      type: "topup",
+      amount: 25n,
+      idempotencyKey: "inv-1",
+      metadata: { source: "manual", reference: "INV-1", actorId: "admin-1" },
+    });
   });
 });

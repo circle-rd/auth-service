@@ -21,6 +21,25 @@ const completionSchema = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string() }) })),
 });
 
+// Credit given to the smoke user when it has too little, in micro-euros (5 EUR).
+const SMOKE_CREDIT = 5_000_000n;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Poll until `check` holds, for at most `seconds`. */
+async function eventually(
+  check: () => Promise<boolean>,
+  seconds: number,
+): Promise<boolean> {
+  for (let i = 0; i < seconds; i += 1) {
+    if (await check()) return true;
+    await sleep(1000);
+  }
+  return false;
+}
+
+const uiSessionSchema = z.object({ key: z.string().startsWith("sk-") });
+
 const walletBalanceSchema = z.object({
   balance: z.string().regex(/^[0-9]+$/),
   currency: z.literal("eur"),
@@ -115,6 +134,9 @@ async function main(): Promise<void> {
           model: `openai/${MOCK_MODEL}`,
           api_key: "unused",
           mock_response: "pong",
+          // A priced model, so that a call has a cost to bill.
+          input_cost_per_token: 0.000002,
+          output_cost_per_token: 0.000004,
         },
       }),
     });
@@ -142,6 +164,19 @@ async function main(): Promise<void> {
       "token carries azp = calling application",
     );
 
+    // The smoke user needs credit: the gateway refuses a call without any.
+    const userId = z.string().parse(claims.sub);
+    const start = await admin.getWallet(userId);
+    if (!start.canSpend || start.balance < SMOKE_CREDIT / 2n) {
+      await admin.topUp(
+        userId,
+        SMOKE_CREDIT,
+        "llm-smoke",
+        `llm-smoke-${suffix}-credit`,
+      );
+    }
+    const before = (await admin.getWallet(userId)).balance;
+
     await expectStatus("public app user token → /v1/models", 200, () =>
       litellm("/v1/models", publicToken),
     );
@@ -161,8 +196,60 @@ async function main(): Promise<void> {
     await expectStatus("private app user token → completion", 200, () =>
       chat(privateToken),
     );
+    report(
+      await eventually(
+        async () => (await admin.getWallet(userId)).balance < before,
+        15,
+      ),
+      "chat calls are billed to the user's wallet",
+    );
     await expectStatus("master key → /v1/models", 200, () =>
       litellm("/v1/models", masterKey),
+    );
+
+    // A user token only reaches the LLM and MCP routes: administration stays on
+    // the master key, otherwise a user could mint LiteLLM keys that bypass
+    // auth-service.
+    for (const [path, body] of [
+      ["/key/generate", {}],
+      ["/user/new", { user_email: "smoke@example.invalid" }],
+      ["/team/new", { team_alias: "smoke" }],
+    ] as const) {
+      await expectStatus(`user token cannot call ${path}`, 403, () =>
+        litellm(path, publicToken, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+    await expectStatus("user token cannot read the spend logs", 403, () =>
+      litellm("/spend/logs", publicToken),
+    );
+
+    // The admin UI signs in with the master key, then calls the API with a
+    // virtual key that LiteLLM itself issued: the auth hook must let it through.
+    const login = await fetch(`${env.litellmUrl}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ username: "admin", password: masterKey }),
+      redirect: "manual",
+    });
+    const sessionCookie = login.headers
+      .getSetCookie()
+      .find((c) => c.startsWith("token="));
+    const uiKey = sessionCookie
+      ? uiSessionSchema.safeParse(
+          decodeJwtClaims(sessionCookie.slice(6).split(";")[0] ?? ""),
+        )
+      : undefined;
+    report(uiKey?.success === true, "admin UI sign-in returns a session key");
+    if (uiKey?.success) {
+      await expectStatus("admin UI session key → /v2/model/info", 200, () =>
+        litellm("/v2/model/info", uiKey.data.key),
+      );
+    }
+    await expectStatus("an unknown virtual key is refused", 401, () =>
+      litellm("/v1/models", "sk-not-a-real-key-0123456789"),
     );
 
     const clientCredentials = await admin.requestClientCredentialsToken({
@@ -196,7 +283,6 @@ async function main(): Promise<void> {
         "LITELLM_WALLET_CLIENT_SECRET is required (run pnpm llm:setup)",
       );
     }
-    const userId = z.string().parse(claims.sub);
     const walletToken = await admin.requestClientCredentialsToken({
       clientId: WALLET_CLIENT_SLUG,
       clientSecret: walletSecret,
@@ -240,6 +326,32 @@ async function main(): Promise<void> {
     );
     await expectStatus("wallet: missing token is refused", 401, () =>
       wallet(`/users/${userId}`, null),
+    );
+
+    // Debt blocks the next call; a top-up unblocks it. The gateway keeps a
+    // balance for a few seconds, hence the pauses.
+    const current = (await admin.getWallet(userId)).balance;
+    const debt = await wallet(`/users/${userId}/usage`, walletToken, {
+      method: "POST",
+      body: JSON.stringify({
+        amount: (current + 1000n).toString(),
+        idempotencyKey: `llm-smoke-${suffix}-debt`,
+      }),
+    });
+    report(debt.status === 201, "usage beyond the balance is recorded as debt");
+    await sleep(6000);
+    await expectStatus("a user in debt is refused with 402", 402, () =>
+      chat(publicToken),
+    );
+    await admin.topUp(
+      userId,
+      SMOKE_CREDIT,
+      "llm-smoke",
+      `llm-smoke-${suffix}-repay`,
+    );
+    await sleep(6000);
+    await expectStatus("the user can call again after a top-up", 200, () =>
+      chat(publicToken),
     );
   } finally {
     if (modelId) {

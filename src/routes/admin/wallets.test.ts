@@ -18,6 +18,7 @@ const {
   mockGrant,
   mockAdjust,
   mockSetUnlimited,
+  mockManualTopup,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockGetOrCreate: vi.fn(),
@@ -25,6 +26,7 @@ const {
   mockGrant: vi.fn(),
   mockAdjust: vi.fn(),
   mockSetUnlimited: vi.fn(),
+  mockManualTopup: vi.fn(),
 }));
 
 vi.mock("../../db/index.js", () => ({ db: {} }));
@@ -39,6 +41,7 @@ vi.mock("../../services/wallet/index.js", async (importOriginal) => ({
   grantCredit: mockGrant,
   adjustBalance: mockAdjust,
   setWalletUnlimited: mockSetUnlimited,
+  recordManualTopup: mockManualTopup,
 }));
 
 const { adminWalletRoutes } = await import("./wallets.js");
@@ -77,6 +80,9 @@ beforeEach(() => {
   mockList.mockReset().mockResolvedValue({ items: [], nextCursor: null });
   mockGrant.mockReset().mockResolvedValue({ transaction, replayed: false });
   mockAdjust.mockReset().mockResolvedValue({ transaction, replayed: false });
+  mockManualTopup
+    .mockReset()
+    .mockResolvedValue({ transaction, replayed: false });
   mockSetUnlimited
     .mockReset()
     .mockResolvedValue({ id: "acc", balance: 5n, isUnlimited: true });
@@ -91,6 +97,7 @@ describe("read endpoints", () => {
     expect(wallet.json()).toEqual({
       balance: "5",
       isUnlimited: false,
+      canSpend: true,
       currency: "eur",
     });
     const history = await app.inject({
@@ -246,6 +253,7 @@ describe("PUT /users/:userId/unlimited", () => {
     expect(res.json()).toEqual({
       balance: "5",
       isUnlimited: true,
+      canSpend: true,
       currency: "eur",
     });
   });
@@ -261,5 +269,66 @@ describe("PUT /users/:userId/unlimited", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(mockSetUnlimited).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /users/:userId/topups", () => {
+  const topup = {
+    amount: "50000000",
+    idempotencyKey: "inv-2026-001",
+    reference: "INV-2026-001",
+  };
+
+  it("records a manual top-up with the invoice reference and the session actor", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload: { ...topup, actorId: "forged" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockManualTopup).toHaveBeenCalledWith({
+      accountId: "acc",
+      amount: 50_000_000n,
+      idempotencyKey: "inv-2026-001",
+      actorId: "actor-1",
+      reference: "INV-2026-001",
+    });
+  });
+
+  it("answers 200 for a replay", async () => {
+    mockManualTopup.mockResolvedValue({ transaction, replayed: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload: topup,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("is superadmin-only", async () => {
+    signInAs("admin");
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload: topup,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockManualTopup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no reference", { amount: "5", idempotencyKey: "k" }],
+    ["a blank reference", { ...topup, reference: "  " }],
+    ["an over-long reference", { ...topup, reference: "x".repeat(101) }],
+    ["a zero amount", { ...topup, amount: "0" }],
+    ["a negative amount", { ...topup, amount: "-5" }],
+  ])("rejects %s", async (_label, payload) => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockManualTopup).not.toHaveBeenCalled();
   });
 });

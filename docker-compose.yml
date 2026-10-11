@@ -108,6 +108,14 @@ services:
       # Stripe (optional).
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+
+      # Wallet: price of LLM usage reported by the gateway (rate and margin) and
+      # bounds of an online top-up. Without WALLET_USD_TO_EUR_RATE the usage
+      # endpoint answers 503 for dollar costs.
+      WALLET_USD_TO_EUR_RATE: ${WALLET_USD_TO_EUR_RATE:-}
+      WALLET_MARGIN_PERCENT: ${WALLET_MARGIN_PERCENT:-0}
+      WALLET_TOPUP_MIN_EUR: ${WALLET_TOPUP_MIN_EUR:-5}
+      WALLET_TOPUP_MAX_EUR: ${WALLET_TOPUP_MAX_EUR:-500}
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     depends_on:
@@ -188,7 +196,7 @@ services:
   litellm:
     # Pinned: custom_auth relies on LiteLLM internals, re-run `pnpm llm:smoke`
     # before bumping the tag.
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.104.2}
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.105.0}
     profiles: ["llm"]
     command: ["--config", "/app/gateway/config.yaml", "--port", "4000"]
     environment:
@@ -204,9 +212,17 @@ services:
       JWT_PUBLIC_KEY_URL: http://auth-service:${PORT:-3001}/api/auth/jwks
       JWT_ISSUER: ${BETTER_AUTH_URL:-http://localhost:3001}
       JWT_AUDIENCE: ${LITELLM_PUBLIC_URL:-}
+      # Wallet hook (litellm/circle_wallet.py): checks the user's credit before a
+      # call and bills the cost afterwards, through the wallet API of auth-service.
+      WALLET_AUTH_URL: http://auth-service:${PORT:-3001}
+      WALLET_CLIENT_ID: litellm-wallet
+      WALLET_CLIENT_SECRET: ${LITELLM_WALLET_CLIENT_SECRET:-}
+      WALLET_SPOOL_DIR: /var/lib/circle-wallet
     volumes:
       # Chemin dédié : ne masque rien de ce que l'image LiteLLM place dans /app/litellm.
       - litellm_config:/app/gateway:ro
+      # Debits that could not be delivered yet survive a restart here.
+      - litellm_spool:/var/lib/circle-wallet
     ports:
       - "${LITELLM_PORT:-4000}:4000"
     depends_on:
@@ -233,3 +249,4 @@ services:
 volumes:
   postgres_data:
   litellm_config:
+  litellm_spool:

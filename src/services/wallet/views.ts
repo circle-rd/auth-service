@@ -12,6 +12,7 @@ export function toAccountView(
   return {
     balance: account.balance.toString(),
     isUnlimited: account.isUnlimited,
+    canSpend: account.isUnlimited || account.balance > 0n,
     currency: "eur",
   };
 }

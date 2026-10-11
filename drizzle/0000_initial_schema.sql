@@ -145,8 +145,7 @@ CREATE TABLE "wallet_accounts" (
 	"is_unlimited" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "wallet_accounts_owner_type_check" CHECK ("wallet_accounts"."owner_type" IN ('user', 'org')),
-	CONSTRAINT "wallet_accounts_balance_check" CHECK ("wallet_accounts"."balance" >= 0)
+	CONSTRAINT "wallet_accounts_owner_type_check" CHECK ("wallet_accounts"."owner_type" IN ('user', 'org'))
 );
 --> statement-breakpoint
 CREATE TABLE "wallet_transactions" (
@@ -160,11 +159,11 @@ CREATE TABLE "wallet_transactions" (
 	"application_id" uuid,
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "wallet_transactions_type_check" CHECK ("wallet_transactions"."type" IN ('topup', 'grant', 'refund', 'usage', 'adjust')),
+	CONSTRAINT "wallet_transactions_type_check" CHECK ("wallet_transactions"."type" IN ('topup', 'grant', 'refund', 'usage', 'adjust', 'reversal')),
 	CONSTRAINT "wallet_transactions_amount_check" CHECK ("wallet_transactions"."amount" <> 0),
-	CONSTRAINT "wallet_transactions_sign_check" CHECK (("wallet_transactions"."type" IN ('topup', 'grant', 'refund') AND "wallet_transactions"."amount" > 0) OR ("wallet_transactions"."type" = 'usage' AND "wallet_transactions"."amount" < 0) OR "wallet_transactions"."type" = 'adjust'),
+	CONSTRAINT "wallet_transactions_sign_check" CHECK (("wallet_transactions"."type" IN ('topup', 'grant', 'refund') AND "wallet_transactions"."amount" > 0) OR ("wallet_transactions"."type" IN ('usage', 'reversal') AND "wallet_transactions"."amount" < 0) OR "wallet_transactions"."type" = 'adjust'),
 	CONSTRAINT "wallet_transactions_delta_check" CHECK ("wallet_transactions"."delta" = "wallet_transactions"."amount" OR ("wallet_transactions"."delta" = 0 AND "wallet_transactions"."type" = 'usage')),
-	CONSTRAINT "wallet_transactions_balance_check" CHECK ("wallet_transactions"."balance_after" >= 0)
+	CONSTRAINT "wallet_transactions_adjust_check" CHECK ("wallet_transactions"."type" <> 'adjust' OR "wallet_transactions"."amount" > 0 OR "wallet_transactions"."balance_after" >= 0)
 );
 --> statement-breakpoint
 CREATE TABLE "account" (

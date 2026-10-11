@@ -7,6 +7,7 @@ import {
   getOrCreateWalletAccount,
   grantCredit,
   listWalletTransactions,
+  recordManualTopup,
   setWalletUnlimited,
   toAccountView,
   toTransactionView,
@@ -24,6 +25,13 @@ const grantBodySchema = z.object({
   amount: positiveAmountSchema,
   idempotencyKey: idempotencyKeySchema,
   reason: reasonSchema,
+});
+
+const manualTopupBodySchema = z.object({
+  amount: positiveAmountSchema,
+  idempotencyKey: idempotencyKeySchema,
+  // Invoice or transfer number the credit was issued against.
+  reference: z.string().trim().min(1).max(100),
 });
 
 const adjustmentBodySchema = z.object({
@@ -82,6 +90,24 @@ export async function adminWalletRoutes(
       idempotencyKey: body.idempotencyKey,
       actorId,
       reason: body.reason,
+    });
+    await reply
+      .status(replayed ? 200 : 201)
+      .send({ transaction: toTransactionView(transaction), replayed });
+  });
+
+  // POST /api/admin/wallets/users/:userId/topups
+  fastify.post("/users/:userId/topups", async (req, reply) => {
+    const actorId = await requireSuperadminActor(req);
+    const { userId } = userParamsSchema.parse(req.params);
+    const body = manualTopupBodySchema.parse(req.body);
+    const account = await getOrCreateWalletAccount("user", userId);
+    const { transaction, replayed } = await recordManualTopup({
+      accountId: account.id,
+      amount: body.amount,
+      idempotencyKey: body.idempotencyKey,
+      actorId,
+      reference: body.reference,
     });
     await reply
       .status(replayed ? 200 : 201)

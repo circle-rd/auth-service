@@ -4,3 +4,7 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   custom_auth: custom_auth.user_api_key_auth
   store_model_in_db: true
+
+litellm_settings:
+  # Credit check before each call and billing after it (see circle_wallet.py).
+  callbacks: circle_wallet.wallet_logger

@@ -17,6 +17,7 @@ import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck, KeyRound } from 'lucide-vue-next';
 import SetPasswordModal from '@/components/users/SetPasswordModal.vue';
+import UserWalletSection from '@/components/wallet/UserWalletSection.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -225,6 +226,8 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
             <p v-if="user.banExpires" class="text-xs text-red-400/70">{{ t('users.banExpires') }}: {{ formatDate(user.banExpires) }}</p>
           </div>
         </div>
+
+        <UserWalletSection :user-id="userId" />
 
         <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
           <div class="px-5 py-4 border-b border-surface-700/40">

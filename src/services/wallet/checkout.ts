@@ -45,7 +45,7 @@ export async function createTopupCheckout(input: {
     userId: input.userId,
     creditMicro: creditMicro.toString(),
   };
-  const returnUrl = `${config.betterAuth.url}/wallet`;
+  const returnUrl = `${config.betterAuth.url}/profile`;
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",

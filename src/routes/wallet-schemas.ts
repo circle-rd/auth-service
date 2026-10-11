@@ -37,6 +37,17 @@ export const usageMetadataSchema = z
   )
   .refine((m) => Object.keys(m).length <= 32, "at most 32 metadata entries");
 
+export const statsQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(30),
+});
+
+export const listWalletsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().trim().min(1).max(100).optional(),
+  filter: z.enum(["all", "debt", "credit", "unlimited"]).default("all"),
+});
+
 export const listTransactionsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).optional(),
   cursor: z.string().min(1).max(512).optional(),

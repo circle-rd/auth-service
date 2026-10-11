@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { walletAccounts, walletTransactions } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
+import { notifyWalletChanged } from "./events.js";
 import {
   MAX_WALLET_AMOUNT,
   NEGATIVE_BALANCE_TYPES,
@@ -67,7 +68,7 @@ async function applyOperation(
 ): Promise<WalletOperationResult> {
   assertValidKey(op.idempotencyKey);
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [account] = await tx
       .select({
         id: walletAccounts.id,
@@ -130,6 +131,8 @@ async function applyOperation(
     if (!transaction) throw ERR.WAL_001();
     return { transaction, replayed: false };
   });
+  if (!result.replayed) notifyWalletChanged();
+  return result;
 }
 
 export async function creditWallet(

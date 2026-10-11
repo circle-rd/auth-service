@@ -4,8 +4,11 @@ import { ERR } from "../../errors.js";
 import { getRequestSession, requireAdmin } from "../../middleware.js";
 import {
   adjustBalance,
+  getAdminWalletStats,
   getOrCreateWalletAccount,
+  getUserSpendStats,
   grantCredit,
+  listWalletAccounts,
   listWalletTransactions,
   recordManualTopup,
   setWalletUnlimited,
@@ -15,9 +18,11 @@ import {
 import {
   idempotencyKeySchema,
   listTransactionsQuerySchema,
+  listWalletsQuerySchema,
   positiveAmountSchema,
   reasonSchema,
   signedAmountSchema,
+  statsQuerySchema,
   userParamsSchema,
 } from "../wallet-schemas.js";
 
@@ -60,6 +65,27 @@ export async function adminWalletRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
+
+  // GET /api/admin/wallets
+  fastify.get("/", async (req, reply) => {
+    const query = listWalletsQuerySchema.parse(req.query);
+    const { wallets, total } = await listWalletAccounts(query);
+    await reply.send({ wallets, total, page: query.page, limit: query.limit });
+  });
+
+  // GET /api/admin/wallets/stats
+  fastify.get("/stats", async (req, reply) => {
+    const { days } = statsQuerySchema.parse(req.query);
+    await reply.send(await getAdminWalletStats(days));
+  });
+
+  // GET /api/admin/wallets/users/:userId/stats
+  fastify.get("/users/:userId/stats", async (req, reply) => {
+    const { userId } = userParamsSchema.parse(req.params);
+    const { days } = statsQuerySchema.parse(req.query);
+    const account = await getOrCreateWalletAccount("user", userId);
+    await reply.send(await getUserSpendStats(account.id, days));
+  });
 
   // GET /api/admin/wallets/users/:userId
   fastify.get("/users/:userId", async (req, reply) => {

@@ -28,6 +28,12 @@ const routes = [
     meta: { requiresAdmin: true },
   },
   {
+    path: '/wallets',
+    name: 'wallets',
+    component: () => import('@/views/WalletsView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
     path: '/applications',
     name: 'applications',
     component: () => import('@/views/ApplicationsView.vue'),

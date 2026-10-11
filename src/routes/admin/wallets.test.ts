@@ -19,6 +19,9 @@ const {
   mockAdjust,
   mockSetUnlimited,
   mockManualTopup,
+  mockAdminStats,
+  mockUserStats,
+  mockListAccounts,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockGetOrCreate: vi.fn(),
@@ -27,6 +30,9 @@ const {
   mockAdjust: vi.fn(),
   mockSetUnlimited: vi.fn(),
   mockManualTopup: vi.fn(),
+  mockAdminStats: vi.fn(),
+  mockUserStats: vi.fn(),
+  mockListAccounts: vi.fn(),
 }));
 
 vi.mock("../../db/index.js", () => ({ db: {} }));
@@ -42,6 +48,9 @@ vi.mock("../../services/wallet/index.js", async (importOriginal) => ({
   adjustBalance: mockAdjust,
   setWalletUnlimited: mockSetUnlimited,
   recordManualTopup: mockManualTopup,
+  getAdminWalletStats: mockAdminStats,
+  getUserSpendStats: mockUserStats,
+  listWalletAccounts: mockListAccounts,
 }));
 
 const { adminWalletRoutes } = await import("./wallets.js");
@@ -80,6 +89,9 @@ beforeEach(() => {
   mockList.mockReset().mockResolvedValue({ items: [], nextCursor: null });
   mockGrant.mockReset().mockResolvedValue({ transaction, replayed: false });
   mockAdjust.mockReset().mockResolvedValue({ transaction, replayed: false });
+  mockAdminStats.mockReset().mockResolvedValue({ days: 30 });
+  mockUserStats.mockReset().mockResolvedValue({ days: 30, total: "0" });
+  mockListAccounts.mockReset().mockResolvedValue({ wallets: [], total: 0 });
   mockManualTopup
     .mockReset()
     .mockResolvedValue({ transaction, replayed: false });
@@ -330,5 +342,81 @@ describe("POST /users/:userId/topups", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(mockManualTopup).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET / (accounts)", () => {
+  it("lists wallets with the defaults and echoes the paging", async () => {
+    mockListAccounts.mockResolvedValue({ wallets: [{ id: "w1" }], total: 41 });
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(mockListAccounts).toHaveBeenCalledWith({
+      page: 1,
+      limit: 20,
+      filter: "all",
+    });
+    expect(res.json()).toEqual({
+      wallets: [{ id: "w1" }],
+      total: 41,
+      page: 1,
+      limit: 20,
+    });
+  });
+
+  it("passes the search, filter and paging through", async () => {
+    await app.inject({
+      method: "GET",
+      url: "/?page=3&limit=50&filter=debt&search=%20bob%20",
+    });
+    expect(mockListAccounts).toHaveBeenCalledWith({
+      page: 3,
+      limit: 50,
+      filter: "debt",
+      search: "bob",
+    });
+  });
+
+  it("is readable by an admin", async () => {
+    signInAs("admin");
+    expect((await app.inject({ method: "GET", url: "/" })).statusCode).toBe(
+      200,
+    );
+  });
+
+  it.each([
+    "filter=rich",
+    "limit=0",
+    "limit=101",
+    "page=0",
+    "search=",
+    `search=${"x".repeat(101)}`,
+  ])("rejects %s", async (query) => {
+    const res = await app.inject({ method: "GET", url: `/?${query}` });
+    expect(res.statusCode).toBe(400);
+    expect(mockListAccounts).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /stats and /users/:userId/stats", () => {
+  it("returns the platform statistics over the requested window", async () => {
+    mockAdminStats.mockResolvedValue({ days: 7, totals: { accounts: 2 } });
+    const res = await app.inject({ method: "GET", url: "/stats?days=7" });
+    expect(mockAdminStats).toHaveBeenCalledWith(7);
+    expect(res.json()).toEqual({ days: 7, totals: { accounts: 2 } });
+  });
+
+  it("defaults to 30 days and refuses an out-of-range window", async () => {
+    await app.inject({ method: "GET", url: "/stats" });
+    expect(mockAdminStats).toHaveBeenCalledWith(30);
+    mockAdminStats.mockClear();
+    expect(
+      (await app.inject({ method: "GET", url: "/stats?days=500" })).statusCode,
+    ).toBe(400);
+    expect(mockAdminStats).not.toHaveBeenCalled();
+  });
+
+  it("returns one user's spend statistics", async () => {
+    await app.inject({ method: "GET", url: "/users/u1/stats?days=14" });
+    expect(mockGetOrCreate).toHaveBeenCalledWith("user", "u1");
+    expect(mockUserStats).toHaveBeenCalledWith("acc", 14);
   });
 });

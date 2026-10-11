@@ -126,6 +126,7 @@ describe("the event vocabulary", () => {
       "user.changed",
       "application.changed",
       "organization.changed",
+      "wallet.changed",
     ]);
   });
 

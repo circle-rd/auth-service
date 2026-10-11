@@ -79,10 +79,10 @@ describe("createTopupCheckout", () => {
     expect(params.metadata).toEqual(expectedMetadata);
     expect(params.payment_intent_data.metadata).toEqual(expectedMetadata);
     expect(params.success_url).toBe(
-      `${config.betterAuth.url}/wallet?topup=success`,
+      `${config.betterAuth.url}/profile?topup=success`,
     );
     expect(params.cancel_url).toBe(
-      `${config.betterAuth.url}/wallet?topup=cancelled`,
+      `${config.betterAuth.url}/profile?topup=cancelled`,
     );
   });
 

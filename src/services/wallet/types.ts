@@ -76,3 +76,78 @@ export interface WalletTransactionPage {
   items: WalletTransactionView[];
   nextCursor: string | null;
 }
+
+// ── Statistics ────────────────────────────────────────────────────────────────
+
+/** One day of a spend or top-up series; amounts are micro-euro strings. */
+export interface WalletDailyPoint {
+  date: string;
+  amount: string;
+  count: number;
+}
+
+export interface WalletBreakdownEntry {
+  /** Application id, or null when the usage predates a deleted application. */
+  applicationId: string | null;
+  name: string | null;
+  slug: string | null;
+  amount: string;
+  count: number;
+}
+
+export interface WalletKindEntry {
+  kind: string;
+  amount: string;
+  count: number;
+}
+
+export interface UserSpendStats {
+  days: number;
+  total: string;
+  calls: number;
+  series: WalletDailyPoint[];
+  byApplication: WalletBreakdownEntry[];
+  byKind: WalletKindEntry[];
+}
+
+export interface WalletTopConsumer {
+  ownerType: string;
+  ownerId: string;
+  name: string | null;
+  email: string | null;
+  amount: string;
+  count: number;
+}
+
+export interface AdminWalletStats {
+  days: number;
+  totals: {
+    accounts: number;
+    accountsInDebt: number;
+    unlimitedAccounts: number;
+    /** Credit owed to users: sum of positive balances, unlimited accounts excluded. */
+    outstandingCredit: string;
+    /** Debt owed by users: sum of negative balances, as a positive number. */
+    outstandingDebt: string;
+  };
+  spend: { total: string; calls: number; series: WalletDailyPoint[] };
+  topUps: { total: string; count: number; series: WalletDailyPoint[] };
+  topConsumers: WalletTopConsumer[];
+  byApplication: WalletBreakdownEntry[];
+  byKind: WalletKindEntry[];
+}
+
+export type WalletListFilter = "all" | "debt" | "credit" | "unlimited";
+
+export interface WalletListItem {
+  id: string;
+  ownerType: string;
+  ownerId: string;
+  name: string | null;
+  email: string | null;
+  balance: string;
+  isUnlimited: boolean;
+  canSpend: boolean;
+  spent30d: string;
+  updatedAt: string;
+}

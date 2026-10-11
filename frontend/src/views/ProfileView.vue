@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { updateMyProfile } from '@/api/users';
 import { listMySessions, revokeSession } from '@/api/sessions';
@@ -18,6 +19,7 @@ import MfaSetupModal from '@/components/profile/MfaSetupModal.vue';
 import MfaDisableModal from '@/components/profile/MfaDisableModal.vue';
 import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
+import WalletPanel from '@/components/profile/WalletPanel.vue';
 import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw, Lock } from 'lucide-vue-next';
 
 interface SubscriptionPlanPrice {
@@ -44,13 +46,18 @@ const { t } = useI18n();
 const auth = useAuthStore();
 const toast = useToast();
 
-const activeTab = ref<'account' | 'security' | 'organizations' | 'applications'>('account');
+const route = useRoute();
+// A payment provider return lands on the credit tab.
+const activeTab = ref<'account' | 'security' | 'organizations' | 'applications' | 'credit'>(
+  route.query.topup !== undefined ? 'credit' : 'account',
+);
 
 const profileTabs = [
   { key: 'account' as const, label: t('profile.tabAccount') },
   { key: 'security' as const, label: t('profile.tabSecurity') },
   { key: 'organizations' as const, label: t('profile.tabOrganizations') },
   { key: 'applications' as const, label: t('profile.tabApplications') },
+  { key: 'credit' as const, label: t('profile.tabCredit') },
 ];
 
 const sessions = ref<Session[]>([]);
@@ -391,6 +398,9 @@ const showChangePassword = ref(false);
         </div>
       </div>
     </div>
+
+    <!-- Credit tab -->
+    <WalletPanel v-if="activeTab === 'credit'" />
 
     <!-- Applications tab -->
     <div v-if="activeTab === 'applications'" class="space-y-5">

@@ -19,6 +19,11 @@ export {
 } from "./history.js";
 export { getUsdPricing, usdToMicroEur } from "./pricing.js";
 export { recordUsage } from "./usage.js";
+export {
+  getAdminWalletStats,
+  getUserSpendStats,
+  listWalletAccounts,
+} from "./stats.js";
 export { setWalletUnlimited } from "./unlimited.js";
 export { toAccountView, toTransactionView } from "./views.js";
 export {
@@ -36,6 +41,10 @@ export type {
   WalletOperationResult,
   WalletOwnerType,
   WalletAccountView,
+  AdminWalletStats,
+  UserSpendStats,
+  WalletListFilter,
+  WalletListItem,
   WalletTransaction,
   WalletTransactionPage,
   WalletTransactionView,

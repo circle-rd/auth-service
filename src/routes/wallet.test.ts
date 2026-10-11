@@ -18,6 +18,7 @@ const {
   mockList,
   mockCheckout,
   mockOptions,
+  mockStats,
 } = vi.hoisted(() => ({
   mockRequireSession: vi.fn(),
   mockGetSession: vi.fn(),
@@ -25,6 +26,7 @@ const {
   mockList: vi.fn(),
   mockCheckout: vi.fn(),
   mockOptions: vi.fn(),
+  mockStats: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({ db: {} }));
@@ -38,6 +40,7 @@ vi.mock("../services/wallet/index.js", async (importOriginal) => ({
   listWalletTransactions: mockList,
   createTopupCheckout: mockCheckout,
   getTopupOptions: mockOptions,
+  getUserSpendStats: mockStats,
 }));
 
 const { walletRoutes } = await import("./wallet.js");
@@ -60,6 +63,7 @@ beforeEach(() => {
   mockGetSession
     .mockReset()
     .mockResolvedValue({ user: { id: "user-1", email: "u@example.com" } });
+  mockStats.mockReset().mockResolvedValue({ days: 30, total: "0" });
   mockCheckout
     .mockReset()
     .mockResolvedValue({ url: "https://checkout.test/s" });
@@ -207,5 +211,37 @@ describe("POST /checkout", () => {
     const res = await app.inject({ method: "POST", url: "/checkout", payload });
     expect(res.statusCode).toBe(400);
     expect(mockCheckout).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /stats", () => {
+  it("returns the caller's spend over 30 days by default", async () => {
+    mockStats.mockResolvedValue({ days: 30, total: "1700", calls: 3 });
+    const res = await app.inject({ method: "GET", url: "/stats" });
+    expect(mockStats).toHaveBeenCalledWith("acc", 30);
+    expect(res.json()).toEqual({ days: 30, total: "1700", calls: 3 });
+  });
+
+  it("accepts a window of 1 to 90 days", async () => {
+    await app.inject({ method: "GET", url: "/stats?days=7" });
+    expect(mockStats).toHaveBeenCalledWith("acc", 7);
+    await app.inject({ method: "GET", url: "/stats?days=90" });
+    expect(mockStats).toHaveBeenCalledWith("acc", 90);
+  });
+
+  it.each(["days=0", "days=91", "days=abc", "days=1.5"])(
+    "rejects %s",
+    async (query) => {
+      const res = await app.inject({ method: "GET", url: `/stats?${query}` });
+      expect(res.statusCode).toBe(400);
+      expect(mockStats).not.toHaveBeenCalled();
+    },
+  );
+
+  it("answers 401 without a session", async () => {
+    signedOut();
+    const res = await app.inject({ method: "GET", url: "/stats" });
+    expect(res.statusCode).toBe(401);
+    expect(mockStats).not.toHaveBeenCalled();
   });
 });

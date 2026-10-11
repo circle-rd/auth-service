@@ -6,10 +6,14 @@ import {
   createTopupCheckout,
   getOrCreateWalletAccount,
   getTopupOptions,
+  getUserSpendStats,
   listWalletTransactions,
   toAccountView,
 } from "../services/wallet/index.js";
-import { listTransactionsQuerySchema } from "./wallet-schemas.js";
+import {
+  listTransactionsQuerySchema,
+  statsQuerySchema,
+} from "./wallet-schemas.js";
 
 const checkoutBodySchema = z.object({
   amountCents: z.number().int().positive(),
@@ -23,6 +27,15 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
     if (!userId) return;
     const account = await getOrCreateWalletAccount("user", userId);
     await reply.send(toAccountView(account));
+  });
+
+  // GET /api/user/wallet/stats
+  fastify.get("/stats", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const { days } = statsQuerySchema.parse(req.query);
+    const account = await getOrCreateWalletAccount("user", userId);
+    await reply.send(await getUserSpendStats(account.id, days));
   });
 
   // GET /api/user/wallet/topup-options

@@ -609,6 +609,31 @@ describe("admin wallet API", () => {
     expect((await api("GET", walletUrl(customer.id), { cookie: customer.cookie })).status).toBe(403);
   });
 
+  it("protects the account list and the statistics like the other admin routes", async () => {
+    const { admin, customer } = await actors();
+    for (const url of ["/api/admin/wallets", "/api/admin/wallets/stats", walletUrl(customer.id, "/stats")]) {
+      expect((await api("GET", url)).status).toBe(401);
+      expect((await api("GET", url, { cookie: customer.cookie })).status).toBe(403);
+      expect((await api("GET", url, { cookie: admin.cookie })).status).toBe(200);
+    }
+  });
+
+  it("lists wallets and reports platform statistics through the real server", async () => {
+    const { superadmin, admin, customer } = await actors();
+    await api("POST", walletUrl(customer.id, "/topups"), {
+      cookie: superadmin.cookie,
+      body: { amount: "7000000", idempotencyKey: "t1", reference: "INV-1" },
+    });
+    const list = await api("GET", "/api/admin/wallets?filter=credit&search=customer", { cookie: admin.cookie });
+    expect(list.body.total).toBe(1);
+    expect(list.body.wallets[0]).toMatchObject({ email: "customer@example.com", balance: "7000000", canSpend: true });
+
+    const stats = await api("GET", "/api/admin/wallets/stats?days=7", { cookie: admin.cookie });
+    expect(stats.body.totals).toMatchObject({ accounts: 1, outstandingCredit: "7000000" });
+    expect(stats.body.topUps).toMatchObject({ total: "7000000", count: 1 });
+    expect(stats.body.spend.series).toHaveLength(7);
+  });
+
   it("lets an admin read but not change balances", async () => {
     const { admin, customer } = await actors();
     expect((await api("GET", walletUrl(customer.id), { cookie: admin.cookie })).status).toBe(200);

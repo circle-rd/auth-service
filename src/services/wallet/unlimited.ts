@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { walletAccountEvents, walletAccounts } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
+import { notifyWalletChanged } from "./events.js";
 import type { WalletAccount } from "./types.js";
 
 export interface SetUnlimitedInput {
@@ -19,7 +20,8 @@ export interface SetUnlimitedInput {
 export async function setWalletUnlimited(
   input: SetUnlimitedInput,
 ): Promise<WalletAccount> {
-  return db.transaction(async (tx) => {
+  let changed = false;
+  const account = await db.transaction(async (tx) => {
     const [account] = await tx
       .select()
       .from(walletAccounts)
@@ -42,6 +44,9 @@ export async function setWalletUnlimited(
       action: input.isUnlimited ? "unlimited_enabled" : "unlimited_disabled",
       details: { reason: input.reason },
     });
+    changed = true;
     return updated;
   });
+  if (changed) notifyWalletChanged();
+  return account;
 }

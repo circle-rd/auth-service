@@ -116,3 +116,27 @@ export interface WalletOperationResponse {
   transaction: WalletTransaction
   replayed: boolean
 }
+
+export interface PricingChange {
+  id: string
+  /** Euros per US dollar, plain decimal. */
+  usdToEurRate: string
+  marginPercent: number
+  reason: string
+  actor: { id: string; name: string | null }
+  createdAt: string
+}
+
+export interface PricingSettings {
+  usdToEurRate: string
+  marginPercent: number
+  /** `environment` until an administrator saves a first value. */
+  source: 'database' | 'environment'
+  change: PricingChange | null
+}
+
+export interface PricingResponse {
+  /** Null when nobody has set the exchange rate: usage is refused until then. */
+  current: PricingSettings | null
+  history: PricingChange[]
+}

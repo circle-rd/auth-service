@@ -1,6 +1,8 @@
 import { apiFetch, USE_MOCK } from './client';
 import type {
   AdminWalletStats,
+  PricingChange,
+  PricingResponse,
   TopupOptions,
   UserSpendStats,
   WalletAccount,
@@ -12,6 +14,7 @@ import type {
 } from '@/types/wallet';
 import {
   MOCK_ADMIN_STATS,
+  MOCK_PRICING,
   MOCK_TRANSACTIONS,
   MOCK_USER_STATS,
   MOCK_WALLET,
@@ -165,4 +168,22 @@ export async function setUnlimited(
     `/admin/wallets/users/${encodeURIComponent(userId)}/unlimited`,
     { method: 'PUT', body: JSON.stringify(body) },
   );
+}
+
+/** Exchange rate and margin applied to the gateway's provider costs. */
+export async function getPricing(): Promise<PricingResponse> {
+  if (USE_MOCK) return MOCK_PRICING;
+  return apiFetch<PricingResponse>('/admin/wallets/pricing');
+}
+
+export async function updatePricing(body: {
+  usdToEurRate: string
+  marginPercent: number
+  reason: string
+}): Promise<PricingChange> {
+  if (USE_MOCK) return { ...MOCK_PRICING.history[0]!, ...body };
+  return apiFetch<PricingChange>('/admin/wallets/pricing', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
 }

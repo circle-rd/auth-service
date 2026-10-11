@@ -51,3 +51,22 @@ export function eurToCents(input: string): number | null {
   if (value % 10_000n !== 0n) return null;
   return Number(value / 10_000n);
 }
+
+/**
+ * Micro-euros charged for one US dollar of provider cost: the exchange rate
+ * (a plain decimal, up to 8 decimals), then the margin, rounded up.
+ */
+export function pricedOneDollar(rate: string, marginPercent: number): bigint {
+  const [whole = '0', fraction = ''] = rate.split('.');
+  const units = BigInt(whole + fraction);
+  const numerator = units * BigInt(100 + marginPercent) * MICRO_PER_EUR;
+  const denominator = 100n * 10n ** BigInt(fraction.length);
+  return (numerator + denominator - 1n) / denominator;
+}
+
+/** A positive exchange rate typed with a point or a comma, normalised; null otherwise. */
+export function parseRate(input: string): string | null {
+  const value = input.trim().replace(',', '.');
+  if (!/^[0-9]{1,3}(\.[0-9]{1,8})?$/.test(value)) return null;
+  return Number(value) > 0 ? value : null;
+}

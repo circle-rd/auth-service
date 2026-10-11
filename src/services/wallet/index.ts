@@ -17,7 +17,14 @@ export {
   MAX_PAGE_SIZE,
   listWalletTransactions,
 } from "./history.js";
-export { getUsdPricing, usdToMicroEur } from "./pricing.js";
+export { usdToMicroEur } from "./pricing.js";
+export {
+  PRICING_HISTORY_LIMIT,
+  getPricingSettings,
+  getUsdPricing,
+  listPricingHistory,
+  updatePricingSettings,
+} from "./pricing-settings.js";
 export { recordUsage } from "./usage.js";
 export { listGatewayUsage } from "./reconciliation.js";
 export {
@@ -26,13 +33,23 @@ export {
   listWalletAccounts,
 } from "./stats.js";
 export { setWalletUnlimited } from "./unlimited.js";
-export { toAccountView, toTransactionView } from "./views.js";
+export {
+  toAccountView,
+  toPricingChangeView,
+  toPricingSettingsView,
+  toTransactionView,
+} from "./views.js";
 export {
   MAX_WALLET_AMOUNT,
   MICRO_PER_EUR,
   WALLET_TRANSACTION_TYPES,
 } from "./types.js";
 export type {
+  PricingChange,
+  PricingChangeView,
+  PricingSettingsView,
+  PricingSettings,
+  UsdPricing,
   WalletAccount,
   WalletCreditInput,
   WalletCreditType,

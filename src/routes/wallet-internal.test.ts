@@ -61,7 +61,7 @@ beforeEach(() => {
     .mockResolvedValue({ id: "acc", balance: 1_000n, isUnlimited: false });
   mockPricing
     .mockReset()
-    .mockReturnValue({ usdToEurRate: "0.90", marginPercent: 10 });
+    .mockResolvedValue({ usdToEurRate: "0.90", marginPercent: 10 });
   mockRecordUsage
     .mockReset()
     .mockResolvedValue({ transaction, replayed: false });
@@ -218,9 +218,7 @@ describe("POST /users/:userId/usage with costUsd", () => {
   });
 
   it("answers 503 when the exchange rate is not configured, charging nothing", async () => {
-    mockPricing.mockImplementation(() => {
-      throw ERR.WAL_007();
-    });
+    mockPricing.mockRejectedValue(ERR.WAL_007());
     const res = await post({ costUsd: "0.001", idempotencyKey: "k" });
     expect(res.statusCode).toBe(503);
     expect(res.json<{ error: { code: string } }>().error.code).toBe("WAL_007");
@@ -228,9 +226,7 @@ describe("POST /users/:userId/usage with costUsd", () => {
   });
 
   it("does not need the exchange rate for an exact amount", async () => {
-    mockPricing.mockImplementation(() => {
-      throw ERR.WAL_007();
-    });
+    mockPricing.mockRejectedValue(ERR.WAL_007());
     const res = await post({ amount: "250", idempotencyKey: "k" });
     expect(res.statusCode).toBe(201);
   });

@@ -62,3 +62,12 @@ export const usageLedgerQuerySchema = z
     cursor: z.string().min(1).max(512).optional(),
   })
   .refine((q) => q.from < q.to, "from must be before to");
+
+export const pricingBodySchema = z.object({
+  usdToEurRate: z
+    .string()
+    .regex(/^[0-9]{1,3}(\.[0-9]{1,8})?$/, "plain decimal with up to 8 decimals")
+    .refine((v) => Number(v) > 0, "must be positive"),
+  marginPercent: z.number().int().min(0).max(1000),
+  reason: reasonSchema,
+});

@@ -6,21 +6,27 @@ import {
   adjustBalance,
   getAdminWalletStats,
   getOrCreateWalletAccount,
+  getPricingSettings,
   getUserSpendStats,
   grantCredit,
   listGatewayUsage,
+  listPricingHistory,
   listWalletAccounts,
   listWalletTransactions,
   recordManualTopup,
   setWalletUnlimited,
   toAccountView,
+  toPricingChangeView,
+  toPricingSettingsView,
   toTransactionView,
+  updatePricingSettings,
 } from "../../services/wallet/index.js";
 import {
   idempotencyKeySchema,
   listTransactionsQuerySchema,
   listWalletsQuerySchema,
   positiveAmountSchema,
+  pricingBodySchema,
   reasonSchema,
   signedAmountSchema,
   statsQuerySchema,
@@ -52,13 +58,13 @@ const unlimitedBodySchema = z.object({
   reason: reasonSchema,
 });
 
-/** Creating or removing credit is superadmin-only; returns the actor id. */
+/** Changing balances or pricing is superadmin-only; returns the actor id. */
 async function requireSuperadminActor(req: FastifyRequest): Promise<string> {
   const session = await getRequestSession(req);
   if (!session) throw ERR.AUTH_001();
   const role = (session.user as Record<string, unknown>).role;
   if (role !== "superadmin") {
-    throw ERR.AUTH_011("Only superadmins can change wallet balances");
+    throw ERR.AUTH_011("Only superadmins can change wallets and pricing");
   }
   return session.user.id;
 }
@@ -96,6 +102,34 @@ export async function adminWalletRoutes(
   fastify.get("/stats", async (req, reply) => {
     const { days } = statsQuerySchema.parse(req.query);
     await reply.send(await getAdminWalletStats(days));
+  });
+
+  // GET /api/admin/wallets/pricing
+  fastify.get("/pricing", async (_req, reply) => {
+    const [current, history] = await Promise.all([
+      getPricingSettings(),
+      listPricingHistory(),
+    ]);
+    await reply.send({
+      current: current ? toPricingSettingsView(current) : null,
+      history: history.map(toPricingChangeView),
+    });
+  });
+
+  // PUT /api/admin/wallets/pricing
+  fastify.put("/pricing", async (req, reply) => {
+    const actorId = await requireSuperadminActor(req);
+    const body = pricingBodySchema.parse(req.body);
+    const change = await updatePricingSettings({ ...body, actorId });
+    req.log.info(
+      {
+        actorId,
+        usdToEurRate: change.usdToEurRate,
+        marginPercent: change.marginPercent,
+      },
+      "wallet pricing changed",
+    );
+    await reply.send(toPricingChangeView(change));
   });
 
   // GET /api/admin/wallets/usage-ledger

@@ -10,6 +10,7 @@ import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SpendChart from '@/components/wallet/SpendChart.vue';
 import SpendBreakdown from '@/components/wallet/SpendBreakdown.vue';
+import PricingCard from '@/components/wallet/PricingCard.vue';
 import { getWalletStats, listWallets } from '@/api/wallet';
 import { useAdminEvents } from '@/composables/useAdminEvents';
 import { useDebounce } from '@/composables/useDebounce';
@@ -140,6 +141,8 @@ function formatDate(iso: string): string {
           :icon="Receipt"
         />
       </div>
+
+      <PricingCard />
 
       <div class="grid xl:grid-cols-3 gap-5">
         <div class="xl:col-span-2 rounded-2xl bg-surface-900/60 border border-surface-700/40 p-6">

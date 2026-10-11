@@ -1,12 +1,6 @@
-import { config } from "../../config.js";
 import { ERR } from "../../errors.js";
 
-export interface UsdPricing {
-  /** Decimal string, euros per US dollar. */
-  usdToEurRate: string;
-  /** Percentage added on top of the provider cost. */
-  marginPercent: number;
-}
+import type { UsdPricing } from "./types.js";
 
 const DECIMAL_RE = /^(0|[1-9][0-9]{0,11})(\.[0-9]{1,18})?$/;
 const MICRO_PER_EUR = 1_000_000n;
@@ -17,13 +11,6 @@ function parseDecimal(value: string): { units: bigint; scale: number } {
   }
   const [whole = "0", fraction = ""] = value.split(".");
   return { units: BigInt(whole + fraction), scale: fraction.length };
-}
-
-/** Pricing settings, or a 503 when the operator has not set the exchange rate. */
-export function getUsdPricing(): UsdPricing {
-  const { usdToEurRate, marginPercent } = config.wallet;
-  if (!usdToEurRate) throw ERR.WAL_007();
-  return { usdToEurRate, marginPercent };
 }
 
 /**

@@ -168,3 +168,37 @@ export interface GatewayUsagePage {
   items: GatewayUsageEntry[];
   nextCursor: string | null;
 }
+
+/** Settings that turn a provider cost in US dollars into micro-euros. */
+export interface UsdPricing {
+  /** Decimal string, euros per US dollar. */
+  usdToEurRate: string;
+  /** Percentage added on top of the provider cost. */
+  marginPercent: number;
+}
+
+export interface PricingChange extends UsdPricing {
+  id: string;
+  reason: string;
+  actor: { id: string; name: string | null };
+  createdAt: Date;
+}
+
+export interface PricingSettings extends UsdPricing {
+  /** `environment` until an administrator saves a first value. */
+  source: "database" | "environment";
+  /** The change that produced these settings; null when they come from the environment. */
+  change: PricingChange | null;
+}
+
+export interface PricingChangeView extends UsdPricing {
+  id: string;
+  reason: string;
+  actor: { id: string; name: string | null };
+  createdAt: string;
+}
+
+export interface PricingSettingsView extends UsdPricing {
+  source: PricingSettings["source"];
+  change: PricingChangeView | null;
+}

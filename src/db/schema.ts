@@ -8,6 +8,7 @@ import {
   jsonb,
   numeric,
   bigint,
+  integer,
   uniqueIndex,
   index,
   primaryKey,
@@ -424,6 +425,35 @@ export const walletAccountEvents = pgTable(
     check(
       "wallet_account_events_action_check",
       sql`${t.action} IN ('unlimited_enabled', 'unlimited_disabled')`,
+    ),
+  ],
+);
+
+// ── Wallet Pricing Settings ───────────────────────────────────────────────────
+// Append-only: the current pricing is the newest row, so every change keeps its
+// author and reason, and the ledger metadata of past charges stays explainable.
+export const walletPricingSettings = pgTable(
+  "wallet_pricing_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Euros per US dollar, plain decimal ("0.92").
+    usdToEurRate: text("usd_to_eur_rate").notNull(),
+    marginPercent: integer("margin_percent").notNull(),
+    actorUserId: text("actor_user_id").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("wallet_pricing_settings_created_idx").on(t.createdAt),
+    check(
+      "wallet_pricing_settings_rate_check",
+      sql`${t.usdToEurRate} ~ '^[0-9]{1,3}(\\.[0-9]{1,8})?$' AND ${t.usdToEurRate}::numeric > 0`,
+    ),
+    check(
+      "wallet_pricing_settings_margin_check",
+      sql`${t.marginPercent} BETWEEN 0 AND 1000`,
     ),
   ],
 );

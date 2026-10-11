@@ -23,6 +23,9 @@ const {
   mockUserStats,
   mockListAccounts,
   mockUsageLedger,
+  mockGetPricing,
+  mockPricingHistory,
+  mockUpdatePricing,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockGetOrCreate: vi.fn(),
@@ -35,6 +38,9 @@ const {
   mockUserStats: vi.fn(),
   mockListAccounts: vi.fn(),
   mockUsageLedger: vi.fn(),
+  mockGetPricing: vi.fn(),
+  mockPricingHistory: vi.fn(),
+  mockUpdatePricing: vi.fn(),
 }));
 
 vi.mock("../../db/index.js", () => ({ db: {} }));
@@ -54,6 +60,9 @@ vi.mock("../../services/wallet/index.js", async (importOriginal) => ({
   getUserSpendStats: mockUserStats,
   listWalletAccounts: mockListAccounts,
   listGatewayUsage: mockUsageLedger,
+  getPricingSettings: mockGetPricing,
+  listPricingHistory: mockPricingHistory,
+  updatePricingSettings: mockUpdatePricing,
 }));
 
 const { adminWalletRoutes } = await import("./wallets.js");
@@ -140,6 +149,12 @@ describe("write endpoints are superadmin-only", () => {
       "/users/u1/unlimited",
       { isUnlimited: true, reason: "r" },
     ],
+    [
+      "pricing change",
+      "PUT",
+      "/pricing",
+      { usdToEurRate: "0.92", marginPercent: 10, reason: "r" },
+    ],
   ];
 
   it.each(writes)(
@@ -155,6 +170,7 @@ describe("write endpoints are superadmin-only", () => {
       expect(mockGrant).not.toHaveBeenCalled();
       expect(mockAdjust).not.toHaveBeenCalled();
       expect(mockSetUnlimited).not.toHaveBeenCalled();
+      expect(mockUpdatePricing).not.toHaveBeenCalled();
     },
   );
 
@@ -456,5 +472,80 @@ describe("GET /usage-ledger", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(mockUsageLedger).not.toHaveBeenCalled();
+  });
+});
+
+describe("pricing", () => {
+  const change = {
+    id: "p1",
+    usdToEurRate: "0.92",
+    marginPercent: 10,
+    reason: "monthly update",
+    actor: { id: "actor-1", name: "Ada" },
+    createdAt: new Date("2026-10-11T10:00:00.000Z"),
+  };
+  const body = {
+    usdToEurRate: "0.92",
+    marginPercent: 10,
+    reason: "monthly update",
+  };
+
+  it("lets an admin read the pricing in force and its history", async () => {
+    signInAs("admin");
+    mockGetPricing.mockResolvedValue({
+      usdToEurRate: "0.92",
+      marginPercent: 10,
+      source: "database",
+      change,
+    });
+    mockPricingHistory.mockResolvedValue([change]);
+    const res = await app.inject({ method: "GET", url: "/pricing" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      current: {
+        usdToEurRate: "0.92",
+        marginPercent: 10,
+        source: "database",
+        change: { ...change, createdAt: "2026-10-11T10:00:00.000Z" },
+      },
+      history: [{ ...change, createdAt: "2026-10-11T10:00:00.000Z" }],
+    });
+  });
+
+  it("reports an unset pricing as null", async () => {
+    mockGetPricing.mockResolvedValue(null);
+    mockPricingHistory.mockResolvedValue([]);
+    const res = await app.inject({ method: "GET", url: "/pricing" });
+    expect(res.json()).toEqual({ current: null, history: [] });
+  });
+
+  it("saves a change made by a superadmin, with the actor", async () => {
+    mockUpdatePricing.mockResolvedValue(change);
+    const res = await app.inject({
+      method: "PUT",
+      url: "/pricing",
+      payload: body,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockUpdatePricing).toHaveBeenCalledWith({
+      ...body,
+      actorId: "actor-1",
+    });
+  });
+
+  it.each([
+    ["a zero rate", { ...body, usdToEurRate: "0" }],
+    ["a rate in scientific notation", { ...body, usdToEurRate: "9e-1" }],
+    ["a rate with too many decimals", { ...body, usdToEurRate: "0.123456789" }],
+    ["a negative margin", { ...body, marginPercent: -1 }],
+    ["a margin above 1000", { ...body, marginPercent: 1001 }],
+    ["a fractional margin", { ...body, marginPercent: 2.5 }],
+    ["a missing reason", { ...body, reason: " " }],
+    ["a rate sent as a number", { ...body, usdToEurRate: 0.92 }],
+  ])("refuses %s", async (_label, payload) => {
+    mockUpdatePricing.mockClear();
+    const res = await app.inject({ method: "PUT", url: "/pricing", payload });
+    expect(res.statusCode).toBe(400);
+    expect(mockUpdatePricing).not.toHaveBeenCalled();
   });
 });

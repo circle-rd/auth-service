@@ -1,5 +1,7 @@
 import type {
   AdminWalletStats,
+  PricingChange,
+  PricingResponse,
   UserSpendStats,
   WalletAccount,
   WalletDailyPoint,
@@ -86,3 +88,13 @@ export const MOCK_WALLET_LIST: WalletListItem[] = [
   { id: 'w2', ownerType: 'user', ownerId: 'u2', name: 'Bob Durand', email: 'bob@example.com', balance: '-420000', isUnlimited: false, canSpend: false, spent30d: '2900000', updatedAt: new Date().toISOString() },
   { id: 'w3', ownerType: 'user', ownerId: 'u3', name: 'Dave Staff', email: 'dave@example.com', balance: '0', isUnlimited: true, canSpend: true, spent30d: '180000', updatedAt: new Date().toISOString() },
 ];
+
+const MOCK_CHANGES: PricingChange[] = [
+  { id: 'p2', usdToEurRate: '0.92', marginPercent: 20, reason: 'Monthly rate update', actor: { id: 'a1', name: 'Alexandre Dubois' }, createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString() },
+  { id: 'p1', usdToEurRate: '0.9', marginPercent: 15, reason: 'Initial pricing', actor: { id: 'a1', name: 'Alexandre Dubois' }, createdAt: new Date(Date.now() - 40 * 86_400_000).toISOString() },
+];
+
+export const MOCK_PRICING: PricingResponse = {
+  current: { usdToEurRate: '0.92', marginPercent: 20, source: 'database', change: MOCK_CHANGES[0]! },
+  history: MOCK_CHANGES,
+};

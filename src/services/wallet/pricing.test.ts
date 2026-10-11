@@ -1,12 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ApiError } from "../../errors.js";
-
-const { mockConfig } = vi.hoisted(() => ({
-  mockConfig: { wallet: { usdToEurRate: "0.90", marginPercent: 10 } },
-}));
-vi.mock("../../config.js", () => ({ config: mockConfig }));
-
-const { getUsdPricing, usdToMicroEur } = await import("./pricing.js");
+import { usdToMicroEur } from "./pricing.js";
 
 const pricing = (rate: string, marginPercent = 0) => ({
   usdToEurRate: rate,
@@ -78,22 +72,5 @@ describe("usdToMicroEur", () => {
     expect(failure(() => usdToMicroEur(cost, pricing("1"))).code).toBe(
       "WAL_004",
     );
-  });
-});
-
-describe("getUsdPricing", () => {
-  it("returns the configured rate and margin", () => {
-    expect(getUsdPricing()).toEqual({
-      usdToEurRate: "0.90",
-      marginPercent: 10,
-    });
-  });
-
-  it("answers 503 when the rate is not configured", () => {
-    mockConfig.wallet.usdToEurRate = undefined as unknown as string;
-    const err = failure(() => getUsdPricing());
-    expect(err.code).toBe("WAL_007");
-    expect(err.statusCode).toBe(503);
-    mockConfig.wallet.usdToEurRate = "0.90";
   });
 });

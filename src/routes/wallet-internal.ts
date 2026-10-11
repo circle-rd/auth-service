@@ -44,16 +44,18 @@ const usageBodySchema = z
  * Amount to charge. Pricing facts are recorded next to it so a charge can be
  * audited and re-priced; they override any client-supplied metadata.
  */
-function resolveUsageAmount(body: z.infer<typeof usageBodySchema>): {
+async function resolveUsageAmount(
+  body: z.infer<typeof usageBodySchema>,
+): Promise<{
   amount: bigint;
   pricingMetadata: Record<string, string | number>;
-} {
+}> {
   if (body.amount !== undefined)
     return { amount: body.amount, pricingMetadata: {} };
   if (body.costUsd === undefined) {
     throw ERR.APP_001("provide exactly one of amount or costUsd");
   }
-  const pricing = getUsdPricing();
+  const pricing = await getUsdPricing();
   return {
     amount: usdToMicroEur(body.costUsd, pricing),
     pricingMetadata: {
@@ -91,7 +93,7 @@ export async function walletInternalRoutes(
 
       const account = await getOrCreateWalletAccount("user", userId);
 
-      const { amount, pricingMetadata } = resolveUsageAmount(body);
+      const { amount, pricingMetadata } = await resolveUsageAmount(body);
       const { transaction, replayed } = await recordUsage({
         accountId: account.id,
         amount,

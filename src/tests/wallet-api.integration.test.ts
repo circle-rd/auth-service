@@ -18,6 +18,7 @@ import {
   applications,
   walletAccountEvents,
   walletAccounts,
+  walletPricingSettings,
   walletTransactions,
 } from "../db/schema.js";
 import { cleanDb } from "./helpers/db.js";
@@ -53,6 +54,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await db.execute(sql`TRUNCATE TABLE
     wallet_account_events, wallet_transactions, wallet_accounts,
+    wallet_pricing_settings,
     user_applications, applications,
     oauth_access_token, oauth_refresh_token, oauth_consent,
     oauth_client_resource, oauth_resource, oauth_client
@@ -801,5 +803,68 @@ describe("admin wallet API", () => {
     }
     const rows = await db.select({ id: walletTransactions.id }).from(walletTransactions);
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("admin wallet pricing", () => {
+  const change = (rate: string, margin: number) => ({
+    usdToEurRate: rate,
+    marginPercent: margin,
+    reason: "test",
+  });
+
+  it("shows the environment pricing until a superadmin saves one", async () => {
+    const res = await api("GET", "/api/admin/wallets/pricing", {
+      cookie: admin.cookie,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.current).toMatchObject({
+      usdToEurRate: "0.90",
+      source: "environment",
+      change: null,
+    });
+    expect(res.body.history).toEqual([]);
+  });
+
+  it("refuses an admin and a plain user", async () => {
+    for (const actor of [admin, customer]) {
+      const res = await api("PUT", "/api/admin/wallets/pricing", {
+        cookie: actor.cookie,
+        body: change("0.95", 0),
+      });
+      expect(res.status).toBe(403);
+    }
+    expect(await db.select().from(walletPricingSettings)).toHaveLength(0);
+  });
+
+  it("prices the next debit with the saved settings and keeps the history", async () => {
+    const saved = await api("PUT", "/api/admin/wallets/pricing", {
+      cookie: superadmin.cookie,
+      body: change("0.50", 20),
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.actor.id).toBe(superadmin.id);
+
+    const client = await createWalletClient(["wallet:debit"]);
+    const token = await machineToken(client, "wallet:debit");
+    const res = await api(
+      "POST",
+      `/api/internal/wallet/users/${customer.id}/usage`,
+      {
+      bearer: token,
+      body: { costUsd: "0.001", idempotencyKey: "litellm:priced" },
+    },
+    );
+    // 0.001 USD × 0.50 EUR/USD × 1.20 margin = 600 micro-euros
+    expect(res.body.transaction).toMatchObject({
+      amount: "-600",
+      metadata: { usdToEurRate: "0.50", marginPercent: 20 },
+    });
+
+    const view = await api("GET", "/api/admin/wallets/pricing", {
+      cookie: admin.cookie,
+    });
+    expect(view.body.current.source).toBe("database");
+    expect(view.body.history).toHaveLength(1);
   });
 });

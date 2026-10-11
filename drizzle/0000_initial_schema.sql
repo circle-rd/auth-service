@@ -148,6 +148,17 @@ CREATE TABLE "wallet_accounts" (
 	CONSTRAINT "wallet_accounts_owner_type_check" CHECK ("wallet_accounts"."owner_type" IN ('user', 'org'))
 );
 --> statement-breakpoint
+CREATE TABLE "wallet_pricing_settings" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"usd_to_eur_rate" text NOT NULL,
+	"margin_percent" integer NOT NULL,
+	"actor_user_id" text NOT NULL,
+	"reason" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "wallet_pricing_settings_rate_check" CHECK ("wallet_pricing_settings"."usd_to_eur_rate" ~ '^[0-9]{1,3}(\.[0-9]{1,8})?$' AND "wallet_pricing_settings"."usd_to_eur_rate"::numeric > 0),
+	CONSTRAINT "wallet_pricing_settings_margin_check" CHECK ("wallet_pricing_settings"."margin_percent" BETWEEN 0 AND 1000)
+);
+--> statement-breakpoint
 CREATE TABLE "wallet_transactions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"account_id" uuid NOT NULL,
@@ -478,6 +489,7 @@ CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USIN
 CREATE UNIQUE INDEX "user_subscriptions_user_app_idx" ON "user_subscriptions" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE INDEX "wallet_account_events_account_created_idx" ON "wallet_account_events" USING btree ("account_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_accounts_owner_idx" ON "wallet_accounts" USING btree ("owner_type","owner_id");--> statement-breakpoint
+CREATE INDEX "wallet_pricing_settings_created_idx" ON "wallet_pricing_settings" USING btree ("created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_transactions_account_key_idx" ON "wallet_transactions" USING btree ("account_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "wallet_transactions_account_created_idx" ON "wallet_transactions" USING btree ("account_id","created_at");--> statement-breakpoint
 CREATE INDEX "wallet_transactions_app_created_idx" ON "wallet_transactions" USING btree ("application_id","created_at");--> statement-breakpoint

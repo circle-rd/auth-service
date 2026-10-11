@@ -419,6 +419,38 @@ describe("GET /api/admin/events — the widened vocabulary", () => {
     await closeStream(stream);
   });
 
+  it("delivers wallet.changed when credit is granted, without any amount or id", async () => {
+    const { cookie, stream } = await openAdminStream();
+    // Granting credit is a superadmin action.
+    await promote("admin@example.com", "superadmin");
+    await db.insert(userTable).values({
+      id: "wallet-target",
+      name: "Wallet Target",
+      email: "wallet-target@example.com",
+      emailVerified: true,
+      role: "user",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const counter = frameCounter(stream);
+    const before = await counter.count("wallet.changed");
+
+    const granted = await handle.app.inject({
+      method: "POST",
+      url: "/api/admin/wallets/users/wallet-target/grants",
+      payload: { amount: "123456789", idempotencyKey: "evt-1", reason: "event test" },
+      headers: { "content-type": "application/json", cookie },
+    });
+    expect(granted.statusCode).toBe(201);
+
+    expectSignalOnlyFrame(
+      await counter.next("wallet.changed", before),
+      "wallet.changed",
+      ["wallet-target", "wallet-target@example.com", "123456789", "event test"],
+    );
+    await closeStream(stream);
+  });
+
   it("delivers organization.changed when an admin creates an organization", async () => {
     const { cookie, stream } = await openAdminStream();
     const counter = frameCounter(stream);

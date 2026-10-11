@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useApplicationsStore } from '@/stores/applications';
@@ -8,6 +8,7 @@ import { useToast } from '@/composables/useToast';
 import type { Application } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import BaseToggle from '@/components/ui/BaseToggle.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
@@ -49,6 +50,11 @@ const newSecret = ref('');
 const actionMenu = ref<string | null>(null);
 const filterActive = ref('');
 const filterType = ref('');
+// Infrastructure applications are noise day to day: hidden until asked for, and the
+// choice is remembered.
+const SHOW_SYSTEM_KEY = 'applications.showSystem';
+const showSystem = ref(localStorage.getItem(SHOW_SYSTEM_KEY) === 'true');
+watch(showSystem, (value) => localStorage.setItem(SHOW_SYSTEM_KEY, String(value)));
 
 onMounted(() => {
   store.fetchApplications();
@@ -68,7 +74,7 @@ async function loadActivity() {
 }
 
 const filtered = computed(() => {
-  let apps = store.applications;
+  let apps = showSystem.value ? store.applications : store.applications.filter((a) => !a.isSystem);
   if (filterActive.value === 'active') apps = apps.filter((a) => a.isActive);
   if (filterActive.value === 'inactive') apps = apps.filter((a) => !a.isActive);
   if (filterType.value === 'public') apps = apps.filter((a) => a.isPublic);
@@ -161,10 +167,13 @@ function formatDate(iso: string) {
             <option value="confidential">{{ t('applications.confidential') }}</option>
           </select>
         </div>
+        <div class="flex items-center gap-4">
+        <BaseToggle v-model="showSystem" :label="t('applications.showSystem')" />
         <BaseButton @click="openCreate">
           <Plus class="w-4 h-4" />
           {{ t('applications.createApp') }}
         </BaseButton>
+        </div>
       </div>
 
       <div
@@ -255,6 +264,7 @@ function formatDate(iso: string) {
                   <RefreshCw class="w-4 h-4" />{{ t('applications.rotateSecret') }}
                 </button>
                 <button
+                  v-if="!app.isSystem"
                   @click="
                     selectedApp = app;
                     showDeleteConfirm = true;
@@ -289,6 +299,9 @@ function formatDate(iso: string) {
             </BaseBadge>
             <BaseBadge v-if="app.isMfaRequired" variant="warning" size="sm">
               MFA
+            </BaseBadge>
+            <BaseBadge v-if="app.isSystem" variant="info" size="sm">
+              {{ t('applications.system') }}
             </BaseBadge>
           </div>
 

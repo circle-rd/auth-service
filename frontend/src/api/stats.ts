@@ -1,4 +1,5 @@
 import { apiFetch, USE_MOCK } from './client';
+import { MOCK_APPLICATIONS } from '@/mocks/data';
 
 export interface ActiveUsersResponse {
   count: number;
@@ -33,13 +34,13 @@ function mockSeries(days: number): LoginsSeriesPoint[] {
     const d = new Date(now);
     d.setUTCDate(d.getUTCDate() - i);
     const date = d.toISOString().slice(0, 10);
-    out.push({ date, count: Math.floor(Math.random() * 8) });
+    out.push({ date, count: 3 + ((i * 5 + 2) % 7) + Math.floor((days - i) / 6) });
   }
   return out;
 }
 
 export async function getActiveUsers(): Promise<ActiveUsersResponse> {
-  if (USE_MOCK) return { count: Math.floor(Math.random() * 12) };
+  if (USE_MOCK) return { count: 9 };
   return apiFetch<ActiveUsersResponse>('/admin/stats/active-users');
 }
 
@@ -58,7 +59,12 @@ export async function getLogins(params: { range?: '7d' | '30d'; appId?: string }
 export async function getApplicationsActivity(): Promise<ApplicationsActivityResponse> {
   if (USE_MOCK) {
     return {
-      applications: [],
+      applications: MOCK_APPLICATIONS.map((a, i) => ({
+        appId: a.id,
+        online: (i * 3 + 2) % 7,
+        last7dLogins: 40 + i * 23,
+        sparkline: Array.from({ length: 7 }, (_, d) => 4 + ((d * (i + 3) + i) % 9)),
+      })),
     };
   }
   return apiFetch<ApplicationsActivityResponse>('/admin/stats/applications-activity');

@@ -118,7 +118,9 @@ describe("admin user creation — issue #58", () => {
       },
     });
     expect(denied.statusCode).toBe(403);
-    expect(denied.json<{ code?: string }>().code).toBe("AUTH_011");
+    expect(denied.json<{ error: { code: string } }>().error.code).toBe(
+      "AUTH_011",
+    );
     expect(await roleOf("escalated@example.com")).toBeUndefined();
   });
 

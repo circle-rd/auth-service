@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { generateId } from "better-auth";
 import { z } from "zod";
 import { db } from "../../db/index.js";
@@ -27,6 +27,7 @@ import { ERR } from "../../errors.js";
 import { randomBytes, createHash } from "node:crypto";
 import { addCorsOrigin, removeCorsOrigin } from "../../runtime-config.js";
 import {
+  assertAllowedResources,
   replaceClientResource,
   deleteClientResource,
 } from "../../services/oauth-resources.js";
@@ -187,6 +188,10 @@ async function assertRoleBelongsToApp(
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
+const allowedResourcesSchema = z
+  .array(z.string().url())
+  .transform((list) => [...new Set(list)]);
+
 const createAppSchema = z.object({
   name: z.string().min(1).max(100),
   slug: z
@@ -197,6 +202,7 @@ const createAppSchema = z.object({
   description: z.string().max(500).optional(),
   isActive: z.boolean().default(true),
   isPublic: z.boolean().default(false),
+  isSystem: z.boolean().default(false),
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(false),
@@ -211,6 +217,9 @@ const createAppSchema = z.object({
   // the end-session endpoint. Empty array = no post-logout redirect allowed.
   postLogoutRedirectUris: z.array(z.string().url()).default([]),
   url: z.string().url().optional().nullable(),
+  // Protected resources (other applications' URLs, e.g. the LiteLLM gateway)
+  // this application may request access tokens for (RFC 8707 `resource`).
+  allowedResources: allowedResourcesSchema.default([]),
   icon: z.string().optional().nullable(),
   enabledSocialProviders: z
     .array(z.enum(["google", "github", "linkedin", "microsoft", "apple"]))
@@ -219,9 +228,15 @@ const createAppSchema = z.object({
   metadata: metadataSchema.optional().default({}),
 });
 
+// `allowedResources` is re-declared without its create-time default: a partial
+// update that omits it must leave the stored list untouched.
 const updateAppSchema = createAppSchema
   .partial()
-  .omit({ slug: true, isPublic: true });
+  .omit({ slug: true, isPublic: true })
+  .extend({
+    allowedResources: allowedResourcesSchema.optional(),
+    isSystem: z.boolean().optional(),
+  });
 
 const grantUserAccessSchema = z.object({
   userId: z.string().min(1),
@@ -245,6 +260,15 @@ const updateUserAccessSchema = z.object({
   roleId: z.string().uuid().optional().nullable(),
   subscriptionPlanId: z.string().uuid().optional().nullable(),
 });
+
+/** Hiding an application and protecting it from deletion is a superadmin decision. */
+async function assertMaySetSystemFlag(req: FastifyRequest): Promise<void> {
+  const session = await getRequestSession(req);
+  if (!session) throw ERR.AUTH_001();
+  if ((session.user as Record<string, unknown>).role !== "superadmin") {
+    throw ERR.AUTH_011("Only superadmins can change the system flag");
+  }
+}
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -279,6 +303,7 @@ export async function applicationRoutes(
       throw ERR.APP_001("Invalid application data", parsed.error.flatten());
     }
     const data = parsed.data;
+    if (data.isSystem) await assertMaySetSystemFlag(req);
 
     // The creator is resolved from its session, never from the request body.
     // `requireAdmin` runs as a preHandler and proves the session exists, so the
@@ -296,6 +321,8 @@ export async function applicationRoutes(
       .limit(1);
     if (existing) throw ERR.APP_003();
 
+    await assertAllowedResources(data.allowedResources, data.url ?? null);
+
     // Generate and hash the client secret (only for confidential clients)
     const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
     const hashedSecret = rawSecret ? hashClientSecret(rawSecret) : null;
@@ -310,12 +337,14 @@ export async function applicationRoutes(
           description: data.description,
           isActive: data.isActive,
           isPublic: data.isPublic,
+          isSystem: data.isSystem,
           skipConsent: data.skipConsent,
           isMfaRequired: data.isMfaRequired,
           allowRegister: data.allowRegister,
           allowedScopes: data.allowedScopes,
           redirectUris: data.redirectUris,
           url: data.url,
+          allowedResources: data.allowedResources,
           icon: data.icon,
           enabledSocialProviders: data.enabledSocialProviders ?? null,
           metadata: data.metadata ?? {},
@@ -467,6 +496,7 @@ export async function applicationRoutes(
       clientId: data.slug,
       identifier: data.url ?? null,
       name: data.name,
+      allowedResources: data.allowedResources,
     });
 
     // Announced last: the row and every bootstrap write above are committed by
@@ -493,13 +523,25 @@ export async function applicationRoutes(
     const parsed = updateAppSchema.safeParse(req.body);
     if (!parsed.success)
       throw ERR.APP_001("Invalid data", parsed.error.flatten());
+    if (parsed.data.isSystem !== undefined) await assertMaySetSystemFlag(req);
 
     // Fetch the current URL before applying the update so we can diff it.
     const [before] = await db
-      .select({ url: applications.url })
+      .select({
+        url: applications.url,
+        allowedResources: applications.allowedResources,
+      })
       .from(applications)
       .where(eq(applications.id, req.params.id))
       .limit(1);
+    if (!before) throw ERR.APP_002();
+
+    // Re-validated on every update so a resource that disappeared since the
+    // last save is reported instead of failing on the link insert.
+    await assertAllowedResources(
+      parsed.data.allowedResources ?? before.allowedResources,
+      parsed.data.url !== undefined ? parsed.data.url : before.url,
+    );
 
     // `enableEndSession` and `postLogoutRedirectUris` live exclusively on the
     // BetterAuth `oauthClient` row, not on `applications` \u2014 strip them before
@@ -521,8 +563,8 @@ export async function applicationRoutes(
 
     // Sync CORS origin + protected resource when the URL field changes.
     // The OAuth resource link is refreshed unconditionally below.
-    if (parsed.data.url !== undefined && parsed.data.url !== before?.url) {
-      if (before?.url) {
+    if (parsed.data.url !== undefined && parsed.data.url !== before.url) {
+      if (before.url) {
         removeCorsOrigin(before.url);
       }
       if (parsed.data.url) {
@@ -561,6 +603,7 @@ export async function applicationRoutes(
       clientId: app.slug,
       identifier: app.url,
       name: app.name,
+      allowedResources: app.allowedResources,
     });
 
     const view = await fetchOauthClientView(app.slug);
@@ -571,6 +614,14 @@ export async function applicationRoutes(
   // DELETE /api/admin/applications/:id
   // All related rows (roles, plans, user_applications, etc.) are cascade-deleted via FK constraints.
   fastify.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
+    const [existing] = await db
+      .select({ isSystem: applications.isSystem })
+      .from(applications)
+      .where(eq(applications.id, req.params.id))
+      .limit(1);
+    if (!existing) throw ERR.APP_002();
+    if (existing.isSystem) throw ERR.APP_007();
+
     const [deleted] = await db
       .delete(applications)
       .where(eq(applications.id, req.params.id))

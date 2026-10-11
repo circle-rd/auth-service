@@ -9,6 +9,14 @@
 
 const OAUTH_QUERY_KEYS = ['client_id', 'sig', 'redirectTo'] as const;
 
+/** Whether the URL carries the signed parameters of an OAuth authorization request. */
+export function hasAuthParams(query: Record<string, unknown>): boolean {
+  return OAUTH_QUERY_KEYS.some((key) => {
+    const value = query[key];
+    return typeof value === 'string' && value !== '';
+  });
+}
+
 /**
  * Serialise the auth parameters carried by the current URL. Returns an empty
  * string when the URL carries none, so callers can append it unconditionally.

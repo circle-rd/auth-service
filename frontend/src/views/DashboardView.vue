@@ -18,6 +18,7 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import AppIconStack from '@/components/ui/AppIconStack.vue';
+import DashboardWalletSection from '@/components/wallet/DashboardWalletSection.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import type { Session, User, Application, Organization } from '@/types';
 import type { ColumnDef, DataTablePagination } from '@/types/data-table';
@@ -87,11 +88,14 @@ async function fetchLogins(options: { silent?: boolean } = {}) {
 // online counter instead of waiting for the poll below. The composable coalesces
 // a burst of frames into a single refresh, and the server is the only access
 // control — a refused stream stays silent.
+const walletSection = ref<InstanceType<typeof DashboardWalletSection> | null>(null);
+
 const adminEvents = useAdminEvents({
   'login.recorded': () => {
     void fetchLogins({ silent: true });
     void fetchOnline();
   },
+  'wallet.changed': () => void walletSection.value?.refresh(),
 });
 
 onMounted(async () => {
@@ -363,6 +367,8 @@ void d;
           <div v-else class="h-full bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-xl" />
         </div>
       </div>
+
+      <DashboardWalletSection ref="walletSection" />
 
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
         <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">

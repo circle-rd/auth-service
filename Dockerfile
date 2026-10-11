@@ -44,6 +44,11 @@ COPY --from=frontend-builder /app/frontend-dist ./frontend-dist
 # Drizzle migrations (generated during build)
 COPY --from=backend-builder /app/drizzle ./drizzle
 
+# LiteLLM gateway config (config.yaml + custom_auth.py). The `llm` compose profile
+# copies it into a shared volume, so a deployment needs no file next to the
+# compose file and the gateway always matches this auth-service version.
+COPY litellm ./litellm
+
 # Built-in page + email templates. The resolvers fall back to this directory
 # (/app/templates/default, relative to dist/services) when no override exists in
 # TEMPLATES_DIR. It must live in the image, outside any volume an operator

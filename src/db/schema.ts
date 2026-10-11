@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -6,9 +7,12 @@ import {
   timestamp,
   jsonb,
   numeric,
+  bigint,
+  integer,
   uniqueIndex,
   index,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 
 // ── Applications ──────────────────────────────────────────────────────────────
@@ -31,7 +35,14 @@ export const applications = pgTable(
       .default(["openid", "profile", "email"]),
     redirectUris: text("redirect_uris").array().notNull().default([]),
     isPublic: boolean("is_public").notNull().default(false),
+    // Infrastructure applications (the gateway, its machine client, its admin
+    // sign-in) provisioned by scripts: hidden from the admin list by default and
+    // not deletable.
+    isSystem: boolean("is_system").notNull().default(false),
     url: text("url"),
+    // RFC 8707 resource identifiers (other applications' URLs, e.g. LiteLLM)
+    // this application may request access tokens for.
+    allowedResources: text("allowed_resources").array().notNull().default([]),
     icon: text("icon"),
     enabledSocialProviders: text("enabled_social_providers").array(),
     // Free-form per-application metadata. Stored as a flat string→string map
@@ -295,3 +306,158 @@ export const stripeEvents = pgTable("stripe_events", {
     .defaultNow()
     .notNull(),
 });
+
+// ── Wallet Accounts ───────────────────────────────────────────────────────────
+// Prepaid credit shared by every application. Amounts are integer micro-euros
+// (1 EUR = 1_000_000): tokens and tool calls are priced into the same balance
+// and sub-cent costs stay exact. The balance goes negative only when an
+// operation that already happened is recorded (usage, payment reversal): the
+// debt is repaid by the next top-up and meanwhile blocks new spending.
+// `owner_id` has no FK on purpose: it points at a user or an organization.
+export const walletAccounts = pgTable(
+  "wallet_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerType: text("owner_type").notNull(),
+    ownerId: text("owner_id").notNull(),
+    balance: bigint("balance", { mode: "bigint" })
+      .notNull()
+      .default(sql`0`),
+    // Explicit unlimited-access flag: usage is still recorded in the ledger but
+    // the balance is left untouched. Never a magic balance value.
+    isUnlimited: boolean("is_unlimited").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("wallet_accounts_owner_idx").on(t.ownerType, t.ownerId),
+    check(
+      "wallet_accounts_owner_type_check",
+      sql`${t.ownerType} IN ('user', 'org')`,
+    ),
+  ],
+);
+
+// ── Wallet Transactions ───────────────────────────────────────────────────────
+// Append-only ledger. `amount` is the signed value of the operation; `delta` is
+// its effect on the balance (equal to `amount`, or 0 for usage on an unlimited
+// account), so the account balance always equals the sum of `delta`.
+// `idempotency_key` makes retried operations (webhooks, LiteLLM callbacks)
+// replay-safe. `metadata` carries raw quantities (model, tokens, tool) for
+// re-pricing and audit and must never hold secrets.
+export const walletTransactions = pgTable(
+  "wallet_transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => walletAccounts.id, { onDelete: "restrict" }),
+    type: text("type").notNull(),
+    amount: bigint("amount", { mode: "bigint" }).notNull(),
+    delta: bigint("delta", { mode: "bigint" }).notNull(),
+    balanceAfter: bigint("balance_after", { mode: "bigint" }).notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    applicationId: uuid("application_id").references(() => applications.id, {
+      onDelete: "set null",
+    }),
+    metadata: jsonb("metadata").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("wallet_transactions_account_key_idx").on(
+      t.accountId,
+      t.idempotencyKey,
+    ),
+    index("wallet_transactions_account_created_idx").on(
+      t.accountId,
+      t.createdAt,
+    ),
+    index("wallet_transactions_app_created_idx").on(
+      t.applicationId,
+      t.createdAt,
+    ),
+    check(
+      "wallet_transactions_type_check",
+      sql`${t.type} IN ('topup', 'grant', 'refund', 'usage', 'adjust', 'reversal')`,
+    ),
+    check("wallet_transactions_amount_check", sql`${t.amount} <> 0`),
+    check(
+      "wallet_transactions_sign_check",
+      sql`(${t.type} IN ('topup', 'grant', 'refund') AND ${t.amount} > 0) OR (${t.type} IN ('usage', 'reversal') AND ${t.amount} < 0) OR ${t.type} = 'adjust'`,
+    ),
+    check(
+      "wallet_transactions_delta_check",
+      sql`${t.delta} = ${t.amount} OR (${t.delta} = 0 AND ${t.type} = 'usage')`,
+    ),
+    // A manual debit never takes the balance below zero; usage and reversals
+    // record events that already happened and may.
+    check(
+      "wallet_transactions_adjust_check",
+      sql`${t.type} <> 'adjust' OR ${t.amount} > 0 OR ${t.balanceAfter} >= 0`,
+    ),
+  ],
+);
+
+// ── Wallet Account Events ─────────────────────────────────────────────────────
+// Audit trail of administrative changes that do not move money and therefore
+// cannot live in the ledger (a ledger row must have a non-zero amount).
+export const walletAccountEvents = pgTable(
+  "wallet_account_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => walletAccounts.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id").notNull(),
+    action: text("action").notNull(),
+    details: jsonb("details").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("wallet_account_events_account_created_idx").on(
+      t.accountId,
+      t.createdAt,
+    ),
+    check(
+      "wallet_account_events_action_check",
+      sql`${t.action} IN ('unlimited_enabled', 'unlimited_disabled')`,
+    ),
+  ],
+);
+
+// ── Wallet Pricing Settings ───────────────────────────────────────────────────
+// Append-only: the current pricing is the newest row, so every change keeps its
+// author and reason, and the ledger metadata of past charges stays explainable.
+export const walletPricingSettings = pgTable(
+  "wallet_pricing_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Euros per US dollar, plain decimal ("0.92").
+    usdToEurRate: text("usd_to_eur_rate").notNull(),
+    marginPercent: integer("margin_percent").notNull(),
+    actorUserId: text("actor_user_id").notNull(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("wallet_pricing_settings_created_idx").on(t.createdAt),
+    check(
+      "wallet_pricing_settings_rate_check",
+      sql`${t.usdToEurRate} ~ '^[0-9]{1,3}(\\.[0-9]{1,8})?$' AND ${t.usdToEurRate}::numeric > 0`,
+    ),
+    check(
+      "wallet_pricing_settings_margin_check",
+      sql`${t.marginPercent} BETWEEN 0 AND 1000`,
+    ),
+  ],
+);

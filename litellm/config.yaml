@@ -1,0 +1,25 @@
+# Models are managed at runtime (admin UI or POST /model/new) and stored in the
+# LiteLLM database, so no provider key lives in this file.
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  custom_auth: custom_auth.user_api_key_auth
+  store_model_in_db: true
+  # With the sign-in through auth-service configured, no username/password login
+  # reaches the Admin UI, the shared master-key one included: an auth-service
+  # outage must not open a way in. Without SSO the password login stays, so a
+  # deployment that turns SSO off is not locked out. The master key itself still
+  # works on the API.
+  disable_password_login_when_sso_enabled: true
+  # The reverse proxy in front of the gateway reaches it from a private address
+  # (the Docker network). Declaring those ranges makes LiteLLM take the real client
+  # address from X-Forwarded-For, so the Admin UI sign-in throttle limits each
+  # visitor rather than the proxy as a whole. Narrow it to your proxy's network if
+  # port 4000 is also reachable by other private clients.
+  trusted_proxy_ranges:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+litellm_settings:
+  # Credit check before each call and billing after it (see circle_wallet.py).
+  callbacks: circle_wallet.wallet_logger

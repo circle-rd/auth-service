@@ -1,0 +1,551 @@
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { createTestApp } from "../../tests/helpers/app.js";
+import { ERR } from "../../errors.js";
+
+import type * as WalletModule from "../../services/wallet/index.js";
+const {
+  mockGetSession,
+  mockGetOrCreate,
+  mockList,
+  mockGrant,
+  mockAdjust,
+  mockSetUnlimited,
+  mockManualTopup,
+  mockAdminStats,
+  mockUserStats,
+  mockListAccounts,
+  mockUsageLedger,
+  mockGetPricing,
+  mockPricingHistory,
+  mockUpdatePricing,
+} = vi.hoisted(() => ({
+  mockGetSession: vi.fn(),
+  mockGetOrCreate: vi.fn(),
+  mockList: vi.fn(),
+  mockGrant: vi.fn(),
+  mockAdjust: vi.fn(),
+  mockSetUnlimited: vi.fn(),
+  mockManualTopup: vi.fn(),
+  mockAdminStats: vi.fn(),
+  mockUserStats: vi.fn(),
+  mockListAccounts: vi.fn(),
+  mockUsageLedger: vi.fn(),
+  mockGetPricing: vi.fn(),
+  mockPricingHistory: vi.fn(),
+  mockUpdatePricing: vi.fn(),
+}));
+
+vi.mock("../../db/index.js", () => ({ db: {} }));
+vi.mock("../../middleware.js", () => ({
+  requireAdmin: vi.fn(async () => undefined),
+  getRequestSession: mockGetSession,
+}));
+vi.mock("../../services/wallet/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof WalletModule>()),
+  getOrCreateWalletAccount: mockGetOrCreate,
+  listWalletTransactions: mockList,
+  grantCredit: mockGrant,
+  adjustBalance: mockAdjust,
+  setWalletUnlimited: mockSetUnlimited,
+  recordManualTopup: mockManualTopup,
+  getAdminWalletStats: mockAdminStats,
+  getUserSpendStats: mockUserStats,
+  listWalletAccounts: mockListAccounts,
+  listGatewayUsage: mockUsageLedger,
+  getPricingSettings: mockGetPricing,
+  listPricingHistory: mockPricingHistory,
+  updatePricingSettings: mockUpdatePricing,
+}));
+
+const { adminWalletRoutes } = await import("./wallets.js");
+
+const app = createTestApp();
+
+beforeAll(async () => {
+  await app.register(adminWalletRoutes);
+  await app.ready();
+});
+
+afterAll(() => app.close());
+
+const transaction = {
+  id: "t1",
+  type: "grant",
+  amount: 100n,
+  delta: 100n,
+  balanceAfter: 100n,
+  applicationId: null,
+  metadata: {},
+  createdAt: new Date("2026-10-09T10:00:00.000Z"),
+};
+
+function signInAs(role: string | null) {
+  mockGetSession.mockResolvedValue(
+    role ? { user: { id: "actor-1", role } } : null,
+  );
+}
+
+beforeEach(() => {
+  signInAs("superadmin");
+  mockGetOrCreate
+    .mockReset()
+    .mockResolvedValue({ id: "acc", balance: 5n, isUnlimited: false });
+  mockList.mockReset().mockResolvedValue({ items: [], nextCursor: null });
+  mockGrant.mockReset().mockResolvedValue({ transaction, replayed: false });
+  mockAdjust.mockReset().mockResolvedValue({ transaction, replayed: false });
+  mockAdminStats.mockReset().mockResolvedValue({ days: 30 });
+  mockUserStats.mockReset().mockResolvedValue({ days: 30, total: "0" });
+  mockListAccounts.mockReset().mockResolvedValue({ wallets: [], total: 0 });
+  mockManualTopup
+    .mockReset()
+    .mockResolvedValue({ transaction, replayed: false });
+  mockSetUnlimited
+    .mockReset()
+    .mockResolvedValue({ id: "acc", balance: 5n, isUnlimited: true });
+});
+
+const grant = { amount: "100", idempotencyKey: "k", reason: "welcome" };
+
+describe("read endpoints", () => {
+  it("returns a user's wallet and history to any admin", async () => {
+    signInAs("admin");
+    const wallet = await app.inject({ method: "GET", url: "/users/u1" });
+    expect(wallet.json()).toEqual({
+      balance: "5",
+      isUnlimited: false,
+      canSpend: true,
+      currency: "eur",
+    });
+    const history = await app.inject({
+      method: "GET",
+      url: "/users/u1/transactions?limit=3",
+    });
+    expect(history.statusCode).toBe(200);
+    expect(mockList).toHaveBeenCalledWith({ accountId: "acc", limit: 3 });
+  });
+
+  it("propagates an unknown user", async () => {
+    mockGetOrCreate.mockRejectedValue(ERR.USR_001());
+    const res = await app.inject({ method: "GET", url: "/users/nobody" });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("write endpoints are superadmin-only", () => {
+  const writes: Array<[string, string, string, unknown]> = [
+    ["grant", "POST", "/users/u1/grants", grant],
+    ["adjustment", "POST", "/users/u1/adjustments", { ...grant, amount: "-5" }],
+    [
+      "unlimited toggle",
+      "PUT",
+      "/users/u1/unlimited",
+      { isUnlimited: true, reason: "r" },
+    ],
+    [
+      "pricing change",
+      "PUT",
+      "/pricing",
+      { usdToEurRate: "0.92", marginPercent: 10, reason: "r" },
+    ],
+  ];
+
+  it.each(writes)(
+    "refuses an admin on %s",
+    async (_name, method, url, payload) => {
+      signInAs("admin");
+      const res = await app.inject({
+        method: method as "POST" | "PUT",
+        url,
+        payload: payload as object,
+      });
+      expect(res.statusCode).toBe(403);
+      expect(mockGrant).not.toHaveBeenCalled();
+      expect(mockAdjust).not.toHaveBeenCalled();
+      expect(mockSetUnlimited).not.toHaveBeenCalled();
+      expect(mockUpdatePricing).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(writes)(
+    "refuses a missing session on %s",
+    async (_name, method, url, payload) => {
+      signInAs(null);
+      const res = await app.inject({
+        method: method as "POST" | "PUT",
+        url,
+        payload: payload as object,
+      });
+      expect(res.statusCode).toBe(401);
+    },
+  );
+});
+
+describe("POST /users/:userId/grants", () => {
+  it("credits with the actor from the session, never from the body", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/grants",
+      payload: { ...grant, actorId: "forged" },
+    });
+    expect(mockGrant).toHaveBeenCalledWith({
+      accountId: "acc",
+      amount: 100n,
+      idempotencyKey: "k",
+      actorId: "actor-1",
+      reason: "welcome",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(
+      res.json<{ transaction: { amount: string } }>().transaction.amount,
+    ).toBe("100");
+  });
+
+  it("answers 200 for a replay", async () => {
+    mockGrant.mockResolvedValue({ transaction, replayed: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/grants",
+      payload: grant,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it.each([
+    ["no reason", { amount: "5", idempotencyKey: "k" }],
+    ["a blank reason", { ...grant, reason: "   " }],
+    ["an over-long reason", { ...grant, reason: "x".repeat(501) }],
+    ["a zero amount", { ...grant, amount: "0" }],
+    ["a negative amount", { ...grant, amount: "-5" }],
+  ])("rejects %s", async (_label, payload) => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/grants",
+      payload,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockGrant).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /users/:userId/adjustments", () => {
+  it("accepts a signed amount", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/adjustments",
+      payload: { ...grant, amount: "-40" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockAdjust).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: -40n, actorId: "actor-1" }),
+    );
+  });
+
+  it("answers 200 for a replay", async () => {
+    mockAdjust.mockResolvedValue({ transaction, replayed: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/adjustments",
+      payload: grant,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("rejects a zero adjustment", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/adjustments",
+      payload: { ...grant, amount: "0" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("PUT /users/:userId/unlimited", () => {
+  it("toggles the flag on behalf of the session user", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/users/u1/unlimited",
+      payload: { isUnlimited: true, reason: "staff" },
+    });
+    expect(mockSetUnlimited).toHaveBeenCalledWith({
+      accountId: "acc",
+      isUnlimited: true,
+      actorId: "actor-1",
+      reason: "staff",
+    });
+    expect(res.json()).toEqual({
+      balance: "5",
+      isUnlimited: true,
+      canSpend: true,
+      currency: "eur",
+    });
+  });
+
+  it.each([
+    ["a non-boolean flag", { isUnlimited: "yes", reason: "r" }],
+    ["no reason", { isUnlimited: true }],
+  ])("rejects %s", async (_label, payload) => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/users/u1/unlimited",
+      payload,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockSetUnlimited).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /users/:userId/topups", () => {
+  const topup = {
+    amount: "50000000",
+    idempotencyKey: "inv-2026-001",
+    reference: "INV-2026-001",
+  };
+
+  it("records a manual top-up with the invoice reference and the session actor", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload: { ...topup, actorId: "forged" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockManualTopup).toHaveBeenCalledWith({
+      accountId: "acc",
+      amount: 50_000_000n,
+      idempotencyKey: "inv-2026-001",
+      actorId: "actor-1",
+      reference: "INV-2026-001",
+    });
+  });
+
+  it("answers 200 for a replay", async () => {
+    mockManualTopup.mockResolvedValue({ transaction, replayed: true });
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload: topup,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("is superadmin-only", async () => {
+    signInAs("admin");
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload: topup,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockManualTopup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no reference", { amount: "5", idempotencyKey: "k" }],
+    ["a blank reference", { ...topup, reference: "  " }],
+    ["an over-long reference", { ...topup, reference: "x".repeat(101) }],
+    ["a zero amount", { ...topup, amount: "0" }],
+    ["a negative amount", { ...topup, amount: "-5" }],
+  ])("rejects %s", async (_label, payload) => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/users/u1/topups",
+      payload,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockManualTopup).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET / (accounts)", () => {
+  it("lists wallets with the defaults and echoes the paging", async () => {
+    mockListAccounts.mockResolvedValue({ wallets: [{ id: "w1" }], total: 41 });
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(mockListAccounts).toHaveBeenCalledWith({
+      page: 1,
+      limit: 20,
+      filter: "all",
+    });
+    expect(res.json()).toEqual({
+      wallets: [{ id: "w1" }],
+      total: 41,
+      page: 1,
+      limit: 20,
+    });
+  });
+
+  it("passes the search, filter and paging through", async () => {
+    await app.inject({
+      method: "GET",
+      url: "/?page=3&limit=50&filter=debt&search=%20bob%20",
+    });
+    expect(mockListAccounts).toHaveBeenCalledWith({
+      page: 3,
+      limit: 50,
+      filter: "debt",
+      search: "bob",
+    });
+  });
+
+  it("is readable by an admin", async () => {
+    signInAs("admin");
+    expect((await app.inject({ method: "GET", url: "/" })).statusCode).toBe(
+      200,
+    );
+  });
+
+  it.each([
+    "filter=rich",
+    "limit=0",
+    "limit=101",
+    "page=0",
+    "search=",
+    `search=${"x".repeat(101)}`,
+  ])("rejects %s", async (query) => {
+    const res = await app.inject({ method: "GET", url: `/?${query}` });
+    expect(res.statusCode).toBe(400);
+    expect(mockListAccounts).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /stats and /users/:userId/stats", () => {
+  it("returns the platform statistics over the requested window", async () => {
+    mockAdminStats.mockResolvedValue({ days: 7, totals: { accounts: 2 } });
+    const res = await app.inject({ method: "GET", url: "/stats?days=7" });
+    expect(mockAdminStats).toHaveBeenCalledWith(7);
+    expect(res.json()).toEqual({ days: 7, totals: { accounts: 2 } });
+  });
+
+  it("defaults to 30 days and refuses an out-of-range window", async () => {
+    await app.inject({ method: "GET", url: "/stats" });
+    expect(mockAdminStats).toHaveBeenCalledWith(30);
+    mockAdminStats.mockClear();
+    expect(
+      (await app.inject({ method: "GET", url: "/stats?days=500" })).statusCode,
+    ).toBe(400);
+    expect(mockAdminStats).not.toHaveBeenCalled();
+  });
+
+  it("returns one user's spend statistics", async () => {
+    await app.inject({ method: "GET", url: "/users/u1/stats?days=14" });
+    expect(mockGetOrCreate).toHaveBeenCalledWith("user", "u1");
+    expect(mockUserStats).toHaveBeenCalledWith("acc", 14);
+  });
+});
+
+describe("GET /usage-ledger", () => {
+  const window = "from=2026-10-10T00:00:00Z&to=2026-10-11T00:00:00Z";
+
+  it("returns the gateway usage of the window", async () => {
+    mockUsageLedger.mockResolvedValue({ items: [], nextCursor: null });
+    const res = await app.inject({
+      method: "GET",
+      url: `/usage-ledger?${window}&limit=10`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockUsageLedger).toHaveBeenCalledWith({
+      from: new Date("2026-10-10T00:00:00Z"),
+      to: new Date("2026-10-11T00:00:00Z"),
+      limit: 10,
+    });
+  });
+
+  it.each([
+    ["no window", ""],
+    [
+      "an inverted window",
+      "?from=2026-10-11T00:00:00Z&to=2026-10-10T00:00:00Z",
+    ],
+    ["a page above 1000", `?${window}&limit=1001`],
+  ])("refuses %s", async (_label, query) => {
+    mockUsageLedger.mockClear();
+    const res = await app.inject({
+      method: "GET",
+      url: `/usage-ledger${query}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockUsageLedger).not.toHaveBeenCalled();
+  });
+});
+
+describe("pricing", () => {
+  const change = {
+    id: "p1",
+    usdToEurRate: "0.92",
+    marginPercent: 10,
+    reason: "monthly update",
+    actor: { id: "actor-1", name: "Ada" },
+    createdAt: new Date("2026-10-11T10:00:00.000Z"),
+  };
+  const body = {
+    usdToEurRate: "0.92",
+    marginPercent: 10,
+    reason: "monthly update",
+  };
+
+  it("lets an admin read the pricing in force and its history", async () => {
+    signInAs("admin");
+    mockGetPricing.mockResolvedValue({
+      usdToEurRate: "0.92",
+      marginPercent: 10,
+      source: "database",
+      change,
+    });
+    mockPricingHistory.mockResolvedValue([change]);
+    const res = await app.inject({ method: "GET", url: "/pricing" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      current: {
+        usdToEurRate: "0.92",
+        marginPercent: 10,
+        source: "database",
+        change: { ...change, createdAt: "2026-10-11T10:00:00.000Z" },
+      },
+      history: [{ ...change, createdAt: "2026-10-11T10:00:00.000Z" }],
+    });
+  });
+
+  it("reports an unset pricing as null", async () => {
+    mockGetPricing.mockResolvedValue(null);
+    mockPricingHistory.mockResolvedValue([]);
+    const res = await app.inject({ method: "GET", url: "/pricing" });
+    expect(res.json()).toEqual({ current: null, history: [] });
+  });
+
+  it("saves a change made by a superadmin, with the actor", async () => {
+    mockUpdatePricing.mockResolvedValue(change);
+    const res = await app.inject({
+      method: "PUT",
+      url: "/pricing",
+      payload: body,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockUpdatePricing).toHaveBeenCalledWith({
+      ...body,
+      actorId: "actor-1",
+    });
+  });
+
+  it.each([
+    ["a zero rate", { ...body, usdToEurRate: "0" }],
+    ["a rate in scientific notation", { ...body, usdToEurRate: "9e-1" }],
+    ["a rate with too many decimals", { ...body, usdToEurRate: "0.123456789" }],
+    ["a negative margin", { ...body, marginPercent: -1 }],
+    ["a margin above 1000", { ...body, marginPercent: 1001 }],
+    ["a fractional margin", { ...body, marginPercent: 2.5 }],
+    ["a missing reason", { ...body, reason: " " }],
+    ["a rate sent as a number", { ...body, usdToEurRate: 0.92 }],
+  ])("refuses %s", async (_label, payload) => {
+    mockUpdatePricing.mockClear();
+    const res = await app.inject({ method: "PUT", url: "/pricing", payload });
+    expect(res.statusCode).toBe(400);
+    expect(mockUpdatePricing).not.toHaveBeenCalled();
+  });
+});

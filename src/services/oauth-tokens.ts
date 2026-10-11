@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { verifyJwsAccessToken } from "better-auth/oauth2";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -74,6 +75,11 @@ async function acceptedAudiences(): Promise<string[]> {
  * row. Returns null when the token is invalid, expired or not bound to a
  * client, so callers can fail closed.
  */
+/** BetterAuth stores opaque access tokens as SHA-256, base64url without padding. */
+function hashOpaqueToken(token: string): string {
+  return createHash("sha256").update(token).digest("base64url");
+}
+
 export async function verifyBearerAccessToken(
   token: string,
 ): Promise<VerifiedAccessToken | null> {
@@ -109,11 +115,12 @@ export async function verifyBearerAccessToken(
       userId: oauthAccessToken.userId,
       scopes: oauthAccessToken.scopes,
       expiresAt: oauthAccessToken.expiresAt,
+      revoked: oauthAccessToken.revoked,
     })
     .from(oauthAccessToken)
-    .where(eq(oauthAccessToken.token, token))
+    .where(eq(oauthAccessToken.token, hashOpaqueToken(token)))
     .limit(1);
-  if (!row) return null;
+  if (!row || row.revoked) return null;
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
   return {
     clientId: row.clientId,

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { hasAuthParams } from '@/utils/authRedirect';
 
 const routes = [
   { path: '/', redirect: '/profile' },
@@ -25,6 +26,12 @@ const routes = [
     path: '/organizations',
     name: 'organizations',
     component: () => import('@/views/OrganizationsView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
+    path: '/wallets',
+    name: 'wallets',
+    component: () => import('@/views/WalletsView.vue'),
     meta: { requiresAdmin: true },
   },
   {
@@ -135,6 +142,12 @@ router.beforeEach(async (to) => {
 
   if (!auth.user && !isPublic) {
     return { name: 'login' };
+  }
+
+  // Someone already signed in has nothing to do on the sign-in page. An OAuth
+  // request that brought them here (re-authentication, for example) is left alone.
+  if (auth.user && to.name === 'login' && !hasAuthParams(to.query)) {
+    return { name: 'profile' };
   }
 
   if (auth.user && to.meta.requiresAdmin && !auth.isAdmin()) {

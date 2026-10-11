@@ -16,11 +16,11 @@ const cursorSchema = z.object({
   i: z.string().uuid(),
 });
 
-function encodeCursor(position: { t: string; i: string }): string {
+export function encodeCursor(position: { t: string; i: string }): string {
   return Buffer.from(JSON.stringify(position)).toString("base64url");
 }
 
-function decodeCursor(cursor: string): z.infer<typeof cursorSchema> {
+export function decodeCursor(cursor: string): z.infer<typeof cursorSchema> {
   try {
     return cursorSchema.parse(
       JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")),

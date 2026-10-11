@@ -3,8 +3,10 @@
 Before a call, a user whose credit is exhausted is refused (HTTP 402). After a
 successful call, the provider cost is reported to the wallet API, which prices it
 (exchange rate and margin) and debits the user. Debits are spooled to disk before
-being sent, so an auth-service outage or a restart never loses one: the request id
-is the idempotency key, so retries can never charge twice.
+being sent, so an auth-service outage or a restart never loses one: each debit has
+its own generated idempotency key, so retries can never charge twice. Per-user
+ceilings on calls per minute and on simultaneous calls bound what a leaked token
+can run up between the credit check and the billing.
 """
 
 import asyncio
@@ -12,6 +14,7 @@ import json
 import os
 import time
 import uuid
+from collections import deque
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
@@ -39,10 +42,29 @@ BALANCE_TTL_S = float(os.environ.get("WALLET_BALANCE_TTL_S", "5"))
 # How long a previously fetched balance may be trusted when auth-service is down.
 STALE_BALANCE_S = float(os.environ.get("WALLET_STALE_BALANCE_S", "60"))
 RETRY_INTERVAL_S = float(os.environ.get("WALLET_RETRY_INTERVAL_S", "15"))
+# Ceiling on billable calls per user and minute (per gateway process): a leaked
+# browser token cannot drain a balance, nor run up much debt, faster than this.
+MAX_REQUESTS_PER_MINUTE = int(os.environ.get("WALLET_MAX_REQUESTS_PER_MINUTE", "120"))
+RATE_WINDOW_S = 60.0
+CALL_TAG_KEY = "circle_wallet_call_tag"
+# Ceiling on what a user may spend per minute, in provider dollars as reported by the
+# gateway: calls cost nothing to check before they run, so this is what keeps a burst
+# of expensive calls from turning a small balance into a large debt.
+MAX_SPEND_PER_MINUTE_USD = float(os.environ.get("WALLET_MAX_SPEND_PER_MINUTE_USD", "5"))
+# Ceiling on simultaneous model calls per user: the credit is only checked before a
+# call and billed after it, so concurrency is what bounds the overdraft.
+MAX_CONCURRENT_CALLS = int(os.environ.get("WALLET_MAX_CONCURRENT_CALLS", "8"))
+# A slot whose completion event never arrived (a crash, a dropped stream) is freed after this.
+INFLIGHT_TTL_S = 600.0
 HTTP_TIMEOUT_S = 5.0
 SCOPES = "wallet:read wallet:debit"
 # Listing tools costs nothing; everything else a user calls is billable.
 FREE_CALL_TYPES = {"list_mcp_tools"}
+
+if MAX_REQUESTS_PER_MINUTE < 1 or MAX_CONCURRENT_CALLS < 1 or MAX_SPEND_PER_MINUTE_USD <= 0:
+    raise RuntimeError(
+        "WALLET_MAX_REQUESTS_PER_MINUTE, WALLET_MAX_CONCURRENT_CALLS and WALLET_MAX_SPEND_PER_MINUTE_USD must be positive"
+    )
 
 PENDING_DIR.mkdir(parents=True, exist_ok=True)
 DEAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -65,6 +87,12 @@ class WalletLogger(CustomLogger):
         self._token_lock = asyncio.Lock()
         # user id -> (account, fetched at, needs refresh)
         self._balances: dict[str, tuple[dict[str, Any], float, bool]] = {}
+        # user id -> start times of the billable calls of the last minute
+        self._recent_calls: dict[str, deque[float]] = {}
+        # user id -> (time, cost in USD) of the calls billed during the last minute
+        self._recent_spend: dict[str, deque[tuple[float, float]]] = {}
+        # user id -> {call id: start time} of the model calls in progress
+        self._inflight: dict[str, dict[str, float]] = {}
         self._retry_task: asyncio.Task[None] | None = None
         # The module is normally imported while the server starts, inside its event
         # loop: start replaying spooled debits right away. Otherwise the first
@@ -124,6 +152,67 @@ class WalletLogger(CustomLogger):
         azp = metadata.get("azp")
         return (user_id, azp) if user_id and azp else None
 
+    # ── before the call: is the user within their rate? ──────────────────────
+
+    def _check_rate(self, user_id: str) -> None:
+        now = time.monotonic()
+        window = self._recent_calls.setdefault(user_id, deque())
+        while window and now - window[0] > RATE_WINDOW_S:
+            window.popleft()
+        if len(window) >= MAX_REQUESTS_PER_MINUTE:
+            log.warning("wallet: user %s is over %d calls per minute", user_id, MAX_REQUESTS_PER_MINUTE)
+            raise HTTPException(
+                status_code=429,
+                detail={"error": {"message": "Too many requests, slow down.", "type": "rate_limited", "code": "429"}},
+            )
+        window.append(now)
+
+    def _check_spend(self, user_id: str) -> None:
+        now = time.monotonic()
+        window = self._recent_spend.get(user_id)
+        if not window:
+            return
+        while window and now - window[0][0] > RATE_WINDOW_S:
+            window.popleft()
+        if sum(cost for _, cost in window) >= MAX_SPEND_PER_MINUTE_USD:
+            log.warning("wallet: user %s reached the spend ceiling of %s USD per minute", user_id, MAX_SPEND_PER_MINUTE_USD)
+            raise HTTPException(
+                status_code=429,
+                detail={"error": {"message": "Spending limit reached for this minute, retry shortly.", "type": "rate_limited", "code": "429"}},
+            )
+
+    def _record_spend(self, user_id: str, cost: float) -> None:
+        self._recent_spend.setdefault(user_id, deque()).append((time.monotonic(), cost))
+
+    def _acquire_slot(self, user_id: str, call_id: str) -> None:
+        now = time.monotonic()
+        calls = self._inflight.setdefault(user_id, {})
+        for stale in [c for c, started in calls.items() if now - started > INFLIGHT_TTL_S]:
+            del calls[stale]
+        if len(calls) >= MAX_CONCURRENT_CALLS:
+            log.warning("wallet: user %s already has %d calls in progress", user_id, len(calls))
+            raise HTTPException(
+                status_code=429,
+                detail={"error": {"message": "Too many simultaneous requests, wait for one to finish.", "type": "rate_limited", "code": "429"}},
+            )
+        calls[call_id] = now
+
+    def _release_slot(self, kwargs: dict[str, Any]) -> None:
+        meta = (kwargs.get("standard_logging_object") or {}).get("metadata") or {}
+        params_meta = (kwargs.get("litellm_params") or {}).get("metadata") or {}
+        calls = self._inflight.get(meta.get("user_api_key_user_id") or "")
+        if calls is not None:
+            calls.pop(params_meta.get(CALL_TAG_KEY) or "", None)
+
+    def _forget_idle_users(self) -> None:
+        now = time.monotonic()
+        for user_id in [u for u, w in self._recent_calls.items() if not w or now - w[-1] > RATE_WINDOW_S]:
+            del self._recent_calls[user_id]
+        for user_id in [u for u, w in self._recent_spend.items() if not w or now - w[-1][0] > RATE_WINDOW_S]:
+            del self._recent_spend[user_id]
+        for user_id in [u for u, calls in self._inflight.items() if not calls]:
+            del self._inflight[user_id]
+
     # ── before the call: is there credit? ────────────────────────────────────
 
     async def _account(self, user_id: str) -> dict[str, Any]:
@@ -153,17 +242,35 @@ class WalletLogger(CustomLogger):
         if identity is None or call_type in FREE_CALL_TYPES:
             return data
         self._ensure_retry_loop()
+        self._check_rate(identity[0])
+        self._check_spend(identity[0])
         account = await self._account(identity[0])
         if not account.get("canSpend"):
             raise HTTPException(
                 status_code=402,
                 detail={"error": {"message": "Insufficient credit. Top up your account to continue.", "type": "insufficient_credit", "code": "402"}},
             )
+        # A tag chosen here, never taken from the client (its own `metadata` and
+        # `x-litellm-call-id` header are untrusted), pairs the call with its
+        # completion event so the concurrency slot is released.
+        # MCP calls are only bound by the rate: their completion event does not
+        # reliably carry request metadata back, so a slot could never be released.
+        if call_type != "call_mcp_tool":
+            tag = uuid.uuid4().hex
+            metadata = data.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = data["metadata"] = {}
+            metadata[CALL_TAG_KEY] = tag
+            self._acquire_slot(identity[0], tag)
         return data
 
     # ── after the call: bill it ──────────────────────────────────────────────
 
+    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+        self._release_slot(kwargs)
+
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
+        self._release_slot(kwargs)
         await self._bill(kwargs)
 
     async def _bill(self, kwargs: dict[str, Any]) -> None:
@@ -178,23 +285,24 @@ class WalletLogger(CustomLogger):
         if cost is None:
             cost = slo.get("response_cost")
         call_id = kwargs.get("litellm_call_id") or slo.get("id")
-        if not call_id:
-            log.error("wallet: call without an id, cannot bill it safely")
-            return
         if not cost or cost <= 0:
             log.debug("wallet: %s costs nothing, nothing to bill", call_id)
             return
 
+        self._record_spend(user_id, float(cost))
         self._ensure_retry_loop()
+        item_id = uuid.uuid4().hex
         item = {
-            "id": uuid.uuid4().hex,
+            "id": item_id,
             "userId": user_id,
             "attempts": 0,
             "body": {
                 "costUsd": _cost_decimal(cost),
-                "idempotencyKey": f"litellm:{call_id}",
+                # Generated here: every delivery attempt of this item reuses it, and
+                # nothing the client sends can make two calls share a key.
+                "idempotencyKey": f"litellm:{item_id}",
                 "applicationSlug": azp,
-                "metadata": self._usage_metadata(slo, meta),
+                "metadata": {**self._usage_metadata(slo, meta), "requestId": call_id},
             },
         }
         # Written before the first attempt: a crash right after must not lose it.
@@ -273,7 +381,21 @@ class WalletLogger(CustomLogger):
                     await self._deliver(path)
                 except Exception as err:  # noqa: BLE001 - one bad file must not stop the loop
                     log.error("wallet: retry of %s failed: %s", path.name, err)
+            self._forget_idle_users()
+            self._report_backlog()
             await asyncio.sleep(RETRY_INTERVAL_S)
+
+    @staticmethod
+    def _report_backlog() -> None:
+        """Make a stuck spool visible in the logs: undelivered debits mean unbilled usage."""
+        # A debit being delivered right now is normal; one that sat through a retry is not.
+        pending = [p for p in PENDING_DIR.glob("*.json") if time.time() - p.stat().st_mtime > 2 * RETRY_INTERVAL_S]
+        dead = list(DEAD_DIR.glob("*.json"))
+        if dead:
+            log.error("wallet: %d debit(s) refused for good are waiting in %s", len(dead), DEAD_DIR)
+        if pending:
+            oldest = max(time.time() - p.stat().st_mtime for p in pending)
+            log.warning("wallet: %d debit(s) not yet delivered, oldest unchanged for %ds", len(pending), oldest)
 
 
 wallet_logger = WalletLogger()

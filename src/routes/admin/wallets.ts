@@ -8,6 +8,7 @@ import {
   getOrCreateWalletAccount,
   getUserSpendStats,
   grantCredit,
+  listGatewayUsage,
   listWalletAccounts,
   listWalletTransactions,
   recordManualTopup,
@@ -23,6 +24,7 @@ import {
   reasonSchema,
   signedAmountSchema,
   statsQuerySchema,
+  usageLedgerQuerySchema,
   userParamsSchema,
 } from "../wallet-schemas.js";
 
@@ -61,6 +63,23 @@ async function requireSuperadminActor(req: FastifyRequest): Promise<string> {
   return session.user.id;
 }
 
+/** Balance changes made by an administrator leave a trace in the logs, next to the ledger. */
+function logAdminWrite(
+  req: FastifyRequest,
+  action: string,
+  fields: {
+    actorId: string;
+    userId: string;
+    amount?: bigint;
+    replayed?: boolean;
+  },
+): void {
+  req.log.info(
+    { ...fields, amount: fields.amount?.toString() },
+    `wallet ${action}`,
+  );
+}
+
 export async function adminWalletRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
@@ -77,6 +96,12 @@ export async function adminWalletRoutes(
   fastify.get("/stats", async (req, reply) => {
     const { days } = statsQuerySchema.parse(req.query);
     await reply.send(await getAdminWalletStats(days));
+  });
+
+  // GET /api/admin/wallets/usage-ledger
+  fastify.get("/usage-ledger", async (req, reply) => {
+    const query = usageLedgerQuerySchema.parse(req.query);
+    await reply.send(await listGatewayUsage(query));
   });
 
   // GET /api/admin/wallets/users/:userId/stats
@@ -117,6 +142,12 @@ export async function adminWalletRoutes(
       actorId,
       reason: body.reason,
     });
+    logAdminWrite(req, "grant", {
+      actorId,
+      userId,
+      amount: body.amount,
+      replayed,
+    });
     await reply
       .status(replayed ? 200 : 201)
       .send({ transaction: toTransactionView(transaction), replayed });
@@ -134,6 +165,12 @@ export async function adminWalletRoutes(
       idempotencyKey: body.idempotencyKey,
       actorId,
       reference: body.reference,
+    });
+    logAdminWrite(req, "top-up", {
+      actorId,
+      userId,
+      amount: body.amount,
+      replayed,
     });
     await reply
       .status(replayed ? 200 : 201)
@@ -153,6 +190,12 @@ export async function adminWalletRoutes(
       actorId,
       reason: body.reason,
     });
+    logAdminWrite(req, "adjustment", {
+      actorId,
+      userId,
+      amount: body.amount,
+      replayed,
+    });
     await reply
       .status(replayed ? 200 : 201)
       .send({ transaction: toTransactionView(transaction), replayed });
@@ -170,6 +213,7 @@ export async function adminWalletRoutes(
       actorId,
       reason: body.reason,
     });
+    logAdminWrite(req, "unlimited access changed", { actorId, userId });
     await reply.send(toAccountView(updated));
   });
 }

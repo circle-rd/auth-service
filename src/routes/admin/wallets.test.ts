@@ -22,6 +22,7 @@ const {
   mockAdminStats,
   mockUserStats,
   mockListAccounts,
+  mockUsageLedger,
 } = vi.hoisted(() => ({
   mockGetSession: vi.fn(),
   mockGetOrCreate: vi.fn(),
@@ -33,6 +34,7 @@ const {
   mockAdminStats: vi.fn(),
   mockUserStats: vi.fn(),
   mockListAccounts: vi.fn(),
+  mockUsageLedger: vi.fn(),
 }));
 
 vi.mock("../../db/index.js", () => ({ db: {} }));
@@ -51,6 +53,7 @@ vi.mock("../../services/wallet/index.js", async (importOriginal) => ({
   getAdminWalletStats: mockAdminStats,
   getUserSpendStats: mockUserStats,
   listWalletAccounts: mockListAccounts,
+  listGatewayUsage: mockUsageLedger,
 }));
 
 const { adminWalletRoutes } = await import("./wallets.js");
@@ -418,5 +421,40 @@ describe("GET /stats and /users/:userId/stats", () => {
     await app.inject({ method: "GET", url: "/users/u1/stats?days=14" });
     expect(mockGetOrCreate).toHaveBeenCalledWith("user", "u1");
     expect(mockUserStats).toHaveBeenCalledWith("acc", 14);
+  });
+});
+
+describe("GET /usage-ledger", () => {
+  const window = "from=2026-10-10T00:00:00Z&to=2026-10-11T00:00:00Z";
+
+  it("returns the gateway usage of the window", async () => {
+    mockUsageLedger.mockResolvedValue({ items: [], nextCursor: null });
+    const res = await app.inject({
+      method: "GET",
+      url: `/usage-ledger?${window}&limit=10`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockUsageLedger).toHaveBeenCalledWith({
+      from: new Date("2026-10-10T00:00:00Z"),
+      to: new Date("2026-10-11T00:00:00Z"),
+      limit: 10,
+    });
+  });
+
+  it.each([
+    ["no window", ""],
+    [
+      "an inverted window",
+      "?from=2026-10-11T00:00:00Z&to=2026-10-10T00:00:00Z",
+    ],
+    ["a page above 1000", `?${window}&limit=1001`],
+  ])("refuses %s", async (_label, query) => {
+    mockUsageLedger.mockClear();
+    const res = await app.inject({
+      method: "GET",
+      url: `/usage-ledger${query}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockUsageLedger).not.toHaveBeenCalled();
   });
 });

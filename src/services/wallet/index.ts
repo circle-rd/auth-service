@@ -19,6 +19,7 @@ export {
 } from "./history.js";
 export { getUsdPricing, usdToMicroEur } from "./pricing.js";
 export { recordUsage } from "./usage.js";
+export { listGatewayUsage } from "./reconciliation.js";
 export {
   getAdminWalletStats,
   getUserSpendStats,

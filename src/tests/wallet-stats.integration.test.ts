@@ -12,6 +12,7 @@ import {
   getAdminWalletStats,
   getOrCreateWalletAccount,
   getUserSpendStats,
+  listGatewayUsage,
   listWalletAccounts,
 } from "../services/wallet/index.js";
 import { cleanDb } from "./helpers/db.js";
@@ -291,5 +292,80 @@ describe("a ledger written through the service", () => {
     const admin = await getAdminWalletStats(7);
     expect(admin.topUps.total).toBe("10000");
     expect(admin.totals.outstandingCredit).toBe("10000");
+  });
+});
+
+describe("listGatewayUsage", () => {
+  const WINDOW = {
+    from: new Date("2026-10-01T00:00:00Z"),
+    to: new Date("2026-10-02T00:00:00Z"),
+  };
+
+  async function usageRow(
+    accountId: string,
+    key: string,
+    at: Date,
+    over: { type?: "usage" | "topup"; metadata?: Record<string, unknown> } = {},
+  ) {
+    const type = over.type ?? "usage";
+    const amount = type === "usage" ? -100n : 100n;
+    await db.insert(walletTransactions).values({
+      accountId,
+      type,
+      amount,
+      delta: amount,
+      balanceAfter: 0n,
+      idempotencyKey: key,
+      metadata: over.metadata ?? { requestId: `call-${key}`, costUsd: "0.1" },
+      createdAt: at,
+    });
+  }
+
+  beforeEach(cleanDb);
+
+  it("lists only gateway usage inside the window, oldest first", async () => {
+    const acc = await newAccount("u-recon");
+    const at = (h: number) => new Date(`2026-10-01T${h}:00:00Z`);
+    await usageRow(acc, "litellm:b", at(11));
+    await usageRow(acc, "litellm:a", at(10));
+    await usageRow(acc, "litellm:late", new Date("2026-10-02T00:00:00Z"));
+    await usageRow(acc, "litellm:early", new Date("2026-09-30T23:59:59Z"));
+    await usageRow(acc, "manual-key", at(12));
+    await usageRow(acc, "litellm:topup", at(12), { type: "topup" });
+
+    const page = await listGatewayUsage({ ...WINDOW, limit: 100 });
+    expect(page.items.map((i) => i.requestId)).toEqual(["call-litellm:a", "call-litellm:b"]);
+    expect(page.items[0]).toMatchObject({
+      userId: "u-recon",
+      amount: "-100",
+      costUsd: "0.1",
+    });
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("exposes a missing call id as null", async () => {
+    const acc = await newAccount("u-nocall");
+    await usageRow(acc, "litellm:x", new Date("2026-10-01T10:00:00Z"), {
+      metadata: {},
+    });
+    const [entry] = (await listGatewayUsage({ ...WINDOW, limit: 10 })).items;
+    expect(entry).toMatchObject({ requestId: null, costUsd: null });
+  });
+
+  it("paginates without skipping or repeating rows", async () => {
+    const acc = await newAccount("u-pages");
+    for (let i = 0; i < 5; i += 1) {
+      // Same timestamp: the cursor must break ties on the id.
+      await usageRow(acc, `litellm:p${i}`, new Date("2026-10-01T10:00:00Z"));
+    }
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await listGatewayUsage({ ...WINDOW, limit: 2, cursor });
+      seen.push(...page.items.map((i) => i.requestId ?? ""));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen).size).toBe(5);
   });
 });

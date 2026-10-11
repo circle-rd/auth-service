@@ -99,6 +99,22 @@ export async function walletInternalRoutes(
         applicationSlug: body.applicationSlug,
         metadata: { ...body.metadata, ...pricingMetadata },
       });
+      req.log.info(
+        {
+          userId,
+          applicationSlug: body.applicationSlug,
+          amount: transaction.amount.toString(),
+          balanceAfter: transaction.balanceAfter.toString(),
+          replayed,
+        },
+        "wallet usage recorded",
+      );
+      if (!replayed && transaction.balanceAfter < 0n) {
+        req.log.warn(
+          { userId, balanceAfter: transaction.balanceAfter.toString() },
+          "wallet is in debt",
+        );
+      }
       await reply
         .status(replayed ? 200 : 201)
         .send({ transaction: toTransactionView(transaction), replayed });

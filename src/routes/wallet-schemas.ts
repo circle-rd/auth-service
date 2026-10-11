@@ -53,3 +53,12 @@ export const listTransactionsQuerySchema = z.object({
   cursor: z.string().min(1).max(512).optional(),
   type: z.enum(WALLET_TRANSACTION_TYPES).optional(),
 });
+
+export const usageLedgerQuerySchema = z
+  .object({
+    from: z.coerce.date(),
+    to: z.coerce.date(),
+    limit: z.coerce.number().int().min(1).max(1000).default(500),
+    cursor: z.string().min(1).max(512).optional(),
+  })
+  .refine((q) => q.from < q.to, "from must be before to");

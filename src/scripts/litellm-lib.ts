@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
+import type { LedgerEntry } from "./litellm-reconcile-lib.js";
 
 // ── Environment ───────────────────────────────────────────────────────────────
 
@@ -123,6 +124,19 @@ async function redirectTarget(res: Response): Promise<string> {
 const walletAccountSchema = z.object({
   balance: z.string().regex(/^-?[0-9]+$/),
   canSpend: z.boolean(),
+});
+
+const usageLedgerPageSchema = z.object({
+  items: z.array(
+    z.object({
+      requestId: z.string().nullable(),
+      userId: z.string(),
+      amount: z.string(),
+      costUsd: z.string().nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
 });
 
 const tokenResponseSchema = z.object({ access_token: z.string() });
@@ -277,6 +291,30 @@ export class AuthAdminClient {
     );
     const account = walletAccountSchema.parse(await res.json());
     return { balance: BigInt(account.balance), canSpend: account.canSpend };
+  }
+
+  /** Gateway usage debits created in `[from, to)`, oldest first. */
+  async usageLedger(from: Date, to: Date): Promise<LedgerEntry[]> {
+    const entries: LedgerEntry[] = [];
+    let cursor: string | null = null;
+    do {
+      const params = new URLSearchParams({
+        from: from.toISOString(),
+        to: to.toISOString(),
+        limit: "1000",
+      });
+      if (cursor) params.set("cursor", cursor);
+      const res = await this.expectOk(
+        await this.send(`/api/admin/wallets/usage-ledger?${params}`),
+        "Read usage ledger",
+      );
+      const page = usageLedgerPageSchema.parse(await res.json());
+      entries.push(
+        ...page.items.map((i) => ({ ...i, createdAt: new Date(i.createdAt) })),
+      );
+      cursor = page.nextCursor;
+    } while (cursor);
+    return entries;
   }
 
   /** Record credit as an administrator would for a manual invoice. */

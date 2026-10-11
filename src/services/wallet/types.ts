@@ -151,3 +151,20 @@ export interface WalletListItem {
   spent30d: string;
   updatedAt: string;
 }
+
+/** One gateway usage debit, as exposed for reconciliation. */
+export interface GatewayUsageEntry {
+  /** The gateway's call id, kept in the ledger metadata. */
+  requestId: string | null;
+  userId: string;
+  /** Micro-euros charged. */
+  amount: string;
+  /** Provider cost reported by the gateway, as recorded in the ledger. */
+  costUsd: string | null;
+  createdAt: string;
+}
+
+export interface GatewayUsagePage {
+  items: GatewayUsageEntry[];
+  nextCursor: string | null;
+}

@@ -218,6 +218,11 @@ services:
       WALLET_CLIENT_ID: litellm-wallet
       WALLET_CLIENT_SECRET: ${LITELLM_WALLET_CLIENT_SECRET:-}
       WALLET_SPOOL_DIR: /var/lib/circle-wallet
+      # Per-user ceilings of the wallet hook: billable calls per minute, spend
+      # per minute (provider dollars) and model calls in progress at once.
+      WALLET_MAX_REQUESTS_PER_MINUTE: ${WALLET_MAX_REQUESTS_PER_MINUTE:-120}
+      WALLET_MAX_SPEND_PER_MINUTE_USD: ${WALLET_MAX_SPEND_PER_MINUTE_USD:-5}
+      WALLET_MAX_CONCURRENT_CALLS: ${WALLET_MAX_CONCURRENT_CALLS:-8}
     volumes:
       # Chemin dédié : ne masque rien de ce que l'image LiteLLM place dans /app/litellm.
       - litellm_config:/app/gateway:ro

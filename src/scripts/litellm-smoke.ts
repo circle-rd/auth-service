@@ -90,12 +90,14 @@ async function main(): Promise<void> {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        ...(init.headers as Record<string, string> | undefined),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
-  const chat = (token: string | null) =>
+  const chat = (token: string | null, headers?: Record<string, string>) =>
     litellm("/v1/chat/completions", token, {
       method: "POST",
+      headers,
       body: JSON.stringify({
         model: MOCK_MODEL,
         messages: [{ role: "user", content: "ping" }],
@@ -352,6 +354,28 @@ async function main(): Promise<void> {
     await sleep(6000);
     await expectStatus("the user can call again after a top-up", 200, () =>
       chat(publicToken),
+    );
+
+    // Every call frees its concurrency slot: more sequential calls than the
+    // simultaneous-call ceiling (default 8) must all pass.
+    let sequentialOk = true;
+    for (let i = 0; i < 12; i += 1) {
+      sequentialOk = (await chat(publicToken)).status === 200 && sequentialOk;
+    }
+    report(sequentialOk, "sequential calls beyond the concurrency ceiling");
+
+    // The call id is client-controlled: reusing it must never make a call free.
+    const beforeSpoof = (await admin.getWallet(userId)).balance;
+    for (let i = 0; i < 3; i += 1) {
+      await chat(publicToken, { "x-litellm-call-id": "llm-smoke-fixed-id" });
+    }
+    report(
+      await eventually(
+        async () =>
+          (await admin.getWallet(userId)).balance <= beforeSpoof - 3n * 100n,
+        15,
+      ),
+      "calls sharing a client-chosen call id are all billed",
     );
   } finally {
     if (modelId) {

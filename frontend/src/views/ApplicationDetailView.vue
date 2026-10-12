@@ -1039,6 +1039,7 @@ const financialKpis = computed(() => {
                     { scope: 'roles', type: 'Custom', claims: 'roles[]', active: app.allowedScopes.includes('roles') },
                     { scope: 'permissions', type: 'Custom', claims: 'permissions[]', active: app.allowedScopes.includes('permissions') },
                     { scope: 'features', type: 'Custom', claims: 'features{}, plan', active: app.allowedScopes.includes('features') },
+                    { scope: 'wallet:self:read', type: 'Custom', claims: '(authorizes the user wallet API)', active: app.allowedScopes.includes('wallet:self:read') },
                     { scope: 'org', type: 'Custom', claims: 'org_id', active: app.allowedScopes.includes('org') },
                   ]" :key="row.scope">
                     <td class="py-2 pr-4">

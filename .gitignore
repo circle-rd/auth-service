@@ -32,4 +32,4 @@ FRONTEND_PROMPT.md
 templates/*
 !templates/default/
 
-compose.prod.yml
+tmp/

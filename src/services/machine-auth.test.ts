@@ -32,6 +32,7 @@ async function rejection(promise: Promise<unknown>): Promise<ApiError> {
 const verified = (overrides: Record<string, unknown> = {}) => ({
   clientId: "gateway",
   userId: null,
+  audiences: [],
   scopes: ["wallet:read"],
   ...overrides,
 });

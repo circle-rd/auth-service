@@ -1,7 +1,10 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { auth } from "./auth.js";
+import { config } from "./config.js";
+import type { ApiError } from "./errors.js";
 import { ERR } from "./errors.js";
+import { verifyBearerAccessToken } from "./services/oauth-tokens.js";
 
 /**
  * Shared Fastify authentication guards. Every admin route plugin attaches
@@ -12,6 +15,14 @@ import { ERR } from "./errors.js";
 /** The authenticated BetterAuth session, or null. */
 export async function getRequestSession(req: FastifyRequest) {
   return auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+}
+
+async function sendAuthError(
+  reply: FastifyReply,
+  error: ApiError,
+): Promise<string> {
+  await reply.status(error.statusCode).send(error.toJSON());
+  return "";
 }
 
 /**
@@ -47,10 +58,50 @@ export async function requireSession(
 ): Promise<string> {
   const session = await getRequestSession(req);
   if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return "";
+    return sendAuthError(reply, ERR.AUTH_001());
   }
   return session.user.id;
+}
+
+/**
+ * Accept either the caller's BetterAuth session or a user-bound JWT bearer
+ * token minted for this API (`aud` must include the issuer URL).
+ */
+export async function requireUserOrBearer(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  scope: string,
+): Promise<string> {
+  const authorization = req.headers.authorization;
+  if (authorization?.startsWith("Bearer ")) {
+    const verified = await verifyBearerAccessToken(authorization.slice(7));
+    if (!verified) {
+      return sendAuthError(
+        reply,
+        ERR.AUTH_001("Invalid or expired access token"),
+      );
+    }
+    if (verified.userId === null) {
+      return sendAuthError(
+        reply,
+        ERR.AUTH_011("A user-bound access token is required"),
+      );
+    }
+    if (!verified.audiences.includes(config.betterAuth.url)) {
+      return sendAuthError(
+        reply,
+        ERR.AUTH_011("Access token audience does not include this API"),
+      );
+    }
+    if (!verified.scopes.includes(scope)) {
+      return sendAuthError(
+        reply,
+        ERR.AUTH_011(`Missing required scope: ${scope}`),
+      );
+    }
+    return verified.userId;
+  }
+  return requireSession(req, reply);
 }
 
 /** Require a session and return both user id and session id, or null. */

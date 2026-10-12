@@ -829,6 +829,7 @@ export const auth = betterAuth({
         "roles",
         "permissions",
         "features",
+        "wallet:self:read",
         // org — injects org_id (activeOrganizationId) as a claim in the access token.
         // Clients that need org-scoped data should request this scope and include
         // `resource=<audience>` to receive a JWT (RFC 8707).

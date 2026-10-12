@@ -726,6 +726,7 @@ export default {
       roles: 'Read your roles',
       permissions: 'Read your permissions',
       features: 'Read your enabled features',
+      walletSelfRead: 'Read your own wallet through the API',
     },
   },
   pages: {

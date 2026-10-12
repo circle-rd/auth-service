@@ -12,7 +12,7 @@ import { ERR } from "../errors.js";
 
 import type * as WalletModule from "../services/wallet/index.js";
 const {
-  mockRequireSession,
+  mockRequireUserOrBearer,
   mockGetSession,
   mockGetOrCreate,
   mockList,
@@ -20,7 +20,7 @@ const {
   mockOptions,
   mockStats,
 } = vi.hoisted(() => ({
-  mockRequireSession: vi.fn(),
+  mockRequireUserOrBearer: vi.fn(),
   mockGetSession: vi.fn(),
   mockGetOrCreate: vi.fn(),
   mockList: vi.fn(),
@@ -31,7 +31,7 @@ const {
 
 vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../middleware.js", () => ({
-  requireSession: mockRequireSession,
+  requireUserOrBearer: mockRequireUserOrBearer,
   getRequestSession: mockGetSession,
 }));
 vi.mock("../services/wallet/index.js", async (importOriginal) => ({
@@ -55,7 +55,7 @@ beforeAll(async () => {
 afterAll(() => app.close());
 
 beforeEach(() => {
-  mockRequireSession.mockReset().mockResolvedValue("user-1");
+  mockRequireUserOrBearer.mockReset().mockResolvedValue("user-1");
   mockGetOrCreate
     .mockReset()
     .mockResolvedValue({ id: "acc", balance: 42n, isUnlimited: true });
@@ -76,12 +76,13 @@ beforeEach(() => {
 });
 
 function signedOut() {
-  mockRequireSession.mockImplementation(
+  mockRequireUserOrBearer.mockImplementation(
     async (
       _req: unknown,
       reply: {
         status: (n: number) => { send: (b: unknown) => Promise<unknown> };
       },
+      _scope: string,
     ) => {
       await reply.status(401).send(ERR.AUTH_001().toJSON());
       return "";
@@ -92,6 +93,11 @@ function signedOut() {
 describe("GET /", () => {
   it("returns the caller's own wallet", async () => {
     const res = await app.inject({ method: "GET", url: "/" });
+    expect(mockRequireUserOrBearer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "wallet:self:read",
+    );
     expect(mockGetOrCreate).toHaveBeenCalledWith("user", "user-1");
     expect(res.json()).toEqual({
       balance: "42",
@@ -116,6 +122,11 @@ describe("GET /transactions", () => {
       method: "GET",
       url: "/transactions?limit=5&cursor=abc&type=usage",
     });
+    expect(mockRequireUserOrBearer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "wallet:self:read",
+    );
     expect(mockList).toHaveBeenCalledWith({
       accountId: "acc",
       limit: 5,
@@ -148,6 +159,11 @@ describe("GET /transactions", () => {
 describe("GET /topup-options", () => {
   it("returns the online top-up options to a signed-in user", async () => {
     const res = await app.inject({ method: "GET", url: "/topup-options" });
+    expect(mockRequireUserOrBearer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "wallet:self:read",
+    );
     expect(res.json()).toEqual({
       enabled: true,
       currency: "eur",
@@ -171,6 +187,7 @@ describe("POST /checkout", () => {
       payload: { amountCents: 1000, userId: "someone-else" },
     });
     expect(res.statusCode).toBe(201);
+    expect(mockRequireUserOrBearer).not.toHaveBeenCalled();
     expect(res.json()).toEqual({ url: "https://checkout.test/s" });
     expect(mockCheckout).toHaveBeenCalledWith({
       userId: "user-1",
@@ -218,6 +235,11 @@ describe("GET /stats", () => {
   it("returns the caller's spend over 30 days by default", async () => {
     mockStats.mockResolvedValue({ days: 30, total: "1700", calls: 3 });
     const res = await app.inject({ method: "GET", url: "/stats" });
+    expect(mockRequireUserOrBearer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "wallet:self:read",
+    );
     expect(mockStats).toHaveBeenCalledWith("acc", 30);
     expect(res.json()).toEqual({ days: 30, total: "1700", calls: 3 });
   });

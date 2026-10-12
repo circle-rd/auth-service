@@ -40,6 +40,7 @@ describe("consumption routes – auth and validation", () => {
     verifyMock.mockResolvedValue({
       clientId: "test-app",
       userId: null,
+      audiences: [],
       scopes: [],
     });
     const res = await app.inject({
@@ -55,6 +56,7 @@ describe("consumption routes – auth and validation", () => {
     verifyMock.mockResolvedValue({
       clientId: "test-app",
       userId: null,
+      audiences: [],
       scopes: [],
     });
     const res = await app.inject({
@@ -82,6 +84,7 @@ describe("consumption routes – auth and validation", () => {
     verifyMock.mockResolvedValue({
       clientId: "test-app",
       userId: "user-1",
+      audiences: [],
       scopes: [],
     });
     const res = await app.inject({

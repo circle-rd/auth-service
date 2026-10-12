@@ -32,6 +32,7 @@ const SCOPE_LABELS: Record<string, { key: string }> = {
   roles:          { key: 'consent.scopes.roles' },
   permissions:    { key: 'consent.scopes.permissions' },
   features:       { key: 'consent.scopes.features' },
+  'wallet:self:read': { key: 'consent.scopes.walletSelfRead' },
 };
 
 const appName = ref('');

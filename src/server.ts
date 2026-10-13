@@ -312,9 +312,14 @@ export async function buildServer(): Promise<FastifyInstance> {
         query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
 
       const encodedRedirect = encodeURIComponent(redirectTo);
+      // Back to the application's own sign-in, which only the client_id names
+      // when the request was not a signed OAuth one: without it `/login` is the
+      // service's own sign-in.
       const loginUrl = oauthQuery
         ? `/login?${oauthQuery}`
-        : `/login?redirectTo=${encodedRedirect}`;
+        : `/login?redirectTo=${encodedRedirect}${
+            appSlug ? `&client_id=${encodeURIComponent(appSlug)}` : ""
+          }`;
       const registerUrl =
         allowRegister && oauthQuery
           ? `/register?${oauthQuery}`

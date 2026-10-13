@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { ShieldCheck, Key as KeyIcon, ArrowLeft } from 'lucide-vue-next';
 import { useAuthStore } from '@/stores/auth';
 import BaseInput from '@/components/ui/BaseInput.vue';
+import OtpInput from '@/components/ui/OtpInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 
 const emit = defineEmits<{ verified: [] }>();
@@ -18,9 +19,11 @@ const code = ref('');
 const loading = ref(false);
 const error = ref('');
 
+const TOTP_LENGTH = 6;
+
 async function handleSubmit() {
   const trimmed = code.value.trim();
-  if (!trimmed) return;
+  if (!trimmed || loading.value) return;
   loading.value = true;
   error.value = '';
   try {
@@ -63,17 +66,33 @@ function cancel() {
       </div>
     </div>
 
-    <BaseInput
+    <OtpInput
+      v-if="mode === 'totp'"
       v-model="code"
-      :label="mode === 'totp' ? t('mfa.code') : t('mfa.backupCodes.label')"
-      :placeholder="mode === 'totp' ? t('mfa.codePlaceholder') : t('mfa.backupCodes.placeholder')"
+      :length="TOTP_LENGTH"
+      :label="t('mfa.code')"
       :error="error"
-      :inputmode="mode === 'totp' ? 'numeric' : 'text'"
+      :disabled="loading"
+      @complete="handleSubmit"
+    />
+    <BaseInput
+      v-else
+      v-model="code"
+      :label="t('mfa.backupCodes.label')"
+      :placeholder="t('mfa.backupCodes.placeholder')"
+      :error="error"
       autocomplete="one-time-code"
       @keyup.enter="handleSubmit"
     />
 
-    <BaseButton type="button" class="w-full" :loading="loading" :disabled="!code" size="lg" @click="handleSubmit">
+    <BaseButton
+      type="button"
+      class="w-full"
+      :loading="loading"
+      :disabled="mode === 'totp' ? code.length !== TOTP_LENGTH : !code"
+      size="lg"
+      @click="handleSubmit"
+    >
       <ShieldCheck class="w-4 h-4" />
       {{ t('mfa.challenge.verify') }}
     </BaseButton>

@@ -250,7 +250,7 @@
                 <div class="form-group">
                   <div class="label-row">
                     <label for="password">Password</label>
-                    <a class="label-link" href="/forgot-password">Forgot password?</a>
+                    <a class="label-link" id="forgot-link" href="/forgot-password">Forgot password?</a>
                   </div>
                   <input id="password" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
                 </div>
@@ -318,6 +318,10 @@
     const registerFtr = document.getElementById('register-footer');
     // Injected as a real boolean literal (true/false), not a quoted string.
     const allowRegister = <%~ it.ALLOW_REGISTER %>;
+
+    // The reset screens resume this sign-in afterwards: keep the OAuth parameters.
+    const forgotOauthQuery = document.getElementById('login-form').oauthQuery.value;
+    if (forgotOauthQuery) document.getElementById('forgot-link').href = '/forgot-password?' + forgotOauthQuery;
 
     // ── Step 1: sign-in form ──────────────────────────────────────────
     const form      = document.getElementById('login-form');

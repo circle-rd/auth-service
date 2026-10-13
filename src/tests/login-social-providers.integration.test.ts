@@ -36,6 +36,7 @@ describe("Login page social providers (integration)", () => {
     dir = mkdtempSync(join(tmpdir(), "login-social-"));
     mkdirSync(join(dir, "default"), { recursive: true });
     writeFileSync(join(dir, "default", "login.html"), "<%~ it.SOCIAL_PROVIDERS_JSON %>");
+    writeFileSync(join(dir, "default", "verify-email.html"), "<%~ it.LOGIN_URL %>");
     mutable.templatesDir = dir;
     mutable.providers = {
       ...originalProviders,
@@ -76,5 +77,14 @@ describe("Login page social providers (integration)", () => {
 
   it("offers none for an unknown client_id", async () => {
     expect(await providersOf("?client_id=does-not-exist")).toEqual([]);
+  });
+
+  it("sends an application's pages back to its own sign-in, not the service's", async () => {
+    const link = async (query: string) =>
+      (await handle.app.inject({ method: "GET", url: `/verify-email${query}` })).body.trim();
+    expect(await link("?client_id=inherits&redirectTo=/x")).toBe(
+      "/login?redirectTo=%2Fx&client_id=inherits",
+    );
+    expect(await link("?redirectTo=/x")).toBe("/login?redirectTo=%2Fx");
   });
 });

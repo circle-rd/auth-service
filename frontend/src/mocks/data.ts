@@ -379,6 +379,7 @@ const DEMO_APPS: Application[] = [
   appRecord({ id: 'a0000001-0000-4000-8000-000000000002', name: 'Docs Assistant', slug: 'docs-assistant', description: 'Answers questions about the documentation.', allowedResources: ['https://llm.example.com'], createdAt: daysAgo(64) }),
   appRecord({ id: 'a0000001-0000-4000-8000-000000000003', name: 'Billing Portal', slug: 'billing-portal', description: 'Invoices, plans and payment methods.', isPublic: false, isMfaRequired: true, createdAt: daysAgo(150) }),
   appRecord({ id: 'a0000001-0000-4000-8000-000000000004', name: 'LiteLLM gateway', slug: 'litellm', description: 'LLM and MCP gateway (protected resource).', isPublic: false, isSystem: true, allowRegister: false, url: 'https://llm.example.com', redirectUris: [], createdAt: daysAgo(30) }),
+  appRecord({ id: 'a0000001-0000-4000-8000-000000000005', name: 'Auth Service API', slug: 'auth-service', description: 'Protected resource for auth-service user APIs.', isPublic: false, isSystem: true, allowRegister: false, url: 'https://auth.example.com', redirectUris: [], createdAt: daysAgo(30) }),
 ];
 
 const NAMES = [

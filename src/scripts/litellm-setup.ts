@@ -14,11 +14,12 @@ import {
   type AdminApplication,
   type ScriptEnv,
 } from "./litellm-lib.js";
-
-const GATEWAY_SLUG = "litellm";
+import {
+  LITELLM_GATEWAY_SLUG as GATEWAY_SLUG,
+  LITELLM_UI_SLUG as UI_SLUG,
+} from "../services/system-apps.js";
 
 // Sign-in to the LiteLLM admin interface through auth-service (generic OIDC).
-const UI_SLUG = "litellm-ui";
 const UI_SCOPES = ["openid", "profile", "email", "roles"];
 
 function out(line: string): void {

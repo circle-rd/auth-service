@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { createApplication, updateApplication } from '@/api/applications';
+import { createApplication, listApplications, updateApplication } from '@/api/applications';
 import { getServicesConfig } from '@/api/services';
 import type { Application, ServicesConfig } from '@/types';
 import { useToast } from '@/composables/useToast';
@@ -27,7 +27,57 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
-const SCOPES = ['openid', 'profile', 'email', 'phone', 'offline_access', 'roles', 'permissions', 'features', 'wallet:self:read', 'org'];
+// ── LiteLLM support ──────────────────────────────────────────────────────
+// One switch stands for three settings: the gateway and Auth Service resources,
+// and the wallet scope. They live in the regular arrays so nothing is lost on
+// save, but are hidden from the resource list and the scope chips.
+const litellmUrls = ref<string[]>([]);
+const litellmAvailable = computed(() => litellmUrls.value.length === 2);
+const litellmEnabled = ref(false);
+
+async function loadLitellmUrls() {
+  try {
+    const { applications } = await listApplications();
+    const urls = [GATEWAY_SLUG, AUTH_SERVICE_SLUG].map(
+      (slug) => applications.find((a) => a.slug === slug)?.url ?? null,
+    );
+    litellmUrls.value = urls.every((u): u is string => !!u) ? urls : [];
+  } catch {
+    litellmUrls.value = [];
+  }
+}
+
+const litellmSupport = computed({
+  get: () => litellmEnabled.value,
+  set: (on: boolean) => {
+    litellmEnabled.value = on;
+    const f = form.value;
+    if (on) {
+      for (const url of litellmUrls.value) {
+        if (!f.allowedResources.includes(url)) f.allowedResources.push(url);
+      }
+      if (!f.allowedScopes.includes(WALLET_SCOPE)) f.allowedScopes.push(WALLET_SCOPE);
+    } else {
+      f.allowedResources = f.allowedResources.filter((u) => !litellmUrls.value.includes(u));
+      f.allowedScopes = f.allowedScopes.filter((sc) => sc !== WALLET_SCOPE);
+    }
+  },
+});
+
+// Indexes of the resources the user manages by hand (the LiteLLM ones are hidden while it is on).
+const visibleResourceIndexes = computed(() =>
+  form.value.allowedResources.flatMap((url, i) =>
+    litellmEnabled.value && litellmUrls.value.includes(url) ? [] : [i],
+  ),
+);
+
+// `wallet:self:read` is not listed: the LiteLLM option manages it.
+const SCOPES = ['openid', 'profile', 'email', 'phone', 'offline_access', 'roles', 'permissions', 'features', 'org'];
+const WALLET_SCOPE = 'wallet:self:read';
+// System applications whose `url` is the resource identifier (RFC 8707) of the
+// LLM gateway and of the Auth Service API.
+const GATEWAY_SLUG = 'litellm';
+const AUTH_SERVICE_SLUG = 'auth-service';
 const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type ProviderKey = (typeof ALL_PROVIDERS)[number];
 
@@ -90,6 +140,7 @@ watch(
   () => props.open,
   async (open) => {
     if (!open) return;
+    const urlsLoaded = loadLitellmUrls();
     if (!services.value) {
       try {
         services.value = await getServicesConfig();
@@ -97,7 +148,10 @@ watch(
         services.value = null;
       }
     }
+    await urlsLoaded;
     const a = props.application;
+    litellmEnabled.value =
+      !!a && litellmAvailable.value && (a.allowedResources ?? []).includes(litellmUrls.value[0]!);
     if (a) {
       form.value = {
         name: a.name,
@@ -311,6 +365,7 @@ async function submit() {
     @close="emit('close')"
   >
     <form @submit.prevent="submit" class="space-y-5">
+      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionGeneral') }}</h3>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <BaseInput v-model="form.name" :label="t('applications.name')" required />
         <BaseInput
@@ -325,9 +380,9 @@ async function submit() {
         <BaseInput v-model="form.url" :label="t('applications.url')" placeholder="https://app.example.com" />
         <BaseInput v-model="form.icon" :label="t('applications.icon')" placeholder="https://..." />
       </div>
-
+      <div class="border-t border-surface-800/60"></div>
+      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionOptions') }}</h3>
       <div class="pt-1">
-        <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-3">Options</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
           <BaseToggle v-model="form.isActive" :label="t('applications.isActive')" />
           <BaseToggle
@@ -345,8 +400,17 @@ async function submit() {
             :description="t('applications.enableEndSessionHint')"
           />
         </div>
+        <BaseToggle
+          v-model="litellmSupport"
+          class="mt-4"
+          :label="t('applications.litellmSupport')"
+          :description="litellmAvailable ? t('applications.litellmSupportHint') : t('applications.litellmUnavailable')"
+          :disabled="!litellmAvailable"
+        />
       </div>
 
+      <div class="border-t border-surface-800/60"></div>
+      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionAuthorization') }}</h3>
       <div>
         <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
           {{ t('applications.allowedScopes') }}
@@ -365,45 +429,6 @@ async function submit() {
             ]"
           >
             {{ scope }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="enabledProvidersGlobally.length > 0">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-            {{ t('applications.socialProviders') }}
-          </p>
-          <button
-            v-if="form.enabledSocialProviders !== null"
-            type="button"
-            @click="inheritProviders"
-            class="text-xs text-primary-400 hover:text-primary-300 font-medium"
-          >
-            {{ t('applications.inheritProviders') }}
-          </button>
-        </div>
-        <p class="text-xs text-surface-500 mb-2">
-          {{
-            form.enabledSocialProviders === null
-              ? t('applications.providersInherited')
-              : t('applications.providersOverridden')
-          }}
-        </p>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            v-for="p in enabledProvidersGlobally"
-            :key="p"
-            type="button"
-            @click="toggleProvider(p)"
-            :class="[
-              'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize',
-              isProviderSelected(p)
-                ? 'bg-primary-600/20 border-primary-500/40 text-primary-300'
-                : 'bg-surface-800/60 border-surface-700/60 text-surface-500 hover:border-surface-500 hover:text-surface-300',
-            ]"
-          >
-            {{ p }}
           </button>
         </div>
       </div>
@@ -506,7 +531,7 @@ async function submit() {
         </p>
         <div class="space-y-2">
           <div
-            v-for="(_, i) in form.allowedResources"
+            v-for="i in visibleResourceIndexes"
             :key="i"
             class="flex gap-2"
           >
@@ -523,6 +548,47 @@ async function submit() {
               ✕
             </button>
           </div>
+        </div>
+      </div>
+
+      <div class="border-t border-surface-800/60"></div>
+      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionAdvanced') }}</h3>
+      <div v-if="enabledProvidersGlobally.length > 0">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
+            {{ t('applications.socialProviders') }}
+          </p>
+          <button
+            v-if="form.enabledSocialProviders !== null"
+            type="button"
+            @click="inheritProviders"
+            class="text-xs text-primary-400 hover:text-primary-300 font-medium"
+          >
+            {{ t('applications.inheritProviders') }}
+          </button>
+        </div>
+        <p class="text-xs text-surface-500 mb-2">
+          {{
+            form.enabledSocialProviders === null
+              ? t('applications.providersInherited')
+              : t('applications.providersOverridden')
+          }}
+        </p>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="p in enabledProvidersGlobally"
+            :key="p"
+            type="button"
+            @click="toggleProvider(p)"
+            :class="[
+              'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize',
+              isProviderSelected(p)
+                ? 'bg-primary-600/20 border-primary-500/40 text-primary-300'
+                : 'bg-surface-800/60 border-surface-700/60 text-surface-500 hover:border-surface-500 hover:text-surface-300',
+            ]"
+          >
+            {{ p }}
+          </button>
         </div>
       </div>
 

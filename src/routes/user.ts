@@ -64,6 +64,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         and(
           eq(userApplications.userId, userId),
           eq(userApplications.isActive, true),
+          eq(applications.isSystem, false),
         ),
       )
       .orderBy(applications.name);

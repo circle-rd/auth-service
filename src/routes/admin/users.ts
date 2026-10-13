@@ -23,6 +23,7 @@ import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
 import { getCallerRole, requireAdmin } from "../../middleware.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
 import { publishEvent } from "../../services/event-bus.js";
+import { presentUserApplications } from "../../services/system-apps.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = z.object({
@@ -103,6 +104,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
           name: applications.name,
           slug: applications.slug,
           icon: applications.icon,
+          isSystem: applications.isSystem,
         })
         .from(userApplications)
         .innerJoin(
@@ -115,15 +117,23 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             eq(userApplications.isActive, true),
           ),
         );
+      const rowsByUser = new Map<string, typeof accessRows>();
       for (const row of accessRows) {
-        const list = appsByUser.get(row.userId) ?? [];
-        list.push({
-          id: row.id,
-          name: row.name,
-          slug: row.slug,
-          icon: row.icon,
-        });
-        appsByUser.set(row.userId, list);
+        rowsByUser.set(row.userId, [
+          ...(rowsByUser.get(row.userId) ?? []),
+          row,
+        ]);
+      }
+      for (const [uid, rows] of rowsByUser) {
+        appsByUser.set(
+          uid,
+          presentUserApplications(rows).map(({ id, name, slug, icon }) => ({
+            id,
+            name,
+            slug,
+            icon,
+          })),
+        );
       }
 
       const lastLogins = await db
@@ -312,6 +322,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         name: applications.name,
         slug: applications.slug,
         icon: applications.icon,
+        isSystem: applications.isSystem,
         isActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
         subscriptionPlanName: subscriptionPlans.name,
@@ -364,7 +375,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
-    const appsWithRoles = appAccess.map((app) => ({
+    const appsWithRoles = presentUserApplications(appAccess).map((app) => ({
       ...app,
       roles: rolesByApp.get(app.id) ?? [],
       lastLoginAt: lastLoginByApp.get(app.id) ?? null,

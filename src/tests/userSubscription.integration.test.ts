@@ -141,6 +141,29 @@ describe("userRoutes — GET /subscription", () => {
     expect(body.subscriptions[0]!.plan).toBeNull();
   });
 
+  it("200 hides the infrastructure (system) applications of the user", async () => {
+    await seedUser();
+    const visible = await seedApp("visible-app");
+    const [system] = await db
+      .insert(applications)
+      .values({
+        name: "LiteLLM admin interface",
+        slug: "litellm-ui",
+        isActive: true,
+        isSystem: true,
+      })
+      .returning();
+    await grantAccess("user-1", visible.id);
+    await grantAccess("user-1", system!.id);
+    asUser();
+    const res = await app.inject({ method: "GET", url: "/subscription" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ subscriptions: Array<{ applicationSlug: string }> }>();
+    expect(body.subscriptions.map((s) => s.applicationSlug)).toEqual([
+      "visible-app",
+    ]);
+  });
+
   it("200 with plan details when subscription plan is assigned", async () => {
     await seedUser();
     const a = await seedApp();

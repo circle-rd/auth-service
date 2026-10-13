@@ -2,6 +2,13 @@
 
 LiteLLM's native JWT auth is Enterprise-only, so this hook is wired through
 `general_settings.custom_auth`.
+
+Each application with LiteLLM support has a gateway team named after its slug
+(the token's `azp`), created closed by auth-service. A gateway administrator
+gives the team its models, MCP servers, budget and limits in the LiteLLM UI. The
+team is read here and copied onto the request identity, because with a custom
+auth LiteLLM does not apply the team's block, rate limits or MCP permissions by
+itself (model access and budget are checked, see `custom_auth_run_common_checks`).
 """
 
 import asyncio
@@ -14,7 +21,6 @@ import httpx
 import jwt
 from fastapi import Request
 from litellm.proxy._types import (
-    LiteLLM_ObjectPermissionTable,
     LitellmUserRoles,
     ProxyException,
     UserAPIKeyAuth,
@@ -38,10 +44,6 @@ _required_env("LITELLM_SALT_KEY")
 # auth-service signs access tokens with EdDSA only.
 ALGORITHMS = ["EdDSA"]
 REFRESH_COOLDOWN_S = 30
-
-# MCP servers registered in this access group are available to every signed-in
-# user; any other server stays private to administrators.
-MCP_USER_ACCESS_GROUP = os.environ.get("MCP_USER_ACCESS_GROUP", "circle-users")
 
 # Per-server MCP routes (/{server}/mcp) are not part of LiteLLM's LLM route list.
 MCP_SERVER_ROUTE_RE = re.compile(r"^/[^/]+/mcp(/.*)?$")
@@ -78,6 +80,35 @@ async def _signing_key(kid: str) -> jwt.PyJWK:
     if kid not in _keys:
         raise _reject("Unknown signing key")
     return _keys[kid]
+
+
+def _forbid(message: str, param: str) -> ProxyException:
+    return ProxyException(message=message, type="auth_error", param=param, code=403)
+
+
+async def _application_team(app_slug: str):
+    """The gateway team of the calling application; 403 while it has none."""
+    # Imported late: the proxy module is still loading when this file is imported.
+    from litellm.proxy.auth.auth_checks import get_team_object
+    from litellm.proxy.proxy_server import (
+        prisma_client,
+        proxy_logging_obj,
+        user_api_key_cache,
+    )
+
+    try:
+        return await get_team_object(
+            team_id=app_slug,
+            prisma_client=prisma_client,
+            user_api_key_cache=user_api_key_cache,
+            proxy_logging_obj=proxy_logging_obj,
+        )
+    except Exception:
+        raise _forbid(
+            f"Application '{app_slug}' has no team on this gateway: "
+            "ask an administrator to enable LiteLLM support for it",
+            "team",
+        ) from None
 
 
 async def user_api_key_auth(
@@ -128,13 +159,20 @@ async def user_api_key_auth(
             code=403,
         )
 
+    team = await _application_team(claims["azp"])
     return UserAPIKeyAuth(
         api_key=f"jwt:{claims['sub']}",
         user_id=claims["sub"],
         user_role=LitellmUserRoles.CUSTOMER,
-        object_permission=LiteLLM_ObjectPermissionTable(
-            object_permission_id=f"{MCP_USER_ACCESS_GROUP}-access",
-            mcp_access_groups=[MCP_USER_ACCESS_GROUP],
-        ),
+        team_id=team.team_id,
+        team_blocked=team.blocked,
+        team_models=team.models,
+        team_rpm_limit=team.rpm_limit,
+        team_tpm_limit=team.tpm_limit,
+        team_max_budget=team.max_budget,
+        team_spend=team.spend,
+        team_metadata=team.metadata,
+        team_object_permission_id=team.object_permission_id,
+        team_object_permission=getattr(team, "object_permission", None),
         metadata={"azp": claims["azp"]},
     )

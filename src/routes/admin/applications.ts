@@ -37,6 +37,10 @@ import {
 } from "../../services/oauth-tokens.js";
 import { getRequestSession, requireAdmin } from "../../middleware.js";
 import { publishEvent } from "../../services/event-bus.js";
+import {
+  ensureTeamBeforeSave,
+  retireTeamAfterSave,
+} from "../../services/litellm-sync.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -322,6 +326,7 @@ export async function applicationRoutes(
     if (existing) throw ERR.APP_003();
 
     await assertAllowedResources(data.allowedResources, data.url ?? null);
+    await ensureTeamBeforeSave(data, []);
 
     // Generate and hash the client secret (only for confidential clients)
     const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
@@ -529,6 +534,8 @@ export async function applicationRoutes(
     const [before] = await db
       .select({
         url: applications.url,
+        slug: applications.slug,
+        name: applications.name,
         allowedResources: applications.allowedResources,
       })
       .from(applications)
@@ -541,6 +548,17 @@ export async function applicationRoutes(
     await assertAllowedResources(
       parsed.data.allowedResources ?? before.allowedResources,
       parsed.data.url !== undefined ? parsed.data.url : before.url,
+    );
+
+    // The gateway team must exist before an application gets LiteLLM support.
+    await ensureTeamBeforeSave(
+      {
+        slug: before.slug,
+        name: parsed.data.name ?? before.name,
+        allowedResources:
+          parsed.data.allowedResources ?? before.allowedResources,
+      },
+      before.allowedResources,
     );
 
     // `enableEndSession` and `postLogoutRedirectUris` live exclusively on the
@@ -606,6 +624,12 @@ export async function applicationRoutes(
       allowedResources: app.allowedResources,
     });
 
+    await retireTeamAfterSave(
+      app.slug,
+      before.allowedResources,
+      app.allowedResources,
+    );
+
     const view = await fetchOauthClientView(app.slug);
     publishEvent("application.changed");
     await reply.send({ application: mergeOauthView(app, view) });
@@ -615,7 +639,10 @@ export async function applicationRoutes(
   // All related rows (roles, plans, user_applications, etc.) are cascade-deleted via FK constraints.
   fastify.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
     const [existing] = await db
-      .select({ isSystem: applications.isSystem })
+      .select({
+        isSystem: applications.isSystem,
+        allowedResources: applications.allowedResources,
+      })
       .from(applications)
       .where(eq(applications.id, req.params.id))
       .limit(1);
@@ -642,6 +669,8 @@ export async function applicationRoutes(
     if (deleted.url) {
       removeCorsOrigin(deleted.url);
     }
+
+    await retireTeamAfterSave(deleted.slug, existing.allowedResources, null);
 
     publishEvent("application.changed");
 

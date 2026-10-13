@@ -295,7 +295,7 @@ export default {
     sectionAuthorization: 'Authorization',
     sectionAdvanced: 'Advanced',
     litellmSupport: 'LiteLLM support',
-    litellmSupportHint: 'Lets this application call the LLM gateway with its users\u2019 tokens and read their credit. Adds the gateway and Auth Service resources and the wallet scope.',
+    litellmSupportHint: 'Lets this application call the LLM gateway with its users\u2019 tokens and read their credit. Adds the gateway and Auth Service resources and the wallet scope, and creates the application\u2019s team on the gateway: closed until an administrator grants it models in LiteLLM.',
     litellmUnavailable: 'LiteLLM is not provisioned on this deployment (the litellm and auth-service system applications are missing).',
     enabledSocialProviders: 'Social providers',
     socialProviders: 'Social providers',

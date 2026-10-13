@@ -17,6 +17,7 @@ import { applications } from "./db/schema.js";
 import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
+import { startLitellmReconciler } from "./services/litellm-sync.js";
 
 async function start(): Promise<void> {
   // Run migrations automatically in production; in dev use `pnpm db:push`
@@ -67,6 +68,7 @@ async function start(): Promise<void> {
 
   await fastify.listen({ port: config.port, host: config.host });
   fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
+  startLitellmReconciler();
 }
 
 start().catch((err) => {

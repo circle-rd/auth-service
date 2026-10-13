@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ensureDatabase } from "./litellm-database.js";
 import {
   AuthAdminClient,
   WALLET_CLIENT_SLUG,
@@ -11,6 +12,8 @@ import {
   removeEnvValue,
   replaceEnvValue,
   resolveSecret,
+  shellQuote,
+  ssoGatewayEnv,
   type AdminApplication,
   type ScriptEnv,
 } from "./litellm-lib.js";
@@ -150,8 +153,9 @@ function setStateValues(
 
 /**
  * Let administrators sign in to the LiteLLM interface with their auth-service
- * account. The gateway reads `GENERIC_CLIENT_ID` / `GENERIC_CLIENT_SECRET` from
- * the state file: writing them turns the sign-in on, removing them turns it off.
+ * account. The gateway reads the whole `GENERIC_*` configuration (see
+ * `ssoGatewayEnv`) from the state file: writing it turns the sign-in on, removing
+ * it turns it off.
  * The application is private, so only users granted access in auth-service can
  * sign in: the `admin` role of the application makes a LiteLLM administrator,
  * the `user` role a read-only viewer. Creating the application gives its creator
@@ -164,12 +168,18 @@ async function ensureUiSso(
   statePath: string,
   adminUserId: string,
 ): Promise<void> {
+  const sso = ssoGatewayEnv({
+    gatewayPublicUrl: env.LITELLM_PUBLIC_URL,
+    authPublicUrl: env.BETTER_AUTH_URL,
+    authInternalUrl: env.authUrl,
+  });
   if (env.LITELLM_SSO_ENABLED === "false") {
     setStateValues(statePath, (c) =>
-      removeEnvValue(
-        removeEnvValue(c, "GENERIC_CLIENT_ID"),
+      [
+        "GENERIC_CLIENT_ID",
         "GENERIC_CLIENT_SECRET",
-      ),
+        ...Object.keys(sso),
+      ].reduce(removeEnvValue, c),
     );
     out("✓ Admin interface sign-in through auth-service is turned off");
     return;
@@ -229,11 +239,13 @@ async function ensureUiSso(
     out(`✓ Issued a new secret for "${UI_SLUG}"`);
   }
   setStateValues(statePath, (c) =>
-    replaceEnvValue(
-      replaceEnvValue(c, "GENERIC_CLIENT_ID", UI_SLUG),
-      "GENERIC_CLIENT_SECRET",
-      secret,
-    ),
+    Object.entries({
+      ...Object.fromEntries(
+        Object.entries(sso).map(([key, value]) => [key, shellQuote(value)]),
+      ),
+      GENERIC_CLIENT_ID: UI_SLUG,
+      GENERIC_CLIENT_SECRET: secret,
+    }).reduce((acc, [key, value]) => replaceEnvValue(acc, key, value), c),
   );
   out("✓ Admin interface sign-in through auth-service is on");
 }
@@ -258,6 +270,16 @@ async function main(): Promise<void> {
     process.env.LITELLM_STATE_FILE ?? process.env.DOTENV_CONFIG_PATH ?? ".env",
   );
   ensureSecrets(envPath);
+
+  // Set by the compose file only: a checkout has its own database setup.
+  if (env.LITELLM_DB_ADMIN_URL) {
+    const outcome = await ensureDatabase(env.LITELLM_DB_ADMIN_URL, "litellm");
+    out(
+      outcome === "created"
+        ? '✓ Created the "litellm" database'
+        : '✓ "litellm" database already exists',
+    );
+  }
 
   const client = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
   const adminUserId = await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);

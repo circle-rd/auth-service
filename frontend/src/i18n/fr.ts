@@ -295,7 +295,7 @@ export default {
     sectionAuthorization: 'Autorisation',
     sectionAdvanced: 'Avanc\u00e9',
     litellmSupport: 'Support LiteLLM',
-    litellmSupportHint: 'Permet \u00e0 cette application d\u2019appeler la passerelle LLM avec les tokens de ses utilisateurs et de lire leur cr\u00e9dit. Ajoute les ressources de la passerelle et d\u2019Auth Service ainsi que le scope wallet.',
+    litellmSupportHint: 'Permet \u00e0 cette application d\u2019appeler la passerelle LLM avec les tokens de ses utilisateurs et de lire leur cr\u00e9dit. Ajoute les ressources de la passerelle et d\u2019Auth Service ainsi que le scope wallet, et cr\u00e9e l\u2019\u00e9quipe de l\u2019application sur la passerelle : ferm\u00e9e tant qu\u2019un administrateur ne lui a pas accord\u00e9 de mod\u00e8les dans LiteLLM.',
     litellmUnavailable: 'LiteLLM n\u2019est pas provisionn\u00e9 sur ce d\u00e9ploiement (les applications syst\u00e8me litellm et auth-service sont absentes).',
     enabledSocialProviders: 'Fournisseurs sociaux',
     socialProviders: 'Fournisseurs sociaux',

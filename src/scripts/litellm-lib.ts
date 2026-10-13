@@ -13,6 +13,7 @@ const scriptEnvSchema = z.object({
   LITELLM_URL: z.string().url().optional(),
   LITELLM_MASTER_KEY: z.string().min(1).optional(),
   LITELLM_WALLET_CLIENT_SECRET: z.string().min(1).optional(),
+  LITELLM_DB_ADMIN_URL: z.string().url().optional(),
   LITELLM_SSO_ENABLED: z.enum(["true", "false"]).default("true"),
 });
 
@@ -107,7 +108,7 @@ export function replaceEnvValue(
 ): string {
   const assignment = new RegExp(`^${key}=.*$`, "m");
   if (assignment.test(content)) {
-    return content.replace(assignment, `${key}=${value}`);
+    return content.replace(assignment, () => `${key}=${value}`);
   }
   const separator = content === "" || content.endsWith("\n") ? "" : "\n";
   return `${content}${separator}${key}=${value}\n`;
@@ -116,6 +117,55 @@ export function replaceEnvValue(
 /** Return `content` without any `KEY=` assignment. */
 export function removeEnvValue(content: string, key: string): string {
   return content.replace(new RegExp(`^${key}=.*\\n?`, "m"), "");
+}
+
+/**
+ * `value` as one shell word. The state file is sourced by `sh` before the
+ * gateway starts, so a value with spaces, quotes or braces must be quoted.
+ */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export interface SsoGatewayUrls {
+  /** Public URL of the gateway (the browser comes back to `/sso/callback`). */
+  gatewayPublicUrl: string;
+  /** Public URL of auth-service, where the browser is sent to sign in. */
+  authPublicUrl: string;
+  /** Address of auth-service the gateway itself reaches (token, userinfo). */
+  authInternalUrl: string;
+}
+
+/**
+ * Every LiteLLM setting of the admin-interface sign-in through auth-service
+ * (generic OIDC), except the client id and secret. They are written next to the
+ * secrets by `litellm-setup`, so the gateway configuration always matches the
+ * auth-service version that provisioned it and a deployment cannot go on with an
+ * older copy of it in its compose file.
+ */
+export function ssoGatewayEnv(urls: SsoGatewayUrls): Record<string, string> {
+  const trim = (u: string) => u.replace(/\/+$/, "");
+  return {
+    PROXY_BASE_URL: trim(urls.gatewayPublicUrl),
+    GENERIC_AUTHORIZATION_ENDPOINT: `${trim(urls.authPublicUrl)}/api/auth/oauth2/authorize`,
+    GENERIC_TOKEN_ENDPOINT: `${trim(urls.authInternalUrl)}/api/auth/oauth2/token`,
+    GENERIC_USERINFO_ENDPOINT: `${trim(urls.authInternalUrl)}/api/auth/oauth2/userinfo`,
+    GENERIC_SCOPE: "openid profile email roles",
+    // auth-service requires PKCE (OAuth 2.1).
+    GENERIC_CLIENT_USE_PKCE: "true",
+    // Straight to auth-service from the login page; the master key still signs in
+    // at /fallback/login.
+    AUTO_REDIRECT_UI_LOGIN_TO_SSO: "true",
+    GENERIC_USER_ID_ATTRIBUTE: "sub",
+    GENERIC_USER_EMAIL_ATTRIBUTE: "email",
+    GENERIC_USER_DISPLAY_NAME_ATTRIBUTE: "name",
+    // The application role `admin` makes a LiteLLM administrator, `user` (or no
+    // role) a read-only viewer.
+    GENERIC_ROLE_MAPPINGS_GROUP_CLAIM: "roles",
+    GENERIC_ROLE_MAPPINGS_ROLES:
+      '{"proxy_admin": ["admin"], "proxy_admin_viewer": ["user"]}',
+    GENERIC_ROLE_MAPPINGS_DEFAULT_ROLE: "proxy_admin_viewer",
+  };
 }
 
 export function generateSecret(prefix = ""): string {

@@ -130,6 +130,8 @@ export const ERR = {
   SRV_002: (msg = "Service temporarily unavailable") =>
     new ApiError(503, "SRV_002", msg),
   SRV_003: (msg = "Database error") => new ApiError(500, "SRV_003", msg),
+  SRV_004: (msg = "LLM gateway unavailable") =>
+    new ApiError(502, "SRV_004", msg),
 
   // ── MAIL ──────────────────────────────────────────────────────────────────
   MAIL_001: (msg = "Email template not found", details?: unknown) =>

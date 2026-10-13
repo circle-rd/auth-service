@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -9,6 +10,8 @@ import {
   removeEnvValue,
   replaceEnvValue,
   resolveSecret,
+  shellQuote,
+  ssoGatewayEnv,
   upsertEnvValue,
 } from "./litellm-lib.js";
 
@@ -185,5 +188,75 @@ describe("AuthAdminClient session", () => {
     expect(calls.every((c) => c.agent === "auth-service-admin-script")).toBe(
       true,
     );
+  });
+});
+
+describe("shellQuote", () => {
+  it("survives being sourced by sh, whatever it holds", () => {
+    const values = [
+      "plain",
+      "openid profile email roles",
+      '{"proxy_admin": ["admin"], "proxy_admin_viewer": ["user"]}',
+      'it\'s a $HOME `trick` \\ "quoted"',
+    ];
+    const file = values.map((v, i) => `V${i}=${shellQuote(v)}`).join("\n");
+    const script = values.map((_, i) => `printf '%s\\0' "$V${i}"`).join(";");
+    const out = execFileSync("sh", ["-c", `${file}\n${script}`], {
+      encoding: "utf8",
+    });
+    expect(out.split("\0").slice(0, values.length)).toEqual(values);
+  });
+});
+
+describe("ssoGatewayEnv", () => {
+  const urls = {
+    gatewayPublicUrl: "https://llm.example.com/",
+    authPublicUrl: "https://auth.example.com/",
+    authInternalUrl: "http://auth-service:3001",
+  };
+
+  it("sends the browser to the public auth-service and the gateway to the internal one", () => {
+    const env = ssoGatewayEnv(urls);
+    expect(env.GENERIC_AUTHORIZATION_ENDPOINT).toBe(
+      "https://auth.example.com/api/auth/oauth2/authorize",
+    );
+    expect(env.GENERIC_TOKEN_ENDPOINT).toBe(
+      "http://auth-service:3001/api/auth/oauth2/token",
+    );
+    expect(env.GENERIC_USERINFO_ENDPOINT).toBe(
+      "http://auth-service:3001/api/auth/oauth2/userinfo",
+    );
+    expect(env.PROXY_BASE_URL).toBe("https://llm.example.com");
+  });
+
+  it("redirects the login page to the SSO and maps the roles", () => {
+    const env = ssoGatewayEnv(urls);
+    expect(env.AUTO_REDIRECT_UI_LOGIN_TO_SSO).toBe("true");
+    expect(env.GENERIC_CLIENT_USE_PKCE).toBe("true");
+    expect(JSON.parse(env.GENERIC_ROLE_MAPPINGS_ROLES!)).toEqual({
+      proxy_admin: ["admin"],
+      proxy_admin_viewer: ["user"],
+    });
+  });
+
+  it("round-trips through a state file written the way litellm-setup writes it", () => {
+    let content = "LITELLM_MASTER_KEY=sk-abc\n";
+    for (const [key, value] of Object.entries(ssoGatewayEnv(urls))) {
+      content = replaceEnvValue(content, key, shellQuote(value));
+    }
+    // A second run rewrites in place instead of duplicating.
+    for (const [key, value] of Object.entries(ssoGatewayEnv(urls))) {
+      content = replaceEnvValue(content, key, shellQuote(value));
+    }
+    expect(content.match(/^GENERIC_SCOPE=/gm)).toHaveLength(1);
+    const out = execFileSync(
+      "sh",
+      [
+        "-c",
+        `${content}\nprintf '%s' "$GENERIC_SCOPE|$AUTO_REDIRECT_UI_LOGIN_TO_SSO"`,
+      ],
+      { encoding: "utf8" },
+    );
+    expect(out).toBe("openid profile email roles|true");
   });
 });

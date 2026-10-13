@@ -134,6 +134,15 @@ const envSchema = z
       .optional(),
     WALLET_MARGIN_PERCENT: z.coerce.number().int().min(0).max(1000).default(0),
 
+    // LLM gateway (LiteLLM) administration API, used to keep one gateway team per
+    // application with LiteLLM support. The key is a restricted virtual key (team
+    // routes only) written by `litellm-provision` on a volume this service reads.
+    LITELLM_URL: z.string().url().optional(),
+    LITELLM_PROVISIONER_KEY_FILE: z
+      .string()
+      .min(1)
+      .default("/run/litellm-provisioner/key"),
+
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -280,6 +289,10 @@ export const config = {
     maxTopupCents: parsed.data.WALLET_TOPUP_MAX_EUR * 100,
     usdToEurRate: parsed.data.WALLET_USD_TO_EUR_RATE,
     marginPercent: parsed.data.WALLET_MARGIN_PERCENT,
+  },
+  litellm: {
+    url: parsed.data.LITELLM_URL?.replace(/\/+$/, ""),
+    provisionerKeyFile: parsed.data.LITELLM_PROVISIONER_KEY_FILE,
   },
   templatesDir: parsed.data.TEMPLATES_DIR ?? null,
   providers: {

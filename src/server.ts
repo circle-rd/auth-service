@@ -45,10 +45,7 @@ import { applicationMachineScopesRoutes } from "./routes/admin/application-machi
 import { applicationFaviconRoutes } from "./routes/admin/application-favicon.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
-import {
-  appConfigRoutes,
-  globallyEnabledProviders,
-} from "./routes/app-config.js";
+import { appConfigRoutes, socialProvidersFor } from "./routes/app-config.js";
 import { ERR } from "./errors.js";
 import { globalErrorHandler } from "./error-handler.js";
 import {
@@ -268,8 +265,11 @@ export async function buildServer(): Promise<FastifyInstance> {
         ? rawUrl.split("?").slice(1).join("?")
         : "";
 
+      // Without a client_id this is the service's own sign-in (administration
+      // interface, device approval): no social providers, as in the SPA login.
+      // An unknown client_id gets none either.
       let allowRegister = false;
-      let socialProvidersJson: string;
+      let socialProviders: string[] = [];
       if (appSlug) {
         const [appRow] = await db
           .select({
@@ -280,26 +280,21 @@ export async function buildServer(): Promise<FastifyInstance> {
           .where(eq(applications.slug, appSlug))
           .limit(1);
         allowRegister = appRow?.allowRegister ?? false;
-
-        const globalProviders = globallyEnabledProviders();
-        const appProviders =
-          appRow?.enabledSocialProviders === null ||
-          appRow?.enabledSocialProviders === undefined
-            ? globalProviders
-            : (appRow.enabledSocialProviders as string[]).filter((p) =>
-                globalProviders.includes(p as never),
-              );
-        socialProvidersJson = JSON.stringify(appProviders);
-      } else {
-        socialProvidersJson = JSON.stringify(globallyEnabledProviders());
+        if (appRow) {
+          socialProviders = socialProvidersFor(appRow.enabledSocialProviders);
+        }
       }
+      const socialProvidersJson = JSON.stringify(socialProviders);
 
       if (page === "register" && !allowRegister) {
         const loginUrl = rawQs ? `/login?${rawQs}` : "/login";
         return reply.redirect(loginUrl, 302);
       }
 
-      if (!config.templatesDir) {
+      // The service's own sign-in (no client_id) is the admin SPA's login page,
+      // with the service's branding and theme. Templates are the sign-in pages of
+      // applications; one of them is never the service's own.
+      if (!config.templatesDir || (page === "login" && !appSlug)) {
         if (existsSync(frontendDist)) {
           return reply.sendFile("index.html", frontendDist);
         }

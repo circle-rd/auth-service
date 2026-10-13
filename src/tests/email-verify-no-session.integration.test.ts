@@ -13,7 +13,9 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import {
+  ensureRegistrationApp,
   makeAuthServer,
+  REGISTRATION_CALLBACK_URL,
   signUpAndSignIn,
   type AuthServerHandle,
 } from "./helpers/server.js";
@@ -71,10 +73,12 @@ describe("Email — verification does not authenticate (integration)", () => {
     const email = "nologin@example.com";
     const password = "correct-horse-battery";
 
+    await ensureRegistrationApp();
+
     const signUp = await handle.app.inject({
       method: "POST",
       url: "/api/auth/sign-up/email",
-      payload: { email, password, name: "No Login" },
+      payload: { email, password, name: "No Login", callbackURL: REGISTRATION_CALLBACK_URL },
       headers: { "content-type": "application/json" },
     });
     expect(signUp.statusCode).toBe(200);

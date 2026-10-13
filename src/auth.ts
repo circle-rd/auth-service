@@ -38,6 +38,10 @@ import {
   sendOrganizationInvitationEmail,
 } from "./services/email.js";
 import { userMustSetupMfa } from "./services/mfa.js";
+import {
+  clientIdOf,
+  registrationOpenFor,
+} from "./services/registration-policy.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
 import { publishEvent } from "./services/event-bus.js";
@@ -62,18 +66,6 @@ function confirmationStatusOf(
     callbackURL.slice(EMAIL_VERIFIED_PATH.length + 1),
   ).get("status");
   return CONFIRMATION_STATUSES.find((status) => status === value) ?? null;
-}
-
-/** The `client_id` an OAuth or confirmation callback carries, if any. */
-function clientIdOf(callbackURL: string | null): string | null {
-  if (!callbackURL) return null;
-  try {
-    return new URL(callbackURL, config.betterAuth.url).searchParams.get(
-      "client_id",
-    );
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -380,13 +372,17 @@ export const auth = betterAuth({
     : {}),
   // Disable built-in /token route — /oauth2/token is used instead
   disabledPaths: ["/token"],
-  // Social login providers — only enabled when both CLIENT_ID and CLIENT_SECRET are set
+  // Social login providers — only enabled when both CLIENT_ID and CLIENT_SECRET are set.
+  // `disableImplicitSignUp`: a first social sign-in creates an account only when
+  // the `before` hook below sets `requestSignUp` for an application that allows
+  // registration (see services/registration-policy.ts).
   socialProviders: {
     ...(config.providers.google.enabled
       ? {
           google: {
             clientId: config.providers.google.clientId as string,
             clientSecret: config.providers.google.clientSecret as string,
+            disableImplicitSignUp: true,
           },
         }
       : {}),
@@ -395,6 +391,7 @@ export const auth = betterAuth({
           github: {
             clientId: config.providers.github.clientId as string,
             clientSecret: config.providers.github.clientSecret as string,
+            disableImplicitSignUp: true,
           },
         }
       : {}),
@@ -562,6 +559,29 @@ export const auth = betterAuth({
   // any admin action whose target outranks (or equals) the caller.
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      // Accounts are created through an application that allows registration:
+      // its callbackURL carries its client_id. Anything else (no client_id, or an
+      // application that does not allow it) cannot create one.
+      if (ctx.path === "/sign-up/email") {
+        if (!(await registrationOpenFor(ctx.body?.callbackURL))) {
+          throw new APIError("FORBIDDEN", {
+            message: "Registration is not open for this application",
+          });
+        }
+        return;
+      }
+      // A social sign-in only signs in an existing account, unless registration
+      // is open. Always set here: a client must not grant itself `requestSignUp`.
+      if (ctx.path === "/sign-in/social") {
+        return {
+          context: {
+            body: {
+              requestSignUp: await registrationOpenFor(ctx.body?.callbackURL),
+            },
+          },
+        };
+      }
+
       const targetUserId = await resolveAdminTargetUserId(ctx.path, ctx.body);
       if (!targetUserId) return;
 
@@ -776,6 +796,8 @@ export const auth = betterAuth({
     ...(config.email.magicLinkEnabled
       ? [
           magicLink({
+            // Signs in existing accounts only: accounts come from registration.
+            disableSignUp: true,
             // Store a hash of the token instead of the plaintext so a leaked
             // database dump cannot be replayed to sign in.
             storeToken: "hashed",
@@ -788,6 +810,8 @@ export const auth = betterAuth({
     ...(config.email.otpEnabled
       ? [
           emailOTP({
+            // Signs in existing accounts only: accounts come from registration.
+            disableSignUp: true,
             sendVerificationOTP: async (params: {
               email: string;
               otp: string;

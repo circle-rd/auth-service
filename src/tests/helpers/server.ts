@@ -13,6 +13,27 @@ import {
 } from "../../services/mail/index.js";
 import { MailCaptureTransport } from "../../services/mail/capture-transport.js";
 import { extractUrl, toPath, cookiesFromResponse } from "./email-capture.js";
+import { db } from "../../db/index.js";
+import { applications } from "../../db/schema.js";
+
+/**
+ * Registration belongs to applications that allow it: a sign-up names one in its
+ * callbackURL. Tests that create accounts register through this application.
+ */
+export const REGISTRATION_APP_SLUG = "test-registration";
+export const REGISTRATION_CALLBACK_URL = `/api/auth/oauth2/authorize?client_id=${REGISTRATION_APP_SLUG}`;
+
+/** Create the registration application if the database does not have it. */
+export async function ensureRegistrationApp(): Promise<void> {
+  await db
+    .insert(applications)
+    .values({
+      name: "Test registration",
+      slug: REGISTRATION_APP_SLUG,
+      allowRegister: true,
+    })
+    .onConflictDoNothing();
+}
 
 export interface AuthServerHandle {
   app: FastifyInstance;
@@ -51,10 +72,11 @@ export async function signUpAndSignIn(
 ): Promise<{ cookie: string }> {
   const { app, capture } = handle;
 
+  await ensureRegistrationApp();
   const signUp = await app.inject({
     method: "POST",
     url: "/api/auth/sign-up/email",
-    payload: opts,
+    payload: { ...opts, callbackURL: REGISTRATION_CALLBACK_URL },
     headers: { "content-type": "application/json" },
   });
   if (signUp.statusCode !== 200) {

@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import {
   makeAuthServer,
+  signUpAndSignIn,
   type AuthServerHandle,
 } from "./helpers/server.js";
 import { cleanDb } from "./helpers/db.js";
@@ -31,6 +32,12 @@ describe("Email — OTP flow (integration)", () => {
 
   it("emails a 6-digit OTP that can be exchanged for a session", async () => {
     const email = "fred@example.com";
+    // A code signs in an existing account; it does not create one.
+    await signUpAndSignIn(handle, {
+      email,
+      password: "Password123!",
+      name: "Fred",
+    });
 
     const sendRes = await handle.app.inject({
       method: "POST",

@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import type { FastifyInstance } from "fastify";
 import {
+  ensureRegistrationApp,
   makeAuthServer,
+  REGISTRATION_CALLBACK_URL,
   type AuthServerHandle,
 } from "./helpers/server.js";
 import {
@@ -78,10 +80,12 @@ async function signUpAndSignInFrom(
 ): Promise<{ cookie: string }> {
   const { app, capture } = handle;
 
+  await ensureRegistrationApp();
+
   const signUp = await app.inject({
     method: "POST",
     url: "/api/auth/sign-up/email",
-    payload: opts,
+    payload: { ...opts, callbackURL: REGISTRATION_CALLBACK_URL },
     remoteAddress,
     headers: { "content-type": "application/json" },
   });

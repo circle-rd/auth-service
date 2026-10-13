@@ -8,7 +8,9 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import {
+  ensureRegistrationApp,
   makeAuthServer,
+  REGISTRATION_CALLBACK_URL,
   type AuthServerHandle,
 } from "./helpers/server.js";
 import { cleanDb } from "./helpers/db.js";
@@ -35,10 +37,11 @@ describe("Email — verification flow (integration)", () => {
     const password = "correct-horse-battery";
 
     // 1. Sign up — must trigger verification email, must NOT issue a session.
+    await ensureRegistrationApp();
     const signUp = await handle.app.inject({
       method: "POST",
       url: "/api/auth/sign-up/email",
-      payload: { email, password, name: "Alice" },
+      payload: { email, password, name: "Alice", callbackURL: REGISTRATION_CALLBACK_URL },
       headers: { "content-type": "application/json" },
     });
     expect(signUp.statusCode).toBe(200);
@@ -84,10 +87,12 @@ describe("Email — verification flow (integration)", () => {
     const email = "bob@example.com";
     const password = "correct-horse-battery";
 
+    await ensureRegistrationApp();
+
     const signUp = await handle.app.inject({
       method: "POST",
       url: "/api/auth/sign-up/email",
-      payload: { email, password, name: "Bob" },
+      payload: { email, password, name: "Bob", callbackURL: REGISTRATION_CALLBACK_URL },
       headers: { "content-type": "application/json" },
     });
     expect(signUp.statusCode).toBe(200);

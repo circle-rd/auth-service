@@ -274,6 +274,7 @@ export default {
     description: 'Description',
     url: 'URL',
     icon: 'Icon URL',
+    iconDetected: 'Detected from the URL.',
     isActive: 'Active',
     isPublic: 'Public client (PKCE only, no secret)',
     skipConsent: 'Skip consent screen',

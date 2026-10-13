@@ -134,7 +134,60 @@ describe("Admin — sessionsRoutes", () => {
     expect(body.sessions[0]?.user.name).toBe("Alice");
     expect(body.sessions[0]?.user.email).toBe("alice@example.com");
     expect(body.sessions[0]?.applications).toEqual([
+      {
+        id: "auth-service",
+        name: "Auth Service",
+        slug: "auth-service",
+        icon: null,
+      },
       { id: "app-1", name: "App 1", slug: "app-1", icon: null },
     ]);
+  });
+
+  it("GET / → always lists Auth Service and hides system applications except LiteLLM", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    const row = {
+      id: "s1",
+      userId: "user-1",
+      userAgent: null,
+      ipAddress: null,
+      createdAt: new Date("2026-05-17T10:00:00Z"),
+      expiresAt: new Date("2026-05-18T10:00:00Z"),
+      userName: "Alice",
+      userEmail: "alice@example.com",
+      userImage: null,
+    };
+    mockDb.select
+      .mockImplementationOnce(() => makeChain([{ total: 1 }]))
+      .mockImplementationOnce(() => makeChain([row]))
+      .mockImplementationOnce(() =>
+        makeChain([{ id: "real-auth-id", icon: "https://auth/icon.png" }]),
+      );
+    const accessRow = (slug: string, name: string, isSystem: boolean) => ({
+      userId: "user-1",
+      id: `id-${slug}`,
+      name,
+      slug,
+      icon: null,
+      isSystem,
+    });
+    mockDb.selectDistinct.mockImplementationOnce(() =>
+      makeChain([
+        accessRow("litellm", "LiteLLM gateway", true),
+        accessRow("litellm-ui", "LiteLLM admin interface", true),
+        accessRow("chat", "Chat", false),
+      ]),
+    );
+
+    const res = await app.inject({ method: "GET", url: "/" });
+    const body = JSON.parse(res.body) as {
+      sessions: { applications: { name: string; id: string }[] }[];
+    };
+    expect(body.sessions[0]?.applications.map((a) => a.name)).toEqual([
+      "Auth Service",
+      "LiteLLM",
+      "Chat",
+    ]);
+    expect(body.sessions[0]?.applications[0]?.id).toBe("real-auth-id");
   });
 });

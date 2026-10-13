@@ -261,58 +261,64 @@ async function main(): Promise<void> {
 
   const client = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
   const adminUserId = await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
-  const apps = await client.listApplications();
-  for (const slug of [GATEWAY_SLUG, WALLET_CLIENT_SLUG, UI_SLUG]) {
-    const existing = apps.find((a) => a.slug === slug);
-    if (existing) await ensureSystemFlag(client, existing);
-  }
-
-  const gateway = apps.find((a) => a.slug === GATEWAY_SLUG);
-  if (!gateway) {
-    await client.createApplication({
-      name: "LiteLLM",
-      slug: GATEWAY_SLUG,
-      description: "LLM and MCP gateway (protected resource)",
-      url: env.LITELLM_PUBLIC_URL,
-      isSystem: true,
-    });
-    out(
-      `✓ Registered the "${GATEWAY_SLUG}" application (${env.LITELLM_PUBLIC_URL})`,
-    );
-  } else if (gateway.url !== env.LITELLM_PUBLIC_URL) {
-    await client.updateApplication(gateway.id, { url: env.LITELLM_PUBLIC_URL });
-    out(
-      `✓ Updated the "${GATEWAY_SLUG}" application URL to ${env.LITELLM_PUBLIC_URL}`,
-    );
-  } else {
-    out(`✓ The "${GATEWAY_SLUG}" application is already registered`);
-  }
-
-  await ensureWalletClient(client, apps, env, envPath);
-  // Only in a container, where the secrets live in a file the gateway reads.
-  if (process.env.LITELLM_STATE_FILE) {
-    await ensureUiSso(client, apps, env, envPath, adminUserId);
-  }
-
-  for (const slug of grantedSlugs()) {
-    const app = apps.find((a) => a.slug === slug);
-    if (!app)
-      throw new Error(
-        `Cannot grant LiteLLM access: unknown application "${slug}"`,
-      );
-    if (app.allowedResources.includes(env.LITELLM_PUBLIC_URL)) {
-      out(`✓ "${slug}" already allowed to request LiteLLM tokens`);
-      continue;
+  try {
+    const apps = await client.listApplications();
+    for (const slug of [GATEWAY_SLUG, WALLET_CLIENT_SLUG, UI_SLUG]) {
+      const existing = apps.find((a) => a.slug === slug);
+      if (existing) await ensureSystemFlag(client, existing);
     }
-    await client.updateApplication(app.id, {
-      allowedResources: [...app.allowedResources, env.LITELLM_PUBLIC_URL],
-    });
-    out(`✓ "${slug}" allowed to request LiteLLM tokens`);
-  }
 
-  if (!process.env.LITELLM_STATE_FILE) {
-    out("");
-    out("Next: docker compose --profile llm up -d, then pnpm llm:smoke");
+    const gateway = apps.find((a) => a.slug === GATEWAY_SLUG);
+    if (!gateway) {
+      await client.createApplication({
+        name: "LiteLLM",
+        slug: GATEWAY_SLUG,
+        description: "LLM and MCP gateway (protected resource)",
+        url: env.LITELLM_PUBLIC_URL,
+        isSystem: true,
+      });
+      out(
+        `✓ Registered the "${GATEWAY_SLUG}" application (${env.LITELLM_PUBLIC_URL})`,
+      );
+    } else if (gateway.url !== env.LITELLM_PUBLIC_URL) {
+      await client.updateApplication(gateway.id, {
+        url: env.LITELLM_PUBLIC_URL,
+      });
+      out(
+        `✓ Updated the "${GATEWAY_SLUG}" application URL to ${env.LITELLM_PUBLIC_URL}`,
+      );
+    } else {
+      out(`✓ The "${GATEWAY_SLUG}" application is already registered`);
+    }
+
+    await ensureWalletClient(client, apps, env, envPath);
+    // Only in a container, where the secrets live in a file the gateway reads.
+    if (process.env.LITELLM_STATE_FILE) {
+      await ensureUiSso(client, apps, env, envPath, adminUserId);
+    }
+
+    for (const slug of grantedSlugs()) {
+      const app = apps.find((a) => a.slug === slug);
+      if (!app)
+        throw new Error(
+          `Cannot grant LiteLLM access: unknown application "${slug}"`,
+        );
+      if (app.allowedResources.includes(env.LITELLM_PUBLIC_URL)) {
+        out(`✓ "${slug}" already allowed to request LiteLLM tokens`);
+        continue;
+      }
+      await client.updateApplication(app.id, {
+        allowedResources: [...app.allowedResources, env.LITELLM_PUBLIC_URL],
+      });
+      out(`✓ "${slug}" allowed to request LiteLLM tokens`);
+    }
+
+    if (!process.env.LITELLM_STATE_FILE) {
+      out("");
+      out("Next: docker compose --profile llm up -d, then pnpm llm:smoke");
+    }
+  } finally {
+    await client.signOut();
   }
 }
 

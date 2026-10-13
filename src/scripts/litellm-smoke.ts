@@ -411,6 +411,7 @@ async function main(): Promise<void> {
       });
     }
     for (const app of created) await admin.deleteApplication(app.id);
+    await admin.signOut();
   }
 
   process.stdout.write(

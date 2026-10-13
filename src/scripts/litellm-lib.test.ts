@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  AuthAdminClient,
   createPkcePair,
   decodeJwtClaims,
   generateSecret,
@@ -143,5 +144,46 @@ describe("decodeJwtClaims", () => {
 
   it("rejects a token that is not a JWT", () => {
     expect(() => decodeJwtClaims("opaque")).toThrow("not a JWT");
+  });
+});
+
+describe("AuthAdminClient session", () => {
+  it("signs out the session it opened, naming itself in the user agent", async () => {
+    const calls: {
+      url: string;
+      cookie: string | null;
+      agent: string | null;
+    }[] = [];
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      const headers = new Headers(init.headers);
+      calls.push({
+        url,
+        cookie: headers.get("Cookie"),
+        agent: headers.get("User-Agent"),
+      });
+      const res = new Response(JSON.stringify({ user: { id: "admin-1" } }));
+      if (url.endsWith("/sign-in/email")) {
+        res.headers.append("Set-Cookie", "session=abc; Path=/; HttpOnly");
+      }
+      return res;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const client = new AuthAdminClient("http://auth:3001");
+      await client.signIn("admin@example.com", "pw");
+      await client.signOut();
+      await client.signOut();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(calls.map((c) => c.url)).toEqual([
+      "http://auth:3001/api/auth/sign-in/email",
+      "http://auth:3001/api/auth/sign-out",
+    ]);
+    expect(calls[1]!.cookie).toBe("session=abc");
+    expect(calls.every((c) => c.agent === "auth-service-admin-script")).toBe(
+      true,
+    );
   });
 });

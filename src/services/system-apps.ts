@@ -1,6 +1,8 @@
 /** Slugs of the infrastructure applications provisioned for the LLM gateway. */
 export const LITELLM_GATEWAY_SLUG = "litellm";
 export const LITELLM_UI_SLUG = "litellm-ui";
+/** Auth Service itself, registered as a protected resource for its own user APIs. */
+export const AUTH_SERVICE_SLUG = "auth-service";
 
 /** The single entry that stands for the whole gateway in a user's access list. */
 const LITELLM_META_NAME = "LiteLLM";

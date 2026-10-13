@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { createApplication, listApplications, updateApplication } from '@/api/applications';
+import { createApplication, detectFavicon, listApplications, updateApplication } from '@/api/applications';
 import { getServicesConfig } from '@/api/services';
 import type { Application, ServicesConfig } from '@/types';
 import { useToast } from '@/composables/useToast';
@@ -136,10 +136,61 @@ watch(
   },
 );
 
+// ── Icon detection ───────────────────────────────────────────────────────
+// Once the URL is typed (a pause of FAVICON_DEBOUNCE_MS, or leaving the field)
+// the page's favicon is looked up and offered as the icon. It never overwrites an
+// icon the user typed: only an empty one, or the one detected for the previous URL.
+const FAVICON_DEBOUNCE_MS = 600;
+const lastAutoIcon = ref('');
+let lastLookedUpUrl = '';
+let faviconTimer: ReturnType<typeof setTimeout> | undefined;
+let faviconRequest = 0;
+
+const iconAutoDetected = computed(() => !!form.value.icon && form.value.icon === lastAutoIcon.value);
+
+function iconIsUserOwned(): boolean {
+  return !!form.value.icon && form.value.icon !== lastAutoIcon.value;
+}
+
+async function lookupFavicon() {
+  clearTimeout(faviconTimer);
+  const url = form.value.url.trim();
+  if (!/^https?:\/\/[^\s/.]+\.[^\s/]+/i.test(url) || url === lastLookedUpUrl || iconIsUserOwned()) return;
+  lastLookedUpUrl = url;
+  const request = ++faviconRequest;
+  let iconUrl: string | null = null;
+  try {
+    iconUrl = await detectFavicon(url);
+  } catch {
+    // Best effort: the icon stays editable by hand.
+  }
+  // A newer lookup started, or the user typed an icon while this one ran.
+  if (request !== faviconRequest || iconIsUserOwned()) return;
+  if (iconUrl) {
+    form.value.icon = iconUrl;
+    lastAutoIcon.value = iconUrl;
+  } else if (lastAutoIcon.value) {
+    // The new URL has no favicon: do not keep the previous site's.
+    form.value.icon = '';
+    lastAutoIcon.value = '';
+  }
+}
+
+function onUrlInput() {
+  clearTimeout(faviconTimer);
+  faviconTimer = setTimeout(() => void lookupFavicon(), FAVICON_DEBOUNCE_MS);
+}
+
+onBeforeUnmount(() => clearTimeout(faviconTimer));
+
 watch(
   () => props.open,
   async (open) => {
     if (!open) return;
+    clearTimeout(faviconTimer);
+    faviconRequest++;
+    lastAutoIcon.value = '';
+    lastLookedUpUrl = props.application?.url ?? '';
     const urlsLoaded = loadLitellmUrls();
     if (!services.value) {
       try {
@@ -365,7 +416,7 @@ async function submit() {
     @close="emit('close')"
   >
     <form @submit.prevent="submit" class="space-y-5">
-      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionGeneral') }}</h3>
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionGeneral') }}</h3>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <BaseInput v-model="form.name" :label="t('applications.name')" required />
         <BaseInput
@@ -377,11 +428,22 @@ async function submit() {
       </div>
       <BaseInput v-model="form.description" :label="t('applications.description')" />
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <BaseInput v-model="form.url" :label="t('applications.url')" placeholder="https://app.example.com" />
-        <BaseInput v-model="form.icon" :label="t('applications.icon')" placeholder="https://..." />
+        <BaseInput
+          v-model="form.url"
+          :label="t('applications.url')"
+          placeholder="https://app.example.com"
+          @update:model-value="onUrlInput"
+          @blur="lookupFavicon"
+        />
+        <BaseInput
+          v-model="form.icon"
+          :label="t('applications.icon')"
+          placeholder="https://..."
+          :hint="iconAutoDetected ? t('applications.iconDetected') : undefined"
+        />
       </div>
       <div class="border-t border-surface-800/60"></div>
-      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionOptions') }}</h3>
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionOptions') }}</h3>
       <div class="pt-1">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
           <BaseToggle v-model="form.isActive" :label="t('applications.isActive')" />
@@ -410,7 +472,7 @@ async function submit() {
       </div>
 
       <div class="border-t border-surface-800/60"></div>
-      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionAuthorization') }}</h3>
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionAuthorization') }}</h3>
       <div>
         <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
           {{ t('applications.allowedScopes') }}
@@ -552,7 +614,7 @@ async function submit() {
       </div>
 
       <div class="border-t border-surface-800/60"></div>
-      <h3 class="text-sm font-semibold text-surface-200 -mb-2">{{ t('applications.sectionAdvanced') }}</h3>
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionAdvanced') }}</h3>
       <div v-if="enabledProvidersGlobally.length > 0">
         <div class="flex items-center justify-between mb-2">
           <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">

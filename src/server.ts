@@ -42,6 +42,7 @@ import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { adminWalletRoutes } from "./routes/admin/wallets.js";
 import { applicationMachineScopesRoutes } from "./routes/admin/application-machine-scopes.js";
+import { applicationFaviconRoutes } from "./routes/admin/application-favicon.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
 import {
@@ -552,6 +553,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     prefix: "/api/admin/applications",
   });
   await fastify.register(applicationMachineScopesRoutes, {
+    prefix: "/api/admin/applications",
+  });
+  await fastify.register(applicationFaviconRoutes, {
     prefix: "/api/admin/applications",
   });
   await fastify.register(rolesRoutes, { prefix: "/api/admin" });

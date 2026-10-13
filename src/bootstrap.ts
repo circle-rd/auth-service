@@ -8,6 +8,7 @@ import { eq, or } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { publishEvent } from "./services/event-bus.js";
 import { replaceClientResource } from "./services/oauth-resources.js";
+import { AUTH_SERVICE_SLUG } from "./services/system-apps.js";
 
 // Known default/placeholder bootstrap passwords that must never be accepted in
 // production. Matching is exact so a legitimate password that merely contains a
@@ -28,7 +29,6 @@ const WEAK_PASSWORDS = new Set([
   "letmein",
 ]);
 
-const AUTH_SERVICE_APPLICATION_SLUG = "auth-service";
 const AUTH_SERVICE_APPLICATION_NAME = "Auth Service API";
 
 function authServiceOauthClientValues(app: {
@@ -73,7 +73,7 @@ async function ensureAuthServiceApplication(): Promise<boolean> {
     .from(applications)
     .where(
       or(
-        eq(applications.slug, AUTH_SERVICE_APPLICATION_SLUG),
+        eq(applications.slug, AUTH_SERVICE_SLUG),
         eq(applications.url, config.betterAuth.url),
       ),
     );
@@ -94,7 +94,7 @@ async function ensureAuthServiceApplication(): Promise<boolean> {
       .insert(applications)
       .values({
         name: AUTH_SERVICE_APPLICATION_NAME,
-        slug: AUTH_SERVICE_APPLICATION_SLUG,
+        slug: AUTH_SERVICE_SLUG,
         description: "Protected resource for auth-service user APIs",
         isActive: true,
         isSystem: true,

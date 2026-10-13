@@ -191,6 +191,8 @@ const usageLedgerPageSchema = z.object({
 
 const tokenResponseSchema = z.object({ access_token: z.string() });
 
+const ADMIN_SCRIPT_USER_AGENT = "auth-service-admin-script";
+
 export class AuthAdminClient {
   private readonly cookies = new Map<string, string>();
 
@@ -211,6 +213,8 @@ export class AuthAdminClient {
     const { json, ...rest } = init;
     const headers = new Headers(rest.headers);
     headers.set("Origin", this.origin);
+    // Names the session in the admin "Active Sessions" list.
+    headers.set("User-Agent", ADMIN_SCRIPT_USER_AGENT);
     if (json !== undefined) headers.set("Content-Type", "application/json");
     if (this.cookies.size > 0) {
       headers.set(
@@ -254,6 +258,26 @@ export class AuthAdminClient {
     return z
       .object({ user: z.object({ id: z.string() }) })
       .parse(await res.json()).user.id;
+  }
+
+  /**
+   * Ends the session opened by `signIn`. Every run of a script signs in, so
+   * without this each `docker compose up` would leave a live admin session behind.
+   * A failure here must not hide the outcome of the script, so it only warns.
+   */
+  async signOut(): Promise<void> {
+    if (this.cookies.size === 0) return;
+    try {
+      await this.expectOk(
+        await this.send("/api/auth/sign-out", { method: "POST", json: {} }),
+        "Admin sign-out",
+      );
+    } catch (err) {
+      process.stderr.write(
+        `! ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+    this.cookies.clear();
   }
 
   async listRoles(appId: string): Promise<{ id: string; name: string }[]> {

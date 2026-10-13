@@ -7,6 +7,15 @@ export async function listApplications(): Promise<{ applications: Application[] 
   return apiFetch<{ applications: Application[] }>('/admin/applications');
 }
 
+/** The favicon declared by the page at `url`, or null when none was found. */
+export async function detectFavicon(url: string): Promise<string | null> {
+  if (USE_MOCK) return null;
+  const res = await apiFetch<{ iconUrl: string | null }>(
+    `/admin/applications/favicon?url=${encodeURIComponent(url)}`,
+  );
+  return res.iconUrl;
+}
+
 export async function getApplication(id: string): Promise<{ application: Application }> {
   if (USE_MOCK) {
     const application = MOCK_APPLICATIONS.find(a => a.id === id);

@@ -96,22 +96,26 @@ async function main(): Promise<void> {
   const admin = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
   await admin.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
 
-  const [logs, ledger] = await Promise.all([
-    fetchGatewayLogs(
-      env.litellmUrl,
-      masterKey,
-      new Date(from.getTime() - PADDING_MS),
-      to,
-    ),
-    admin.usageLedger(from, to),
-  ]);
-  const report = reconcile(logs, ledger, {
-    from,
-    settledBefore: new Date(to.getTime() - SETTLE_MS),
-  });
-  print(report);
-  if (!isClean(report)) process.exitCode = 1;
-  else out("Gateway and wallet agree.");
+  try {
+    const [logs, ledger] = await Promise.all([
+      fetchGatewayLogs(
+        env.litellmUrl,
+        masterKey,
+        new Date(from.getTime() - PADDING_MS),
+        to,
+      ),
+      admin.usageLedger(from, to),
+    ]);
+    const report = reconcile(logs, ledger, {
+      from,
+      settledBefore: new Date(to.getTime() - SETTLE_MS),
+    });
+    print(report);
+    if (!isClean(report)) process.exitCode = 1;
+    else out("Gateway and wallet agree.");
+  } finally {
+    await admin.signOut();
+  }
 }
 
 main().catch((err: unknown) => {

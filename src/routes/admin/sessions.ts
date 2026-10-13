@@ -18,6 +18,10 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { requireAdmin } from "../../middleware.js";
+import {
+  AUTH_SERVICE_SLUG,
+  presentUserApplications,
+} from "../../services/system-apps.js";
 
 export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
@@ -94,6 +98,7 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
           name: applications.name,
           slug: applications.slug,
           icon: applications.icon,
+          isSystem: applications.isSystem,
         })
         .from(loginHistory)
         .innerJoin(
@@ -106,12 +111,37 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
             gte(loginHistory.loggedAt, oldestSessionStart),
           ),
         );
+      const rowsByUser = new Map<string, typeof rows>();
       for (const r of rows) {
-        const arr = appsByUser.get(r.userId) ?? [];
-        arr.push({ id: r.id, name: r.name, slug: r.slug, icon: r.icon });
-        appsByUser.set(r.userId, arr);
+        rowsByUser.set(r.userId, [...(rowsByUser.get(r.userId) ?? []), r]);
+      }
+      for (const [uid, userRows] of rowsByUser) {
+        appsByUser.set(
+          uid,
+          presentUserApplications(userRows).map(({ id, name, slug, icon }) => ({
+            id,
+            name,
+            slug,
+            icon,
+          })),
+        );
       }
     }
+
+    // Every session is a session of Auth Service itself (its admin interface and
+    // profile page); signing in there is not recorded in login_history, which
+    // only knows the applications that obtained tokens.
+    const [authService] = await db
+      .select({ id: applications.id, icon: applications.icon })
+      .from(applications)
+      .where(eq(applications.slug, AUTH_SERVICE_SLUG))
+      .limit(1);
+    const authServiceEntry = {
+      id: authService?.id ?? AUTH_SERVICE_SLUG,
+      name: "Auth Service",
+      slug: AUTH_SERVICE_SLUG,
+      icon: authService?.icon ?? null,
+    };
 
     const sessions = list.map((s) => ({
       id: s.id,
@@ -126,7 +156,7 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
         email: s.userEmail,
         image: s.userImage,
       },
-      applications: appsByUser.get(s.userId) ?? [],
+      applications: [authServiceEntry, ...(appsByUser.get(s.userId) ?? [])],
     }));
 
     await reply.send({ total, sessions, page, limit });

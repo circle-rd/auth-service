@@ -60,6 +60,22 @@ describe("app-config routes", () => {
     expect(body.emailVerificationEnabled).toBe(false);
   });
 
+  it("exposes the showcase flag, off by default", async () => {
+    const res = await app.inject({ method: "GET", url: "/" });
+    expect(JSON.parse(res.body)).toMatchObject({ showcase: false });
+  });
+
+  it("reports the showcase flag when enabled", async () => {
+    const mutable = config as unknown as { showcase: boolean };
+    mutable.showcase = true;
+    try {
+      const res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({ showcase: true });
+    } finally {
+      mutable.showcase = false;
+    }
+  });
+
   it("returns APP_002 for an unknown client_id", async () => {
     const res = await app.inject({
       method: "GET",

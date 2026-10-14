@@ -738,6 +738,115 @@ export default {
       walletSelfRead: 'Lire votre propre portefeuille via l’API',
     },
   },
+  landing: {
+    navFeatures: 'Fonctionnalités',
+    navStandards: 'Standards',
+    navSecurity: 'Sécurité',
+    signIn: 'Se connecter',
+    docs: 'Lire la documentation',
+    themeToLight: 'Passer au thème clair',
+    themeToDark: 'Passer au thème sombre',
+    badge: 'Auto-hébergé · OAuth 2.1 / OIDC',
+    heroTitle: 'Un seul fournisseur d\'identité pour toutes vos applications.',
+    heroSubtitle: 'Les utilisateurs, les clés et les données vous appartiennent.',
+    heroLede:
+      '{appName} est un fournisseur OAuth 2.1 / OpenID Connect auto-hébergé, bâti sur BetterAuth. Enregistrez vos applications, donnez à chacune ses propres rôles, sécurisez la connexion avec des passkeys et du TOTP, et mesurez la consommation — depuis une seule console d\'administration.',
+    heroNote: 'Open source, GPL-3.0. À exécuter sur votre propre infrastructure.',
+    screenshotAlt: 'Le tableau de bord d\'administration : utilisateurs, sessions, connexions et crédit consommé',
+    screenshotCaption: 'Le tableau de bord d\'administration (données de démonstration).',
+    featuresKicker: 'Fonctionnalités',
+    featuresTitle: 'Tout ce qu\'une couche d\'identité doit offrir.',
+    featuresLede:
+      'Authentification, autorisation, multi-tenance et facturation vivent dans un seul service : vos applications n\'ont plus qu\'à vérifier un jeton.',
+    features: {
+      oidc: {
+        title: 'OAuth 2.1 / OIDC',
+        description:
+          'Code d\'autorisation avec PKCE, client credentials, discovery, JWKS, consentement et rotation des refresh tokens.',
+      },
+      rbac: {
+        title: 'RBAC multi-applications',
+        description:
+          'Chaque application est un client OAuth avec ses propres rôles, permissions et scopes, transmis en claims JWT.',
+      },
+      mfa: {
+        title: 'Passkeys et TOTP',
+        description:
+          'Passkeys FIDO2, applications d\'authentification et codes de secours, avec double facteur imposable par application.',
+      },
+      organizations: {
+        title: 'Organisations',
+        description:
+          'Organisations multi-tenant avec membres, rôles et invitations ; l\'organisation active est exposée dans le claim org_id.',
+      },
+      social: {
+        title: 'Connexion sociale',
+        description:
+          'Google, GitHub, LinkedIn, Microsoft et Apple, autorisés application par application.',
+      },
+      billing: {
+        title: 'Plans et facturation',
+        description:
+          'Plans d\'abonnement dont les fonctionnalités voyagent dans les jetons d\'accès, intégration Stripe et suivi de consommation par utilisateur.',
+      },
+      wallet: {
+        title: 'Portefeuille de crédit',
+        description:
+          'Un portefeuille prépayé par utilisateur partagé par toutes les applications, avec un registre signé en ajout seul et une passerelle LLM optionnelle.',
+      },
+      history: {
+        title: 'Sessions et audit',
+        description:
+          'Gestion et révocation des sessions, et historique des connexions avec IP, user agent et application.',
+      },
+      branding: {
+        title: 'Templates personnalisés',
+        description:
+          'Remplacez les pages de connexion et les e-mails transactionnels par application, et habillez l\'instance à son nom et son logo.',
+      },
+    },
+    standardsKicker: 'Standards',
+    standardsTitle: 'Bâti sur les spécifications, pas sur des jetons maison.',
+    standardsLede:
+      'Toute bibliothèque qui parle OpenID Connect peut l\'utiliser, et tout service peut vérifier ses jetons hors ligne.',
+    standards: {
+      web: {
+        title: 'Applications web et mobiles',
+        items: [
+          'Code d\'autorisation avec PKCE et rotation des refresh tokens.',
+          'Document de discovery et endpoint JWKS standards.',
+          'URI de redirection, scopes et écran de consentement par application.',
+        ],
+      },
+      machines: {
+        title: 'Machines et appareils',
+        items: [
+          'Client credentials pour les jetons machine-à-machine.',
+          'Ressources protégées avec les resource indicators RFC 8707.',
+          'Device authorization grant (RFC 8628), en option.',
+        ],
+      },
+      agents: {
+        title: 'MCP et agents IA',
+        items: [
+          'Les clients MCP se connectent en OAuth 2.1 avec PKCE.',
+          'Les jetons d\'accès portent rôles, permissions et fonctionnalités du plan.',
+          'Passerelle LiteLLM optionnelle, facturée sur le portefeuille de l\'utilisateur.',
+        ],
+      },
+    },
+    securityTitle: 'Sécurisé par défaut',
+    security: [
+      'Les clients OAuth inconnus sont rejetés : un échec d\'autorisation ne bascule jamais en accès ouvert.',
+      'Les privilèges d\'administration sont hiérarchiques, et un administrateur peut imposer la MFA.',
+      'Les connexions sans mot de passe (lien magique, OTP e-mail) sont bloquées pour les comptes avec double facteur.',
+      'Vérification optionnelle des mots de passe compromis en k-anonymat : seul un préfixe de 5 caractères de l\'empreinte quitte le serveur.',
+      'C\'est vous qui l\'exécutez : aucun service tiers n\'est sur le chemin critique d\'une connexion.',
+      'Migrations au démarrage, journaux structurés et health checks pour l\'exploitation.',
+    ],
+    footerLicense: 'GPL-3.0',
+    footerRights: '© CIRCLE Cyber',
+  },
   pages: {
     notFound: {
       title: 'Page introuvable',

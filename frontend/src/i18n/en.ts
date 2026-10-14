@@ -737,6 +737,115 @@ export default {
       walletSelfRead: 'Read your own wallet through the API',
     },
   },
+  landing: {
+    navFeatures: 'Features',
+    navStandards: 'Standards',
+    navSecurity: 'Security',
+    signIn: 'Sign in',
+    docs: 'Read the docs',
+    themeToLight: 'Switch to light theme',
+    themeToDark: 'Switch to dark theme',
+    badge: 'Self-hosted · OAuth 2.1 / OIDC',
+    heroTitle: 'One identity provider for every application.',
+    heroSubtitle: 'You own the users, the keys and the data.',
+    heroLede:
+      '{appName} is a self-hosted OAuth 2.1 / OpenID Connect provider built on BetterAuth. Register your applications, give each one its own roles, secure sign-in with passkeys and TOTP, and meter what people consume — from a single admin console.',
+    heroNote: 'Open source, GPL-3.0. Run it on your own infrastructure.',
+    screenshotAlt: 'The administration dashboard: users, sessions, logins and credit usage',
+    screenshotCaption: 'The administration dashboard (demo data).',
+    featuresKicker: 'Features',
+    featuresTitle: 'Everything an identity layer needs.',
+    featuresLede:
+      'Authentication, authorization, multi-tenancy and billing live in one service, so your applications only have to verify a token.',
+    features: {
+      oidc: {
+        title: 'OAuth 2.1 / OIDC',
+        description:
+          'Authorization code with PKCE, client credentials, discovery, JWKS, consent and refresh-token rotation.',
+      },
+      rbac: {
+        title: 'Multi-application RBAC',
+        description:
+          'Every application is an OAuth client with its own roles, permissions and scopes, delivered as JWT claims.',
+      },
+      mfa: {
+        title: 'Passkeys and TOTP',
+        description:
+          'FIDO2 passkeys, authenticator apps and backup codes, with two-factor enforceable per application.',
+      },
+      organizations: {
+        title: 'Organizations',
+        description:
+          'Multi-tenant organizations with members, roles and invitations; the active one is exposed as an org_id claim.',
+      },
+      social: {
+        title: 'Social login',
+        description:
+          'Google, GitHub, LinkedIn, Microsoft and Apple, allowed application by application.',
+      },
+      billing: {
+        title: 'Plans and billing',
+        description:
+          'Subscription plans with feature flags carried in access tokens, Stripe integration and per-user usage tracking.',
+      },
+      wallet: {
+        title: 'Credit wallet',
+        description:
+          'A prepaid wallet per user shared by every application, with a signed append-only ledger and an optional LLM gateway.',
+      },
+      history: {
+        title: 'Sessions and audit',
+        description:
+          'Session management and revocation, plus a login history with IP, user agent and application context.',
+      },
+      branding: {
+        title: 'Custom templates',
+        description:
+          'Override sign-in pages and transactional e-mails per application, and brand the instance with its own name and logo.',
+      },
+    },
+    standardsKicker: 'Standards',
+    standardsTitle: 'Built on the specs, not on custom tokens.',
+    standardsLede:
+      'Any library that speaks OpenID Connect can use it, and any service can verify its tokens offline.',
+    standards: {
+      web: {
+        title: 'Web and mobile apps',
+        items: [
+          'Authorization code flow with PKCE and refresh-token rotation.',
+          'Standard discovery document and JWKS endpoint.',
+          'Per-application redirect URIs, scopes and consent screen.',
+        ],
+      },
+      machines: {
+        title: 'Machines and devices',
+        items: [
+          'Client credentials for machine-to-machine tokens.',
+          'Protected resources with RFC 8707 resource indicators.',
+          'Device authorization grant (RFC 8628), opt-in.',
+        ],
+      },
+      agents: {
+        title: 'MCP and AI agents',
+        items: [
+          'MCP clients sign in with OAuth 2.1 and PKCE.',
+          'Access tokens carry roles, permissions and plan features.',
+          'Optional LiteLLM gateway that bills against the user wallet.',
+        ],
+      },
+    },
+    securityTitle: 'Secure by default',
+    security: [
+      'Unknown OAuth clients are rejected: authorization failures never fall back to open access.',
+      'Administrative privileges are hierarchical, and an administrator can enforce multi-factor authentication.',
+      'Passwordless flows (magic link, e-mail OTP) are blocked for accounts that have two-factor enabled.',
+      'Optional breached-password check using k-anonymity: only a 5-character hash prefix leaves the server.',
+      'You run it: no third-party service sits in the critical path of a sign-in.',
+      'Migrations run at startup, with structured logs and health checks for operations.',
+    ],
+    footerLicense: 'GPL-3.0',
+    footerRights: '© CIRCLE Cyber',
+  },
   pages: {
     notFound: {
       title: 'Page not found',

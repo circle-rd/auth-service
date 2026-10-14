@@ -64,6 +64,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
           appName: config.appName,
           logoUrl: config.appLogoUrl ?? null,
           emailVerificationEnabled,
+          showcase: config.showcase,
         });
       }
 
@@ -88,6 +89,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
         appName: config.appName,
         logoUrl: config.appLogoUrl ?? null,
         emailVerificationEnabled,
+        showcase: config.showcase,
       });
     },
   );

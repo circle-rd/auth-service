@@ -41,3 +41,13 @@ export function authPagePath(
 ): string {
   return `${path}${authQueryString(query)}`;
 }
+
+/**
+ * Where "back to sign-in" leads. A flow that carries signed OAuth parameters
+ * resumes on `/login`, which hosts them; otherwise it is the service's own
+ * administration sign-in at `/auth`.
+ */
+export function signInPath(query: Record<string, unknown> | undefined): string {
+  const qs = authQueryString(query);
+  return qs ? `/login${qs}` : '/auth';
+}

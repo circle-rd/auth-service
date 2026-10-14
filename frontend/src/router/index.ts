@@ -1,9 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { hasAuthParams } from '@/utils/authRedirect';
+import { useAppBranding } from '@/composables/useAppBranding';
 
 const routes = [
-  { path: '/', redirect: '/profile' },
+  {
+    // The landing page when the deployment enables SHOWCASE; otherwise the
+    // guard below sends the visitor to the application (and so to the sign-in).
+    path: '/',
+    name: 'home',
+    component: () => import('@/views/LandingView.vue'),
+    meta: { requiresAdmin: false, isPublic: true },
+  },
   {
     path: '/dashboard',
     name: 'dashboard',
@@ -59,8 +67,18 @@ const routes = [
     meta: { requiresAdmin: false },
   },
   {
-    path: '/login',
+    // The service's own (administration) sign-in.
+    path: '/auth',
     name: 'login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { requiresAdmin: false, isPublic: true },
+  },
+  {
+    // Entry point of OAuth authorization requests, device approval and the
+    // links of already-sent e-mails: the server redirects here carrying signed
+    // parameters. Without any, it is not an entry of its own (see the guard).
+    path: '/login',
+    name: 'oauth-login',
     component: () => import('@/views/LoginView.vue'),
     meta: { requiresAdmin: false, isPublic: true },
   },
@@ -132,6 +150,18 @@ router.beforeEach(async (to) => {
   // point of the flow is that the click did not create a session.
   if (to.meta.skipSessionFetch === true) {
     return true;
+  }
+
+  if (to.name === 'home') {
+    const { showcase, load } = useAppBranding();
+    await load();
+    return showcase.value ? true : { name: 'profile' };
+  }
+
+  if (to.name === 'oauth-login' && !hasAuthParams(to.query)) {
+    const { showcase, load } = useAppBranding();
+    await load();
+    return { name: showcase.value ? 'home' : 'login' };
   }
 
   if (!auth.initialized) {

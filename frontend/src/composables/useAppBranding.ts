@@ -16,6 +16,9 @@ const state = ref<BrandingState>({
 // enforces email verification. Drives the visibility of the admin actions.
 const emailVerificationEnabled = ref(false);
 
+// Whether the deployment serves the public landing page at `/`.
+const showcase = ref(false);
+
 let inflight: Promise<void> | null = null;
 
 async function load(): Promise<void> {
@@ -29,10 +32,12 @@ async function load(): Promise<void> {
         appName?: string;
         logoUrl?: string | null;
         emailVerificationEnabled?: boolean;
+        showcase?: boolean;
       };
       if (data.appName) state.value.appName = data.appName;
       if (data.logoUrl) state.value.logoUrl = data.logoUrl;
       emailVerificationEnabled.value = data.emailVerificationEnabled === true;
+      showcase.value = data.showcase === true;
       state.value.loaded = true;
       applyFavicon(state.value.logoUrl);
       if (typeof document !== 'undefined') document.title = state.value.appName;
@@ -71,5 +76,5 @@ function applyFavicon(url: string | null): void {
 }
 
 export function useAppBranding() {
-  return { branding: state, emailVerificationEnabled, load };
+  return { branding: state, emailVerificationEnabled, showcase, load };
 }

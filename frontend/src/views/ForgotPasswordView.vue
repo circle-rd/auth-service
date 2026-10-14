@@ -8,7 +8,7 @@ import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import { requestPasswordReset } from '@/api/auth';
 import { useAppBranding } from '@/composables/useAppBranding';
-import { authPagePath } from '@/utils/authRedirect';
+import { signInPath } from '@/utils/authRedirect';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -70,7 +70,7 @@ async function handleSubmit() {
           <BaseButton
             variant="outline"
             class="w-full"
-            @click="router.push(authPagePath('/login', route.query))"
+            @click="router.push(signInPath(route.query))"
           >
             <ArrowLeft class="w-4 h-4" />
             {{ t('auth.backToLogin') }}
@@ -94,7 +94,7 @@ async function handleSubmit() {
           <button
             type="button"
             class="w-full text-sm text-primary-400 hover:text-primary-300 underline underline-offset-2"
-            @click="router.push(authPagePath('/login', route.query))"
+            @click="router.push(signInPath(route.query))"
           >
             {{ t('auth.backToLogin') }}
           </button>

@@ -6,7 +6,7 @@ import { CircleCheckBig, MailCheck } from 'lucide-vue-next';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
-import { authPagePath } from '@/utils/authRedirect';
+import { signInPath } from '@/utils/authRedirect';
 
 // Post-verification landing page. It is public by design: the verification
 // click no longer opens a session, so this page must render for an anonymous
@@ -31,7 +31,7 @@ const key = computed(() =>
 const pending = computed(() => key.value === 'pending');
 
 function goToLogin() {
-  router.push(authPagePath('/login', route.query));
+  router.push(signInPath(route.query));
 }
 </script>
 

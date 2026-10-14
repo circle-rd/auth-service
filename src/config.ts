@@ -31,6 +31,11 @@ const envSchema = z
     // the frontend falls back to the bundled default logo.
     APP_LOGO_URL: z.string().url().optional(),
 
+    // Serve a public showcase landing page at `/`. When off (default), `/` goes
+    // straight to the sign-in. The administration sign-in lives at `/auth`
+    // either way.
+    SHOWCASE: envBoolean(false),
+
     DATABASE_URL: z.string().url(),
 
     ADMIN_EMAIL: z.string().email().optional(),
@@ -229,6 +234,7 @@ export const config = {
   },
   appName: parsed.data.APP_NAME,
   appLogoUrl: parsed.data.APP_LOGO_URL,
+  showcase: parsed.data.SHOWCASE,
   db: {
     url: parsed.data.DATABASE_URL,
   },

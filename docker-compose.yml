@@ -72,6 +72,8 @@ services:
       # Branding (displayed in UI + used as TOTP issuer).
       APP_NAME: ${APP_NAME:-CIRCLE Auth}
       APP_LOGO_URL: ${APP_LOGO_URL:-https://avatars.githubusercontent.com/u/266095592?v=4}
+      # Public landing page at `/` (the admin sign-in stays at `/auth`).
+      SHOWCASE: ${SHOWCASE:-false}
 
       # SMTP (optional). Start the local catcher with `--profile mail` and set
       # SMTP_HOST=mailpit SMTP_PORT=1025 to inspect outbound mail at :8025.

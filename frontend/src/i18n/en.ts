@@ -843,6 +843,10 @@ export default {
       'You run it: no third-party service sits in the critical path of a sign-in.',
       'Migrations run at startup, with structured logs and health checks for operations.',
     ],
+    managedTitle: 'Prefer not to run it yourself?',
+    managedBody:
+      'A managed edition of {appName} is available from LaGarde Cyber, the exclusive distribution partner of CIRCLE Cyber products. Self-hosting stays free and complete; choosing the managed edition is simply the easiest way to get started, and a way to support the project.',
+    managedSite: 'Visit LaGarde Cyber',
     footerLicense: 'GPL-3.0',
     footerRights: '© CIRCLE Cyber',
   },

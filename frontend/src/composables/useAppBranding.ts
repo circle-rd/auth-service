@@ -3,12 +3,14 @@ import { ref } from 'vue';
 interface BrandingState {
   appName: string;
   logoUrl: string | null;
+  logoDarkUrl: string | null;
   loaded: boolean;
 }
 
 const state = ref<BrandingState>({
   appName: 'CIRCLE Auth',
   logoUrl: null,
+  logoDarkUrl: null,
   loaded: false,
 });
 
@@ -31,11 +33,13 @@ async function load(): Promise<void> {
       const data = (await res.json()) as {
         appName?: string;
         logoUrl?: string | null;
+        logoDarkUrl?: string | null;
         emailVerificationEnabled?: boolean;
         showcase?: boolean;
       };
       if (data.appName) state.value.appName = data.appName;
       if (data.logoUrl) state.value.logoUrl = data.logoUrl;
+      if (data.logoDarkUrl) state.value.logoDarkUrl = data.logoDarkUrl;
       emailVerificationEnabled.value = data.emailVerificationEnabled === true;
       showcase.value = data.showcase === true;
       state.value.loaded = true;

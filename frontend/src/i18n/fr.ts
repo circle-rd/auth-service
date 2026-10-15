@@ -844,6 +844,10 @@ export default {
       'C\'est vous qui l\'exécutez : aucun service tiers n\'est sur le chemin critique d\'une connexion.',
       'Migrations au démarrage, journaux structurés et health checks pour l\'exploitation.',
     ],
+    managedTitle: 'Vous préférez ne pas l\'héberger vous-même ?',
+    managedBody:
+      'Une édition managée de {appName} est proposée par LaGarde Cyber, partenaire exclusif de distribution des produits CIRCLE Cyber. L\'auto-hébergement reste gratuit et complet ; l\'édition managée est simplement le moyen le plus simple de démarrer, et une façon de soutenir le projet.',
+    managedSite: 'Découvrir LaGarde Cyber',
     footerLicense: 'GPL-3.0',
     footerRights: '© CIRCLE Cyber',
   },

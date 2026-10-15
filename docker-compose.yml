@@ -71,7 +71,8 @@ services:
 
       # Branding (displayed in UI + used as TOTP issuer).
       APP_NAME: ${APP_NAME:-CIRCLE Auth}
-      APP_LOGO_URL: ${APP_LOGO_URL:-https://avatars.githubusercontent.com/u/266095592?v=4}
+      APP_LOGO_URL: ${APP_LOGO_URL:-}
+      APP_LOGO_DARK_URL: ${APP_LOGO_DARK_URL:-}
       # Public landing page at `/` (the admin sign-in stays at `/auth`).
       SHOWCASE: ${SHOWCASE:-false}
 

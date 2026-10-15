@@ -63,6 +63,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
           enabledSocialProviders: [],
           appName: config.appName,
           logoUrl: config.appLogoUrl ?? null,
+          logoDarkUrl: config.appLogoDarkUrl ?? null,
           emailVerificationEnabled,
           showcase: config.showcase,
         });
@@ -88,6 +89,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
         icon: app.icon ?? null,
         appName: config.appName,
         logoUrl: config.appLogoUrl ?? null,
+        logoDarkUrl: config.appLogoDarkUrl ?? null,
         emailVerificationEnabled,
         showcase: config.showcase,
       });

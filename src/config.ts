@@ -28,8 +28,13 @@ const envSchema = z
     APP_NAME: z.string().min(1).default("CIRCLE Auth"),
 
     // Optional logo URL displayed in the UI (sidebar, login, consent). When unset,
-    // the frontend falls back to the bundled default logo.
+    // the frontend falls back to the bundled CIRCLE mark.
     APP_LOGO_URL: z.string().url().optional(),
+
+    // Optional logo for the dark theme. When set, APP_LOGO_URL is used on the
+    // light theme and this one on the dark theme, without any automatic
+    // adaptation of the colours.
+    APP_LOGO_DARK_URL: z.string().url().optional(),
 
     // Serve a public showcase landing page at `/`. When off (default), `/` goes
     // straight to the sign-in. The administration sign-in lives at `/auth`
@@ -168,6 +173,13 @@ const envSchema = z
         message: "must not exceed WALLET_TOPUP_MAX_EUR",
       });
     }
+    if (data.APP_LOGO_DARK_URL && !data.APP_LOGO_URL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["APP_LOGO_DARK_URL"],
+        message: "requires APP_LOGO_URL (the light-theme logo)",
+      });
+    }
     // A half-configured CAPTCHA would otherwise silently stay disabled (all
     // three fields are required by `captcha.enabled`), or — if it did activate
     // without a site key — lock every credential flow out. Fail fast instead.
@@ -234,6 +246,7 @@ export const config = {
   },
   appName: parsed.data.APP_NAME,
   appLogoUrl: parsed.data.APP_LOGO_URL,
+  appLogoDarkUrl: parsed.data.APP_LOGO_DARK_URL,
   showcase: parsed.data.SHOWCASE,
   db: {
     url: parsed.data.DATABASE_URL,

@@ -76,6 +76,27 @@ describe("app-config routes", () => {
     }
   });
 
+  it("exposes the optional dark-theme logo", async () => {
+    const mutable = config as unknown as {
+      appLogoUrl: string | undefined;
+      appLogoDarkUrl: string | undefined;
+    };
+    const original = [mutable.appLogoUrl, mutable.appLogoDarkUrl];
+    try {
+      let res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({ logoDarkUrl: null });
+      mutable.appLogoUrl = "https://example.com/logo.png";
+      mutable.appLogoDarkUrl = "https://example.com/logo-dark.png";
+      res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({
+        logoUrl: "https://example.com/logo.png",
+        logoDarkUrl: "https://example.com/logo-dark.png",
+      });
+    } finally {
+      [mutable.appLogoUrl, mutable.appLogoDarkUrl] = original;
+    }
+  });
+
   it("returns APP_002 for an unknown client_id", async () => {
     const res = await app.inject({
       method: "GET",

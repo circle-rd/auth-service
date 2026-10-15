@@ -5,10 +5,12 @@ import {
   ArrowRight,
   Building2,
   Clock,
+  CloudCog,
   CreditCard,
   Fingerprint,
   Globe,
   Layers,
+  Mail,
   Moon,
   Palette,
   ShieldCheck,
@@ -16,6 +18,7 @@ import {
   Wallet,
 } from 'lucide-vue-next';
 import AppLogo from '@/components/branding/AppLogo.vue';
+import GithubIcon from '@/components/ui/GithubIcon.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
 import { useTheme } from '@/composables/useTheme';
@@ -23,6 +26,8 @@ import { useTheme } from '@/composables/useTheme';
 const GITHUB_URL = 'https://github.com/circle-rd/auth-service';
 const DOCS_URL = 'https://docs.circle-cyber.com/auth-service';
 const VENDOR_URL = 'https://circle-cyber.com';
+const MANAGED_URL = 'https://lagarde-cyber.com';
+const MANAGED_EMAIL = 'contact@lagarde-cyber.com';
 
 const { t, tm, rt } = useI18n();
 const { branding } = useAppBranding();
@@ -53,7 +58,7 @@ function messages(key: string): string[] {
     <header class="border-b border-surface-800/60">
       <nav class="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
         <div class="flex items-center gap-2 text-sm font-medium tracking-tight">
-          <AppLogo :size="20" icon-class="text-primary-500" />
+          <AppLogo :size="24" icon-class="text-surface-100" />
           {{ branding.appName }}
         </div>
         <div class="flex items-center gap-4 text-xs text-surface-400">
@@ -66,9 +71,7 @@ function messages(key: string): string[] {
             rel="noopener noreferrer"
             class="hidden sm:flex items-center gap-1.5 hover:text-surface-100 transition-colors"
           >
-            <svg viewBox="0 0 24 24" class="w-[13px] h-[13px]" fill="currentColor" aria-hidden="true">
-              <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
-            </svg>
+            <GithubIcon class="w-[13px] h-[13px]" />
             GitHub
           </a>
           <LanguageSelect />
@@ -100,7 +103,7 @@ function messages(key: string): string[] {
         </div>
         <div class="relative max-w-4xl mx-auto">
           <div class="mb-8 flex justify-center">
-            <AppLogo :size="140" icon-class="text-primary-500" class="opacity-90" />
+            <AppLogo :size="140" icon-class="text-surface-100" class="opacity-90" />
           </div>
           <span
             class="inline-flex items-center gap-1.5 mb-6 px-3 py-1 text-[11px] uppercase tracking-widest font-medium text-surface-400 border border-surface-800 rounded-full bg-surface-900"
@@ -245,6 +248,41 @@ function messages(key: string): string[] {
           </ul>
         </div>
       </section>
+
+      <!-- Managed offer -->
+      <section id="managed" class="px-6 pb-20 scroll-mt-8">
+        <div
+          class="max-w-5xl mx-auto border border-primary-500/30 bg-primary-600/5 rounded-xl p-7 flex flex-col md:flex-row md:items-center gap-6"
+        >
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-3">
+              <CloudCog class="w-[18px] h-[18px] text-primary-400" />
+              <h2 class="text-base font-medium">{{ t('landing.managedTitle') }}</h2>
+            </div>
+            <p class="text-xs text-surface-400 leading-relaxed max-w-[70ch]">
+              {{ t('landing.managedBody', { appName: branding.appName }) }}
+            </p>
+          </div>
+          <div class="flex flex-col sm:flex-row md:flex-col gap-2 shrink-0">
+            <a
+              :href="MANAGED_URL"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-medium rounded-lg border border-surface-700 text-surface-100 hover:bg-surface-900 transition-colors"
+            >
+              {{ t('landing.managedSite') }}
+              <ArrowRight class="w-[13px] h-[13px]" />
+            </a>
+            <a
+              :href="`mailto:${MANAGED_EMAIL}`"
+              class="inline-flex items-center justify-center gap-2 px-4 py-2 text-xs text-surface-400 hover:text-surface-100 transition-colors"
+            >
+              <Mail class="w-[13px] h-[13px]" />
+              {{ MANAGED_EMAIL }}
+            </a>
+          </div>
+        </div>
+      </section>
     </main>
 
     <!-- Footer -->
@@ -266,8 +304,9 @@ function messages(key: string): string[] {
           :href="GITHUB_URL"
           target="_blank"
           rel="noopener noreferrer"
-          class="text-xs text-surface-500 hover:text-surface-300 transition-colors"
+          class="inline-flex items-center gap-1.5 text-xs text-surface-500 hover:text-surface-300 transition-colors"
         >
+          <GithubIcon class="w-[13px] h-[13px]" />
           GitHub
         </a>
       </div>

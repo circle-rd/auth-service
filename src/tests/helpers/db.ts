@@ -21,6 +21,7 @@ export async function cleanDb(): Promise<void> {
       user_app_roles,
       app_permissions,
       app_roles,
+      user_subscription_events,
       user_subscriptions,
       subscription_plan_prices,
       subscription_plans,

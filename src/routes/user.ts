@@ -20,6 +20,8 @@ import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
 import { requireSession, requireFullSession } from "../middleware.js";
 import { publishEvent } from "../services/event-bus.js";
+import { isStripeConfigured } from "../services/stripe.js";
+import { setUserSubscription } from "../services/subscriptions.js";
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -30,9 +32,15 @@ const updateProfileSchema = z.object({
   image: z.string().url().nullable().optional(),
 });
 
+const changePlanSchema = z.object({
+  planId: z.string().uuid(),
+});
+
 export async function userRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/user/subscription
-  // Returns the current user's app access list with plan details and features.
+  // Returns the current user's app access list with plan details, the plans
+  // available per application (for the self-service selector) and whether
+  // Stripe is configured (the selector is hidden when it is not).
   fastify.get("/subscription", async (req, reply) => {
     const userId = await requireSession(req, reply);
     if (!userId) return;
@@ -43,22 +51,13 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         appName: applications.name,
         appSlug: applications.slug,
         appIcon: applications.icon,
-        appIsActive: applications.isActive,
         userIsActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
-        planName: subscriptionPlans.name,
-        planDescription: subscriptionPlans.description,
-        planFeatures: subscriptionPlans.features,
-        planIsDefault: subscriptionPlans.isDefault,
       })
       .from(userApplications)
       .innerJoin(
         applications,
         eq(userApplications.applicationId, applications.id),
-      )
-      .leftJoin(
-        subscriptionPlans,
-        eq(userApplications.subscriptionPlanId, subscriptionPlans.id),
       )
       .where(
         and(
@@ -69,49 +68,127 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       )
       .orderBy(applications.name);
 
-    // Fetch prices for all plans referenced by these subscriptions
-    const planIds = rows
-      .map((r) => r.subscriptionPlanId)
-      .filter((id): id is string => id !== null);
+    const appIds = rows.map((r) => r.applicationId);
 
-    const pricesRows = planIds.length
+    const plans = appIds.length
+      ? await db
+          .select()
+          .from(subscriptionPlans)
+          .where(inArray(subscriptionPlans.applicationId, appIds))
+      : [];
+
+    const allPrices = plans.length
       ? await db
           .select()
           .from(subscriptionPlanPrices)
-          .where(inArray(subscriptionPlanPrices.planId, planIds))
+          .where(
+            inArray(
+              subscriptionPlanPrices.planId,
+              plans.map((p) => p.id),
+            ),
+          )
       : [];
 
-    const subscriptions = rows.map((r) => ({
-      applicationId: r.applicationId,
-      applicationName: r.appName,
-      applicationSlug: r.appSlug,
-      applicationIcon: r.appIcon,
-      isActive: r.userIsActive,
-      plan: r.subscriptionPlanId
-        ? {
-            id: r.subscriptionPlanId,
-            name: r.planName,
-            description: r.planDescription,
-            features: r.planFeatures ?? {},
-            isDefault: r.planIsDefault,
-            prices: pricesRows
-              .filter((p) => p.planId === r.subscriptionPlanId)
-              .map((p) => ({
-                id: p.id,
-                planId: p.planId,
-                name: p.name,
-                amount: p.amount,
-                currency: p.currency,
-                interval: p.interval as "month" | "year" | "one_time",
-                stripePriceId: p.stripePriceId,
-                createdAt: p.createdAt.toISOString(),
-              })),
-          }
-        : null,
-    }));
+    const pricesByPlan = new Map<string, typeof allPrices>();
+    for (const price of allPrices) {
+      const list = pricesByPlan.get(price.planId) ?? [];
+      list.push(price);
+      pricesByPlan.set(price.planId, list);
+    }
 
-    await reply.send({ subscriptions });
+    const toPlanView = (plan: (typeof plans)[number]) => ({
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      features: plan.features ?? {},
+      isDefault: plan.isDefault,
+      prices: (pricesByPlan.get(plan.id) ?? []).map((price) => ({
+        id: price.id,
+        planId: price.planId,
+        name: price.name,
+        amount: price.amount,
+        currency: price.currency,
+        interval: price.interval as "month" | "year" | "one_time",
+        stripePriceId: price.stripePriceId,
+        createdAt: price.createdAt.toISOString(),
+      })),
+    });
+
+    const plansById = new Map(plans.map((p) => [p.id, p]));
+
+    const subscriptions = rows.map((r) => {
+      const current = r.subscriptionPlanId
+        ? plansById.get(r.subscriptionPlanId)
+        : undefined;
+      return {
+        applicationId: r.applicationId,
+        applicationName: r.appName,
+        applicationSlug: r.appSlug,
+        applicationIcon: r.appIcon,
+        isActive: r.userIsActive,
+        plan: current ? toPlanView(current) : null,
+        availablePlans: plans
+          .filter((p) => p.applicationId === r.applicationId)
+          .map(toPlanView),
+      };
+    });
+
+    await reply.send({
+      subscriptions,
+      stripeConfigured: isStripeConfigured(),
+    });
   });
+
+  // PATCH /api/user/subscription/:applicationId
+  // Self-service plan change. Hidden and refused unless Stripe is configured:
+  // without a payment provider only administrators change a user's plan. Paid
+  // target plans are refused until the payment flow exists, so self-service
+  // cannot hand out a paid entitlement for free.
+  fastify.patch<{ Params: { applicationId: string } }>(
+    "/subscription/:applicationId",
+    async (req, reply) => {
+      const userId = await requireSession(req, reply);
+      if (!userId) return;
+
+      if (!isStripeConfigured()) throw ERR.SUB_005();
+
+      const parsed = changePlanSchema.safeParse(req.body);
+      if (!parsed.success)
+        throw ERR.APP_001("Invalid plan change", parsed.error.flatten());
+
+      const { applicationId } = req.params;
+
+      // The user may only change the plan of an application they can access.
+      const [access] = await db
+        .select({ id: userApplications.id })
+        .from(userApplications)
+        .where(
+          and(
+            eq(userApplications.userId, userId),
+            eq(userApplications.applicationId, applicationId),
+            eq(userApplications.isActive, true),
+          ),
+        )
+        .limit(1);
+      if (!access) throw ERR.APP_005();
+
+      const prices = await db
+        .select({ amount: subscriptionPlanPrices.amount })
+        .from(subscriptionPlanPrices)
+        .where(eq(subscriptionPlanPrices.planId, parsed.data.planId));
+      if (prices.some((p) => Number(p.amount) > 0)) throw ERR.SUB_006();
+
+      const change = await setUserSubscription({
+        userId,
+        applicationId,
+        planId: parsed.data.planId,
+        source: "self",
+        actorUserId: userId,
+      });
+
+      await reply.send({ ok: true, changed: change.changed });
+    },
+  );
 
   // GET /api/user/consumption/:appId
   // Returns the current user's consumption aggregates for a specific app.

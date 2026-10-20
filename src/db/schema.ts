@@ -227,6 +227,56 @@ export const userSubscriptions = pgTable(
   ],
 );
 
+// ── User Subscription Events ──────────────────────────────────────────────────
+// Audit trail of plan changes that move no money and therefore cannot live in
+// the wallet ledger. One row per effective change: a re-assignment to the same
+// plan is a no-op and is never recorded. `source` distinguishes the actor path
+// (an administrator, the user themselves, the default-plan rule, or a Stripe
+// webhook) so an operator can tell an automatic assignment from a manual one.
+export const userSubscriptionEvents = pgTable(
+  "user_subscription_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    // Null for automatic paths (`default`, `stripe`).
+    actorUserId: text("actor_user_id"),
+    source: text("source").notNull(),
+    action: text("action").notNull(),
+    fromPlanId: uuid("from_plan_id").references(() => subscriptionPlans.id, {
+      onDelete: "set null",
+    }),
+    toPlanId: uuid("to_plan_id").references(() => subscriptionPlans.id, {
+      onDelete: "set null",
+    }),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("user_subscription_events_user_app_created_idx").on(
+      t.userId,
+      t.applicationId,
+      t.createdAt,
+    ),
+    index("user_subscription_events_app_created_idx").on(
+      t.applicationId,
+      t.createdAt,
+    ),
+    check(
+      "user_subscription_events_source_check",
+      sql`${t.source} IN ('admin', 'self', 'default', 'stripe')`,
+    ),
+    check(
+      "user_subscription_events_action_check",
+      sql`${t.action} IN ('assigned', 'changed', 'removed')`,
+    ),
+  ],
+);
+
 // ── Consumption Entries ───────────────────────────────────────────────────────
 export const consumptionEntries = pgTable(
   "consumption_entries",

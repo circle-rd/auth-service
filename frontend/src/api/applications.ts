@@ -124,9 +124,10 @@ export async function getUserLoginHistory(appId: string, userId: string, params:
   return apiFetch<LoginHistoryResponse>(`/admin/applications/${appId}/users/${userId}/history?${qs}`);
 }
 
-export async function grantAppAccess(appId: string, body: { userId: string; roleId?: string }): Promise<{ access: UserApplication }> {
+export async function grantAppAccess(appId: string, body: { userId: string; roleId?: string; subscriptionPlanId?: string }): Promise<{ access: UserApplication }> {
   if (USE_MOCK) {
-    const access: UserApplication = { userId: body.userId, applicationId: appId, isActive: true, subscriptionPlanId: null, createdAt: new Date().toISOString(), name: null, email: null, roleId: body.roleId ?? null };
+    const plan = body.subscriptionPlanId ? MOCK_PLANS.find(p => p.id === body.subscriptionPlanId) : undefined;
+    const access: UserApplication = { userId: body.userId, applicationId: appId, isActive: true, subscriptionPlanId: body.subscriptionPlanId ?? null, createdAt: new Date().toISOString(), name: null, email: null, roleId: body.roleId ?? null, subscriptionPlanName: plan?.name ?? null };
     MOCK_USER_APPLICATIONS.push(access);
     return { access };
   }
@@ -135,11 +136,12 @@ export async function grantAppAccess(appId: string, body: { userId: string; role
 
 /**
  * Grant access to many users at once, either every member of an organization
- * or an explicit list of user ids.
+ * or an explicit list of user ids. An optional plan applies to every grantee;
+ * when omitted the application's default plan is used.
  */
 export async function bulkGrantAppAccess(
   appId: string,
-  body: { organizationId?: string; userIds?: string[]; roleId?: string },
+  body: { organizationId?: string; userIds?: string[]; roleId?: string; subscriptionPlanId?: string },
 ): Promise<{ granted: number; skipped?: number }> {
   if (USE_MOCK) return { granted: body.userIds?.length ?? 0 };
   return apiFetch<{ granted: number; skipped?: number }>(`/admin/applications/${appId}/users/bulk`, {
@@ -148,10 +150,17 @@ export async function bulkGrantAppAccess(
   });
 }
 
-export async function updateAppAccess(appId: string, userId: string, body: { isActive?: boolean; roleId?: string; subscriptionPlanId?: string }): Promise<{ ok: true }> {
+/**
+ * Update a user's access record. Changing the subscription plan requires a
+ * reason (recorded in the subscription audit journal).
+ */
+export async function updateAppAccess(appId: string, userId: string, body: { isActive?: boolean; roleId?: string; subscriptionPlanId?: string | null; reason?: string }): Promise<{ ok: true }> {
   if (USE_MOCK) {
     const ua = MOCK_USER_APPLICATIONS.find(u => u.applicationId === appId && u.userId === userId);
-    if (ua) Object.assign(ua, body);
+    if (ua) {
+      const planId = body.subscriptionPlanId ?? null;
+      Object.assign(ua, body, { subscriptionPlanName: planId ? MOCK_PLANS.find(p => p.id === planId)?.name ?? null : null });
+    }
     return { ok: true };
   }
   return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -164,16 +173,6 @@ export async function revokeAppAccess(appId: string, userId: string): Promise<vo
     return;
   }
   return apiFetch<void>(`/admin/applications/${appId}/users/${userId}`, { method: 'DELETE' });
-}
-
-export async function assignSubscription(appId: string, userId: string, body: { planId: string }): Promise<{ ok: true }> {
-  if (USE_MOCK) return { ok: true };
-  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ subscriptionPlanId: body.planId }) });
-}
-
-export async function removeSubscription(appId: string, userId: string): Promise<{ ok: true }> {
-  if (USE_MOCK) return { ok: true };
-  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ subscriptionPlanId: null }) });
 }
 
 export async function listRoles(appId: string): Promise<{ roles: AppRole[] }> {

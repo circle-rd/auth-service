@@ -27,8 +27,8 @@ import {
   getUserClaims,
   userHasAppAccessBySlug,
   assignDefaultRoleIfNeeded,
-  assignDefaultPlanIfNeeded,
 } from "./services/claims.js";
+import { assignDefaultPlanIfNeeded } from "./services/subscriptions.js";
 import {
   sendResetPasswordEmail,
   sendVerificationEmail,

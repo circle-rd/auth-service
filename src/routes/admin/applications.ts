@@ -13,10 +13,18 @@ import {
   userSubscriptions,
   loginHistory,
 } from "../../db/schema.js";
+import { assignDefaultRoleIfNeeded } from "../../services/claims.js";
 import {
-  assignDefaultRoleIfNeeded,
+  assertPlanBelongsToApp,
   assignDefaultPlanIfNeeded,
-} from "../../services/claims.js";
+  getCurrentSubscriptionPlanId,
+  setUserSubscription,
+} from "../../services/subscriptions.js";
+import {
+  assignRequestedOrDefaultPlan,
+  planChangeReasonRequired,
+  subscriptionReasonSchema,
+} from "./subscription-request.js";
 import {
   oauthClient,
   member,
@@ -35,7 +43,11 @@ import {
   revokeUserClientTokens,
   revokeClientTokens,
 } from "../../services/oauth-tokens.js";
-import { getRequestSession, requireAdmin } from "../../middleware.js";
+import {
+  getActorUserId,
+  getRequestSession,
+  requireAdmin,
+} from "../../middleware.js";
 import { publishEvent } from "../../services/event-bus.js";
 import {
   ensureTeamBeforeSave,
@@ -245,6 +257,9 @@ const updateAppSchema = createAppSchema
 const grantUserAccessSchema = z.object({
   userId: z.string().min(1),
   roleId: z.string().uuid().optional(),
+  // When omitted the application's default plan is assigned instead.
+  subscriptionPlanId: z.string().uuid().optional(),
+  reason: subscriptionReasonSchema.optional(),
 });
 
 const bulkGrantUserAccessSchema = z
@@ -254,16 +269,27 @@ const bulkGrantUserAccessSchema = z
     // …or an explicit list of user ids.
     userIds: z.array(z.string().min(1)).min(1).max(1000).optional(),
     roleId: z.string().uuid().optional(),
+    // Applied to every granted user; the app default plan is used when omitted.
+    subscriptionPlanId: z.string().uuid().optional(),
+    reason: subscriptionReasonSchema.optional(),
   })
   .refine((d) => Boolean(d.organizationId) !== Boolean(d.userIds), {
     message: "Provide exactly one of organizationId or userIds",
   });
 
-const updateUserAccessSchema = z.object({
-  isActive: z.boolean().optional(),
-  roleId: z.string().uuid().optional().nullable(),
-  subscriptionPlanId: z.string().uuid().optional().nullable(),
-});
+const updateUserAccessSchema = z
+  .object({
+    isActive: z.boolean().optional(),
+    roleId: z.string().uuid().optional().nullable(),
+    subscriptionPlanId: z.string().uuid().optional().nullable(),
+    expiresAt: z.string().datetime().optional().nullable(),
+    // A manual plan change is audited, so it must carry a reason.
+    reason: subscriptionReasonSchema.optional(),
+  })
+  .refine((d) => !planChangeReasonRequired(d), {
+    message: "reason is required when changing the subscription plan",
+    path: ["reason"],
+  });
 
 /** Hiding an application and protecting it from deletion is a superadmin decision. */
 async function assertMaySetSystemFlag(req: FastifyRequest): Promise<void> {
@@ -842,6 +868,15 @@ export async function applicationRoutes(
       .limit(1);
     if (!app) throw ERR.APP_002();
 
+    // Validate the plan up front so an unknown/foreign plan fails before we
+    // grant access (fail-fast; no half-applied request).
+    if (parsed.data.subscriptionPlanId) {
+      await assertPlanBelongsToApp(
+        parsed.data.subscriptionPlanId,
+        req.params.id,
+      );
+    }
+
     const [ua] = await db
       .insert(userApplications)
       .values({
@@ -872,8 +907,14 @@ export async function applicationRoutes(
       await assignDefaultRoleIfNeeded(parsed.data.userId, req.params.id);
     }
 
-    // Auto-assign the app's default subscription plan if one is configured
-    await assignDefaultPlanIfNeeded(parsed.data.userId, req.params.id);
+    // Assign the requested plan, else fall back to the app's default plan.
+    await assignRequestedOrDefaultPlan({
+      userId: parsed.data.userId,
+      applicationId: req.params.id,
+      planId: parsed.data.subscriptionPlanId,
+      actorUserId: await getActorUserId(req),
+      reason: parsed.data.reason ?? null,
+    });
 
     await reply.status(201).send({ ok: true });
   });
@@ -937,6 +978,14 @@ export async function applicationRoutes(
       if (parsed.data.roleId) {
         await assertRoleBelongsToApp(parsed.data.roleId, req.params.id);
       }
+      // Validate the plan before granting anything, so an unknown/foreign plan
+      // cannot leave a batch of access rows behind a 404.
+      if (parsed.data.subscriptionPlanId) {
+        await assertPlanBelongsToApp(
+          parsed.data.subscriptionPlanId,
+          req.params.id,
+        );
+      }
 
       if (toGrant.length === 0) {
         await reply.status(200).send({ granted: 0, skipped });
@@ -957,6 +1006,8 @@ export async function applicationRoutes(
           set: { isActive: true },
         });
 
+      const actorId = await getActorUserId(req);
+
       for (const { id: userId } of toGrant) {
         if (parsed.data.roleId) {
           await db
@@ -970,7 +1021,13 @@ export async function applicationRoutes(
         } else {
           await assignDefaultRoleIfNeeded(userId, req.params.id);
         }
-        await assignDefaultPlanIfNeeded(userId, req.params.id);
+        await assignRequestedOrDefaultPlan({
+          userId,
+          applicationId: req.params.id,
+          planId: parsed.data.subscriptionPlanId,
+          actorUserId: actorId,
+          reason: parsed.data.reason ?? null,
+        });
       }
 
       await reply.status(201).send({ granted: toGrant.length, skipped });
@@ -984,6 +1041,16 @@ export async function applicationRoutes(
       const parsed = updateUserAccessSchema.safeParse(req.body);
       if (!parsed.success)
         throw ERR.APP_001("Invalid data", parsed.error.flatten());
+
+      const { subscriptionPlanId, expiresAt } = parsed.data;
+      const writesPlan = subscriptionPlanId !== undefined;
+      const writesExpiry = expiresAt !== undefined;
+
+      // Validate the plan up front — before the access row or the role is
+      // mutated — so a foreign/unknown plan cannot leave a half-applied request.
+      if (typeof subscriptionPlanId === "string") {
+        await assertPlanBelongsToApp(subscriptionPlanId, req.params.id);
+      }
 
       if (parsed.data.isActive !== undefined) {
         await db
@@ -1036,16 +1103,30 @@ export async function applicationRoutes(
         }
       }
 
-      if (parsed.data.subscriptionPlanId !== undefined) {
-        await db
-          .update(userApplications)
-          .set({ subscriptionPlanId: parsed.data.subscriptionPlanId })
-          .where(
-            and(
-              eq(userApplications.userId, req.params.userId),
-              eq(userApplications.applicationId, req.params.id),
-            ),
-          );
+      if (writesPlan || writesExpiry) {
+        // An expiry-only payload keeps the current plan; a plan payload with a
+        // null plan revokes the subscription.
+        const planId = writesPlan
+          ? subscriptionPlanId
+          : await getCurrentSubscriptionPlanId(
+              req.params.userId,
+              req.params.id,
+            );
+        if (writesPlan || planId !== null) {
+          await setUserSubscription({
+            userId: req.params.userId,
+            applicationId: req.params.id,
+            planId,
+            source: "admin",
+            actorUserId: await getActorUserId(req),
+            reason: parsed.data.reason ?? null,
+            expiresAt: writesExpiry
+              ? expiresAt
+                ? new Date(expiresAt)
+                : null
+              : undefined,
+          });
+        }
       }
 
       // When activating a user, auto-assign the default plan if none assigned yet

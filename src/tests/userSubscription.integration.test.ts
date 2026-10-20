@@ -8,6 +8,7 @@ import {
   beforeEach,
 } from "vitest";
 import { userRoutes } from "../routes/user.js";
+import type * as StripeModule from "../services/stripe.js";
 import { createTestApp } from "./helpers/app.js";
 import { db } from "../db/index.js";
 import {
@@ -25,6 +26,14 @@ import { auth } from "../auth.js";
 
 vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
 
+// Stripe configuration is process-wide; expose a mutable flag so the
+// self-service gate can be exercised in both states.
+const { stripeState } = vi.hoisted(() => ({ stripeState: { configured: false } }));
+vi.mock("../services/stripe.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof StripeModule>();
+  return { ...actual, isStripeConfigured: () => stripeState.configured };
+});
+
 // ── App ────────────────────────────────────────────────────────────────────
 
 const app = createTestApp();
@@ -39,6 +48,7 @@ afterAll(() => app.close());
 beforeEach(async () => {
   await cleanDb();
   vi.restoreAllMocks();
+  stripeState.configured = false;
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -228,5 +238,87 @@ describe("userRoutes — GET /subscription", () => {
       subscriptions: Array<{ plan: { features: unknown } | null }>;
     }>();
     expect(body.subscriptions[0]!.plan?.features).toMatchObject(features);
+  });
+
+  it("200 exposes every available plan and the Stripe flag", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const free = await seedPlan(a.id, "free");
+    await seedPlan(a.id, "pro");
+    await grantAccess("user-1", a.id, free.id);
+    asUser();
+    const res = await app.inject({ method: "GET", url: "/subscription" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{
+      stripeConfigured: boolean;
+      subscriptions: Array<{ availablePlans: Array<{ name: string }> }>;
+    }>();
+    expect(body.stripeConfigured).toBe(false);
+    expect(
+      body.subscriptions[0]!.availablePlans.map((p) => p.name).sort(),
+    ).toEqual(["free", "pro"]);
+  });
+});
+
+describe("userRoutes — PATCH /subscription/:applicationId", () => {
+  it("401 when not authenticated", async () => {
+    vi.spyOn(auth.api, "getSession").mockResolvedValue(null);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/subscription/00000000-0000-0000-0000-0000000000aa",
+      payload: { planId: "00000000-0000-0000-0000-0000000000bb" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("403 SUB_005 without Stripe configured", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const plan = await seedPlan(a.id, "pro");
+    await grantAccess("user-1", a.id, null);
+    asUser();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/subscription/${a.id}`,
+      payload: { planId: plan.id },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe("SUB_005");
+  });
+
+  it("403 SUB_006 for a paid plan when Stripe is configured", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const paid = await seedPlan(a.id, "pro");
+    await seedPrice(paid.id, "2900", "eur", "month");
+    await grantAccess("user-1", a.id, null);
+    asUser();
+    stripeState.configured = true;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/subscription/${a.id}`,
+      payload: { planId: paid.id },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json<{ error: { code: string } }>().error.code).toBe("SUB_006");
+  });
+
+  it("200 switches to a free plan when Stripe is configured", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const current = await seedPlan(a.id, "free");
+    const other = await seedPlan(a.id, "basic");
+    await grantAccess("user-1", a.id, current.id);
+    asUser();
+    stripeState.configured = true;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/subscription/${a.id}`,
+      payload: { planId: other.id },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ changed: boolean }>().changed).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
@@ -7,12 +7,15 @@ import { updateMyProfile } from '@/api/users';
 import { listMySessions, revokeSession } from '@/api/sessions';
 import { getMyConsumption } from '@/api/consumption';
 import { getMyOrganizations } from '@/api/organizations';
-import type { Session, ConsumptionAggregate } from '@/types';
+import { getMySubscriptions, changeMyPlan } from '@/api/subscriptions';
+import type { Session, ConsumptionAggregate, UserSubscriptionEntry, UserSubscriptionPlan } from '@/types';
 import { useToast } from '@/composables/useToast';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import ProfileLayout from '@/components/layout/ProfileLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
+import BaseSelect from '@/components/ui/BaseSelect.vue';
+import BaseModal from '@/components/ui/BaseModal.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import MfaSetupModal from '@/components/profile/MfaSetupModal.vue';
@@ -20,27 +23,7 @@ import MfaDisableModal from '@/components/profile/MfaDisableModal.vue';
 import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw, Lock } from 'lucide-vue-next';
-
-interface SubscriptionPlanPrice {
-  id: string
-  planId: string
-  name: string
-  amount: string
-  currency: string
-  interval: 'month' | 'year' | 'one_time'
-  stripePriceId: string | null
-  createdAt: string
-}
-
-interface SubscriptionEntry {
-  applicationId: string
-  applicationName: string
-  applicationSlug: string
-  applicationIcon: string | null
-  isActive: boolean
-  plan: { id: string; name: string; description: string | null; features: Record<string, unknown>; isDefault: boolean | null; prices: SubscriptionPlanPrice[] } | null
-}
+import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw, Lock, CreditCard } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const auth = useAuthStore();
@@ -62,7 +45,8 @@ const profileTabs = [
 
 const sessions = ref<Session[]>([]);
 const currentSessionId = ref<string>('');
-const subscriptions = ref<SubscriptionEntry[]>([]);
+const subscriptions = ref<UserSubscriptionEntry[]>([]);
+const stripeConfigured = ref(false);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const myOrgs = ref<Array<{ id: string; name: string; slug: string; logo: string | null; role: string }>>([]);
 const saveLoading = ref(false);
@@ -108,10 +92,10 @@ onMounted(async () => {
     .catch(() => { /* silently ignore */ });
 
   // Subscriptions + consumption — user-facing endpoints
-  fetch('/api/user/subscription', { credentials: 'include' })
-    .then(r => r.ok ? r.json() : Promise.reject())
-    .then(async (data: { subscriptions: SubscriptionEntry[] }) => {
+  getMySubscriptions()
+    .then(async (data) => {
       subscriptions.value = data.subscriptions;
+      stripeConfigured.value = data.stripeConfigured;
       for (const sub of data.subscriptions) {
         try {
           const res = await getMyConsumption(sub.applicationId);
@@ -161,7 +145,7 @@ function isPlanFeatureMetered(v: unknown): v is { usage: true; limit: number; un
   return (v as Record<string, unknown>).usage === true;
 }
 
-function getMyInvoice(sub: SubscriptionEntry): { baseAmount: number; usageLines: Array<{ key: string; unit: string; total: number; pricePerUnit: number; subtotal: number }>; total: number; currency: string } {
+function getMyInvoice(sub: UserSubscriptionEntry): { baseAmount: number; usageLines: Array<{ key: string; unit: string; total: number; pricePerUnit: number; subtotal: number }>; total: number; currency: string } {
   if (!sub.plan) return { baseAmount: 0, usageLines: [], total: 0, currency: 'eur' };
   const monthlyPrice = (sub.plan.prices ?? []).find(p => p.interval === 'month');
   const baseAmount = monthlyPrice ? Number(monthlyPrice.amount) : 0;
@@ -195,6 +179,49 @@ const showRegenerateBackup = ref(false);
 
 // ── Password modal state ───────────────────────────────────────────────────
 const showChangePassword = ref(false);
+
+// ── Subscription change modal state ────────────────────────────────────────
+const showPlanModal = ref(false);
+const planTarget = ref<UserSubscriptionEntry | null>(null);
+const planForm = ref({ planId: '' });
+const planSaving = ref(false);
+
+/** Only plans that need no payment are self-selectable for now. */
+function isFreePlan(plan: UserSubscriptionPlan): boolean {
+  return plan.prices.every((price) => Number(price.amount) === 0);
+}
+
+const planOptions = computed(() =>
+  (planTarget.value?.availablePlans ?? [])
+    .filter(isFreePlan)
+    .map((p) => ({ value: p.id, label: p.name })),
+);
+
+function openPlanModal(sub: UserSubscriptionEntry) {
+  planTarget.value = sub;
+  const freeOptions = sub.availablePlans.filter(isFreePlan);
+  const currentFree =
+    sub.plan && isFreePlan(sub.plan) ? sub.plan.id : undefined;
+  planForm.value = { planId: currentFree ?? freeOptions[0]?.id ?? '' };
+  showPlanModal.value = true;
+}
+
+async function handleChangePlan() {
+  if (!planTarget.value || !planForm.value.planId || planSaving.value) return;
+  planSaving.value = true;
+  try {
+    await changeMyPlan(planTarget.value.applicationId, planForm.value.planId);
+    const data = await getMySubscriptions();
+    subscriptions.value = data.subscriptions;
+    stripeConfigured.value = data.stripeConfigured;
+    toast.success(t('profile.planChangeSuccess'));
+    showPlanModal.value = false;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
+  } finally {
+    planSaving.value = false;
+  }
+}
 </script>
 
 <template>
@@ -418,7 +445,16 @@ const showChangePassword = ref(false);
               <p class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
               <BaseBadge :variant="sub.isActive ? 'success' : 'neutral'" size="sm" dot>{{ sub.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
               <BaseBadge v-if="sub.plan" variant="neutral" size="sm">{{ sub.plan.name }}</BaseBadge>
+              <BaseButton
+                v-if="stripeConfigured && sub.availablePlans.length > 0"
+                size="sm"
+                variant="outline"
+                @click="openPlanModal(sub)"
+              >
+                <CreditCard class="w-3.5 h-3.5" />{{ t('profile.changePlan') }}
+              </BaseButton>
             </div>
+            <p v-if="!stripeConfigured && sub.availablePlans.length > 0" class="text-xs text-surface-500">{{ t('profile.manageByAdmin') }}</p>
             <div v-if="consumption[sub.applicationId]?.length" class="flex flex-wrap gap-2 mt-2">
               <div v-for="agg in consumption[sub.applicationId]" :key="agg.key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30">
                 <span class="text-xs font-mono text-surface-500">{{ agg.key }}: </span>
@@ -478,5 +514,16 @@ const showChangePassword = ref(false);
         </div>
       </div>
     </div>
+    <!-- Self-service plan change (only when Stripe is configured) -->
+    <BaseModal :open="showPlanModal" :title="t('profile.changePlanTitle')" @close="showPlanModal = false">
+      <div class="space-y-4">
+        <p class="text-sm text-surface-400">{{ t('profile.changePlanHint', { app: planTarget?.applicationName ?? '' }) }}</p>
+        <BaseSelect v-model="planForm.planId" :label="t('appDetail.subscriptionPlan')" :options="planOptions" />
+      </div>
+      <template #footer>
+        <BaseButton variant="ghost" @click="showPlanModal = false">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton :loading="planSaving" :disabled="!planForm.planId" @click="handleChangePlan">{{ t('profile.changePlan') }}</BaseButton>
+      </template>
+    </BaseModal>
   </ProfileLayout>
 </template>

@@ -17,6 +17,14 @@ export async function getRequestSession(req: FastifyRequest) {
   return auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
 }
 
+/** The authenticated user's id, or null. Used to attribute audit entries. */
+export async function getActorUserId(
+  req: FastifyRequest,
+): Promise<string | null> {
+  const session = await getRequestSession(req);
+  return session?.user.id ?? null;
+}
+
 async function sendAuthError(
   reply: FastifyReply,
   error: ApiError,

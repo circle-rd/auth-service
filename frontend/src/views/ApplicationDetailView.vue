@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useServicesStore } from '@/stores/services';
@@ -8,6 +8,7 @@ import * as consumptionApi from '@/api/consumption';
 import { listUsers } from '@/api/users';
 import { listOrganizations } from '@/api/organizations';
 import { useToast } from '@/composables/useToast';
+import { useAdminEvents } from '@/composables/useAdminEvents';
 import { rotateSecret } from '@/api/applications';
 import type { Application, AppRole, AppPermission, SubscriptionPlan, UserApplication, ConsumptionAggregate, User } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
@@ -28,7 +29,7 @@ import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
 import type { ColumnDef } from '@/types/data-table';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -61,8 +62,10 @@ const showRotateConfirm = ref(false);
 const showSecretModal = ref(false);
 const showDeleteUserConfirm = ref(false);
 const showResetMetricConfirm = ref(false);
+const showManageUserPlanModal = ref(false);
 
 const formLoading = ref(false);
+const managePlanLoading = ref(false);
 const newSecret = ref('');
 const selectedRoleId = ref<string | null>(null);
 const selectedPermId = ref<string | null>(null);
@@ -72,18 +75,35 @@ const selectedMetric = ref<{ userId: string; key: string } | null>(null);
 
 const roleForm = ref({ name: '', description: '', isDefault: false });
 const permForm = ref({ resource: '', action: 'read' as 'read' | 'write' });
-const userForm = ref({ userId: '', roleId: '' });
-const bulkForm = ref({ organizationId: '', roleId: '' });
+const userForm = ref({ userId: '', roleId: '', subscriptionPlanId: '' });
+const bulkForm = ref({ organizationId: '', roleId: '', subscriptionPlanId: '' });
+const managePlanForm = ref({ userId: '', planId: '', reason: '' });
 const planForm = ref({ name: '', description: '', isDefault: false });
 const priceForm = ref({ name: '', amount: '', currency: 'eur', interval: 'month' as 'month' | 'year' | 'one_time', planId: '' });
 const editingPlanId = ref<string | null>(null);
 const planFeatureEntries = ref<Array<{ key: string; usage: boolean; value: string; limit: string; unit: string; pricePerUnit: string }>>([]);;
+
+const planOptions = computed(() =>
+  plans.value.map((p) => ({ value: p.id, label: p.name })),
+);
+
+// A subscription change made anywhere (admin, self-service, Stripe) refreshes
+// the users tab through the domain-event channel.
+const events = useAdminEvents({
+  'subscription.changed': () => void reloadUsers(),
+});
 
 onMounted(async () => {
   await services.fetch();
   await loadAll();
   void loadAppActivity();
 });
+
+onUnmounted(() => events.close());
+
+async function reloadUsers() {
+  appUsers.value = (await appsApi.listAppUsers(appId)).users;
+}
 
 async function loadAll() {
   loading.value = true;
@@ -232,15 +252,61 @@ async function togglePermission(roleId: string, permId: string, currentlyAssigne
   }
 }
 
+/** The application's default plan id, used to preselect the selector. */
+function defaultPlanId(): string {
+  return plans.value.find((p) => p.isDefault)?.id ?? '';
+}
+
+function openGrantModal() {
+  userForm.value = { userId: '', roleId: '', subscriptionPlanId: defaultPlanId() };
+  showUserModal.value = true;
+}
+
+function openBulkModal() {
+  bulkForm.value = { organizationId: '', roleId: '', subscriptionPlanId: '' };
+  showBulkUserModal.value = true;
+}
+
+function openManagePlanModal(ua: UserApplication) {
+  managePlanForm.value = {
+    userId: ua.userId,
+    planId: ua.subscriptionPlanId ?? '',
+    reason: '',
+  };
+  showManageUserPlanModal.value = true;
+}
+
+async function handleManagePlan() {
+  if (!managePlanForm.value.userId || managePlanForm.value.reason.trim() === '') return;
+  managePlanLoading.value = true;
+  try {
+    await appsApi.updateAppAccess(appId, managePlanForm.value.userId, {
+      subscriptionPlanId: managePlanForm.value.planId || null,
+      reason: managePlanForm.value.reason.trim(),
+    });
+    await reloadUsers();
+    toast.success(t('appDetail.planChanged'));
+    showManageUserPlanModal.value = false;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : 'Failed');
+  } finally {
+    managePlanLoading.value = false;
+  }
+}
+
 async function handleGrantAccess() {
   if (!userForm.value.userId) return;
   formLoading.value = true;
   try {
-    await appsApi.grantAppAccess(appId, { userId: userForm.value.userId, roleId: userForm.value.roleId || undefined });
-    appUsers.value = (await appsApi.listAppUsers(appId)).users;
+    await appsApi.grantAppAccess(appId, {
+      userId: userForm.value.userId,
+      roleId: userForm.value.roleId || undefined,
+      subscriptionPlanId: userForm.value.subscriptionPlanId || undefined,
+    });
+    await reloadUsers();
     toast.success('Access granted');
     showUserModal.value = false;
-    userForm.value = { userId: '', roleId: '' };
+    userForm.value = { userId: '', roleId: '', subscriptionPlanId: '' };
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed');
   } finally {
@@ -255,14 +321,15 @@ async function handleBulkGrantAccess() {
     const res = await appsApi.bulkGrantAppAccess(appId, {
       organizationId: bulkForm.value.organizationId,
       roleId: bulkForm.value.roleId || undefined,
+      subscriptionPlanId: bulkForm.value.subscriptionPlanId || undefined,
     });
-    appUsers.value = (await appsApi.listAppUsers(appId)).users;
+    await reloadUsers();
     toast.success(t('appDetail.bulkGrantSuccess', { count: res.granted }));
     if ((res.skipped ?? 0) > 0) {
       toast.info(t('appDetail.bulkGrantSkipped', { count: res.skipped }));
     }
     showBulkUserModal.value = false;
-    bulkForm.value = { organizationId: '', roleId: '' };
+    bulkForm.value = { organizationId: '', roleId: '', subscriptionPlanId: '' };
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed');
   } finally {
@@ -813,8 +880,8 @@ const financialKpis = computed(() => {
 
         <div v-if="activeTab === 'users'" class="space-y-4">
           <div class="flex justify-end gap-2">
-            <BaseButton size="sm" @click="showUserModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
-            <BaseButton size="sm" variant="outline" @click="showBulkUserModal = true"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
+            <BaseButton size="sm" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
+            <BaseButton size="sm" variant="outline" @click="openBulkModal"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
           </div>
           <DataTable
             :columns="userColumns"
@@ -873,12 +940,21 @@ const financialKpis = computed(() => {
               </button>
             </template>
             <template #cell-actions="{ row }">
-              <button
-                @click="selectedUserId = (row as UserApplication).userId; showDeleteUserConfirm = true"
-                class="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all"
-              >
-                <Trash2 class="w-4 h-4" />
-              </button>
+              <div class="flex items-center justify-end gap-1">
+                <button
+                  @click="openManagePlanModal(row as UserApplication)"
+                  class="p-1.5 rounded-lg text-surface-500 hover:text-primary-300 hover:bg-primary-500/10 transition-all"
+                  :title="t('appDetail.manageSubscription')"
+                >
+                  <CreditCard class="w-4 h-4" />
+                </button>
+                <button
+                  @click="selectedUserId = (row as UserApplication).userId; showDeleteUserConfirm = true"
+                  class="p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </div>
             </template>
           </DataTable>
         </div>
@@ -1230,6 +1306,11 @@ const financialKpis = computed(() => {
           :load-options="loadRoleOptions"
           :placeholder="t('appDetail.searchRoles')"
         />
+        <BaseSelect
+          v-model="bulkForm.subscriptionPlanId"
+          :label="t('appDetail.subscriptionPlan')"
+          :options="[{ value: '', label: t('appDetail.defaultPlanOption') }, ...planOptions]"
+        />
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="showBulkUserModal = false">{{ t('common.cancel') }}</BaseButton>
@@ -1241,10 +1322,27 @@ const financialKpis = computed(() => {
       <div class="space-y-4">
         <SearchSelect v-model="userForm.userId" label="User" :load-options="loadUserOptions" placeholder="Search users…" required />
         <SearchSelect v-model="userForm.roleId" label="Role" :load-options="loadRoleOptions" placeholder="Search roles…" />
+        <BaseSelect v-model="userForm.subscriptionPlanId" :label="t('appDetail.subscriptionPlan')" :options="planOptions" />
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="showUserModal = false">{{ t('common.cancel') }}</BaseButton>
         <BaseButton :loading="formLoading" @click="handleGrantAccess">{{ t('appDetail.grantAccess') }}</BaseButton>
+      </template>
+    </BaseModal>
+
+    <BaseModal :open="showManageUserPlanModal" :title="t('appDetail.manageSubscription')" @close="showManageUserPlanModal = false">
+      <div class="space-y-4">
+        <p class="text-sm text-surface-400">{{ t('appDetail.manageSubscriptionHint') }}</p>
+        <BaseSelect
+          v-model="managePlanForm.planId"
+          :label="t('appDetail.subscriptionPlan')"
+          :options="[{ value: '', label: t('appDetail.noPlan') }, ...planOptions]"
+        />
+        <BaseInput v-model="managePlanForm.reason" :label="t('appDetail.changeReason')" :hint="t('wallet.admin.form.reasonHint')" required />
+      </div>
+      <template #footer>
+        <BaseButton variant="ghost" @click="showManageUserPlanModal = false">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton :loading="managePlanLoading" :disabled="managePlanForm.reason.trim() === ''" @click="handleManagePlan">{{ t('common.save') }}</BaseButton>
       </template>
     </BaseModal>
 

@@ -157,6 +157,32 @@ export interface SubscriptionPlanPrice {
   createdAt: string
 }
 
+/** A plan as returned by the user-facing subscription listing. */
+export interface UserSubscriptionPlan {
+  id: string
+  name: string
+  description: string | null
+  features: Record<string, unknown>
+  isDefault: boolean | null
+  prices: SubscriptionPlanPrice[]
+}
+
+export interface UserSubscriptionEntry {
+  applicationId: string
+  applicationName: string
+  applicationSlug: string
+  applicationIcon: string | null
+  isActive: boolean
+  plan: UserSubscriptionPlan | null
+  availablePlans: UserSubscriptionPlan[]
+}
+
+export interface UserSubscriptionsResponse {
+  subscriptions: UserSubscriptionEntry[]
+  /** When false, the self-service plan selector is hidden (admins only). */
+  stripeConfigured: boolean
+}
+
 export interface UserApplication {
   userId: string
   applicationId: string

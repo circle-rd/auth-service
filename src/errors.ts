@@ -80,6 +80,12 @@ export const ERR = {
   SUB_003: (msg = "Plan has active subscribers, cannot delete") =>
     new ApiError(400, "SUB_003", msg),
   SUB_004: (msg = "Subscription expired") => new ApiError(400, "SUB_004", msg),
+  SUB_005: (
+    msg = "Self-service plan changes require Stripe to be configured",
+  ) => new ApiError(403, "SUB_005", msg),
+  SUB_006: (
+    msg = "Changing to a paid plan requires a payment, which is not available yet",
+  ) => new ApiError(403, "SUB_006", msg),
 
   // ── CONS ──────────────────────────────────────────────────────────────────
   CONS_001: (msg = "Invalid key format") => new ApiError(400, "CONS_001", msg),

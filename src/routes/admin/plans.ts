@@ -6,12 +6,13 @@ import {
   subscriptionPlans,
   subscriptionPlanPrices,
   userSubscriptions,
-  userApplications,
 } from "../../db/schema.js";
 import { and, eq, ne, count, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { stripe } from "../../services/stripe.js";
-import { requireAdmin } from "../../middleware.js";
+import { setUserSubscription } from "../../services/subscriptions.js";
+import { getActorUserId, requireAdmin } from "../../middleware.js";
+import { subscriptionReasonSchema } from "./subscription-request.js";
 
 const createPlanSchema = z.object({
   name: z.string().min(1).max(64),
@@ -31,6 +32,7 @@ const createPlanPriceSchema = z.object({
 const assignSubscriptionSchema = z.object({
   planId: z.string().uuid(),
   expiresAt: z.string().datetime().optional().nullable(),
+  reason: subscriptionReasonSchema.optional(),
 });
 
 export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
@@ -308,20 +310,8 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
       if (!parsed.success)
         throw ERR.APP_001("Invalid subscription data", parsed.error.flatten());
 
-      // Ensure plan belongs to app
-      const [plan] = await db
-        .select({ id: subscriptionPlans.id })
-        .from(subscriptionPlans)
-        .where(
-          and(
-            eq(subscriptionPlans.id, parsed.data.planId),
-            eq(subscriptionPlans.applicationId, req.params.appId),
-          ),
-        )
-        .limit(1);
-      if (!plan) throw ERR.SUB_001();
-
-      // Check existing active subscription
+      // Assign-only semantics: changing an existing plan goes through
+      // `PATCH /applications/:id/users/:userId`, which requires a reason.
       const [existing] = await db
         .select({ id: userSubscriptions.id })
         .from(userSubscriptions)
@@ -335,33 +325,19 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
       if (existing) throw ERR.SUB_002();
 
-      const expiresAt = parsed.data.expiresAt
-        ? new Date(parsed.data.expiresAt)
-        : null;
+      await setUserSubscription({
+        userId: req.params.userId,
+        applicationId: req.params.appId,
+        planId: parsed.data.planId,
+        source: "admin",
+        actorUserId: await getActorUserId(req),
+        reason: parsed.data.reason ?? null,
+        expiresAt: parsed.data.expiresAt
+          ? new Date(parsed.data.expiresAt)
+          : null,
+      });
 
-      const [sub] = await db
-        .insert(userSubscriptions)
-        .values({
-          userId: req.params.userId,
-          applicationId: req.params.appId,
-          planId: parsed.data.planId,
-          expiresAt,
-          isActive: true,
-        })
-        .returning();
-
-      // Also update the subscriptionPlanId on userApplications for convenience
-      await db
-        .update(userApplications)
-        .set({ subscriptionPlanId: parsed.data.planId })
-        .where(
-          and(
-            eq(userApplications.userId, req.params.userId),
-            eq(userApplications.applicationId, req.params.appId),
-          ),
-        );
-
-      await reply.status(201).send({ subscription: sub });
+      await reply.status(201).send({ ok: true });
     },
   );
 
@@ -369,26 +345,25 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.delete<{ Params: { appId: string; userId: string } }>(
     "/applications/:appId/users/:userId/subscription",
     async (req, reply) => {
-      const [deleted] = await db
-        .delete(userSubscriptions)
+      const [existing] = await db
+        .select({ id: userSubscriptions.id })
+        .from(userSubscriptions)
         .where(
           and(
             eq(userSubscriptions.userId, req.params.userId),
             eq(userSubscriptions.applicationId, req.params.appId),
           ),
         )
-        .returning({ id: userSubscriptions.id });
-      if (!deleted) throw ERR.SUB_001();
+        .limit(1);
+      if (!existing) throw ERR.SUB_001();
 
-      await db
-        .update(userApplications)
-        .set({ subscriptionPlanId: null })
-        .where(
-          and(
-            eq(userApplications.userId, req.params.userId),
-            eq(userApplications.applicationId, req.params.appId),
-          ),
-        );
+      await setUserSubscription({
+        userId: req.params.userId,
+        applicationId: req.params.appId,
+        planId: null,
+        source: "admin",
+        actorUserId: await getActorUserId(req),
+      });
 
       await reply.status(204).send();
     },

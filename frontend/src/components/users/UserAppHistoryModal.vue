@@ -13,6 +13,8 @@ const props = defineProps<{
   appId: string;
   userId: string;
   userName?: string | null;
+  /** Bumped by the parent on a live `login.recorded` event to refresh in place. */
+  refreshKey?: number;
 }>();
 
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -45,6 +47,11 @@ watch(() => [props.open, props.userId, props.appId], ([isOpen]) => {
     void load();
   }
 }, { immediate: true });
+
+// A live login event re-reads the current page without losing the user's place.
+watch(() => props.refreshKey, () => {
+  if (props.open) void load();
+});
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });

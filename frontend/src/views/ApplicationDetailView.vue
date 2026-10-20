@@ -87,19 +87,34 @@ const planOptions = computed(() =>
   plans.value.map((p) => ({ value: p.id, label: p.name })),
 );
 
-// A subscription change made anywhere (admin, self-service, Stripe) refreshes
-// the users tab through the domain-event channel.
+// A `subscription.changed` frame refreshes the users tab; a `login.recorded`
+// frame refreshes the last-login columns (date/IP/device) and the activity
+// strip. The composable coalesces a burst into a single refresh.
 const events = useAdminEvents({
   'subscription.changed': () => void reloadUsers(),
+  'login.recorded': () => {
+    void reloadUsers();
+    void loadAppActivity();
+    // If the history modal is open, re-read it in place.
+    if (historyModalOpen.value) historyRefreshKey.value += 1;
+  },
 });
+
+// The online counter drifts down on its own (session expiry), so the activity
+// strip is also polled — same 30 s cadence as the dashboard.
+let activityPollHandle: ReturnType<typeof setInterval> | null = null;
 
 onMounted(async () => {
   await services.fetch();
   await loadAll();
   void loadAppActivity();
+  activityPollHandle = setInterval(() => void loadAppActivity(), 30_000);
 });
 
-onUnmounted(() => events.close());
+onUnmounted(() => {
+  events.close();
+  if (activityPollHandle) clearInterval(activityPollHandle);
+});
 
 async function reloadUsers() {
   appUsers.value = (await appsApi.listAppUsers(appId)).users;
@@ -141,6 +156,7 @@ async function loadConsumption() {
 const historyModalOpen = ref(false);
 const historyModalUserId = ref<string | null>(null);
 const historyModalUserName = ref<string>('');
+const historyRefreshKey = ref(0);
 function openHistory(ua: UserApplication) {
   historyModalUserId.value = ua.userId;
   historyModalUserName.value = getUserName(ua.userId);
@@ -1430,6 +1446,7 @@ const financialKpis = computed(() => {
       :app-id="appId"
       :user-id="historyModalUserId"
       :user-name="historyModalUserName"
+      :refresh-key="historyRefreshKey"
       @close="historyModalOpen = false"
     />
   </AppLayout>

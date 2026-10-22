@@ -221,6 +221,34 @@ async function redirectTarget(res: Response): Promise<string> {
   return body.success ? body.data.url : "";
 }
 
+const twoFactorChallengeSchema = z.object({
+  twoFactorRedirect: z.literal(true),
+});
+
+export class TwoFactorRequiredError extends Error {
+  constructor(email: string) {
+    super(
+      `Admin sign-in requires a second factor: ${email} has MFA enabled, but the setup scripts can only sign in with a password. Use an administrator account without MFA (see docs: LiteLLM gateway).`,
+    );
+    this.name = "TwoFactorRequiredError";
+  }
+}
+
+/**
+ * Whether a previous run of `litellm-setup` left everything the gateway reads
+ * from the state file: the keys, the wallet client secret and, with the admin
+ * interface sign-in on, the SSO client secret.
+ */
+export function isSetupComplete(state: string, ssoEnabled: boolean): boolean {
+  const required = [
+    "LITELLM_MASTER_KEY",
+    "LITELLM_SALT_KEY",
+    "LITELLM_WALLET_CLIENT_SECRET",
+    ...(ssoEnabled ? ["GENERIC_CLIENT_SECRET"] : []),
+  ];
+  return required.every((key) => readEnvValue(state, key) !== undefined);
+}
+
 const walletAccountSchema = z.object({
   balance: z.string().regex(/^-?[0-9]+$/),
   canSpend: z.boolean(),
@@ -305,9 +333,12 @@ export class AuthAdminClient {
         "Admin sign-in returned no session cookie (MFA or email verification required?)",
       );
     }
-    return z
-      .object({ user: z.object({ id: z.string() }) })
-      .parse(await res.json()).user.id;
+    const body: unknown = await res.json();
+    // The twoFactor plugin answers 200 with a pending-challenge cookie and no user.
+    if (twoFactorChallengeSchema.safeParse(body).success) {
+      throw new TwoFactorRequiredError(email);
+    }
+    return z.object({ user: z.object({ id: z.string() }) }).parse(body).user.id;
   }
 
   /**

@@ -176,7 +176,8 @@ services:
   # "litellm" application and the "litellm-wallet" machine client in
   # auth-service, and stores the secrets next to the config. Idempotent: it runs
   # at every start and never regenerates a stored secret. Needs the administrator
-  # account to sign in without MFA.
+  # account to sign in without MFA, except once a run has completed: it then
+  # skips (exit 0) instead of blocking the gateway when MFA was enabled since.
   litellm-setup:
     image: ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:nightly}
     profiles: ["llm"]

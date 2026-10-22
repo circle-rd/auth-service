@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   AuthAdminClient,
+  TwoFactorRequiredError,
+  isSetupComplete,
   createPkcePair,
   decodeJwtClaims,
   generateSecret,
@@ -187,6 +189,50 @@ describe("AuthAdminClient session", () => {
     expect(calls[1]!.cookie).toBe("session=abc");
     expect(calls.every((c) => c.agent === "auth-service-admin-script")).toBe(
       true,
+    );
+  });
+
+  it("explains that an account with MFA cannot be used to sign in", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const res = new Response(JSON.stringify({ twoFactorRedirect: true }));
+        res.headers.append("Set-Cookie", "two_factor=abc; Path=/; HttpOnly");
+        return res;
+      }),
+    );
+    try {
+      await expect(
+        new AuthAdminClient("http://auth:3001").signIn(
+          "admin@example.com",
+          "pw",
+        ),
+      ).rejects.toBeInstanceOf(TwoFactorRequiredError);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("isSetupComplete", () => {
+  const complete = [
+    "LITELLM_MASTER_KEY=sk-a",
+    "LITELLM_SALT_KEY=sk-b",
+    "LITELLM_WALLET_CLIENT_SECRET=w",
+  ].join("\n");
+
+  it("needs the SSO client secret only when the sign-in is on", () => {
+    expect(isSetupComplete(complete, false)).toBe(true);
+    expect(isSetupComplete(complete, true)).toBe(false);
+    expect(isSetupComplete(`${complete}\nGENERIC_CLIENT_SECRET=s`, true)).toBe(
+      true,
+    );
+  });
+
+  it("is incomplete when a key is missing or empty", () => {
+    expect(isSetupComplete("LITELLM_MASTER_KEY=sk-a", false)).toBe(false);
+    expect(isSetupComplete(`${complete}\nGENERIC_CLIENT_SECRET=`, true)).toBe(
+      false,
     );
   });
 });

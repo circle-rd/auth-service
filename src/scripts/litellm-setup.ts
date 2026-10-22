@@ -16,6 +16,8 @@ import {
   ssoGatewayEnv,
   type AdminApplication,
   type ScriptEnv,
+  TwoFactorRequiredError,
+  isSetupComplete,
 } from "./litellm-lib.js";
 import {
   LITELLM_GATEWAY_SLUG as GATEWAY_SLUG,
@@ -282,7 +284,28 @@ async function main(): Promise<void> {
   }
 
   const client = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
-  const adminUserId = await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
+  let adminUserId: string;
+  try {
+    adminUserId = await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
+  } catch (err) {
+    // MFA enabled after a successful setup must not keep the gateway down:
+    // what the setup provisions is already stored, so it only has nothing to add.
+    const ssoEnabled =
+      Boolean(process.env.LITELLM_STATE_FILE) &&
+      env.LITELLM_SSO_ENABLED !== "false";
+    const state = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+    if (
+      err instanceof TwoFactorRequiredError &&
+      isSetupComplete(state, ssoEnabled)
+    ) {
+      out(`! ${err.message}`);
+      out(
+        "✓ Setup already completed by a previous run: nothing to provision, skipping (changes to LITELLM_PUBLIC_URL or --grant need an administrator without MFA)",
+      );
+      return;
+    }
+    throw err;
+  }
   try {
     const apps = await client.listApplications();
     for (const slug of [GATEWAY_SLUG, WALLET_CLIENT_SLUG, UI_SLUG]) {

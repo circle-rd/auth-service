@@ -24,8 +24,9 @@ import type { Session, User, Application, Organization } from '@/types';
 import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import {
   Users, MonitorSmartphone, AppWindow, Building2, Activity,
-  AlertTriangle, Info, UserPlus, Plus, Settings, Clock,
+  AlertTriangle, Info, UserPlus, Plus, Settings, Clock, Layers,
 } from 'lucide-vue-next';
+import type { SelectOption } from '@/types/select';
 import { Line } from 'vue-chartjs';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from 'chart.js';
 
@@ -175,9 +176,9 @@ const filteredSessions = computed(() => {
   return sessions.value.filter(s => (s.applications ?? []).some(a => a.id === sessionAppFilter.value));
 });
 
-const appFilterOptions = computed(() => [
-  { value: '', label: t('dashboard.allApplications') },
-  ...applications.value.map(a => ({ value: a.id, label: a.name })),
+const appFilterOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('dashboard.allApplications'), icon: Layers },
+  ...applications.value.map(a => ({ value: a.id, label: a.name, icon: AppWindow })),
 ]);
 
 const sessionPagination = computed<DataTablePagination>(() => ({

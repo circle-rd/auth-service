@@ -29,7 +29,8 @@ import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
 import type { ColumnDef } from '@/types/data-table';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Eye, Pencil, Repeat, CalendarRange, Zap } from 'lucide-vue-next';
+import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -83,9 +84,24 @@ const priceForm = ref({ name: '', amount: '', currency: 'eur', interval: 'month'
 const editingPlanId = ref<string | null>(null);
 const planFeatureEntries = ref<Array<{ key: string; usage: boolean; value: string; limit: string; unit: string; pricePerUnit: string }>>([]);;
 
-const planOptions = computed(() =>
-  plans.value.map((p) => ({ value: p.id, label: p.name })),
+const planOptions = computed<SelectOption[]>(() =>
+  plans.value.map((p) => ({ value: p.id, label: p.name, description: p.description ?? undefined, icon: CreditCard })),
 );
+
+const defaultPlanSelectOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('appDetail.defaultPlanOption'), icon: Star },
+  ...planOptions.value,
+]);
+
+const noPlanSelectOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('appDetail.noPlan'), icon: Ban },
+  ...planOptions.value,
+]);
+
+const permActionOptions = computed<SelectOption[]>(() => [
+  { value: 'read', label: t('appDetail.read'), description: t('appDetail.readDesc'), icon: Eye },
+  { value: 'write', label: t('appDetail.write'), description: t('appDetail.writeDesc'), icon: Pencil },
+]);
 
 // A `subscription.changed` frame refreshes the users tab; a `login.recorded`
 // frame refreshes the last-login columns (date/IP/device) and the activity
@@ -530,27 +546,32 @@ function formatPrice(amount: string, currency: string) {
 
 function formatDate(iso: string) { return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }); }
 
-async function loadUserOptions(search: string) {
+async function loadUserOptions(search: string): Promise<SelectOption[]> {
   const res = await listUsers({ search: search || undefined, limit: 10 });
-  return res.users.map(u => ({ value: u.id, label: u.name ?? u.email, sublabel: u.email }));
+  return res.users.map(u => ({
+    value: u.id,
+    label: u.name ?? u.email,
+    description: u.email,
+    avatar: { name: u.name ?? u.email, image: u.image },
+  }));
 }
 
-async function loadOrganizationOptions(search: string) {
+async function loadOrganizationOptions(search: string): Promise<SelectOption[]> {
   const res = await listOrganizations({ search: search || undefined, limit: 10 });
-  return res.organizations.map(o => ({ value: o.id, label: o.name, sublabel: o.slug }));
+  return res.organizations.map(o => ({ value: o.id, label: o.name, description: o.slug, icon: Building2 }));
 }
 
-function loadRoleOptions(search: string) {
+function loadRoleOptions(search: string): Promise<SelectOption[]> {
   const lower = search.toLowerCase();
   const filtered = roles.value.filter(r => !search || r.name.toLowerCase().includes(lower));
-  const items = filtered.map(r => ({ value: r.id, label: r.name }));
-  return Promise.resolve([{ value: '', label: t('common.none') }, ...items]);
+  const items = filtered.map(r => ({ value: r.id, label: r.name, description: r.description ?? undefined, icon: Shield }));
+  return Promise.resolve([{ value: '', label: t('common.none'), icon: Ban }, ...items]);
 }
-const intervalOptions = [
-  { value: 'month', label: t('appDetail.month') },
-  { value: 'year', label: t('appDetail.year') },
-  { value: 'one_time', label: t('appDetail.one_time') },
-];
+const intervalOptions = computed<SelectOption[]>(() => [
+  { value: 'month', label: t('appDetail.month'), icon: Repeat },
+  { value: 'year', label: t('appDetail.year'), icon: CalendarRange },
+  { value: 'one_time', label: t('appDetail.one_time'), icon: Zap },
+]);
 
 const tabs = [
   { key: 'roles', label: t('appDetail.rolesPermissions') },
@@ -1298,7 +1319,7 @@ const financialKpis = computed(() => {
     <BaseModal :open="showPermModal" :title="t('appDetail.createPermission')" @close="showPermModal = false">
       <div class="space-y-4">
         <BaseInput v-model="permForm.resource" label="Resource" placeholder="documents" required />
-        <BaseSelect v-model="permForm.action" label="Action" :options="[{ value: 'read', label: 'read' }, { value: 'write', label: 'write' }]" />
+        <BaseSelect v-model="permForm.action" :label="t('appDetail.action')" :options="permActionOptions" />
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="showPermModal = false">{{ t('common.cancel') }}</BaseButton>
@@ -1325,7 +1346,7 @@ const financialKpis = computed(() => {
         <BaseSelect
           v-model="bulkForm.subscriptionPlanId"
           :label="t('appDetail.subscriptionPlan')"
-          :options="[{ value: '', label: t('appDetail.defaultPlanOption') }, ...planOptions]"
+          :options="defaultPlanSelectOptions"
         />
       </div>
       <template #footer>
@@ -1336,8 +1357,8 @@ const financialKpis = computed(() => {
 
     <BaseModal :open="showUserModal" :title="t('appDetail.grantAccess')" @close="showUserModal = false">
       <div class="space-y-4">
-        <SearchSelect v-model="userForm.userId" label="User" :load-options="loadUserOptions" placeholder="Search users…" required />
-        <SearchSelect v-model="userForm.roleId" label="Role" :load-options="loadRoleOptions" placeholder="Search roles…" />
+        <SearchSelect v-model="userForm.userId" :label="t('common.user')" :load-options="loadUserOptions" :placeholder="t('common.searchUsers')" required />
+        <SearchSelect v-model="userForm.roleId" :label="t('appDetail.role')" :load-options="loadRoleOptions" :placeholder="t('appDetail.searchRoles')" />
         <BaseSelect v-model="userForm.subscriptionPlanId" :label="t('appDetail.subscriptionPlan')" :options="planOptions" />
       </div>
       <template #footer>
@@ -1352,7 +1373,7 @@ const financialKpis = computed(() => {
         <BaseSelect
           v-model="managePlanForm.planId"
           :label="t('appDetail.subscriptionPlan')"
-          :options="[{ value: '', label: t('appDetail.noPlan') }, ...planOptions]"
+          :options="noPlanSelectOptions"
         />
         <BaseInput v-model="managePlanForm.reason" :label="t('appDetail.changeReason')" :hint="t('wallet.admin.form.reasonHint')" required />
       </div>
@@ -1412,7 +1433,7 @@ const financialKpis = computed(() => {
           <BaseInput v-model="priceForm.amount" label="Amount (cents)" type="number" required />
           <BaseInput v-model="priceForm.currency" label="Currency" placeholder="eur" />
         </div>
-        <BaseSelect v-model="priceForm.interval" label="Interval" :options="intervalOptions" />
+        <BaseSelect v-model="priceForm.interval" :label="t('appDetail.interval')" :options="intervalOptions" />
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="showPriceModal = false">{{ t('common.cancel') }}</BaseButton>

@@ -24,6 +24,7 @@ import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
 import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw, Lock, CreditCard } from 'lucide-vue-next';
+import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
 const auth = useAuthStore();
@@ -191,10 +192,10 @@ function isFreePlan(plan: UserSubscriptionPlan): boolean {
   return plan.prices.every((price) => Number(price.amount) === 0);
 }
 
-const planOptions = computed(() =>
+const planOptions = computed<SelectOption[]>(() =>
   (planTarget.value?.availablePlans ?? [])
     .filter(isFreePlan)
-    .map((p) => ({ value: p.id, label: p.name })),
+    .map((p) => ({ value: p.id, label: p.name, description: p.description ?? undefined, icon: CreditCard })),
 );
 
 function openPlanModal(sub: UserSubscriptionEntry) {

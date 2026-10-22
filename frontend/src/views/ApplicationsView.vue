@@ -6,8 +6,10 @@ import { useApplicationsStore } from '@/stores/applications';
 import { rotateSecret } from '@/api/applications';
 import { useToast } from '@/composables/useToast';
 import type { Application } from '@/types';
+import type { SelectOption } from '@/types/select';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import BaseSelect from '@/components/ui/BaseSelect.vue';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
@@ -31,6 +33,7 @@ import {
   Lock,
   AlertTriangle,
   Activity,
+  Layers,
 } from 'lucide-vue-next';
 
 const { t } = useI18n();
@@ -50,6 +53,18 @@ const newSecret = ref('');
 const actionMenu = ref<string | null>(null);
 const filterActive = ref('');
 const filterType = ref('');
+
+const statusFilterOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('applications.allStatuses'), icon: Layers },
+  { value: 'active', label: t('common.active'), icon: Power },
+  { value: 'inactive', label: t('common.inactive'), icon: PowerOff },
+]);
+
+const typeFilterOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('applications.allTypes'), icon: Layers },
+  { value: 'public', label: t('applications.public'), icon: Globe },
+  { value: 'confidential', label: t('applications.confidential'), icon: Lock },
+]);
 // Infrastructure applications are noise day to day: hidden until asked for, and the
 // choice is remembered.
 const SHOW_SYSTEM_KEY = 'applications.showSystem';
@@ -150,22 +165,8 @@ function formatDate(iso: string) {
     <div class="space-y-5">
       <div class="flex items-center justify-between gap-3 flex-wrap">
         <div class="flex gap-2">
-          <select
-            v-model="filterActive"
-            class="px-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-300 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
-          >
-            <option value="">All statuses</option>
-            <option value="active">{{ t('common.active') }}</option>
-            <option value="inactive">{{ t('common.inactive') }}</option>
-          </select>
-          <select
-            v-model="filterType"
-            class="px-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-300 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
-          >
-            <option value="">All types</option>
-            <option value="public">{{ t('applications.public') }}</option>
-            <option value="confidential">{{ t('applications.confidential') }}</option>
-          </select>
+          <BaseSelect v-model="filterActive" :options="statusFilterOptions" class="w-44" />
+          <BaseSelect v-model="filterType" :options="typeFilterOptions" class="w-44" />
         </div>
         <div class="flex items-center gap-4">
         <BaseToggle v-model="showSystem" :label="t('applications.showSystem')" />

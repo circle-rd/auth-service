@@ -1,6 +1,10 @@
-<script setup lang="ts" generic="T extends { value: string; label: string; sublabel?: string }">
-import { ref, shallowRef, watch, onMounted, onBeforeUnmount } from 'vue';
+<script setup lang="ts" generic="T extends SelectOption">
+import { computed, ref, shallowRef, watch, onMounted, onBeforeUnmount, useId } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Search, X, ChevronDown } from 'lucide-vue-next';
+import type { SelectOption } from '@/types/select';
+import SelectDropdown from './SelectDropdown.vue';
+import SelectOptionContent from './SelectOptionContent.vue';
 
 const props = withDefaults(defineProps<{
   modelValue?: string;
@@ -14,46 +18,49 @@ const props = withDefaults(defineProps<{
   debounce?: number;
 }>(), {
   debounce: 300,
-  placeholder: 'Search…',
 });
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
 }>();
 
+const { t } = useI18n();
+const inputId = useId();
 const inputEl = ref<HTMLInputElement | null>(null);
-const containerEl = ref<HTMLDivElement | null>(null);
+const triggerEl = ref<HTMLDivElement | null>(null);
+const dropdownRef = ref<InstanceType<typeof SelectDropdown> | null>(null);
 const query = ref('');
 const options = shallowRef<T[]>([]);
+const selected = shallowRef<T | null>(null);
 const loading = ref(false);
 const open = ref(false);
-const selectedLabel = ref('');
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-// When modelValue is set externally but we have no label yet, do a silent initial search
+const placeholderText = computed(() => props.placeholder ?? t('common.searchPlaceholder'));
+
+// When modelValue is set externally but we have no option yet, do a silent initial search
 onMounted(async () => {
   if (props.modelValue) {
     const initial = await props.loadOptions('');
-    const found = initial.find(o => o.value === props.modelValue);
-    if (found) selectedLabel.value = found.label;
+    selected.value = initial.find(o => o.value === props.modelValue) ?? null;
   }
 });
 
 function openDropdown() {
   if (props.disabled) return;
   open.value = true;
-  doSearch(query.value);
-  inputEl.value?.focus();
+  void doSearch(query.value);
 }
 
 function closeDropdown() {
   open.value = false;
+  query.value = '';
 }
 
 function handleInput(e: Event) {
   query.value = (e.target as HTMLInputElement).value;
   if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => doSearch(query.value), props.debounce);
+  debounceTimer = setTimeout(() => void doSearch(query.value), props.debounce);
 }
 
 async function doSearch(term: string) {
@@ -65,48 +72,55 @@ async function doSearch(term: string) {
   }
 }
 
-function select(option: T) {
+function select(option: SelectOption) {
+  const chosen = options.value.find(o => o.value === option.value) ?? null;
   emit('update:modelValue', option.value);
-  selectedLabel.value = option.label;
-  query.value = '';
-  open.value = false;
+  selected.value = chosen;
+  closeDropdown();
 }
 
 function clear(e: MouseEvent) {
   e.stopPropagation();
   emit('update:modelValue', '');
-  selectedLabel.value = '';
+  selected.value = null;
   query.value = '';
   options.value = [];
 }
 
-// Close on click outside
-function handleClickOutside(e: MouseEvent) {
-  if (containerEl.value && !containerEl.value.contains(e.target as Node)) {
-    closeDropdown();
+function handleKeydown(e: KeyboardEvent) {
+  if (!open.value) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      openDropdown();
+    }
+    return;
   }
+  dropdownRef.value?.handleKeydown(e);
 }
 
-onMounted(() => document.addEventListener('mousedown', handleClickOutside));
 onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', handleClickOutside);
   if (debounceTimer) clearTimeout(debounceTimer);
 });
 
 watch(() => props.modelValue, (val) => {
-  if (!val) selectedLabel.value = '';
+  if (!val) selected.value = null;
 });
+
+// Post-flush: the input only exists once the open state has rendered.
+watch(open, (isOpen) => {
+  if (isOpen) inputEl.value?.focus();
+}, { flush: 'post' });
 </script>
 
 <template>
-  <div ref="containerEl" class="space-y-1.5 relative">
-    <label v-if="label" class="block text-xs font-medium text-surface-400 uppercase tracking-wide">
+  <div class="space-y-1.5">
+    <label v-if="label" :for="inputId" class="block text-xs font-medium text-surface-400 uppercase tracking-wide">
       {{ label }}
       <span v-if="required" class="text-red-400 ml-0.5">*</span>
     </label>
 
-    <!-- Trigger / selected display -->
     <div
+      ref="triggerEl"
       :class="[
         'flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm bg-surface-800 border transition-all duration-150 cursor-pointer',
         'text-surface-100 focus-within:ring-2 focus-within:ring-primary-500/50 focus-within:border-primary-500',
@@ -116,49 +130,62 @@ watch(() => props.modelValue, (val) => {
       @click="openDropdown"
     >
       <Search class="w-3.5 h-3.5 text-surface-500 shrink-0" />
-      <template v-if="open">
-        <input
-          ref="inputEl"
-          :value="query"
-          @input="handleInput"
-          :placeholder="placeholder"
-          class="flex-1 bg-transparent outline-none text-surface-100 placeholder:text-surface-500"
-          :disabled="disabled"
-          @click.stop
-        />
-      </template>
-      <template v-else>
-        <span class="flex-1 truncate" :class="modelValue ? 'text-surface-100' : 'text-surface-500'">
-          {{ modelValue ? selectedLabel || modelValue : placeholder }}
+      <input
+        v-if="open"
+        :id="inputId"
+        ref="inputEl"
+        :value="query"
+        :placeholder="selected?.label ?? placeholderText"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded="true"
+        :aria-controls="dropdownRef?.listboxId"
+        :aria-activedescendant="dropdownRef?.activeId"
+        aria-autocomplete="list"
+        autocomplete="off"
+        class="flex-1 min-w-0 bg-transparent outline-none text-surface-100 placeholder:text-surface-500"
+        :disabled="disabled"
+        @input="handleInput"
+        @keydown="handleKeydown"
+        @click.stop
+      />
+      <button
+        v-else
+        :id="inputId"
+        type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded="false"
+        :disabled="disabled"
+        class="flex-1 min-w-0 flex items-center text-left outline-none"
+        @keydown="handleKeydown"
+      >
+        <SelectOptionContent v-if="selected" :option="selected" :show-description="false" />
+        <span v-else class="truncate" :class="modelValue ? 'text-surface-100' : 'text-surface-500'">
+          {{ modelValue || placeholderText }}
         </span>
-      </template>
-      <button v-if="modelValue && !disabled" @click="clear" class="text-surface-500 hover:text-surface-300 transition-colors">
+      </button>
+      <button
+        v-if="modelValue && !disabled"
+        type="button"
+        :aria-label="t('common.clear')"
+        class="text-surface-500 hover:text-surface-300 transition-colors"
+        @click="clear"
+      >
         <X class="w-3.5 h-3.5" />
       </button>
       <ChevronDown v-else class="w-3.5 h-3.5 text-surface-500 shrink-0 transition-transform" :class="open ? 'rotate-180' : ''" />
     </div>
 
-    <!-- Dropdown -->
-    <div
-      v-if="open"
-      class="absolute z-50 top-full mt-1 w-full rounded-lg bg-surface-800 border border-surface-600 shadow-xl overflow-hidden"
-    >
-      <div v-if="loading" class="px-3 py-3 text-xs text-surface-500 text-center">Loading…</div>
-      <div v-else-if="options.length === 0" class="px-3 py-3 text-xs text-surface-500 text-center">No results</div>
-      <ul v-else class="max-h-52 overflow-y-auto py-1">
-        <li
-          v-for="option in options"
-          :key="option.value"
-          @mousedown.prevent="select(option)"
-          :class="[
-            'flex flex-col px-3 py-2 cursor-pointer transition-colors hover:bg-surface-700/50 text-sm',
-            modelValue === option.value ? 'bg-primary-600/20 text-primary-300' : 'text-surface-200',
-          ]"
-        >
-          <span>{{ option.label }}</span>
-          <span v-if="option.sublabel" class="text-xs text-surface-500">{{ option.sublabel }}</span>
-        </li>
-      </ul>
-    </div>
+    <SelectDropdown
+      ref="dropdownRef"
+      :open="open"
+      :anchor-el="triggerEl"
+      :options="options"
+      :model-value="modelValue"
+      :loading="loading && options.length === 0"
+      @select="select"
+      @close="closeDropdown"
+    />
   </div>
 </template>

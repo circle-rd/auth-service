@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue';
 import { ChevronUp, ChevronDown, ChevronsUpDown, Search, ChevronLeft, ChevronRight } from 'lucide-vue-next';
 import { useI18n } from 'vue-i18n';
 import type { ColumnDef, DataTablePagination, SortState } from '@/types/data-table';
+import type { SelectOption } from '@/types/select';
+import BaseSelect from './BaseSelect.vue';
 
 const props = withDefaults(defineProps<{
   /** Optional column-driven mode. When provided, the table auto-renders headers and rows. */
@@ -177,13 +179,16 @@ function setPage(p: number) {
   const next = Math.min(Math.max(1, p), pageCount.value);
   if (next !== props.pagination.page) emit('update:page', next);
 }
-function onLimitChange(event: Event) {
-  const next = parseInt((event.target as HTMLSelectElement).value, 10);
+function onLimitChange(value: string) {
+  const next = parseInt(value, 10);
   if (!Number.isFinite(next) || next < 1) return;
   emit('update:limit', next);
 }
 const defaultPageSizes = [10, 20, 50, 100];
 const pageSizes = computed(() => props.pagination?.pageSizes ?? defaultPageSizes);
+const pageSizeOptions = computed<SelectOption[]>(() =>
+  pageSizes.value.map((sz) => ({ value: String(sz), label: String(sz) })),
+);
 
 const showToolbar = computed(() => props.toolbar || props.searchable);
 </script>
@@ -303,13 +308,13 @@ const showToolbar = computed(() => props.toolbar || props.searchable);
     >
       <div class="flex items-center gap-2">
         <label class="text-xs text-surface-500">{{ t('dataTable.rowsPerPage') }}</label>
-        <select
-          :value="pagination.limit"
-          @change="onLimitChange"
-          class="text-xs bg-surface-800 border border-surface-600 rounded-lg px-2 py-1 text-surface-200 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
-        >
-          <option v-for="sz in pageSizes" :key="sz" :value="sz">{{ sz }}</option>
-        </select>
+        <BaseSelect
+          :model-value="String(pagination.limit)"
+          :options="pageSizeOptions"
+          size="sm"
+          class="w-20"
+          @update:model-value="onLimitChange"
+        />
       </div>
       <div class="flex items-center gap-3">
         <span class="text-xs text-surface-500 tabular-nums">

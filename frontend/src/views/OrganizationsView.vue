@@ -17,7 +17,8 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight } from 'lucide-vue-next';
+import { Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User } from 'lucide-vue-next';
+import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
 const store = useOrganizationsStore();
@@ -169,16 +170,21 @@ function openEdit(org: Organization) {
 }
 
 /** SearchSelect loader for users */
-async function loadUserOptions(search: string) {
+async function loadUserOptions(search: string): Promise<SelectOption[]> {
   const res = await listUsers({ search, limit: 10 });
-  return res.users.map(u => ({ value: u.id, label: u.name, sublabel: u.email }));
+  return res.users.map(u => ({
+    value: u.id,
+    label: u.name,
+    description: u.email,
+    avatar: { name: u.name, image: u.image },
+  }));
 }
 
-const roleOptions = [
-  { value: 'owner', label: t('organizations.owner') },
-  { value: 'admin', label: t('users.admin') },
-  { value: 'member', label: 'Member' },
-];
+const roleOptions = computed<SelectOption[]>(() => [
+  { value: 'owner', label: t('organizations.owner'), description: t('organizations.ownerDesc'), icon: Crown },
+  { value: 'admin', label: t('users.admin'), description: t('organizations.adminDesc'), icon: Shield },
+  { value: 'member', label: t('organizations.member'), description: t('organizations.memberDesc'), icon: User },
+]);
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -367,16 +373,16 @@ void cancelInvitation;
       </template>
     </EntityModal>
 
-    <BaseModal :open="showAddMember" title="Add Member" @close="showAddMember = false">
+    <BaseModal :open="showAddMember" :title="t('organizations.addMember')" @close="showAddMember = false">
       <div class="space-y-4">
         <SearchSelect
           v-model="addMemberForm.userId"
-          label="User"
-          placeholder="Search users…"
+          :label="t('common.user')"
+          :placeholder="t('common.searchUsers')"
           :load-options="loadUserOptions"
           required
         />
-        <BaseSelect v-model="addMemberForm.role" label="Role" :options="roleOptions" />
+        <BaseSelect v-model="addMemberForm.role" :label="t('users.role')" :options="roleOptions" />
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="showAddMember = false">{{ t('common.cancel') }}</BaseButton>

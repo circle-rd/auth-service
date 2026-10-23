@@ -4,7 +4,7 @@ import { useRoute, RouterLink } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
 import {
-  LayoutDashboard, Users, Building2, AppWindow, Wallet, Settings, ChevronRight, X,
+  LayoutDashboard, Users, Building2, AppWindow, Wallet, ReceiptText, Settings, ChevronRight, X,
 } from 'lucide-vue-next';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
@@ -22,6 +22,7 @@ const navItems = computed(() => [
   { name: t('nav.organizations'), to: '/organizations', icon: Building2, adminOnly: true },
   { name: t('nav.applications'), to: '/applications', icon: AppWindow, adminOnly: true },
   { name: t('nav.wallets'), to: '/wallets', icon: Wallet, adminOnly: true },
+  { name: t('nav.accounting'), to: '/accounting', icon: ReceiptText, adminOnly: true },
   { name: t('nav.configuration'), to: '/configuration', icon: Settings, adminOnly: true },
 ]);
 

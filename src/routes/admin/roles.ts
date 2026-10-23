@@ -22,6 +22,18 @@ const createRoleSchema = z.object({
   isDefault: z.boolean().default(false),
 });
 
+// The name is the identifier downstream services authorise against: it is
+// immutable once created, so renaming is rejected instead of silently ignored.
+const updateRoleSchema = z
+  .object({
+    description: z.string().max(250).nullable().optional(),
+    isDefault: z.boolean().optional(),
+  })
+  .strict()
+  .refine((v) => Object.keys(v).length > 0, "At least one field is required");
+
+const rolePermissionBodySchema = z.object({ permissionId: z.string().uuid() });
+
 const createPermissionSchema = z.object({
   resource: z.string().min(1).max(128),
   action: z.enum(["read", "write"]).default("read"),
@@ -125,11 +137,23 @@ export async function rolesRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch<{ Params: { appId: string; roleId: string } }>(
     "/applications/:appId/roles/:roleId",
     async (req, reply) => {
-      const parsed = createRoleSchema.partial().safeParse(req.body);
+      const parsed = updateRoleSchema.safeParse(req.body);
       if (!parsed.success)
         throw ERR.APP_001("Invalid role data", parsed.error.flatten());
 
-      const [role] = await db.transaction(async (tx) => {
+      const role = await db.transaction(async (tx) => {
+        const [existing] = await tx
+          .select({ id: appRoles.id })
+          .from(appRoles)
+          .where(
+            and(
+              eq(appRoles.id, req.params.roleId),
+              eq(appRoles.applicationId, req.params.appId),
+            ),
+          )
+          .limit(1);
+        if (!existing) throw ERR.PERM_002();
+
         // Ensure at most one default role per app
         if (parsed.data.isDefault) {
           await tx
@@ -142,18 +166,13 @@ export async function rolesRoutes(fastify: FastifyInstance): Promise<void> {
               ),
             );
         }
-        return tx
+        const [updated] = await tx
           .update(appRoles)
           .set(parsed.data)
-          .where(
-            and(
-              eq(appRoles.id, req.params.roleId),
-              eq(appRoles.applicationId, req.params.appId),
-            ),
-          )
+          .where(eq(appRoles.id, req.params.roleId))
           .returning();
+        return updated;
       });
-      if (!role) throw ERR.PERM_002();
 
       await reply.send({ role });
     },
@@ -257,20 +276,50 @@ export async function rolesRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ── Role ↔ Permission assignment ───────────────────────────────────────────
 
+  // Both ends of an assignment must belong to the application in the URL,
+  // otherwise an admin could wire a permission across applications.
+  async function ensureRoleAndPermission(
+    appId: string,
+    roleId: string,
+    permissionId: string,
+  ): Promise<void> {
+    const [[role], [permission]] = await Promise.all([
+      db
+        .select({ id: appRoles.id })
+        .from(appRoles)
+        .where(and(eq(appRoles.id, roleId), eq(appRoles.applicationId, appId)))
+        .limit(1),
+      db
+        .select({ id: appPermissions.id })
+        .from(appPermissions)
+        .where(
+          and(
+            eq(appPermissions.id, permissionId),
+            eq(appPermissions.applicationId, appId),
+          ),
+        )
+        .limit(1),
+    ]);
+    if (!role) throw ERR.PERM_002();
+    if (!permission) throw ERR.PERM_003();
+  }
+
   // POST /api/admin/applications/:appId/roles/:roleId/permissions
   fastify.post<{ Params: { appId: string; roleId: string } }>(
     "/applications/:appId/roles/:roleId/permissions",
     async (req, reply) => {
-      const body = z
-        .object({ permissionId: z.string().uuid() })
-        .safeParse(req.body);
-      if (!body.success) throw ERR.PERM_003();
+      const body = rolePermissionBodySchema.parse(req.body);
+      await ensureRoleAndPermission(
+        req.params.appId,
+        req.params.roleId,
+        body.permissionId,
+      );
 
       await db
         .insert(appRolePermissions)
         .values({
           roleId: req.params.roleId,
-          permissionId: body.data.permissionId,
+          permissionId: body.permissionId,
         })
         .onConflictDoNothing();
 
@@ -282,6 +331,11 @@ export async function rolesRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.delete<{ Params: { appId: string; roleId: string; permId: string } }>(
     "/applications/:appId/roles/:roleId/permissions/:permId",
     async (req, reply) => {
+      await ensureRoleAndPermission(
+        req.params.appId,
+        req.params.roleId,
+        req.params.permId,
+      );
       await db
         .delete(appRolePermissions)
         .where(

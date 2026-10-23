@@ -24,12 +24,13 @@ import CopyField from '@/components/ui/CopyField.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
+import RolesPermissionsTab from '@/components/applications/RolesPermissionsTab.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
 import type { ColumnDef } from '@/types/data-table';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Eye, Pencil, Repeat, CalendarRange, Zap } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Repeat, CalendarRange, Zap } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
@@ -50,14 +51,10 @@ const consumption = ref<ConsumptionAggregate[]>([]);
 const allUsers = ref<User[]>([]);
 const loading = ref(true);
 
-const showRoleModal = ref(false);
-const showPermModal = ref(false);
 const showUserModal = ref(false);
 const showBulkUserModal = ref(false);
 const showPlanModal = ref(false);
 const showPriceModal = ref(false);
-const showDeleteRoleConfirm = ref(false);
-const showDeletePermConfirm = ref(false);
 const showDeletePlanConfirm = ref(false);
 const showRotateConfirm = ref(false);
 const showSecretModal = ref(false);
@@ -68,14 +65,10 @@ const showManageUserPlanModal = ref(false);
 const formLoading = ref(false);
 const managePlanLoading = ref(false);
 const newSecret = ref('');
-const selectedRoleId = ref<string | null>(null);
-const selectedPermId = ref<string | null>(null);
 const selectedPlanId = ref<string | null>(null);
 const selectedUserId = ref<string | null>(null);
 const selectedMetric = ref<{ userId: string; key: string } | null>(null);
 
-const roleForm = ref({ name: '', description: '', isDefault: false });
-const permForm = ref({ resource: '', action: 'read' as 'read' | 'write' });
 const userForm = ref({ userId: '', roleId: '', subscriptionPlanId: '' });
 const bulkForm = ref({ organizationId: '', roleId: '', subscriptionPlanId: '' });
 const managePlanForm = ref({ userId: '', planId: '', reason: '' });
@@ -96,11 +89,6 @@ const defaultPlanSelectOptions = computed<SelectOption[]>(() => [
 const noPlanSelectOptions = computed<SelectOption[]>(() => [
   { value: '', label: t('appDetail.noPlan'), icon: Ban },
   ...planOptions.value,
-]);
-
-const permActionOptions = computed<SelectOption[]>(() => [
-  { value: 'read', label: t('appDetail.read'), description: t('appDetail.readDesc'), icon: Eye },
-  { value: 'write', label: t('appDetail.write'), description: t('appDetail.writeDesc'), icon: Pencil },
 ]);
 
 // A `subscription.changed` frame refreshes the users tab; a `login.recorded`
@@ -221,67 +209,6 @@ const userColumns = computed<ColumnDef<UserApplication>[]>(() => [
 function formatLastLogin(iso: string | null | undefined): string {
   if (!iso) return t('users.never');
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-async function handleCreateRole() {
-  formLoading.value = true;
-  try {
-    await appsApi.createRole(appId, roleForm.value);
-    roles.value = (await appsApi.listRoles(appId)).roles;
-    toast.success('Role created');
-    showRoleModal.value = false;
-    roleForm.value = { name: '', description: '', isDefault: false };
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed');
-  } finally {
-    formLoading.value = false;
-  }
-}
-
-async function handleDeleteRole() {
-  if (!selectedRoleId.value) return;
-  formLoading.value = true;
-  try {
-    await appsApi.deleteRole(appId, selectedRoleId.value);
-    roles.value = roles.value.filter(r => r.id !== selectedRoleId.value);
-    toast.success('Role deleted');
-    showDeleteRoleConfirm.value = false;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed');
-  } finally {
-    formLoading.value = false;
-  }
-}
-
-async function handleCreatePerm() {
-  formLoading.value = true;
-  try {
-    await appsApi.createPermission(appId, permForm.value);
-    permissions.value = (await appsApi.listPermissions(appId)).permissions;
-    toast.success('Permission created');
-    showPermModal.value = false;
-    permForm.value = { resource: '', action: 'read' };
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed');
-  } finally {
-    formLoading.value = false;
-  }
-}
-
-async function togglePermission(roleId: string, permId: string, currentlyAssigned: boolean) {
-  try {
-    if (currentlyAssigned) {
-      await appsApi.removePermissionFromRole(appId, roleId, permId);
-      const role = roles.value.find(r => r.id === roleId);
-      if (role) role.permissionIds = role.permissionIds.filter(p => p !== permId);
-    } else {
-      await appsApi.assignPermissionToRole(appId, roleId, permId);
-      const role = roles.value.find(r => r.id === roleId);
-      if (role) role.permissionIds.push(permId);
-    }
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed');
-  }
 }
 
 /** The application's default plan id, used to preselect the selector. */
@@ -839,81 +766,13 @@ const financialKpis = computed(() => {
       </div>
 
       <template v-else>
-        <div v-if="activeTab === 'roles'" class="space-y-5">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-              <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.roles') }}</h3>
-                <BaseButton size="sm" @click="showRoleModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createRole') }}</BaseButton>
-              </div>
-              <div v-if="!roles.length" class="px-5 py-8 text-center text-sm text-surface-500">No roles yet</div>
-              <div v-else class="divide-y divide-surface-800/40">
-                <div v-for="role in roles" :key="role.id" class="px-5 py-4 flex items-center gap-4 group">
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2">
-                      <p class="text-sm font-medium text-surface-200">{{ role.name }}</p>
-                      <BaseBadge v-if="role.isDefault" variant="primary" size="sm">default</BaseBadge>
-                    </div>
-                    <p class="text-xs text-surface-500 mt-0.5">{{ role.description ?? '—' }}</p>
-                  </div>
-                  <span class="text-xs text-surface-500">{{ role.permissionIds.length }} permissions</span>
-                  <button @click="selectedRoleId = role.id; showDeleteRoleConfirm = true" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all">
-                    <Trash2 class="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-              <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
-                <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.permissions') }}</h3>
-                <BaseButton size="sm" @click="showPermModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createPermission') }}</BaseButton>
-              </div>
-              <div v-if="!permissions.length" class="px-5 py-8 text-center text-sm text-surface-500">No permissions yet</div>
-              <div v-else class="divide-y divide-surface-800/40">
-                <div v-for="perm in permissions" :key="perm.id" class="px-5 py-3 flex items-center gap-4 group">
-                  <code class="flex-1 text-sm font-mono text-surface-300">{{ perm.resource }}:<span :class="perm.action === 'write' ? 'text-amber-400' : 'text-emerald-400'">{{ perm.action }}</span></code>
-                  <span class="text-xs text-surface-600">{{ formatDate(perm.createdAt) }}</span>
-                  <button @click="selectedPermId = perm.id; showDeletePermConfirm = true" class="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-red-500 hover:bg-red-500/10 transition-all">
-                    <Trash2 class="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="roles.length && permissions.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-            <div class="px-5 py-4 border-b border-surface-700/40">
-              <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.permissionMatrix') }}</h3>
-            </div>
-            <div class="overflow-x-auto">
-              <table class="w-full">
-                <thead>
-                  <tr class="border-b border-surface-800/40">
-                    <th class="px-5 py-3 text-left text-xs font-medium text-surface-500">Permission</th>
-                    <th v-for="role in roles" :key="role.id" class="px-4 py-3 text-center text-xs font-medium text-surface-500">{{ role.name }}</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-surface-800/40">
-                  <tr v-for="perm in permissions" :key="perm.id">
-                    <td class="px-5 py-3">
-                      <code class="text-xs font-mono text-surface-300">{{ perm.resource }}:{{ perm.action }}</code>
-                    </td>
-                    <td v-for="role in roles" :key="role.id" class="px-4 py-3 text-center">
-                      <button
-                        @click="togglePermission(role.id, perm.id, role.permissionIds.includes(perm.id))"
-                        :class="['w-6 h-6 rounded-md flex items-center justify-center mx-auto transition-all', role.permissionIds.includes(perm.id) ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30' : 'bg-surface-800 text-surface-600 hover:bg-surface-700']"
-                      >
-                        <Check v-if="role.permissionIds.includes(perm.id)" class="w-3.5 h-3.5" />
-                        <X v-else class="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <RolesPermissionsTab
+          v-if="activeTab === 'roles'"
+          v-model:roles="roles"
+          v-model:permissions="permissions"
+          :app-id="appId"
+          :app-name="app?.name ?? ''"
+        />
 
         <div v-if="activeTab === 'users'" class="space-y-4">
           <div class="flex justify-end gap-2">
@@ -1304,29 +1163,6 @@ const financialKpis = computed(() => {
       </template>
     </div>
 
-    <BaseModal :open="showRoleModal" :title="t('appDetail.createRole')" @close="showRoleModal = false">
-      <div class="space-y-4">
-        <BaseInput v-model="roleForm.name" label="Name" required />
-        <BaseInput v-model="roleForm.description" label="Description" />
-        <BaseToggle v-model="roleForm.isDefault" :label="t('appDetail.isDefault')" />
-      </div>
-      <template #footer>
-        <BaseButton variant="ghost" @click="showRoleModal = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="formLoading" @click="handleCreateRole">{{ t('common.create') }}</BaseButton>
-      </template>
-    </BaseModal>
-
-    <BaseModal :open="showPermModal" :title="t('appDetail.createPermission')" @close="showPermModal = false">
-      <div class="space-y-4">
-        <BaseInput v-model="permForm.resource" label="Resource" placeholder="documents" required />
-        <BaseSelect v-model="permForm.action" :label="t('appDetail.action')" :options="permActionOptions" />
-      </div>
-      <template #footer>
-        <BaseButton variant="ghost" @click="showPermModal = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="formLoading" @click="handleCreatePerm">{{ t('common.create') }}</BaseButton>
-      </template>
-    </BaseModal>
-
     <BaseModal :open="showBulkUserModal" :title="t('appDetail.bulkGrantAccess')" @close="showBulkUserModal = false">
       <div class="space-y-4">
         <p class="text-sm text-surface-400">{{ t('appDetail.bulkGrantHint') }}</p>
@@ -1454,11 +1290,9 @@ const financialKpis = computed(() => {
       </template>
     </BaseModal>
 
-    <ConfirmDialog :open="showDeleteRoleConfirm" :title="t('appDetail.deleteRole')" message="Are you sure you want to delete this role?" :loading="formLoading" @confirm="handleDeleteRole" @cancel="showDeleteRoleConfirm = false" />
     <ConfirmDialog :open="showDeleteUserConfirm" :title="t('appDetail.revokeAccess')" message="Revoke this user's access to the application?" :loading="formLoading" @confirm="handleRevokeAccess" @cancel="showDeleteUserConfirm = false" />
     <ConfirmDialog :open="showResetMetricConfirm" :title="t('appDetail.resetMetric')" :message="t('appDetail.confirmResetMetric')" :loading="formLoading" @confirm="handleResetMetric" @cancel="showResetMetricConfirm = false" />
     <ConfirmDialog :open="showRotateConfirm" :title="t('applications.rotateSecret')" :message="t('applications.rotateSecretConfirm')" :loading="formLoading" @confirm="handleRotate" @cancel="showRotateConfirm = false" />
-    <ConfirmDialog :open="showDeletePermConfirm" :title="t('appDetail.deletePermission')" message="Delete this permission?" :loading="formLoading" @confirm="async () => { if (selectedPermId) { await appsApi.deletePermission(appId, selectedPermId); permissions = (await appsApi.listPermissions(appId)).permissions; showDeletePermConfirm = false; } }" @cancel="showDeletePermConfirm = false" />
     <ConfirmDialog :open="showDeletePlanConfirm" :title="t('appDetail.deletePlan')" message="Delete this plan?" :loading="formLoading" @confirm="async () => { if (selectedPlanId) { await appsApi.deletePlan(appId, selectedPlanId); plans = (await appsApi.listPlans(appId)).plans; showDeletePlanConfirm = false; } }" @cancel="showDeletePlanConfirm = false" />
 
     <UserAppHistoryModal

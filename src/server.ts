@@ -41,6 +41,7 @@ import { userRoutes } from "./routes/user.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { adminWalletRoutes } from "./routes/admin/wallets.js";
+import { accountingRoutes } from "./routes/admin/accounting.js";
 import { applicationMachineScopesRoutes } from "./routes/admin/application-machine-scopes.js";
 import { applicationFaviconRoutes } from "./routes/admin/application-favicon.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
@@ -576,6 +577,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     prefix: "/api/internal/wallet",
   });
   await fastify.register(adminWalletRoutes, { prefix: "/api/admin/wallets" });
+  await fastify.register(accountingRoutes, {
+    prefix: "/api/admin/accounting",
+  });
   await fastify.register(appConfigRoutes, { prefix: "/api/app-config" });
 
   // ── OIDC / OAuth 2.0 discovery at root ──────────────────────────

@@ -43,6 +43,12 @@ const routes = [
     meta: { requiresAdmin: true },
   },
   {
+    path: '/accounting',
+    name: 'accounting',
+    component: () => import('@/views/AccountingView.vue'),
+    meta: { requiresAdmin: true },
+  },
+  {
     path: '/applications',
     name: 'applications',
     component: () => import('@/views/ApplicationsView.vue'),

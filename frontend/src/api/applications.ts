@@ -189,7 +189,7 @@ export async function createRole(appId: string, body: { name: string; descriptio
   return apiFetch<{ role: AppRole }>(`/admin/applications/${appId}/roles`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function updateRole(appId: string, roleId: string, body: Partial<{ name: string; description: string; isDefault: boolean }>): Promise<{ role: AppRole }> {
+export async function updateRole(appId: string, roleId: string, body: { description?: string | null; isDefault?: boolean }): Promise<{ role: AppRole }> {
   if (USE_MOCK) {
     const idx = MOCK_ROLES.findIndex(r => r.id === roleId);
     if (idx >= 0) Object.assign(MOCK_ROLES[idx], body);
@@ -236,7 +236,7 @@ export async function assignPermissionToRole(appId: string, roleId: string, perm
     if (role && !role.permissionIds.includes(permId)) role.permissionIds.push(permId);
     return { ok: true };
   }
-  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/roles/${roleId}/permissions/${permId}`, { method: 'POST' });
+  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/roles/${roleId}/permissions`, { method: 'POST', body: JSON.stringify({ permissionId: permId }) });
 }
 
 export async function removePermissionFromRole(appId: string, roleId: string, permId: string): Promise<void> {

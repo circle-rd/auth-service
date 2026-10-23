@@ -44,6 +44,10 @@ import {
 } from "./services/registration-policy.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
+import {
+  listUserOrganizationIds,
+  resolveOrganization,
+} from "./services/organization-selection.js";
 import { publishEvent } from "./services/event-bus.js";
 import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
@@ -1001,36 +1005,33 @@ export const auth = betterAuth({
           ...(await getApplicationMetadataClaims(clientId)),
         };
       },
-      // When the "org" scope is requested: after login, determine whether we need
-      // to redirect the user to the org-selection page (postLogin flow).
+      // When the "org" scope is requested: after login, redirect to the
+      // org-selection page only if the user must choose between several
+      // organizations. A single organization is bound implicitly and none means
+      // the token carries no org_id.
       postLogin: {
         page: "/select-org",
-        shouldRedirect: async ({ session, scopes, headers }) => {
+        shouldRedirect: async ({ user, scopes }) => {
           if (!scopes.includes("org")) return false;
-          const organizations = await auth.api.listOrganizations({ headers });
-          const orgs = organizations ?? [];
-          // Skip redirect if the user has 0 orgs (nothing to select)
-          // or exactly 1 org that is already set as active.
-          if (orgs.length === 0) return false;
-          if (
-            orgs.length === 1 &&
-            orgs[0]?.id ===
-              (session as Record<string, unknown>)?.activeOrganizationId
-          ) {
-            return false;
-          }
-          return true;
+          const { selectionRequired } = resolveOrganization(
+            await listUserOrganizationIds(user.id),
+            undefined,
+          );
+          return selectionRequired;
         },
-        consentReferenceId: ({ session, scopes }) => {
+        consentReferenceId: async ({ user, session, scopes }) => {
           if (!scopes.includes("org")) return undefined;
-          const orgId = (session as Record<string, unknown>)
-            ?.activeOrganizationId as string | undefined;
-          if (!orgId) {
+          const { organizationId, selectionRequired } = resolveOrganization(
+            await listUserOrganizationIds(user.id),
+            (session as Record<string, unknown>)?.activeOrganizationId as
+              string | undefined,
+          );
+          if (selectionRequired && !organizationId) {
             throw new APIError("BAD_REQUEST", {
               message: "Please select an organization before continuing.",
             });
           }
-          return orgId;
+          return organizationId;
         },
       },
     }),

@@ -340,7 +340,9 @@
         const callbackURL = oauthQuery
           ? AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery
           : (redirectTo || '/');
-        const body = { email, password, callbackURL };
+        // The signed query lets BetterAuth resume the authorization request,
+        // dropping `prompt=login` once this sign-in satisfies it.
+        const body = { email, password, callbackURL, oauth_query: oauthQuery || undefined };
         const res = await fetch(AUTH_URL + '/api/auth/sign-in/email', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
@@ -476,7 +478,7 @@
         const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-totp', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, oauth_query: form.oauthQuery.value || undefined }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -505,7 +507,7 @@
         const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-backup-code', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, oauth_query: form.oauthQuery.value || undefined }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {

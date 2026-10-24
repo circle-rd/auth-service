@@ -289,7 +289,7 @@ Adding a new code:
 2. Take the next sequential number in that domain.
 3. Add the entry in `src/errors.ts` following the existing pattern.
 4. Document it in the specifications
-   (`docs-site/content/docs/project/2.specifications.md`, error-code registry).
+   (`docs-site/content/docs/5.project/2.specifications.md`, error-code registry).
 
 **Never** create ad-hoc `Error` objects or call
 `reply.status(xxx).send({ error: "…" })` directly in routes. Always go

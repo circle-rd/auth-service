@@ -226,9 +226,9 @@ for any contribution to this repository.
 - **Loose ends**: wire the remaining social providers, add a database probe to `/health`.
 
 Detailed phase tracking, the gap-analysis re-evaluation and what shipped
-recently: [project roadmap](docs-site/content/docs/project/1.roadmap.md).
+recently: [project roadmap](docs-site/content/docs/5.project/1.roadmap.md).
 Functional specifications:
-[docs-site/content/docs/project/2.specifications.md](docs-site/content/docs/project/2.specifications.md).
+[docs-site/content/docs/5.project/2.specifications.md](docs-site/content/docs/5.project/2.specifications.md).
 
 ## Credits & license
 

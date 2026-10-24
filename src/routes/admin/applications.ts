@@ -32,6 +32,7 @@ import {
 } from "../../db/auth-schema.js";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
+import { clientSecretAuthMethod } from "../../compat/token-auth.js";
 import { randomBytes, createHash } from "node:crypto";
 import { addCorsOrigin, removeCorsOrigin } from "../../runtime-config.js";
 import {
@@ -407,7 +408,9 @@ export async function applicationRoutes(
         // clients (SPAs) use `none` and are limited to the authorization code
         // flow. PKCE is required for every client.
         applicationType: "web",
-        tokenEndpointAuthMethod: data.isPublic ? "none" : "client_secret_basic",
+        tokenEndpointAuthMethod: data.isPublic
+          ? "none"
+          : clientSecretAuthMethod(data.isSystem),
         grantTypes: data.isPublic
           ? ["authorization_code", "refresh_token"]
           : ["authorization_code", "refresh_token", "client_credentials"],

@@ -1,5 +1,13 @@
 import { z } from "zod";
 import "dotenv/config";
+import {
+  ALIAS_SETS,
+  COMPAT_PROFILES,
+  SIGNING_ALGS,
+  TOKEN_AUTH_METHODS,
+  claimMappingsSchema,
+  resolveCompat,
+} from "./compat/profiles.js";
 
 // Zod's `z.coerce.boolean()` uses `Boolean(value)`, so the string "false"
 // becomes `true`. Env flags must be parsed strictly instead: `z.stringbool()`
@@ -11,6 +19,12 @@ const envBoolean = (defaultValue: boolean) =>
     .union([z.stringbool(), z.literal("")])
     .optional()
     .transform((v) => (v === "" || v === undefined ? defaultValue : v));
+
+// Same strict parsing, but unset stays `undefined` so a profile default applies.
+const optionalEnvBoolean = z
+  .union([z.stringbool(), z.literal("")])
+  .optional()
+  .transform((v) => (v === "" ? undefined : v));
 
 const envSchema = z
   .object({
@@ -120,6 +134,49 @@ const envSchema = z
     // Optional Redis URL for shared rate-limit state across instances. When
     // unset, the in-memory buckets are used (single-instance only).
     REDIS_URL: z.string().url().optional(),
+
+    // Compatibility with the identity provider an instance replaces. The profile
+    // supplies defaults; every variable below overrides it, and `custom` starts
+    // from the plain defaults. See src/compat/profiles.ts.
+    COMPAT_PROFILE: z.enum(COMPAT_PROFILES).default("default"),
+    TOKEN_ENDPOINT_AUTH_METHOD: z.enum(TOKEN_AUTH_METHODS).optional(),
+    JWT_PRIMARY_ALG: z.enum(SIGNING_ALGS).optional(),
+    DEFAULT_AUDIENCE: optionalEnvBoolean,
+    AUDIENCE_PARAM: optionalEnvBoolean,
+    CLAIM_MAPPINGS: z
+      .string()
+      .optional()
+      .transform((raw, ctx) => {
+        if (raw === undefined) return undefined;
+        try {
+          const result = claimMappingsSchema.safeParse(JSON.parse(raw));
+          if (result.success) return result.data;
+          ctx.addIssue({
+            code: "custom",
+            message: `invalid claim mappings: ${result.error.message}`,
+          });
+        } catch {
+          ctx.addIssue({ code: "custom", message: "must be valid JSON" });
+        }
+        return z.NEVER;
+      }),
+    COMPAT_ALIASES: z
+      .string()
+      .optional()
+      .transform((raw, ctx) => {
+        if (raw === undefined) return undefined;
+        const names = raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const valid = z.array(z.enum(ALIAS_SETS)).safeParse(names);
+        if (valid.success) return valid.data;
+        ctx.addIssue({
+          code: "custom",
+          message: `must be a comma-separated list of ${ALIAS_SETS.join(", ")}`,
+        });
+        return z.NEVER;
+      }),
 
     // Templates directory — optional, allows overriding login/register/verify-email pages
     // per-application (mount a volume at this path in Docker)
@@ -299,6 +356,15 @@ export const config = {
   redis: {
     url: parsed.data.REDIS_URL,
   },
+  compat: resolveCompat({
+    profile: parsed.data.COMPAT_PROFILE,
+    tokenAuthMethod: parsed.data.TOKEN_ENDPOINT_AUTH_METHOD,
+    signingAlg: parsed.data.JWT_PRIMARY_ALG,
+    defaultAudience: parsed.data.DEFAULT_AUDIENCE,
+    audienceParam: parsed.data.AUDIENCE_PARAM,
+    claimMappings: parsed.data.CLAIM_MAPPINGS,
+    aliases: parsed.data.COMPAT_ALIASES,
+  }),
   stripe: {
     secretKey: parsed.data.STRIPE_SECRET_KEY,
     webhookSecret: parsed.data.STRIPE_WEBHOOK_SECRET,

@@ -24,10 +24,15 @@ import { config } from "./config.js";
 import { trustedOrigins } from "./runtime-config.js";
 import { logger } from "./logger.js";
 import {
-  getUserClaims,
   userHasAppAccessBySlug,
   assignDefaultRoleIfNeeded,
 } from "./services/claims.js";
+import { getCompatUserClaims } from "./compat/claims.js";
+import { resolveAudiencePatch } from "./compat/audience.js";
+import { jwksOptions } from "./compat/key-pair.js";
+import { hashPassword } from "better-auth/crypto";
+import { verifyStoredPassword } from "./services/legacy-password.js";
+import { supportedScopes } from "./compat/scopes.js";
 import { assignDefaultPlanIfNeeded } from "./services/subscriptions.js";
 import {
   sendResetPasswordEmail,
@@ -403,6 +408,9 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    // Native scrypt hashes plus hashes imported from another provider, which
+    // are replaced by native ones at the first successful sign-in.
+    password: { hash: hashPassword, verify: verifyStoredPassword },
     requireEmailVerification: config.email.requireVerification,
     sendResetPassword: async (params: {
       user: { email: string };
@@ -563,6 +571,9 @@ export const auth = betterAuth({
   // any admin action whose target outranks (or equals) the caller.
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      // Instance-wide compatibility: `audience` alias and default resource.
+      const audience = await resolveAudiencePatch(ctx);
+      if (audience) return audience;
       // Accounts are created through an application that allows registration:
       // its callbackURL carries its client_id. Anything else (no client_id, or an
       // application that does not allow it) cannot create one.
@@ -670,12 +681,8 @@ export const auth = betterAuth({
       // mistaken for one by downstream resource servers. Bearer tokens must
       // come from the token endpoint.
       disableSettingJwtHeader: true,
-      // Rotate signing keys monthly; keep the previous key for a month so
-      // access tokens issued just before rotation still verify.
-      jwks: {
-        rotationInterval: 60 * 60 * 24 * 30,
-        gracePeriod: 60 * 60 * 24 * 30,
-      },
+      // Algorithm and monthly rotation: see compat/key-pair.ts.
+      jwks: jwksOptions(config.compat.signingAlg),
     }),
     twoFactor({ issuer: config.appName }),
     passkey(),
@@ -848,21 +855,7 @@ export const auth = betterAuth({
       // `oauth_resource` table, synced from applications.url by
       // services/oauth-resources.ts, and linked to their client via
       // `oauth_client_resource`.
-      scopes: [
-        "openid",
-        "profile",
-        "email",
-        "phone",
-        "offline_access",
-        "roles",
-        "permissions",
-        "features",
-        "wallet:self:read",
-        // org — injects org_id (activeOrganizationId) as a claim in the access token.
-        // Clients that need org-scoped data should request this scope and include
-        // `resource=<audience>` to receive a JWT (RFC 8707).
-        "org",
-      ],
+      scopes: supportedScopes(config.compat),
       // Inject roles, permissions, features, and org_id into id_token.
       // Also gates token issuance:
       //   - throws FORBIDDEN when the user has no access AND the app is neither
@@ -880,7 +873,7 @@ export const auth = betterAuth({
           clientId,
         );
         return {
-          ...(await getUserClaims(user.id, clientId, scopes, {
+          ...(await getCompatUserClaims(user.id, clientId, scopes, {
             email: (user as Record<string, unknown>).email as
               string | null | undefined,
             emailVerified: (user as Record<string, unknown>).emailVerified as
@@ -935,7 +928,7 @@ export const auth = betterAuth({
           user as Record<string, unknown> & { id: string },
           clientId,
         );
-        const claims = await getUserClaims(user.id, clientId, scopes, {
+        const claims = await getCompatUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as
             string | null | undefined,
           emailVerified: (user as Record<string, unknown>).emailVerified as
@@ -986,7 +979,7 @@ export const auth = betterAuth({
         const clientId = (jwt as Record<string, unknown>)?.azp as
           string | undefined;
         return {
-          ...(await getUserClaims(user.id, clientId, scopes, {
+          ...(await getCompatUserClaims(user.id, clientId, scopes, {
             email: (user as Record<string, unknown>).email as
               string | null | undefined,
             emailVerified: (user as Record<string, unknown>).emailVerified as

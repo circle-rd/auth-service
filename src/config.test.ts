@@ -20,6 +20,13 @@ const FLAG_KEYS = [
   "NODE_ENV",
   "APP_LOGO_URL",
   "APP_LOGO_DARK_URL",
+  "COMPAT_PROFILE",
+  "TOKEN_ENDPOINT_AUTH_METHOD",
+  "JWT_PRIMARY_ALG",
+  "DEFAULT_AUDIENCE",
+  "AUDIENCE_PARAM",
+  "CLAIM_MAPPINGS",
+  "COMPAT_ALIASES",
 ];
 
 async function loadConfig(overrides: Record<string, string>) {
@@ -99,5 +106,63 @@ describe("config logo variants", () => {
       }),
     ).rejects.toThrow("exit");
     expect(exit).toHaveBeenCalledWith(1);
+  });
+});
+
+describe("config compatibility profile", () => {
+  it("defaults to the current behaviour", async () => {
+    const config = await loadConfig({ NODE_ENV: "test" });
+    expect(config.compat).toMatchObject({
+      profile: "default",
+      tokenAuthMethod: "basic",
+      signingAlg: "EdDSA",
+      defaultAudience: false,
+    });
+  });
+
+  it("applies a profile and lets an explicit variable override it", async () => {
+    const config = await loadConfig({
+      NODE_ENV: "test",
+      COMPAT_PROFILE: "okta",
+      TOKEN_ENDPOINT_AUTH_METHOD: "post",
+      DEFAULT_AUDIENCE: "false",
+    });
+    expect(config.compat).toMatchObject({
+      profile: "okta",
+      tokenAuthMethod: "post",
+      signingAlg: "RS256",
+      defaultAudience: false,
+    });
+  });
+
+  it("reads custom claim mappings and aliases", async () => {
+    const config = await loadConfig({
+      NODE_ENV: "test",
+      COMPAT_PROFILE: "custom",
+      CLAIM_MAPPINGS: '[{"claim":"https://a.example/roles","source":"roles"}]',
+      COMPAT_ALIASES: "okta, auth0",
+    });
+    expect(config.compat.claimMappings).toEqual([
+      { claim: "https://a.example/roles", source: "roles" },
+    ]);
+    expect(config.compat.aliases).toEqual(["okta", "auth0"]);
+  });
+
+  it.each([
+    ["COMPAT_PROFILE", "azure"],
+    ["JWT_PRIMARY_ALG", "HS256"],
+    ["TOKEN_ENDPOINT_AUTH_METHOD", "none"],
+    ["CLAIM_MAPPINGS", "not json"],
+    ["CLAIM_MAPPINGS", '[{"claim":"sub","source":"roles"}]'],
+    ["COMPAT_ALIASES", "okta,ping"],
+    ["DEFAULT_AUDIENCE", "maybe"],
+  ])("rejects an invalid %s", async (key, value) => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+    await expect(
+      loadConfig({ NODE_ENV: "test", [key]: value }),
+    ).rejects.toThrow("exit");
   });
 });

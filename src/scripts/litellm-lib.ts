@@ -284,7 +284,7 @@ export class AuthAdminClient {
     private readonly origin: string = new URL(baseUrl).origin,
   ) {}
 
-  private async send(
+  protected async send(
     path: string,
     init: RequestInit & { json?: unknown } = {},
   ): Promise<Response> {
@@ -314,7 +314,7 @@ export class AuthAdminClient {
     return res;
   }
 
-  private async expectOk(res: Response, what: string): Promise<Response> {
+  protected async expectOk(res: Response, what: string): Promise<Response> {
     if (!res.ok) {
       throw new Error(`${what} failed: HTTP ${res.status} ${await res.text()}`);
     }

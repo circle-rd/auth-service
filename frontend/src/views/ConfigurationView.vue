@@ -8,7 +8,7 @@ import { listOrganizations } from '@/api/organizations';
 import type { User } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
-import { CheckCircle, XCircle, CreditCard, ShieldCheck, Lock, Users, AppWindow, Building2 } from 'lucide-vue-next';
+import { CheckCircle, XCircle, CreditCard, ShieldCheck, Lock, Users, AppWindow, Building2, ArrowRightLeft } from 'lucide-vue-next';
 
 const { t } = useI18n();
 const services = useServicesStore();
@@ -162,6 +162,57 @@ function getProvider(key: ProviderKey) {
           </template>
         </div>
 
+      </div>
+
+      <!-- Row 3: identity provider compatibility -->
+      <div v-if="services.config?.compat" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+        <div class="flex items-center gap-3 mb-1">
+          <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center">
+            <ArrowRightLeft class="w-4 h-4 text-primary-400" />
+          </div>
+          <h2 class="text-sm font-semibold text-surface-200">{{ t('configuration.compat') }}</h2>
+          <BaseBadge variant="neutral" class="uppercase">{{ services.config.compat.profile }}</BaseBadge>
+        </div>
+        <p class="text-xs text-surface-500 mb-4 ml-11">{{ t('configuration.compatNote') }}</p>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+          <div>
+            <dt class="text-xs text-surface-500 mb-1">{{ t('configuration.compatTokenAuth') }}</dt>
+            <dd class="text-surface-200">
+              {{ services.config.compat.tokenAuthMethod === 'post' ? t('configuration.compatTokenAuthPost') : t('configuration.compatTokenAuthBasic') }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs text-surface-500 mb-1">{{ t('configuration.compatSigning') }}</dt>
+            <dd class="font-mono text-surface-200">{{ services.config.compat.signingAlg }}</dd>
+          </div>
+          <div>
+            <dt class="text-xs text-surface-500 mb-1">{{ t('configuration.compatDefaultAudience') }}</dt>
+            <dd>
+              <BaseBadge :variant="services.config.compat.defaultAudience ? 'success' : 'neutral'" dot>
+                {{ services.config.compat.defaultAudience ? t('common.enabled') : t('common.disabled') }}
+              </BaseBadge>
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs text-surface-500 mb-1">{{ t('configuration.compatAudienceParam') }}</dt>
+            <dd>
+              <BaseBadge :variant="services.config.compat.audienceParam ? 'success' : 'neutral'" dot>
+                {{ services.config.compat.audienceParam ? t('common.enabled') : t('common.disabled') }}
+              </BaseBadge>
+            </dd>
+          </div>
+        </dl>
+        <div class="mt-4">
+          <p class="text-xs text-surface-500 mb-2">{{ t('configuration.compatClaims') }}</p>
+          <div v-if="services.config.compat.claimMappings.length" class="flex flex-wrap gap-2">
+            <span
+              v-for="m in services.config.compat.claimMappings"
+              :key="m.claim"
+              class="px-2 py-1 rounded-md bg-surface-800 text-xs font-mono text-surface-300"
+            >{{ m.claim }} ← {{ m.source }}<template v-if="m.scope"> ({{ m.scope }})</template></span>
+          </div>
+          <p v-else class="text-xs text-surface-400">{{ t('configuration.compatNoClaims') }}</p>
+        </div>
       </div>
 
     </div>

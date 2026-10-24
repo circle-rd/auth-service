@@ -10,6 +10,7 @@
  * in `index.ts`.
  */
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import { buildAliasTable, resolveAlias } from "./compat/aliases.js";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
@@ -106,7 +107,16 @@ const DEVICE_RATE_MAX = 60;
 const DEVICE_RATE_WINDOW = 60_000;
 
 export async function buildServer(): Promise<FastifyInstance> {
+  const aliasTable = buildAliasTable(config.compat.aliases);
   const fastify = Fastify({
+    // Route aliases of another identity provider are resolved here, before
+    // routing and before any hook, so every guard sees the canonical path.
+    ...(aliasTable.size > 0
+      ? {
+          rewriteUrl: (req: { url?: string }) =>
+            resolveAlias(req.url, aliasTable) ?? req.url ?? "",
+        }
+      : {}),
     // Trust the reverse-proxy chain so `req.ip` reflects the real
     // client address from `X-Forwarded-For` instead of the proxy's address —
     // and, crucially, so a client-forged `X-Forwarded-For` cannot move the

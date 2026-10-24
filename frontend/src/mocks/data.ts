@@ -327,6 +327,20 @@ export const MOCK_CONSUMPTION: ConsumptionAggregate[] = [
 
 export const MOCK_SERVICES_CONFIG: ServicesConfig = {
   stripe: true,
+  compat: {
+    profile: 'okta',
+    tokenAuthMethod: 'basic',
+    signingAlg: 'RS256',
+    defaultAudience: true,
+    audienceParam: false,
+    claimMappings: [
+      { claim: 'groups', source: 'roles', scope: 'groups' },
+      { claim: 'scp', source: 'scope' },
+      { claim: 'preferred_username', source: 'email', scope: 'profile' },
+      { claim: 'cid', source: 'clientId' },
+    ],
+    aliases: ['okta'],
+  },
   providers: {
     google: { enabled: true, clientId: 'AIzaSyD-sample-google-id' },
     github: { enabled: true, clientId: 'gh-sample-client-id' },

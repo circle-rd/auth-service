@@ -41,8 +41,10 @@ ISSUER = _required_env("JWT_ISSUER")
 AUDIENCE = _required_env("JWT_AUDIENCE")
 MASTER_KEY = _required_env("LITELLM_MASTER_KEY")
 _required_env("LITELLM_SALT_KEY")
-# auth-service signs access tokens with EdDSA only.
-ALGORITHMS = ["EdDSA"]
+# auth-service signs with EdDSA by default, or RS256 (JWT_PRIMARY_ALG). The key
+# type comes from the JWKS entry, so the two asymmetric algorithms cannot be
+# confused with each other or with a shared-secret one.
+ALGORITHMS = ["EdDSA", "RS256"]
 REFRESH_COOLDOWN_S = 30
 
 # Per-server MCP routes (/{server}/mcp) are not part of LiteLLM's LLM route list.

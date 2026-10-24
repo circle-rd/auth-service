@@ -286,8 +286,25 @@ export interface OAuthProviderConfig {
   clientSecret?: string
 }
 
+export interface CompatMapping {
+  claim: string
+  source: 'roles' | 'permissions' | 'scope' | 'email' | 'clientId'
+  scope?: string
+}
+
+export interface CompatConfig {
+  profile: 'default' | 'okta' | 'auth0' | 'keycloak' | 'custom'
+  tokenAuthMethod: 'basic' | 'post'
+  signingAlg: 'EdDSA' | 'RS256'
+  defaultAudience: boolean
+  audienceParam: boolean
+  claimMappings: CompatMapping[]
+  aliases: string[]
+}
+
 export interface ServicesConfig {
   stripe: boolean
+  compat: CompatConfig
   providers: {
     google: OAuthProviderConfig
     github: OAuthProviderConfig

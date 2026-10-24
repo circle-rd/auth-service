@@ -344,7 +344,7 @@ export default {
     allowedScopes: 'Portées autorisées',
     redirectUris: 'URIs de redirection',
     enableEndSession: 'Autoriser le logout RP-Initiated',
-    enableEndSessionHint: "Permet \u00e0 l\u2019application d\u2019appeler /oauth2/end-session pour terminer la session SSO centrale (logout unique). Requis uniquement si l\u2019application a besoin d\u2019un logout global sur toutes les apps Circle.",
+    enableEndSessionHint: "Permet \u00e0 l\u2019application d\u2019appeler /oauth2/end-session, qui termine la session SSO centrale de TOUTES les apps Circle (logout global, il n\u2019existe pas de variante par application). \u00c0 laisser d\u00e9sactiv\u00e9 pour les apps qui ne d\u00e9connectent l\u2019utilisateur que localement : elles ne doivent pas appeler end-session.",
     postLogoutRedirectUris: 'URIs de redirection post-logout',
     postLogoutRedirectUrisHint: 'Liste blanche d\u2019URLs pouvant \u00eatre pass\u00e9es comme post_logout_redirect_uri \u00e0 /oauth2/end-session. Le match est strict (URL compl\u00e8te avec query string).',
     addPostLogoutRedirectUri: 'Ajouter une URI post-logout',

@@ -224,11 +224,10 @@ const createAppSchema = z.object({
   allowRegister: z.boolean().default(false),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().url()).default([]),
-  // OIDC RP-Initiated Logout 1.0. When true, the client is allowed to call
-  // /oauth2/end-session to terminate the AuthService SSO session. Required
-  // for proper federated logout — without it, browsers retain the cookie and
-  // silently re-authenticate the same user on the next /authorize round-trip.
-  enableEndSession: z.boolean().default(true),
+  // OIDC RP-Initiated Logout 1.0. When true, the client may call
+  // /oauth2/end-session, which ends the SSO session for ALL apps (no per-app
+  // variant). Off by default: apps that only log out locally must not enable it.
+  enableEndSession: z.boolean().default(false),
   // Whitelist of URLs that may be passed as `post_logout_redirect_uri` to
   // the end-session endpoint. Empty array = no post-logout redirect allowed.
   postLogoutRedirectUris: z.array(z.string().url()).default([]),

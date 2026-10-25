@@ -94,6 +94,20 @@ async function dailySeries(
   return denseSeries(rows, days);
 }
 
+/** Spend recorded but never deducted: usage on unlimited accounts (`delta = 0`). */
+async function notBilledTotal(
+  days: number,
+  accountId?: string,
+): Promise<string> {
+  const rows = (await db.execute(
+    sql`SELECT COALESCE(-SUM(t.amount), 0)::text AS total
+        FROM wallet_transactions t
+        WHERE ${ledgerFilter("usage", startOfWindow(days), accountId)}
+          AND t.delta = 0`,
+  )) as unknown as { total: string }[];
+  return rows[0]!.total;
+}
+
 async function byApplication(
   days: number,
   accountId?: string,
@@ -134,15 +148,17 @@ export async function getUserSpendStats(
   accountId: string,
   days: number,
 ): Promise<UserSpendStats> {
-  const [series, applications, kinds] = await Promise.all([
+  const [series, applications, kinds, notBilled] = await Promise.all([
     dailySeries("usage", days, accountId),
     byApplication(days, accountId),
     byKind(days, accountId),
+    notBilledTotal(days, accountId),
   ]);
   const { total, count } = sumAmounts(series);
   return {
     days,
     total,
+    notBilled,
     calls: count,
     series,
     byApplication: applications,
@@ -154,20 +170,27 @@ export async function getUserSpendStats(
 export async function getAdminWalletStats(
   days: number,
 ): Promise<AdminWalletStats> {
-  const [totalsRows, spendSeries, topUpSeries, topRows, applications, kinds] =
-    await Promise.all([
-      db.execute(
-        sql`SELECT COUNT(*)::int AS accounts,
+  const [
+    totalsRows,
+    spendSeries,
+    topUpSeries,
+    topRows,
+    applications,
+    kinds,
+    notBilled,
+  ] = await Promise.all([
+    db.execute(
+      sql`SELECT COUNT(*)::int AS accounts,
                    COUNT(*) FILTER (WHERE balance < 0)::int AS "accountsInDebt",
                    COUNT(*) FILTER (WHERE is_unlimited)::int AS "unlimitedAccounts",
                    COALESCE(SUM(balance) FILTER (WHERE balance > 0 AND NOT is_unlimited), 0)::text AS "outstandingCredit",
                    COALESCE(-SUM(balance) FILTER (WHERE balance < 0), 0)::text AS "outstandingDebt"
             FROM wallet_accounts`,
-      ),
-      dailySeries("usage", days),
-      dailySeries("topup", days),
-      db.execute(
-        sql`SELECT a.owner_type AS "ownerType", a.owner_id AS "ownerId",
+    ),
+    dailySeries("usage", days),
+    dailySeries("topup", days),
+    db.execute(
+      sql`SELECT a.owner_type AS "ownerType", a.owner_id AS "ownerId",
                    u.name AS name, u.email AS email,
                    (-SUM(t.amount))::text AS amount, COUNT(*)::int AS count
             FROM wallet_transactions t
@@ -177,17 +200,23 @@ export async function getAdminWalletStats(
             GROUP BY a.owner_type, a.owner_id, u.name, u.email
             ORDER BY SUM(t.amount) ASC
             LIMIT ${TOP_CONSUMERS}`,
-      ),
-      byApplication(days),
-      byKind(days),
-    ]);
+    ),
+    byApplication(days),
+    byKind(days),
+    notBilledTotal(days),
+  ]);
 
   const spend = sumAmounts(spendSeries);
   const topUps = sumAmounts(topUpSeries);
   return {
     days,
     totals: (totalsRows as unknown as AdminWalletStats["totals"][])[0]!,
-    spend: { total: spend.total, calls: spend.count, series: spendSeries },
+    spend: {
+      total: spend.total,
+      notBilled,
+      calls: spend.count,
+      series: spendSeries,
+    },
     topUps: { total: topUps.total, count: topUps.count, series: topUpSeries },
     topConsumers: topRows as unknown as WalletTopConsumer[],
     byApplication: applications,

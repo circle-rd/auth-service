@@ -638,6 +638,7 @@ export default {
       lastDays: '{days} derniers jours',
       total: 'Dépensé',
       calls: '{count} appels',
+      notBilled: 'dont {amount} non facturé (accès illimité)',
       byApplication: 'Par application',
       byKind: 'Par type',
       none: 'Aucune consommation sur cette période.',

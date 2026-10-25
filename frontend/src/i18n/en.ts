@@ -642,6 +642,7 @@ export default {
       lastDays: 'Last {days} days',
       total: 'Spent',
       calls: '{count} calls',
+      notBilled: 'of which {amount} not billed (unlimited access)',
       byApplication: 'By application',
       byKind: 'By type',
       none: 'No usage over this period.',

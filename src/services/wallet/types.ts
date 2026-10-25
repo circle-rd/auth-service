@@ -104,6 +104,8 @@ export interface WalletKindEntry {
 export interface UserSpendStats {
   days: number;
   total: string;
+  /** Part of `total` that was never deducted (usage on an unlimited account). */
+  notBilled: string;
   calls: number;
   series: WalletDailyPoint[];
   byApplication: WalletBreakdownEntry[];
@@ -130,7 +132,13 @@ export interface AdminWalletStats {
     /** Debt owed by users: sum of negative balances, as a positive number. */
     outstandingDebt: string;
   };
-  spend: { total: string; calls: number; series: WalletDailyPoint[] };
+  spend: {
+    total: string;
+    /** Part of `total` that was never deducted (usage on unlimited accounts). */
+    notBilled: string;
+    calls: number;
+    series: WalletDailyPoint[];
+  };
   topUps: { total: string; count: number; series: WalletDailyPoint[] };
   topConsumers: WalletTopConsumer[];
   byApplication: WalletBreakdownEntry[];

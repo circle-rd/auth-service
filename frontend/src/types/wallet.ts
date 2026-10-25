@@ -59,6 +59,8 @@ export interface WalletKindEntry {
 export interface UserSpendStats {
   days: number
   total: string
+  /** Part of `total` that was never deducted (usage on an unlimited account). */
+  notBilled: string
   calls: number
   series: WalletDailyPoint[]
   byApplication: WalletBreakdownEntry[]
@@ -83,7 +85,7 @@ export interface AdminWalletStats {
     outstandingCredit: string
     outstandingDebt: string
   }
-  spend: { total: string; calls: number; series: WalletDailyPoint[] }
+  spend: { total: string; notBilled: string; calls: number; series: WalletDailyPoint[] }
   topUps: { total: string; count: number; series: WalletDailyPoint[] }
   topConsumers: WalletTopConsumer[]
   byApplication: WalletBreakdownEntry[]

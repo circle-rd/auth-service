@@ -55,6 +55,7 @@ export const MOCK_TRANSACTIONS: WalletTransaction[] = Array.from({ length: 28 },
 export const MOCK_USER_STATS: UserSpendStats = {
   days: 30,
   total: '1517850',
+  notBilled: '0',
   calls: 212,
   series: series(30, 2400),
   byApplication: [
@@ -73,7 +74,7 @@ export const MOCK_ADMIN_STATS: AdminWalletStats = {
     accounts: 14, accountsInDebt: 2, unlimitedAccounts: 1,
     outstandingCredit: '48250000', outstandingDebt: '730000',
   },
-  spend: { total: '12480000', calls: 1830, series: series(30, 21000) },
+  spend: { total: '12480000', notBilled: '1900000', calls: 1830, series: series(30, 21000) },
   topUps: { total: '40000000', count: 9, series: series(30, 0) },
   topConsumers: [
     { ownerType: 'user', ownerId: 'u1', name: 'Emma Laurent', email: 'emma.laurent@example.com', amount: '6420000', count: 910 },

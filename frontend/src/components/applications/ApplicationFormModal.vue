@@ -6,9 +6,20 @@ import { getServicesConfig } from '@/api/services';
 import type { Application, ServicesConfig } from '@/types';
 import { useToast } from '@/composables/useToast';
 import BaseButton from '@/components/ui/BaseButton.vue';
-import BaseInput from '@/components/ui/BaseInput.vue';
-import BaseToggle from '@/components/ui/BaseToggle.vue';
-import EntityModal from '@/components/ui/EntityModal.vue';
+import SplitModal from '@/components/ui/SplitModal.vue';
+import StepGeneral from './form/StepGeneral.vue';
+import StepOptions from './form/StepOptions.vue';
+import StepAuthorization from './form/StepAuthorization.vue';
+import StepAdvanced from './form/StepAdvanced.vue';
+import {
+  ALL_PROVIDERS,
+  WALLET_SCOPE,
+  emptyApplicationForm,
+  formFromApplication,
+  metadataHasError,
+  type ApplicationFormState,
+  type ProviderKey,
+} from './form/state';
 
 const props = defineProps<{
   open: boolean;
@@ -27,6 +38,39 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
+const form = ref<ApplicationFormState>(emptyApplicationForm());
+
+// ── Steps ────────────────────────────────────────────────────────────────
+// Authorization and Advanced are optional: the application can be saved from
+// the Authorization step on (from any step when editing).
+const STEP_GENERAL = 0;
+const STEP_OPTIONS = 1;
+const STEP_AUTHORIZATION = 2;
+const STEP_ADVANCED = 3;
+const FIRST_SAVE_STEP = STEP_AUTHORIZATION;
+
+const steps = computed(() => [
+  { label: t('applications.sectionGeneral'), hint: t('applications.stepGeneralHint'), optional: false },
+  { label: t('applications.sectionOptions'), hint: t('applications.stepOptionsHint'), optional: false },
+  { label: t('applications.sectionAuthorization'), hint: t('applications.stepAuthorizationHint'), optional: true },
+  { label: t('applications.sectionAdvanced'), hint: t('applications.stepAdvancedHint'), optional: true },
+]);
+
+const step = ref(STEP_GENERAL);
+const isLastStep = computed(() => step.value === steps.value.length - 1);
+const identityValid = computed(() => !!form.value.name && (isEdit.value || !!form.value.slug));
+const showSave = computed(() => isEdit.value || step.value >= FIRST_SAVE_STEP);
+
+function goTo(i: number) {
+  // Later steps are reachable once the application has an identity.
+  if (i > STEP_GENERAL && !identityValid.value) return;
+  step.value = i;
+}
+
+function next() {
+  if (!isLastStep.value) goTo(step.value + 1);
+}
+
 // ── LiteLLM support ──────────────────────────────────────────────────────
 // One switch stands for three settings: the gateway and Auth Service resources,
 // and the wallet scope. They live in the regular arrays so nothing is lost on
@@ -34,6 +78,11 @@ const isEdit = computed(() => !!props.application);
 const litellmUrls = ref<string[]>([]);
 const litellmAvailable = computed(() => litellmUrls.value.length === 2);
 const litellmEnabled = ref(false);
+
+// System applications whose `url` is the resource identifier (RFC 8707) of the
+// LLM gateway and of the Auth Service API.
+const GATEWAY_SLUG = 'litellm';
+const AUTH_SERVICE_SLUG = 'auth-service';
 
 async function loadLitellmUrls() {
   try {
@@ -64,55 +113,8 @@ const litellmSupport = computed({
   },
 });
 
-// Indexes of the resources the user manages by hand (the LiteLLM ones are hidden while it is on).
-const visibleResourceIndexes = computed(() =>
-  form.value.allowedResources.flatMap((url, i) =>
-    litellmEnabled.value && litellmUrls.value.includes(url) ? [] : [i],
-  ),
-);
-
-// `wallet:self:read` is not listed: the LiteLLM option manages it.
-const SCOPES = ['openid', 'profile', 'email', 'phone', 'offline_access', 'roles', 'permissions', 'features', 'org'];
-const WALLET_SCOPE = 'wallet:self:read';
-// System applications whose `url` is the resource identifier (RFC 8707) of the
-// LLM gateway and of the Auth Service API.
-const GATEWAY_SLUG = 'litellm';
-const AUTH_SERVICE_SLUG = 'auth-service';
-const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
-type ProviderKey = (typeof ALL_PROVIDERS)[number];
-
-const form = ref({
-  name: '',
-  slug: '',
-  description: '',
-  url: '',
-  icon: '',
-  isActive: true,
-  isPublic: false,
-  skipConsent: false,
-  isMfaRequired: false,
-  allowRegister: true,
-  allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'] as string[],
-  redirectUris: [''] as string[],
-  allowedResources: [] as string[],
-  enabledSocialProviders: null as string[] | null,
-  // OIDC RP-Initiated Logout (1.0). Off by default — only opt in if the
-  // application actually needs to terminate the central SSO session.
-  enableEndSession: false,
-  postLogoutRedirectUris: [] as string[],
-  // OIDC Back-Channel Logout: an https endpoint that receives a signed logout
-  // token when a session ends. Empty string = the app does not support it.
-  backchannelLogoutUri: '' as string,
-  backchannelLogoutSessionRequired: false,
-  // Metadata is edited as an ordered list of key/value pairs in the UI;
-  // we serialize back to a plain Record<string, string> on submit. Keys must
-  // be valid identifiers (server enforces /^[a-zA-Z_][a-zA-Z0-9_]*$/) and
-  // both keys/values are strings (EMQX `client_attrs` contract).
-  metadata: [] as Array<{ key: string; value: string }>,
-});
-
-// Validate identifier-style keys client-side (server enforces too).
-const METADATA_KEY_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+// The LiteLLM resources are managed by the switch while it is on.
+const hiddenResources = computed(() => (litellmEnabled.value ? litellmUrls.value : []));
 
 function slugify(name: string) {
   return name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
@@ -195,6 +197,7 @@ watch(
     faviconRequest++;
     lastAutoIcon.value = '';
     lastLookedUpUrl = props.application?.url ?? '';
+    step.value = STEP_GENERAL;
     const urlsLoaded = loadLitellmUrls();
     if (!services.value) {
       try {
@@ -207,60 +210,8 @@ watch(
     const a = props.application;
     litellmEnabled.value =
       !!a && litellmAvailable.value && (a.allowedResources ?? []).includes(litellmUrls.value[0]!);
-    if (a) {
-      form.value = {
-        name: a.name,
-        slug: a.slug,
-        description: a.description ?? '',
-        url: a.url ?? '',
-        icon: a.icon ?? '',
-        isActive: a.isActive,
-        isPublic: a.isPublic,
-        skipConsent: a.skipConsent,
-        isMfaRequired: a.isMfaRequired,
-        allowRegister: a.allowRegister,
-        allowedScopes: [...a.allowedScopes],
-        redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
-        allowedResources: [...(a.allowedResources ?? [])],
-        enabledSocialProviders: a.enabledSocialProviders
-          ? [...a.enabledSocialProviders]
-          : null,
-        enableEndSession: a.enableEndSession ?? false,
-        postLogoutRedirectUris: a.postLogoutRedirectUris
-          ? [...a.postLogoutRedirectUris]
-          : [],
-        backchannelLogoutUri: a.backchannelLogoutUri ?? '',
-        backchannelLogoutSessionRequired:
-          a.backchannelLogoutSessionRequired ?? false,
-        metadata: Object.entries(a.metadata ?? {}).map(([key, value]) => ({
-          key,
-          value: String(value),
-        })),
-      };
-    } else {
-      lastAutoRedirectUri.value = '';
-      form.value = {
-        name: '',
-        slug: '',
-        description: '',
-        url: '',
-        icon: '',
-        isActive: true,
-        isPublic: false,
-        skipConsent: false,
-        isMfaRequired: false,
-        allowRegister: true,
-        allowedScopes: ['openid', 'profile', 'email', 'roles', 'permissions', 'features'],
-        redirectUris: [''],
-        allowedResources: [],
-        enabledSocialProviders: null,
-        enableEndSession: false,
-        postLogoutRedirectUris: [],
-        backchannelLogoutUri: '',
-        backchannelLogoutSessionRequired: false,
-        metadata: [],
-      };
-    }
+    lastAutoRedirectUri.value = '';
+    form.value = a ? formFromApplication(a) : emptyApplicationForm();
   },
   { immediate: true },
 );
@@ -280,90 +231,18 @@ const tags = computed(() => {
   return out;
 });
 
-const enabledProvidersGlobally = computed<ProviderKey[]>(() => {
-  if (!services.value) return [];
-  return ALL_PROVIDERS.filter((p) => services.value!.providers[p]?.enabled);
-});
-
-function toggleScope(scope: string) {
-  const i = form.value.allowedScopes.indexOf(scope);
-  if (i >= 0) form.value.allowedScopes.splice(i, 1);
-  else form.value.allowedScopes.push(scope);
-}
-
-function isProviderSelected(p: ProviderKey): boolean {
-  // null = inherit (treat as "all globally enabled selected")
-  if (form.value.enabledSocialProviders === null) return true;
-  return form.value.enabledSocialProviders.includes(p);
-}
-
-function toggleProvider(p: ProviderKey) {
-  // Materialize from null to a concrete list on first toggle
-  if (form.value.enabledSocialProviders === null) {
-    form.value.enabledSocialProviders = enabledProvidersGlobally.value.filter((x) => x !== p);
-    return;
-  }
-  const idx = form.value.enabledSocialProviders.indexOf(p);
-  if (idx >= 0) form.value.enabledSocialProviders.splice(idx, 1);
-  else form.value.enabledSocialProviders.push(p);
-}
-
-function inheritProviders() {
-  form.value.enabledSocialProviders = null;
-}
-
-function addRedirectUri() {
-  form.value.redirectUris.push('');
-}
-function removeRedirectUri(i: number) {
-  form.value.redirectUris.splice(i, 1);
-}
-
-function addAllowedResource() {
-  form.value.allowedResources.push('');
-}
-function removeAllowedResource(i: number) {
-  form.value.allowedResources.splice(i, 1);
-}
-
-function addPostLogoutRedirectUri() {
-  form.value.postLogoutRedirectUris.push('');
-}
-function removePostLogoutRedirectUri(i: number) {
-  form.value.postLogoutRedirectUris.splice(i, 1);
-}
-
-function addMetadataEntry() {
-  form.value.metadata.push({ key: '', value: '' });
-}
-function removeMetadataEntry(i: number) {
-  form.value.metadata.splice(i, 1);
-}
-function isMetadataKeyValid(key: string): boolean {
-  return key === '' || METADATA_KEY_RE.test(key);
-}
-const metadataDuplicateKeys = computed<Set<string>>(() => {
-  const seen = new Map<string, number>();
-  for (const { key } of form.value.metadata) {
-    if (!key) continue;
-    seen.set(key, (seen.get(key) ?? 0) + 1);
-  }
-  return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k));
-});
-const metadataHasError = computed(() => {
-  if (metadataDuplicateKeys.value.size > 0) return true;
-  return form.value.metadata.some(
-    ({ key, value }) =>
-      // Empty rows are silently dropped on submit, but a row with only one
-      // side filled is an error.
-      (key === '' && value !== '') || (key !== '' && !METADATA_KEY_RE.test(key)),
-  );
+const availableProviders = computed<ProviderKey[]>(() => {
+  const providers = services.value?.providers;
+  return providers ? ALL_PROVIDERS.filter((p) => providers[p]?.enabled) : [];
 });
 
 async function submit() {
-  if (!form.value.name) return;
-  if (!isEdit.value && !form.value.slug) return;
-  if (metadataHasError.value) {
+  if (!identityValid.value) {
+    step.value = STEP_GENERAL;
+    return;
+  }
+  if (metadataHasError(form.value.metadata)) {
+    step.value = STEP_ADVANCED;
     toast.error(t('applications.metadataInvalid'));
     return;
   }
@@ -412,355 +291,117 @@ async function submit() {
     loading.value = false;
   }
 }
+
+// Enter moves on; it only saves on the last step.
+function onEnter() {
+  if (!isLastStep.value) next();
+  else void submit();
+}
 </script>
 
 <template>
-  <EntityModal
+  <SplitModal
     :open="open"
     :name="form.name || (isEdit ? t('applications.editApp') : t('applications.createApp'))"
     :subtitle="form.slug || 'app-slug'"
     :icon-url="form.icon || null"
     :icon-letter="form.name ? form.name[0].toUpperCase() : 'A'"
-    icon-shape="square"
     :tags="tags"
-    size="xl"
     @close="emit('close')"
   >
-    <form @submit.prevent="submit" class="space-y-5">
-      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionGeneral') }}</h3>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <BaseInput v-model="form.name" :label="t('applications.name')" required />
-        <BaseInput
-          v-model="form.slug"
-          :label="t('applications.slug')"
-          :disabled="isEdit"
-          required
-        />
-      </div>
-      <BaseInput v-model="form.description" :label="t('applications.description')" />
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <BaseInput
-          v-model="form.url"
-          :label="t('applications.url')"
-          placeholder="https://app.example.com"
-          @update:model-value="onUrlInput"
-          @blur="lookupFavicon"
-        />
-        <BaseInput
-          v-model="form.icon"
-          :label="t('applications.icon')"
-          placeholder="https://..."
-          :hint="iconAutoDetected ? t('applications.iconDetected') : undefined"
-        />
-      </div>
-      <div class="border-t border-surface-800/60"></div>
-      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionOptions') }}</h3>
-      <div class="pt-1">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-          <BaseToggle v-model="form.isActive" :label="t('applications.isActive')" />
-          <BaseToggle
-            v-model="form.isPublic"
-            :label="t('applications.isPublic')"
-            description="PKCE only, no secret"
-            :disabled="isEdit"
-          />
-          <BaseToggle v-model="form.skipConsent" :label="t('applications.skipConsent')" />
-          <BaseToggle v-model="form.isMfaRequired" :label="t('applications.isMfaRequired')" />
-          <BaseToggle v-model="form.allowRegister" :label="t('applications.allowRegister')" />
-          <BaseToggle
-            v-model="form.enableEndSession"
-            :label="t('applications.enableEndSession')"
-            :description="t('applications.enableEndSessionHint')"
-          />
-        </div>
-        <BaseToggle
-          v-model="litellmSupport"
-          class="mt-4"
-          :label="t('applications.litellmSupport')"
-          :description="litellmAvailable ? t('applications.litellmSupportHint') : t('applications.litellmUnavailable')"
-          :disabled="!litellmAvailable"
-        />
-      </div>
-
-      <div class="border-t border-surface-800/60"></div>
-      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionAuthorization') }}</h3>
-      <div>
-        <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
-          {{ t('applications.allowedScopes') }}
-        </p>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            v-for="scope in SCOPES"
-            :key="scope"
-            type="button"
-            @click="toggleScope(scope)"
-            :class="[
-              'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors',
-              form.allowedScopes.includes(scope)
-                ? 'bg-primary-600/20 border-primary-500/40 text-primary-300'
-                : 'bg-surface-800/60 border-surface-700/60 text-surface-500 hover:border-surface-500 hover:text-surface-300',
-            ]"
-          >
-            {{ scope }}
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-            {{ t('applications.redirectUris') }}
-          </p>
-          <button
-            type="button"
-            @click="addRedirectUri"
-            class="text-xs text-primary-400 hover:text-primary-300 transition-colors font-medium"
-          >
-            + {{ t('applications.addRedirectUri') }}
-          </button>
-        </div>
-        <div class="space-y-2">
-          <div v-for="(_, i) in form.redirectUris" :key="i" class="flex gap-2">
-            <input
-              v-model="form.redirectUris[i]"
-              placeholder="https://your-app.com/callback"
-              class="flex-1 px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
-            />
+    <!-- Stepper -->
+    <nav
+      class="shrink-0 px-4 sm:px-6 pt-5 pb-4 pr-14 sm:pr-14 border-b border-surface-800/60"
+      :aria-label="t('applications.stepsLabel')"
+    >
+      <ol class="flex items-center gap-1 sm:gap-2">
+        <template v-for="(s, i) in steps" :key="s.label">
+          <li v-if="i > 0" class="h-px flex-1 bg-surface-700/60 hidden sm:block" aria-hidden="true" />
+          <li>
             <button
               type="button"
-              @click="removeRedirectUri(i)"
-              class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!--
-        Post-logout redirect URIs: whitelist for OIDC RP-Initiated Logout.
-        Only consulted when `enableEndSession` is on. AuthService matches the
-        incoming `post_logout_redirect_uri` against this list as plain string
-        equality — query strings included.
-      -->
-      <div v-if="form.enableEndSession">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-            {{ t('applications.postLogoutRedirectUris') }}
-          </p>
-          <button
-            type="button"
-            @click="addPostLogoutRedirectUri"
-            class="text-xs text-primary-400 hover:text-primary-300 transition-colors font-medium"
-          >
-            + {{ t('applications.addPostLogoutRedirectUri') }}
-          </button>
-        </div>
-        <p class="text-xs text-surface-500 mb-2">
-          {{ t('applications.postLogoutRedirectUrisHint') }}
-        </p>
-        <div class="space-y-2">
-          <div
-            v-for="(_, i) in form.postLogoutRedirectUris"
-            :key="i"
-            class="flex gap-2"
-          >
-            <input
-              v-model="form.postLogoutRedirectUris[i]"
-              placeholder="https://your-app.com/"
-              class="flex-1 px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
-            />
-            <button
-              type="button"
-              @click="removePostLogoutRedirectUri(i)"
-              class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!--
-        OIDC Back-Channel Logout 1.0: when a session ends, AuthService POSTs a
-        signed logout token to this endpoint so the application can terminate
-        its own session. Must be an https URL.
-      -->
-      <div>
-        <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
-          {{ t('applications.backchannelLogoutUri') }}
-        </p>
-        <input
-          v-model="form.backchannelLogoutUri"
-          placeholder="https://your-app.com/backchannel-logout"
-          class="w-full px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
-        />
-        <p class="text-xs text-surface-500 mt-2">
-          {{ t('applications.backchannelLogoutUriHint') }}
-        </p>
-        <div v-if="form.backchannelLogoutUri" class="mt-2">
-          <BaseToggle
-            v-model="form.backchannelLogoutSessionRequired"
-            :label="t('applications.backchannelLogoutSessionRequired')"
-            :description="t('applications.backchannelLogoutSessionRequiredHint')"
-          />
-        </div>
-      </div>
-
-      <!--
-        Allowed resources: URLs of other applications (protected resources,
-        e.g. the LLM gateway) this application may request access tokens for
-        through the RFC 8707 `resource` parameter.
-      -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-            {{ t('applications.allowedResources') }}
-          </p>
-          <button
-            type="button"
-            @click="addAllowedResource"
-            class="text-xs text-primary-400 hover:text-primary-300 transition-colors font-medium"
-          >
-            + {{ t('applications.addAllowedResource') }}
-          </button>
-        </div>
-        <p class="text-xs text-surface-500 mb-2">
-          {{ t('applications.allowedResourcesHint') }}
-        </p>
-        <div class="space-y-2">
-          <div
-            v-for="i in visibleResourceIndexes"
-            :key="i"
-            class="flex gap-2"
-          >
-            <input
-              v-model="form.allowedResources[i]"
-              placeholder="https://llm.your-domain.com"
-              class="flex-1 px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
-            />
-            <button
-              type="button"
-              @click="removeAllowedResource(i)"
-              class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="border-t border-surface-800/60"></div>
-      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionAdvanced') }}</h3>
-      <div v-if="enabledProvidersGlobally.length > 0">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-            {{ t('applications.socialProviders') }}
-          </p>
-          <button
-            v-if="form.enabledSocialProviders !== null"
-            type="button"
-            @click="inheritProviders"
-            class="text-xs text-primary-400 hover:text-primary-300 font-medium"
-          >
-            {{ t('applications.inheritProviders') }}
-          </button>
-        </div>
-        <p class="text-xs text-surface-500 mb-2">
-          {{
-            form.enabledSocialProviders === null
-              ? t('applications.providersInherited')
-              : t('applications.providersOverridden')
-          }}
-        </p>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            v-for="p in enabledProvidersGlobally"
-            :key="p"
-            type="button"
-            @click="toggleProvider(p)"
-            :class="[
-              'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize',
-              isProviderSelected(p)
-                ? 'bg-primary-600/20 border-primary-500/40 text-primary-300'
-                : 'bg-surface-800/60 border-surface-700/60 text-surface-500 hover:border-surface-500 hover:text-surface-300',
-            ]"
-          >
-            {{ p }}
-          </button>
-        </div>
-      </div>
-
-      <!--
-        Metadata: per-application key/value pairs that AuthService injects
-        into JWTs under the `client_attrs` field. Used by resource servers
-        such as EMQX (ACL via `${client_attrs.NAME}` placeholders).
-        Keys must be valid identifiers (server-enforced), values are strings.
-      -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-            {{ t('applications.metadata') }}
-          </p>
-          <button
-            type="button"
-            @click="addMetadataEntry"
-            class="text-xs text-primary-400 hover:text-primary-300 transition-colors font-medium"
-          >
-            + {{ t('applications.addMetadataEntry') }}
-          </button>
-        </div>
-        <p class="text-xs text-surface-500 mb-2">
-          {{ t('applications.metadataDescription') }}
-        </p>
-        <div v-if="form.metadata.length === 0" class="text-xs text-surface-600 italic py-1">
-          {{ t('applications.metadataEmpty') }}
-        </div>
-        <div v-else class="space-y-2">
-          <div
-            v-for="(entry, i) in form.metadata"
-            :key="i"
-            class="flex gap-2"
-          >
-            <input
-              v-model="entry.key"
-              :placeholder="t('applications.metadataKeyPlaceholder')"
+              @click="goTo(i)"
+              :disabled="i > STEP_GENERAL && !identityValid"
+              :aria-current="i === step ? 'step' : undefined"
               :class="[
-                'w-1/3 px-3 py-2 text-sm bg-surface-800/80 border rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all font-mono',
-                isMetadataKeyValid(entry.key) && !metadataDuplicateKeys.has(entry.key)
-                  ? 'border-surface-700/60'
-                  : 'border-red-500/60',
+                'flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                i === step ? 'text-primary-300 bg-primary-600/15' : 'text-surface-400 hover:text-surface-200',
               ]"
-            />
-            <input
-              v-model="entry.value"
-              :placeholder="t('applications.metadataValuePlaceholder')"
-              class="flex-1 px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
-            />
-            <button
-              type="button"
-              @click="removeMetadataEntry(i)"
-              class="px-2 text-surface-600 hover:text-red-400 transition-colors text-lg leading-none"
             >
-              ✕
+              <span
+                :class="[
+                  'w-6 h-6 shrink-0 rounded-full text-xs flex items-center justify-center border',
+                  i === step
+                    ? 'bg-primary-600 border-primary-500 text-white'
+                    : i < step
+                      ? 'border-primary-500/50 text-primary-300'
+                      : 'border-surface-600 text-surface-500',
+                ]"
+              >
+                {{ i < step ? '✓' : i + 1 }}
+              </span>
+              <span :class="['whitespace-nowrap', i === step ? '' : 'hidden md:inline']">{{ s.label }}</span>
             </button>
-          </div>
-        </div>
-        <p
-          v-if="metadataDuplicateKeys.size > 0"
-          class="text-xs text-red-400 mt-2"
-        >
-          {{ t('applications.metadataDuplicateKey') }}
-        </p>
+          </li>
+        </template>
+      </ol>
+    </nav>
+
+    <form @submit.prevent="onEnter" class="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-5">
+      <div class="mb-5">
+        <h3 class="text-base font-semibold text-surface-100">
+          {{ steps[step].label }}
+          <span v-if="steps[step].optional" class="ml-2 text-xs font-normal text-surface-500">
+            {{ t('applications.stepOptional') }}
+          </span>
+        </h3>
+        <p class="text-sm text-surface-500 mt-0.5">{{ steps[step].hint }}</p>
       </div>
+
+      <StepGeneral
+        v-if="step === STEP_GENERAL"
+        :form="form"
+        :is-edit="isEdit"
+        :icon-auto-detected="iconAutoDetected"
+        @url-input="onUrlInput"
+        @url-blur="lookupFavicon"
+      />
+      <StepOptions
+        v-else-if="step === STEP_OPTIONS"
+        v-model:litellm="litellmSupport"
+        :form="form"
+        :is-edit="isEdit"
+        :litellm-available="litellmAvailable"
+      />
+      <StepAuthorization
+        v-else-if="step === STEP_AUTHORIZATION"
+        :form="form"
+        :hidden-resources="hiddenResources"
+      />
+      <StepAdvanced v-else :form="form" :available-providers="availableProviders" />
     </form>
+
     <template #footer>
-      <div class="flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5 w-full">
-        <BaseButton variant="ghost" @click="emit('close')" class="w-full sm:w-auto">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="loading" @click="submit" class="w-full sm:w-auto">
-          {{ isEdit ? t('common.save') : t('common.create') }}
+      <div class="flex flex-col-reverse sm:flex-row sm:items-center gap-2.5 w-full">
+        <BaseButton variant="ghost" @click="emit('close')" class="w-full sm:w-auto sm:mr-auto">
+          {{ t('common.cancel') }}
+        </BaseButton>
+        <BaseButton v-if="step > STEP_GENERAL" variant="outline" @click="step--" class="w-full sm:w-auto">
+          {{ t('common.back') }}
+        </BaseButton>
+        <BaseButton
+          v-if="!isLastStep"
+          :variant="showSave ? 'secondary' : 'primary'"
+          :disabled="!identityValid"
+          @click="next"
+          class="w-full sm:w-auto"
+        >
+          {{ t('common.next') }}
+        </BaseButton>
+        <BaseButton v-if="showSave" :loading="loading" :disabled="!identityValid" @click="submit" class="w-full sm:w-auto">
+          {{ isEdit ? t('common.save') : t('applications.createApp') }}
         </BaseButton>
       </div>
     </template>
-  </EntityModal>
+  </SplitModal>
 </template>

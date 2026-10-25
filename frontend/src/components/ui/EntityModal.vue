@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 import BaseBadge from './BaseBadge.vue';
+import EntityIcon from './EntityIcon.vue';
 
 type BadgeVariant = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'primary';
 type IconShape = 'circle' | 'square';
@@ -35,28 +36,6 @@ function onKeydown(e: KeyboardEvent) {
 
 onMounted(() => document.addEventListener('keydown', onKeydown));
 onUnmounted(() => document.removeEventListener('keydown', onKeydown));
-
-const iconLetterDisplay = computed(() => {
-  if (props.iconLetter) return props.iconLetter;
-  if (props.name) return props.name[0].toUpperCase();
-  return '?';
-});
-
-const defaultColors = [
-  'from-blue-600/30 to-blue-800/20 border-blue-700/30 text-blue-300',
-  'from-emerald-600/30 to-emerald-800/20 border-emerald-700/30 text-emerald-300',
-  'from-amber-600/30 to-amber-800/20 border-amber-700/30 text-amber-300',
-  'from-rose-600/30 to-rose-800/20 border-rose-700/30 text-rose-300',
-  'from-teal-600/30 to-teal-800/20 border-teal-700/30 text-teal-300',
-  'from-sky-600/30 to-sky-800/20 border-sky-700/30 text-sky-300',
-];
-
-const autoIconColor = computed(() => {
-  if (props.iconColor) return props.iconColor;
-  const letter = iconLetterDisplay.value;
-  const idx = letter.charCodeAt(0) % defaultColors.length;
-  return defaultColors[idx];
-});
 </script>
 
 <template>
@@ -100,16 +79,14 @@ const autoIconColor = computed(() => {
             </button>
 
             <div class="flex items-start gap-4 sm:gap-5 px-4 sm:px-6 pt-6 pb-5 border-b border-surface-800/60 bg-surface-950/40 shrink-0">
-              <div
-                :class="[
-                  'w-14 sm:w-16 h-14 sm:h-16 shrink-0 overflow-hidden flex items-center justify-center border bg-gradient-to-br',
-                  iconShape === 'circle' ? 'rounded-full' : 'rounded-lg',
-                  !iconUrl ? autoIconColor : 'bg-surface-800 border-surface-700/50',
-                ]"
-              >
-                <img v-if="iconUrl" :src="iconUrl" class="w-full h-full object-cover" :alt="name ?? ''" />
-                <span v-else class="text-xl sm:text-2xl font-bold select-none">{{ iconLetterDisplay }}</span>
-              </div>
+              <EntityIcon
+                :icon-url="iconUrl"
+                :letter="iconLetter"
+                :name="name"
+                :color="iconColor"
+                :shape="iconShape"
+                class="w-14 sm:w-16 h-14 sm:h-16"
+              />
 
               <div class="flex-1 min-w-0 pt-0.5">
                 <h2 class="text-lg sm:text-xl font-bold text-surface-50 leading-tight truncate">

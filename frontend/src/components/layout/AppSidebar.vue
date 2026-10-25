@@ -10,6 +10,8 @@ import AppLogo from '@/components/branding/AppLogo.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
 import { useMobileNav } from '@/composables/useMobileNav';
 
+const APP_VERSION = __APP_VERSION__;
+
 const { t } = useI18n();
 const route = useRoute();
 const auth = useAuthStore();
@@ -105,5 +107,12 @@ function handleNavItemClick() {
         </span>
       </RouterLink>
     </nav>
+
+    <p
+      :class="['px-5 py-3 text-[11px] text-surface-600 tabular-nums select-text', { 'md:hidden': isSidebarCollapsed }]"
+      :title="t('nav.version')"
+    >
+      v{{ APP_VERSION }}
+    </p>
   </aside>
 </template>

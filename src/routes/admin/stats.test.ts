@@ -137,6 +137,66 @@ describe("Admin — statsRoutes", () => {
     });
   });
 
+  // ── /registrations ─────────────────────────────────────────────────────
+
+  it("GET /registrations → 400 on invalid range", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    const res = await app.inject({
+      method: "GET",
+      url: "/registrations?range=99d",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("GET /registrations → returns dense 7-day zero-filled series by default", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    mockDb.execute.mockResolvedValueOnce([]);
+    const res = await app.inject({ method: "GET", url: "/registrations" });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      range: string;
+      series: { date: string; count: number }[];
+      total: number;
+    };
+    expect(body.range).toBe("7d");
+    expect(body.series).toHaveLength(7);
+    expect(body.series.every((p) => p.count === 0)).toBe(true);
+    expect(body.total).toBe(0);
+  });
+
+  it("GET /registrations → returns dense 30-day series when range=30d", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    mockDb.execute.mockResolvedValueOnce([]);
+    const res = await app.inject({
+      method: "GET",
+      url: "/registrations?range=30d",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { series: unknown[] };
+    expect(body.series).toHaveLength(30);
+  });
+
+  it("GET /registrations → backfills sparse raw rows into dense series", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const todayKey = today.toISOString().slice(0, 10);
+    mockDb.execute.mockResolvedValueOnce([{ day: todayKey, count: 2 }]);
+    const res = await app.inject({
+      method: "GET",
+      url: "/registrations?range=7d",
+    });
+    const body = JSON.parse(res.body) as {
+      series: { date: string; count: number }[];
+      total: number;
+    };
+    expect(body.total).toBe(2);
+    expect(body.series[body.series.length - 1]).toEqual({
+      date: todayKey,
+      count: 2,
+    });
+  });
+
   // ── /applications-activity ─────────────────────────────────────────────
 
   it("GET /applications-activity → empty list when no applications", async () => {

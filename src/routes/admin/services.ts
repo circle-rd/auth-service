@@ -15,8 +15,18 @@ export async function servicesRoutes(fastify: FastifyInstance): Promise<void> {
    * `clientSecret` never leaves the server.
    */
   fastify.get("/", async (_req, reply) => {
+    const { compat } = config;
     await reply.send({
       stripe: !!config.stripe.secretKey,
+      compat: {
+        profile: compat.profile,
+        tokenAuthMethod: compat.tokenAuthMethod,
+        signingAlg: compat.signingAlg,
+        defaultAudience: compat.defaultAudience,
+        audienceParam: compat.audienceParam,
+        claimMappings: compat.claimMappings,
+        aliases: compat.aliases,
+      },
       providers: {
         google: {
           enabled: config.providers.google.enabled,

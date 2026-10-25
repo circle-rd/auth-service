@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ERR } from "../errors.js";
-import { getRequestSession, requireSession } from "../middleware.js";
+import { getRequestSession, requireUserOrBearer } from "../middleware.js";
 import {
   createTopupCheckout,
   getOrCreateWalletAccount,
@@ -23,7 +23,7 @@ const checkoutBodySchema = z.object({
 export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/user/wallet
   fastify.get("/", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, "wallet:self:read");
     if (!userId) return;
     const account = await getOrCreateWalletAccount("user", userId);
     await reply.send(toAccountView(account));
@@ -31,7 +31,7 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
 
   // GET /api/user/wallet/stats
   fastify.get("/stats", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, "wallet:self:read");
     if (!userId) return;
     const { days } = statsQuerySchema.parse(req.query);
     const account = await getOrCreateWalletAccount("user", userId);
@@ -40,8 +40,7 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
 
   // GET /api/user/wallet/topup-options
   fastify.get("/topup-options", async (req, reply) => {
-    const userId = await requireSession(req, reply);
-    if (!userId) return;
+    if (!(await requireUserOrBearer(req, reply, "wallet:self:read"))) return;
     await reply.send(getTopupOptions());
   });
 
@@ -60,7 +59,7 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
 
   // GET /api/user/wallet/transactions
   fastify.get("/transactions", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, "wallet:self:read");
     if (!userId) return;
     const query = listTransactionsQuerySchema.parse(req.query);
     const account = await getOrCreateWalletAccount("user", userId);

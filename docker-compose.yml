@@ -71,7 +71,10 @@ services:
 
       # Branding (displayed in UI + used as TOTP issuer).
       APP_NAME: ${APP_NAME:-CIRCLE Auth}
-      APP_LOGO_URL: ${APP_LOGO_URL:-https://avatars.githubusercontent.com/u/266095592?v=4}
+      APP_LOGO_URL: ${APP_LOGO_URL:-}
+      APP_LOGO_DARK_URL: ${APP_LOGO_DARK_URL:-}
+      # Public landing page at `/` (the admin sign-in stays at `/auth`).
+      SHOWCASE: ${SHOWCASE:-false}
 
       # SMTP (optional). Start the local catcher with `--profile mail` and set
       # SMTP_HOST=mailpit SMTP_PORT=1025 to inspect outbound mail at :8025.
@@ -92,6 +95,14 @@ services:
       CAPTCHA_SITE_KEY: ${CAPTCHA_SITE_KEY:-}
       CAPTCHA_ENDPOINTS: ${CAPTCHA_ENDPOINTS:-}
       REDIS_URL: ${REDIS_URL:-}
+
+      COMPAT_PROFILE: ${COMPAT_PROFILE:-default}
+      TOKEN_ENDPOINT_AUTH_METHOD: ${TOKEN_ENDPOINT_AUTH_METHOD:-}
+      JWT_PRIMARY_ALG: ${JWT_PRIMARY_ALG:-}
+      DEFAULT_AUDIENCE: ${DEFAULT_AUDIENCE:-}
+      AUDIENCE_PARAM: ${AUDIENCE_PARAM:-}
+      CLAIM_MAPPINGS: ${CLAIM_MAPPINGS:-}
+      COMPAT_ALIASES: ${COMPAT_ALIASES:-}
 
       # Social providers (optional).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -116,6 +127,13 @@ services:
       WALLET_MARGIN_PERCENT: ${WALLET_MARGIN_PERCENT:-0}
       WALLET_TOPUP_MIN_EUR: ${WALLET_TOPUP_MIN_EUR:-5}
       WALLET_TOPUP_MAX_EUR: ${WALLET_TOPUP_MAX_EUR:-500}
+
+      # LiteLLM gateway (profile "llm"): lets auth-service keep one gateway team per
+      # application with LiteLLM support, with the key litellm-provision delivers.
+      LITELLM_URL: http://litellm:4000
+      LITELLM_PROVISIONER_KEY_FILE: /run/litellm-provisioner/key
+    volumes:
+      - litellm_provisioner:/run/litellm-provisioner:ro
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     depends_on:
@@ -158,25 +176,6 @@ services:
   # access tokens. Start with `--profile llm` (or COMPOSE_PROFILES=llm): the
   # one-shot `litellm-setup` service provisions everything, so the only setting
   # to provide is LITELLM_PUBLIC_URL. See docs: LiteLLM gateway.
-  litellm-db-init:
-    image: postgres:17-alpine
-    profiles: ["llm"]
-    environment:
-      PGHOST: postgres
-      PGUSER: ${POSTGRES_USER:-auth}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-auth}
-    # Idempotent: the LiteLLM database is created next to the auth one even
-    # when the postgres volume already exists (initdb.d only runs on first boot).
-    command:
-      - sh
-      - -c
-      - >-
-        psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='litellm'" | grep -q 1
-        || psql -d postgres -c "CREATE DATABASE litellm"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
 
   # Provisions the gateway, then exits. It copies the config shipped in the
   # auth-service image into a shared volume (so the config follows the version of
@@ -185,7 +184,8 @@ services:
   # "litellm" application and the "litellm-wallet" machine client in
   # auth-service, and stores the secrets next to the config. Idempotent: it runs
   # at every start and never regenerates a stored secret. Needs the administrator
-  # account to sign in without MFA.
+  # account to sign in without MFA, except once a run has completed: it then
+  # skips (exit 0) instead of blocking the gateway when MFA was enabled since.
   litellm-setup:
     image: ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:nightly}
     profiles: ["llm"]
@@ -205,10 +205,34 @@ services:
       # Admin interface sign-in through auth-service: set to false to turn it off.
       LITELLM_SSO_ENABLED: ${LITELLM_SSO_ENABLED:-true}
       LITELLM_STATE_FILE: /config/secrets.env
+      # Creates the gateway's database next to the auth one when missing (also on
+      # a postgres volume that predates it, where initdb.d does not run).
+      LITELLM_DB_ADMIN_URL: postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/${POSTGRES_DB:-auth}
     volumes:
       - litellm_config:/config
     depends_on:
       auth-service:
+        condition: service_healthy
+    restart: "no"
+
+  # Gives auth-service its gateway key, then exits. The key is restricted to the
+  # team routes of the gateway (one team per application with LiteLLM support):
+  # it cannot add models, issue keys or make LLM calls. It is created once and
+  # kept while it works; the file lives on a volume only this service writes.
+  litellm-provision:
+    image: ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:nightly}
+    profiles: ["llm"]
+    user: root
+    entrypoint: ["node", "dist/scripts/litellm-provision.js"]
+    environment:
+      LITELLM_URL: http://litellm:4000
+      LITELLM_STATE_FILE: /config/secrets.env
+      LITELLM_PROVISIONER_KEY_FILE: /run/litellm-provisioner/key
+    volumes:
+      - litellm_config:/config:ro
+      - litellm_provisioner:/run/litellm-provisioner
+    depends_on:
+      litellm:
         condition: service_healthy
     restart: "no"
 
@@ -228,28 +252,10 @@ services:
       - litellm
     command: ["--config", "/app/gateway/config.yaml", "--port", "4000"]
     environment:
-      # Admin interface sign-in through auth-service (generic OIDC). It is active
-      # when litellm-setup stored GENERIC_CLIENT_ID / GENERIC_CLIENT_SECRET in
-      # secrets.env. The browser goes to the public authorize URL; the gateway
-      # itself calls the token and userinfo endpoints over the Docker network.
-      # The roles claim of the "litellm-ui" application sets the LiteLLM role:
-      # admin gives a LiteLLM administrator, user a read-only viewer.
-      PROXY_BASE_URL: ${LITELLM_PUBLIC_URL:-}
-      GENERIC_AUTHORIZATION_ENDPOINT: ${BETTER_AUTH_URL:-http://localhost:3001}/api/auth/oauth2/authorize
-      GENERIC_TOKEN_ENDPOINT: http://auth-service:${PORT:-3001}/api/auth/oauth2/token
-      GENERIC_USERINFO_ENDPOINT: http://auth-service:${PORT:-3001}/api/auth/oauth2/userinfo
-      GENERIC_SCOPE: openid profile email roles
-      # auth-service requires PKCE (OAuth 2.1).
-      GENERIC_CLIENT_USE_PKCE: "true"
-      # Straight to auth-service from the login page; the master key still signs in
-      # at /fallback/login.
-      AUTO_REDIRECT_UI_LOGIN_TO_SSO: "true"
-      GENERIC_USER_ID_ATTRIBUTE: sub
-      GENERIC_USER_EMAIL_ATTRIBUTE: email
-      GENERIC_USER_DISPLAY_NAME_ATTRIBUTE: name
-      GENERIC_ROLE_MAPPINGS_GROUP_CLAIM: roles
-      GENERIC_ROLE_MAPPINGS_ROLES: '{"proxy_admin": ["admin"], "proxy_admin_viewer": ["user"]}'
-      GENERIC_ROLE_MAPPINGS_DEFAULT_ROLE: proxy_admin_viewer
+      # The admin interface sign-in through auth-service (PROXY_BASE_URL and the
+      # GENERIC_* settings, AUTO_REDIRECT_UI_LOGIN_TO_SSO included) is written by
+      # litellm-setup into secrets.env, next to the client id and secret: nothing to
+      # set here, and it always matches the auth-service version.
       DATABASE_URL: postgresql://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/litellm
       # Token validation (litellm/custom_auth.py, which refuses to start when a
       # value is empty; `:?` is avoided because compose also interpolates
@@ -276,8 +282,6 @@ services:
     ports:
       - "${LITELLM_PORT:-4000}:4000"
     depends_on:
-      litellm-db-init:
-        condition: service_completed_successfully
       litellm-setup:
         condition: service_completed_successfully
       auth-service:
@@ -300,3 +304,4 @@ volumes:
   postgres_data:
   litellm_config:
   litellm_spool:
+  litellm_provisioner:

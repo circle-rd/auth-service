@@ -227,6 +227,56 @@ export const userSubscriptions = pgTable(
   ],
 );
 
+// ── User Subscription Events ──────────────────────────────────────────────────
+// Audit trail of plan changes that move no money and therefore cannot live in
+// the wallet ledger. One row per effective change: a re-assignment to the same
+// plan is a no-op and is never recorded. `source` distinguishes the actor path
+// (an administrator, the user themselves, the default-plan rule, or a Stripe
+// webhook) so an operator can tell an automatic assignment from a manual one.
+export const userSubscriptionEvents = pgTable(
+  "user_subscription_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    // Null for automatic paths (`default`, `stripe`).
+    actorUserId: text("actor_user_id"),
+    source: text("source").notNull(),
+    action: text("action").notNull(),
+    fromPlanId: uuid("from_plan_id").references(() => subscriptionPlans.id, {
+      onDelete: "set null",
+    }),
+    toPlanId: uuid("to_plan_id").references(() => subscriptionPlans.id, {
+      onDelete: "set null",
+    }),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("user_subscription_events_user_app_created_idx").on(
+      t.userId,
+      t.applicationId,
+      t.createdAt,
+    ),
+    index("user_subscription_events_app_created_idx").on(
+      t.applicationId,
+      t.createdAt,
+    ),
+    check(
+      "user_subscription_events_source_check",
+      sql`${t.source} IN ('admin', 'self', 'default', 'stripe')`,
+    ),
+    check(
+      "user_subscription_events_action_check",
+      sql`${t.action} IN ('assigned', 'changed', 'removed')`,
+    ),
+  ],
+);
+
 // ── Consumption Entries ───────────────────────────────────────────────────────
 export const consumptionEntries = pgTable(
   "consumption_entries",
@@ -292,6 +342,37 @@ export const loginHistory = pgTable(
   (t) => [
     index("login_history_user_logged_idx").on(t.userId, t.loggedAt),
     index("login_history_app_logged_idx").on(t.applicationId, t.loggedAt),
+  ],
+);
+
+// ── Registration Invitations ──────────────────────────────────────────────────
+// An administrator grants one person the right to create an account for one
+// application even though self-registration is closed. The token is emailed as
+// a link, stored only as a hash, single-use (`consumedAt`) and time-limited
+// (`expiresAt`). Redemption creates the account with a verified address, then
+// grants application access — the admin has vouched for the person.
+export const registrationInvitations = pgTable(
+  "registration_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    // SHA-256 (base64url) of the emailed token; the plaintext is never stored.
+    tokenHash: text("token_hash").notNull(),
+    invitedByUserId: text("invited_by_user_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("registration_invitations_token_hash_idx").on(t.tokenHash),
+    index("registration_invitations_email_idx").on(t.email),
+    index("registration_invitations_app_idx").on(t.applicationId),
   ],
 );
 

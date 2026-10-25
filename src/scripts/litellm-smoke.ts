@@ -38,6 +38,13 @@ async function eventually(
   return false;
 }
 
+const teamInfoSchema = z.object({
+  team_info: z.object({
+    blocked: z.boolean().nullish(),
+    metadata: z.record(z.string(), z.unknown()).nullish(),
+  }),
+});
+
 const uiSessionSchema = z.object({ key: z.string().startsWith("sk-") });
 
 const walletBalanceSchema = z.object({
@@ -164,6 +171,42 @@ async function main(): Promise<void> {
     report(
       claims.azp === publicApp.application.slug,
       "token carries azp = calling application",
+    );
+
+    // Each application with LiteLLM support got its own gateway team, closed until
+    // a gateway administrator grants it models (done here with the master key).
+    const team = async (slug: string) => {
+      const res = await litellm(
+        `/team/info?team_id=${encodeURIComponent(slug)}`,
+        masterKey,
+      );
+      return res.ok ? teamInfoSchema.parse(await res.json()).team_info : null;
+    };
+    const privateSlug = privateApp.application.slug;
+    const publicSlug = publicApp.application.slug;
+    report(
+      (await team(privateSlug))?.metadata?.managed_by === "auth-service",
+      "creating an application with LiteLLM support creates its gateway team",
+    );
+    await expectStatus(
+      "a new application's team is closed until models are granted",
+      403,
+      () => chat(privateToken),
+    );
+    for (const slug of [privateSlug, publicSlug]) {
+      const grant = await litellm("/team/update", masterKey, {
+        method: "POST",
+        body: JSON.stringify({ team_id: slug, models: [MOCK_MODEL] }),
+      });
+      report(grant.ok, `models granted to the team of ${slug}`);
+    }
+    // The gateway caches teams for about a minute.
+    report(
+      await eventually(
+        async () => (await chat(privateToken)).status === 200,
+        90,
+      ),
+      "a team with a granted model can call it",
     );
 
     // The smoke user needs credit: the gateway refuses a call without any.
@@ -403,6 +446,21 @@ async function main(): Promise<void> {
       ),
       "calls sharing a client-chosen call id are all billed",
     );
+
+    // Losing the LiteLLM support blocks the team; deleting the application removes it.
+    await admin.updateApplication(privateApp.application.id, {
+      allowedResources: [],
+    });
+    report(
+      (await team(privateSlug))?.blocked === true,
+      "removing the LiteLLM support blocks the application's team",
+    );
+    await admin.deleteApplication(privateApp.application.id);
+    created.splice(created.indexOf(privateApp.application), 1);
+    report(
+      (await team(privateSlug)) === null,
+      "deleting the application deletes its team",
+    );
   } finally {
     if (modelId) {
       await litellm("/model/delete", masterKey, {
@@ -411,6 +469,7 @@ async function main(): Promise<void> {
       });
     }
     for (const app of created) await admin.deleteApplication(app.id);
+    await admin.signOut();
   }
 
   process.stdout.write(

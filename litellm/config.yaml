@@ -3,6 +3,9 @@
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   custom_auth: custom_auth.user_api_key_auth
+  # Apply the team's model list and budget to requests authenticated by
+  # custom_auth (its block, limits and MCP permissions are copied by that hook).
+  custom_auth_run_common_checks: true
   store_model_in_db: true
   # With the sign-in through auth-service configured, no username/password login
   # reaches the Admin UI, the shared master-key one included: an auth-service

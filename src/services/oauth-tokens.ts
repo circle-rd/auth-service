@@ -50,7 +50,21 @@ export interface VerifiedAccessToken {
   clientId: string;
   /** User id for user-bound tokens; null for client_credentials (M2M) tokens. */
   userId: string | null;
+  /** Normalized JWT audiences; opaque tokens expose no trusted audience. */
+  audiences: string[];
   scopes: string[];
+}
+
+function normalizeAudiences(aud: unknown): string[] {
+  if (typeof aud === "string") return [aud];
+  if (Array.isArray(aud)) {
+    return [
+      ...new Set(
+        aud.filter((value): value is string => typeof value === "string"),
+      ),
+    ];
+  }
+  return [];
 }
 
 /**
@@ -101,6 +115,7 @@ export async function verifyBearerAccessToken(
         // (there is no user) and `azp` to the same client id; a user-bound
         // token has a distinct `sub`.
         userId: sub && sub !== clientId ? sub : null,
+        audiences: normalizeAudiences((payload as Record<string, unknown>).aud),
         scopes:
           typeof payload.scope === "string" ? payload.scope.split(" ") : [],
       };
@@ -125,6 +140,9 @@ export async function verifyBearerAccessToken(
   return {
     clientId: row.clientId,
     userId: row.userId ?? null,
+    // Opaque bearer tokens do not expose a resource-server-verifiable
+    // audience claim, so caller-specific audience checks must fail closed.
+    audiences: [],
     scopes: row.scopes ?? [],
   };
 }

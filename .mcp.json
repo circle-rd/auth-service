@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "Auth Service": {
+      "type": "http",
+      "url": "https://docs.circle-cyber.com/auth-service/mcp",
+      "tools": ["*"]
+    },
+    "BetterAuth Doc": {
+      "type": "http",
+      "url": "https://mcp.better-auth.com/mcp",
+      "tools": ["*"]
+    }
+  }
+}

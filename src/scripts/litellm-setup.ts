@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ensureDatabase } from "./litellm-database.js";
 import {
   AuthAdminClient,
   WALLET_CLIENT_SLUG,
@@ -11,14 +12,19 @@ import {
   removeEnvValue,
   replaceEnvValue,
   resolveSecret,
+  shellQuote,
+  ssoGatewayEnv,
   type AdminApplication,
   type ScriptEnv,
+  TwoFactorRequiredError,
+  isSetupComplete,
 } from "./litellm-lib.js";
-
-const GATEWAY_SLUG = "litellm";
+import {
+  LITELLM_GATEWAY_SLUG as GATEWAY_SLUG,
+  LITELLM_UI_SLUG as UI_SLUG,
+} from "../services/system-apps.js";
 
 // Sign-in to the LiteLLM admin interface through auth-service (generic OIDC).
-const UI_SLUG = "litellm-ui";
 const UI_SCOPES = ["openid", "profile", "email", "roles"];
 
 function out(line: string): void {
@@ -149,8 +155,9 @@ function setStateValues(
 
 /**
  * Let administrators sign in to the LiteLLM interface with their auth-service
- * account. The gateway reads `GENERIC_CLIENT_ID` / `GENERIC_CLIENT_SECRET` from
- * the state file: writing them turns the sign-in on, removing them turns it off.
+ * account. The gateway reads the whole `GENERIC_*` configuration (see
+ * `ssoGatewayEnv`) from the state file: writing it turns the sign-in on, removing
+ * it turns it off.
  * The application is private, so only users granted access in auth-service can
  * sign in: the `admin` role of the application makes a LiteLLM administrator,
  * the `user` role a read-only viewer. Creating the application gives its creator
@@ -163,12 +170,18 @@ async function ensureUiSso(
   statePath: string,
   adminUserId: string,
 ): Promise<void> {
+  const sso = ssoGatewayEnv({
+    gatewayPublicUrl: env.LITELLM_PUBLIC_URL,
+    authPublicUrl: env.BETTER_AUTH_URL,
+    authInternalUrl: env.authUrl,
+  });
   if (env.LITELLM_SSO_ENABLED === "false") {
     setStateValues(statePath, (c) =>
-      removeEnvValue(
-        removeEnvValue(c, "GENERIC_CLIENT_ID"),
+      [
+        "GENERIC_CLIENT_ID",
         "GENERIC_CLIENT_SECRET",
-      ),
+        ...Object.keys(sso),
+      ].reduce(removeEnvValue, c),
     );
     out("✓ Admin interface sign-in through auth-service is turned off");
     return;
@@ -228,11 +241,13 @@ async function ensureUiSso(
     out(`✓ Issued a new secret for "${UI_SLUG}"`);
   }
   setStateValues(statePath, (c) =>
-    replaceEnvValue(
-      replaceEnvValue(c, "GENERIC_CLIENT_ID", UI_SLUG),
-      "GENERIC_CLIENT_SECRET",
-      secret,
-    ),
+    Object.entries({
+      ...Object.fromEntries(
+        Object.entries(sso).map(([key, value]) => [key, shellQuote(value)]),
+      ),
+      GENERIC_CLIENT_ID: UI_SLUG,
+      GENERIC_CLIENT_SECRET: secret,
+    }).reduce((acc, [key, value]) => replaceEnvValue(acc, key, value), c),
   );
   out("✓ Admin interface sign-in through auth-service is on");
 }
@@ -258,60 +273,97 @@ async function main(): Promise<void> {
   );
   ensureSecrets(envPath);
 
+  // Set by the compose file only: a checkout has its own database setup.
+  if (env.LITELLM_DB_ADMIN_URL) {
+    const outcome = await ensureDatabase(env.LITELLM_DB_ADMIN_URL, "litellm");
+    out(
+      outcome === "created"
+        ? '✓ Created the "litellm" database'
+        : '✓ "litellm" database already exists',
+    );
+  }
+
   const client = new AuthAdminClient(env.authUrl, env.BETTER_AUTH_URL);
-  const adminUserId = await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
-  const apps = await client.listApplications();
-  for (const slug of [GATEWAY_SLUG, WALLET_CLIENT_SLUG, UI_SLUG]) {
-    const existing = apps.find((a) => a.slug === slug);
-    if (existing) await ensureSystemFlag(client, existing);
-  }
-
-  const gateway = apps.find((a) => a.slug === GATEWAY_SLUG);
-  if (!gateway) {
-    await client.createApplication({
-      name: "LiteLLM",
-      slug: GATEWAY_SLUG,
-      description: "LLM and MCP gateway (protected resource)",
-      url: env.LITELLM_PUBLIC_URL,
-      isSystem: true,
-    });
-    out(
-      `✓ Registered the "${GATEWAY_SLUG}" application (${env.LITELLM_PUBLIC_URL})`,
-    );
-  } else if (gateway.url !== env.LITELLM_PUBLIC_URL) {
-    await client.updateApplication(gateway.id, { url: env.LITELLM_PUBLIC_URL });
-    out(
-      `✓ Updated the "${GATEWAY_SLUG}" application URL to ${env.LITELLM_PUBLIC_URL}`,
-    );
-  } else {
-    out(`✓ The "${GATEWAY_SLUG}" application is already registered`);
-  }
-
-  await ensureWalletClient(client, apps, env, envPath);
-  // Only in a container, where the secrets live in a file the gateway reads.
-  if (process.env.LITELLM_STATE_FILE) {
-    await ensureUiSso(client, apps, env, envPath, adminUserId);
-  }
-
-  for (const slug of grantedSlugs()) {
-    const app = apps.find((a) => a.slug === slug);
-    if (!app)
-      throw new Error(
-        `Cannot grant LiteLLM access: unknown application "${slug}"`,
+  let adminUserId: string;
+  try {
+    adminUserId = await client.signIn(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
+  } catch (err) {
+    // MFA enabled after a successful setup must not keep the gateway down:
+    // what the setup provisions is already stored, so it only has nothing to add.
+    const ssoEnabled =
+      Boolean(process.env.LITELLM_STATE_FILE) &&
+      env.LITELLM_SSO_ENABLED !== "false";
+    const state = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+    if (
+      err instanceof TwoFactorRequiredError &&
+      isSetupComplete(state, ssoEnabled)
+    ) {
+      out(`! ${err.message}`);
+      out(
+        "✓ Setup already completed by a previous run: nothing to provision, skipping (changes to LITELLM_PUBLIC_URL or --grant need an administrator without MFA)",
       );
-    if (app.allowedResources.includes(env.LITELLM_PUBLIC_URL)) {
-      out(`✓ "${slug}" already allowed to request LiteLLM tokens`);
-      continue;
+      return;
     }
-    await client.updateApplication(app.id, {
-      allowedResources: [...app.allowedResources, env.LITELLM_PUBLIC_URL],
-    });
-    out(`✓ "${slug}" allowed to request LiteLLM tokens`);
+    throw err;
   }
+  try {
+    const apps = await client.listApplications();
+    for (const slug of [GATEWAY_SLUG, WALLET_CLIENT_SLUG, UI_SLUG]) {
+      const existing = apps.find((a) => a.slug === slug);
+      if (existing) await ensureSystemFlag(client, existing);
+    }
 
-  if (!process.env.LITELLM_STATE_FILE) {
-    out("");
-    out("Next: docker compose --profile llm up -d, then pnpm llm:smoke");
+    const gateway = apps.find((a) => a.slug === GATEWAY_SLUG);
+    if (!gateway) {
+      await client.createApplication({
+        name: "LiteLLM",
+        slug: GATEWAY_SLUG,
+        description: "LLM and MCP gateway (protected resource)",
+        url: env.LITELLM_PUBLIC_URL,
+        isSystem: true,
+      });
+      out(
+        `✓ Registered the "${GATEWAY_SLUG}" application (${env.LITELLM_PUBLIC_URL})`,
+      );
+    } else if (gateway.url !== env.LITELLM_PUBLIC_URL) {
+      await client.updateApplication(gateway.id, {
+        url: env.LITELLM_PUBLIC_URL,
+      });
+      out(
+        `✓ Updated the "${GATEWAY_SLUG}" application URL to ${env.LITELLM_PUBLIC_URL}`,
+      );
+    } else {
+      out(`✓ The "${GATEWAY_SLUG}" application is already registered`);
+    }
+
+    await ensureWalletClient(client, apps, env, envPath);
+    // Only in a container, where the secrets live in a file the gateway reads.
+    if (process.env.LITELLM_STATE_FILE) {
+      await ensureUiSso(client, apps, env, envPath, adminUserId);
+    }
+
+    for (const slug of grantedSlugs()) {
+      const app = apps.find((a) => a.slug === slug);
+      if (!app)
+        throw new Error(
+          `Cannot grant LiteLLM access: unknown application "${slug}"`,
+        );
+      if (app.allowedResources.includes(env.LITELLM_PUBLIC_URL)) {
+        out(`✓ "${slug}" already allowed to request LiteLLM tokens`);
+        continue;
+      }
+      await client.updateApplication(app.id, {
+        allowedResources: [...app.allowedResources, env.LITELLM_PUBLIC_URL],
+      });
+      out(`✓ "${slug}" allowed to request LiteLLM tokens`);
+    }
+
+    if (!process.env.LITELLM_STATE_FILE) {
+      out("");
+      out("Next: docker compose --profile llm up -d, then pnpm llm:smoke");
+    }
+  } finally {
+    await client.signOut();
   }
 }
 

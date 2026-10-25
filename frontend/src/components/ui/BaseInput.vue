@@ -14,6 +14,7 @@ defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string];
+  blur: [];
 }>();
 </script>
 
@@ -32,6 +33,7 @@ const emit = defineEmits<{
       :inputmode="inputmode"
       :autocomplete="autocomplete"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+      @blur="emit('blur')"
       :class="[
         'w-full rounded-lg px-3 py-2 text-sm bg-surface-800 border transition-all duration-150',
         'text-surface-100 placeholder:text-surface-500',

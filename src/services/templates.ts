@@ -33,7 +33,9 @@ export type PageName =
   | "email-verified"
   | "select-org"
   | "two-factor"
-  | "device";
+  | "device"
+  | "error"
+  | "complete-registration";
 
 /**
  * Path of the post-verification confirmation page, and the flows it can report.
@@ -92,6 +94,94 @@ const CONFIRMATION_COPY: Record<
   },
 };
 
+/**
+ * Copy for the generic authentication-error page, keyed by the OAuth / domain
+ * error code that travelled in the query string (`?error=`). Codes come from
+ * both this service (`REGISTRATION_CLOSED`, invitation errors) and the OAuth
+ * provider plugin (RFC 6749 §4.1.2.1 values, e.g. `access_denied`). Unknown
+ * codes fall back to neutral wording so an untrusted value is never echoed as
+ * display copy.
+ */
+const ERROR_COPY: Record<
+  string,
+  { heading: string; subtitle: string; badge: string }
+> = {
+  REGISTRATION_CLOSED: {
+    heading: "Registration is not available",
+    subtitle:
+      "This application does not accept new accounts. If you already have an account, sign in instead.",
+    badge: "Registration closed",
+  },
+  INVITATION_INVALID: {
+    heading: "This invitation is no longer valid",
+    subtitle:
+      "The invitation link is invalid, has expired, or has already been used. Ask an administrator to send a new one.",
+    badge: "Invitation invalid",
+  },
+  INVITATION_EXPIRED: {
+    heading: "This invitation has expired",
+    subtitle:
+      "Invitation links are time-limited. Ask an administrator to send a new one.",
+    badge: "Invitation expired",
+  },
+  access_denied: {
+    heading: "Access denied",
+    subtitle:
+      "The request was cancelled or you are not allowed to continue. Return to the application to try again.",
+    badge: "Access denied",
+  },
+  invalid_request: {
+    heading: "Invalid request",
+    subtitle:
+      "This sign-in request is malformed or incomplete. Start again from the application.",
+    badge: "Invalid request",
+  },
+  unauthorized_client: {
+    heading: "Application not authorized",
+    subtitle: "This application is not allowed to make this request.",
+    badge: "Unauthorized application",
+  },
+  invalid_client: {
+    heading: "Application not recognized",
+    subtitle: "This application could not be authenticated by the service.",
+    badge: "Unknown application",
+  },
+  invalid_scope: {
+    heading: "Requested access is not available",
+    subtitle:
+      "The application asked for permissions this service does not grant.",
+    badge: "Invalid scope",
+  },
+  server_error: {
+    heading: "Something went wrong",
+    subtitle:
+      "We could not complete this request because of a temporary problem. Please try again.",
+    badge: "Server error",
+  },
+  temporarily_unavailable: {
+    heading: "Service temporarily unavailable",
+    subtitle:
+      "The sign-in service is briefly unavailable. Please try again in a moment.",
+    badge: "Unavailable",
+  },
+};
+
+const DEFAULT_ERROR_COPY = {
+  heading: "Something went wrong",
+  subtitle:
+    "We could not complete this request. Please try again or return to the application.",
+  badge: "Authentication error",
+};
+
+function errorCopy(code: string | undefined): Record<string, string> {
+  const copy = (code && ERROR_COPY[code]) || DEFAULT_ERROR_COPY;
+  return {
+    ERROR_HEADING: copy.heading,
+    ERROR_SUBTITLE: copy.subtitle,
+    ERROR_BADGE: copy.badge,
+  };
+}
+
 export interface TemplateVars {
   actionUrl: string;
   redirectTo: string;
@@ -101,10 +191,27 @@ export interface TemplateVars {
   oauthQuery?: string;
   allowRegister?: boolean;
   organizationsJson?: string;
+  // `socialProvidersJson` is what the page should show first (already narrowed
+  // by last-used method on the login page); `socialProvidersAllJson` is the
+  // full allow-list, so the page can offer the others behind a toggle.
   socialProvidersJson?: string;
+  socialProvidersAllJson?: string;
   loginUrl?: string;
   registerUrl?: string;
   confirmationStatus?: ConfirmationStatus;
+  // Instance-level branding, so server-rendered pages (notably the error page)
+  // match the service identity instead of a bare page.
+  appName?: string;
+  logoUrl?: string;
+  logoDarkUrl?: string;
+  // Machine-readable error, surfaced by the error page. `errorCode` doubles as
+  // the key into ERROR_COPY; `errorDescription` is the provider-supplied text.
+  errorCode?: string;
+  errorDescription?: string;
+  // Pre-filled, read-only address and the raw invitation token for the
+  // complete-registration page.
+  email?: string;
+  invitationToken?: string;
 }
 
 function confirmationCopy(
@@ -173,11 +280,24 @@ export function renderAuthPage(
       /\//g,
       "\\/",
     ),
+    SOCIAL_PROVIDERS_ALL_JSON: (
+      vars.socialProvidersAllJson ??
+      vars.socialProvidersJson ??
+      "[]"
+    ).replace(/\//g, "\\/"),
     LOGIN_URL: vars.loginUrl ?? "/login",
     REGISTER_URL: vars.registerUrl ?? "/register",
     // `status` query value for the confirmation page; empty on every other page.
     CONFIRMATION_STATUS: vars.confirmationStatus ?? "",
     ...confirmationCopy(vars.confirmationStatus),
+    APP_NAME: vars.appName ?? "",
+    LOGO_URL: vars.logoUrl ?? "",
+    LOGO_DARK_URL: vars.logoDarkUrl ?? "",
+    ERROR_CODE: vars.errorCode ?? "",
+    ERROR_DESCRIPTION: vars.errorDescription ?? "",
+    EMAIL: vars.email ?? "",
+    INVITATION_TOKEN: vars.invitationToken ?? "",
+    ...errorCopy(vars.errorCode),
   };
 
   return renderTemplateFile(path, it);

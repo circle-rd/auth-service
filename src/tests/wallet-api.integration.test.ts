@@ -12,10 +12,13 @@ import {
   signUpAndSignIn,
   type AuthServerHandle,
 } from "./helpers/server.js";
+import { bootstrap } from "../bootstrap.js";
+import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 import {
   applications,
+  userApplications,
   walletAccountEvents,
   walletAccounts,
   walletPricingSettings,
@@ -27,6 +30,7 @@ import {
   debitWallet,
   getOrCreateWalletAccount,
 } from "../services/wallet/index.js";
+import { createHash, randomBytes } from "node:crypto";
 
 let handle: AuthServerHandle;
 let superadmin: Actor;
@@ -59,6 +63,7 @@ beforeEach(async () => {
     oauth_access_token, oauth_refresh_token, oauth_consent,
     oauth_client_resource, oauth_resource, oauth_client
     RESTART IDENTITY CASCADE`);
+  await bootstrap();
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -112,6 +117,10 @@ interface WalletClient {
   secret: string;
 }
 
+interface UserWalletClient extends WalletClient {
+  redirectUri: string;
+}
+
 /** Create the private gateway application and grant it the given machine scopes. */
 async function createWalletClient(
   scopes: string[],
@@ -150,6 +159,102 @@ async function machineToken(
   });
   expect(res.statusCode).toBe(200);
   return (JSON.parse(res.body) as { access_token: string }).access_token;
+}
+
+function createPkcePair(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString("base64url");
+  return {
+    verifier,
+    challenge: createHash("sha256").update(verifier).digest("base64url"),
+  };
+}
+
+async function createUserWalletClient(
+  userId: string,
+  allowedResources = [config.betterAuth.url],
+): Promise<UserWalletClient> {
+  const redirectUri = "https://reverse-box.example.com/callback";
+  const created = await api("POST", "/api/admin/applications", {
+    cookie: superadmin.cookie,
+    body: {
+      name: "Reverse Box",
+      slug: "reverse-box",
+      url: "https://reverse-box.example.com",
+      redirectUris: [redirectUri],
+      allowedResources,
+      allowedScopes: [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "wallet:self:read",
+      ],
+      skipConsent: true,
+    },
+  });
+  expect(created.status).toBe(201);
+  const id = created.body.application.id as string;
+  await db.insert(userApplications).values({
+    userId,
+    applicationId: id,
+    isActive: true,
+  });
+  return {
+    id,
+    slug: "reverse-box",
+    secret: created.body.clientSecret as string,
+    redirectUri,
+  };
+}
+
+async function userToken(
+  actor: Actor,
+  client: UserWalletClient,
+  scope: string,
+  resource: string,
+): Promise<string> {
+  const { verifier, challenge } = createPkcePair();
+  const query = new URLSearchParams({
+    response_type: "code",
+    client_id: client.slug,
+    redirect_uri: client.redirectUri,
+    scope,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state: "wallet-test",
+    resource,
+  });
+  const authorize = await handle.app.inject({
+    method: "GET",
+    url: `/api/auth/oauth2/authorize?${query.toString()}`,
+    headers: { cookie: actor.cookie },
+  });
+  expect(authorize.statusCode).toBe(302);
+  const location = authorize.headers.location;
+  expect(location).toContain(client.redirectUri);
+  const redirected = new URL(location ?? client.redirectUri);
+  const code = redirected.searchParams.get("code");
+  expect(code).toBeTruthy();
+
+  const token = await handle.app.inject({
+    method: "POST",
+    url: "/api/auth/oauth2/token",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      authorization:
+        "Basic " + Buffer.from(`${client.slug}:${client.secret}`).toString("base64"),
+    },
+    payload: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: code ?? "",
+      redirect_uri: client.redirectUri,
+      code_verifier: verifier,
+      client_id: client.slug,
+      resource,
+    }).toString(),
+  });
+  expect(token.statusCode).toBe(200);
+  return (JSON.parse(token.body) as { access_token: string }).access_token;
 }
 
 async function walletOf(userId: string) {
@@ -520,9 +625,78 @@ describe("internal wallet API", () => {
 // ── User API ───────────────────────────────────────────────────────────────
 
 describe("user wallet API", () => {
+  it("bootstraps auth-service as a protected-resource target", async () => {
+    const [app] = await db
+      .select({
+        slug: applications.slug,
+        url: applications.url,
+        isSystem: applications.isSystem,
+      })
+      .from(applications)
+      .where(eq(applications.url, config.betterAuth.url))
+      .limit(1);
+    expect(app).toMatchObject({
+      url: config.betterAuth.url,
+      isSystem: true,
+    });
+  });
+
   it("requires a session", async () => {
     expect((await api("GET", "/api/user/wallet")).status).toBe(401);
     expect((await api("GET", "/api/user/wallet/transactions")).status).toBe(401);
+  });
+
+  it("accepts a user-bound bearer token minted for auth-service", async () => {
+    const client = await createUserWalletClient(alice.id);
+    const token = await userToken(
+      alice,
+      client,
+      "openid profile email wallet:self:read",
+      config.betterAuth.url,
+    );
+    expect(token.split(".")).toHaveLength(3);
+
+    await creditWallet({
+      accountId: (await walletOf(alice.id)).id,
+      type: "topup",
+      amount: 2_500n,
+      idempotencyKey: "seed",
+    });
+
+    const wallet = await api("GET", "/api/user/wallet", { bearer: token });
+    expect(wallet.status).toBe(200);
+    expect(wallet.body).toMatchObject({
+      balance: "2500",
+      canSpend: true,
+    });
+
+    const history = await api("GET", "/api/user/wallet/transactions", {
+      bearer: token,
+    });
+    expect(history.status).toBe(200);
+  });
+
+  it("rejects a valid JWT minted for another protected resource", async () => {
+    const otherResource = "https://llm.example.com";
+    const gateway = await api("POST", "/api/admin/applications", {
+      cookie: superadmin.cookie,
+      body: { name: "Gateway", slug: "litellm", url: otherResource },
+    });
+    expect(gateway.status).toBe(201);
+    const client = await createUserWalletClient(alice.id, [
+      config.betterAuth.url,
+      otherResource,
+    ]);
+    const token = await userToken(
+      alice,
+      client,
+      "openid profile email wallet:self:read",
+      otherResource,
+    );
+
+    const res = await api("GET", "/api/user/wallet", { bearer: token });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("AUTH_011");
   });
 
   it("shows the signed-in user's own balance", async () => {

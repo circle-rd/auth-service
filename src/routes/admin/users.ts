@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import { randomBytes } from "node:crypto";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import { db } from "../../db/index.js";
@@ -20,9 +19,15 @@ import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { isMailConfigured } from "../../services/mail/index.js";
 import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
-import { getCallerRole, requireAdmin } from "../../middleware.js";
+import {
+  getActorUserId,
+  getCallerRole,
+  requireAdmin,
+} from "../../middleware.js";
+import { importUsers, importUsersSchema } from "../../services/user-import.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
 import { publishEvent } from "../../services/event-bus.js";
+import { presentUserApplications } from "../../services/system-apps.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = z.object({
@@ -41,27 +46,9 @@ const createUserSchema = z.object({
   role: z.enum(["user", "admin"]).default("user"),
 });
 
-const importUserRowSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  email: z.string().trim().email(),
-  // Optional: when omitted the server generates a temporary password and
-  // returns it once so the operator can hand it over.
-  password: z.string().min(8).optional(),
-  role: z.enum(["user", "admin"]).default("user"),
-});
-
-const importUsersSchema = z.object({
-  users: z.array(importUserRowSchema).min(1).max(500),
-});
-
 const setPasswordSchema = z.object({
   newPassword: z.string().min(1),
 });
-
-/** 12-char URL-safe temporary password (min length is 8). */
-function generateTempPassword(): string {
-  return randomBytes(9).toString("base64url");
-}
 
 export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
@@ -103,6 +90,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
           name: applications.name,
           slug: applications.slug,
           icon: applications.icon,
+          isSystem: applications.isSystem,
         })
         .from(userApplications)
         .innerJoin(
@@ -115,15 +103,23 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             eq(userApplications.isActive, true),
           ),
         );
+      const rowsByUser = new Map<string, typeof accessRows>();
       for (const row of accessRows) {
-        const list = appsByUser.get(row.userId) ?? [];
-        list.push({
-          id: row.id,
-          name: row.name,
-          slug: row.slug,
-          icon: row.icon,
-        });
-        appsByUser.set(row.userId, list);
+        rowsByUser.set(row.userId, [
+          ...(rowsByUser.get(row.userId) ?? []),
+          row,
+        ]);
+      }
+      for (const [uid, rows] of rowsByUser) {
+        appsByUser.set(
+          uid,
+          presentUserApplications(rows).map(({ id, name, slug, icon }) => ({
+            id,
+            name,
+            slug,
+            icon,
+          })),
+        );
       }
 
       const lastLogins = await db
@@ -225,72 +221,14 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     if (!parsed.success)
       throw ERR.USR_003("Invalid import payload", parsed.error.flatten());
 
-    const callerRole = await getCallerRole(req);
-    const mailConfigured = isMailConfigured();
-
-    const results: Array<{
-      email: string;
-      status: "created" | "error";
-      message?: string;
-      /** Only returned when no password was supplied in the CSV. */
-      password?: string;
-    }> = [];
-
-    for (const row of parsed.data.users) {
-      const email = row.email.toLowerCase();
-      if (row.role === "admin" && callerRole !== "superadmin") {
-        results.push({
-          email,
-          status: "error",
-          message: "Only superadmins can create admin users",
-        });
-        continue;
-      }
-
-      const password = row.password ?? generateTempPassword();
-      try {
-        await auth.api.createUser({
-          headers: fromNodeHeaders(req.headers),
-          // Same reason as the single creation above, applied per row: only an
-          // explicit admin row carries a role, and only a superadmin reaches
-          // this point with one (the guard above refuses the others).
-          body: {
-            name: row.name,
-            email,
-            password,
-            ...(row.role === "admin" ? { role: row.role } : {}),
-          },
-        });
-        if (mailConfigured) {
-          void auth.api
-            .sendVerificationEmail({ body: { email } })
-            .catch((err: unknown) =>
-              req.log.warn(
-                { err: String(err), email },
-                "[admin] failed to send verification email during import",
-              ),
-            );
-        }
-        results.push({
-          email,
-          status: "created",
-          ...(row.password ? {} : { password }),
-        });
-      } catch (e: unknown) {
-        results.push({
-          email,
-          status: "error",
-          message: e instanceof Error ? e.message : "Failed to create user",
-        });
-      }
-    }
-
-    const created = results.filter((r) => r.status === "created").length;
-    await reply.status(201).send({
-      results,
-      created,
-      failed: results.length - created,
+    const outcome = await importUsers({
+      input: parsed.data,
+      callerRole: await getCallerRole(req),
+      callerId: await getActorUserId(req),
+      headers: req.headers,
+      mailConfigured: isMailConfigured(),
     });
+    await reply.status(201).send(outcome);
   });
 
   // GET /api/admin/users/:id
@@ -312,6 +250,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         name: applications.name,
         slug: applications.slug,
         icon: applications.icon,
+        isSystem: applications.isSystem,
         isActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
         subscriptionPlanName: subscriptionPlans.name,
@@ -364,7 +303,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
-    const appsWithRoles = appAccess.map((app) => ({
+    const appsWithRoles = presentUserApplications(appAccess).map((app) => ({
       ...app,
       roles: rolesByApp.get(app.id) ?? [],
       lastLoginAt: lastLoginByApp.get(app.id) ?? null,
@@ -472,6 +411,13 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         headers: fromNodeHeaders(req.headers),
         body: { userId: req.params.id },
       });
+      // Ending every session is what makes the ban effective: deleting the
+      // session rows also drives the OAuth provider's session-delete hook,
+      // which revokes the session-bound tokens and posts a back-channel logout
+      // to each relying party. `revokeAllUserTokens` then clears what session
+      // deletion deliberately spares (offline_access refresh tokens).
+      const authCtx = await auth.$context;
+      await authCtx.internalAdapter.deleteUserSessions(req.params.id);
       // A ban must also invalidate the user's OAuth tokens so an existing
       // refresh token cannot keep issuing access tokens.
       await revokeAllUserTokens(req.params.id);

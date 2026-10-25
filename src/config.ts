@@ -1,5 +1,13 @@
 import { z } from "zod";
 import "dotenv/config";
+import {
+  ALIAS_SETS,
+  COMPAT_PROFILES,
+  SIGNING_ALGS,
+  TOKEN_AUTH_METHODS,
+  claimMappingsSchema,
+  resolveCompat,
+} from "./compat/profiles.js";
 
 // Zod's `z.coerce.boolean()` uses `Boolean(value)`, so the string "false"
 // becomes `true`. Env flags must be parsed strictly instead: `z.stringbool()`
@@ -11,6 +19,12 @@ const envBoolean = (defaultValue: boolean) =>
     .union([z.stringbool(), z.literal("")])
     .optional()
     .transform((v) => (v === "" || v === undefined ? defaultValue : v));
+
+// Same strict parsing, but unset stays `undefined` so a profile default applies.
+const optionalEnvBoolean = z
+  .union([z.stringbool(), z.literal("")])
+  .optional()
+  .transform((v) => (v === "" ? undefined : v));
 
 const envSchema = z
   .object({
@@ -28,8 +42,18 @@ const envSchema = z
     APP_NAME: z.string().min(1).default("CIRCLE Auth"),
 
     // Optional logo URL displayed in the UI (sidebar, login, consent). When unset,
-    // the frontend falls back to the bundled default logo.
+    // the frontend falls back to the bundled CIRCLE mark.
     APP_LOGO_URL: z.string().url().optional(),
+
+    // Optional logo for the dark theme. When set, APP_LOGO_URL is used on the
+    // light theme and this one on the dark theme, without any automatic
+    // adaptation of the colours.
+    APP_LOGO_DARK_URL: z.string().url().optional(),
+
+    // Serve a public showcase landing page at `/`. When off (default), `/` goes
+    // straight to the sign-in. The administration sign-in lives at `/auth`
+    // either way.
+    SHOWCASE: envBoolean(false),
 
     DATABASE_URL: z.string().url(),
 
@@ -81,7 +105,7 @@ const envSchema = z
     // outbound call on every password write.
     HAVEIBEENPWNED_ENABLED: envBoolean(false),
     // Cookie-based "last used sign-in method" hint. No database column needed.
-    LAST_LOGIN_METHOD_ENABLED: envBoolean(false),
+    LAST_LOGIN_METHOD_ENABLED: envBoolean(true),
     // OAuth 2.0 Device Authorization Grant (RFC 8628). Adds the `deviceCode`
     // table and /device approval page; opt-in because it widens the schema.
     DEVICE_AUTHORIZATION_ENABLED: envBoolean(false),
@@ -111,6 +135,49 @@ const envSchema = z
     // unset, the in-memory buckets are used (single-instance only).
     REDIS_URL: z.string().url().optional(),
 
+    // Compatibility with the identity provider an instance replaces. The profile
+    // supplies defaults; every variable below overrides it, and `custom` starts
+    // from the plain defaults. See src/compat/profiles.ts.
+    COMPAT_PROFILE: z.enum(COMPAT_PROFILES).default("default"),
+    TOKEN_ENDPOINT_AUTH_METHOD: z.enum(TOKEN_AUTH_METHODS).optional(),
+    JWT_PRIMARY_ALG: z.enum(SIGNING_ALGS).optional(),
+    DEFAULT_AUDIENCE: optionalEnvBoolean,
+    AUDIENCE_PARAM: optionalEnvBoolean,
+    CLAIM_MAPPINGS: z
+      .string()
+      .optional()
+      .transform((raw, ctx) => {
+        if (raw === undefined) return undefined;
+        try {
+          const result = claimMappingsSchema.safeParse(JSON.parse(raw));
+          if (result.success) return result.data;
+          ctx.addIssue({
+            code: "custom",
+            message: `invalid claim mappings: ${result.error.message}`,
+          });
+        } catch {
+          ctx.addIssue({ code: "custom", message: "must be valid JSON" });
+        }
+        return z.NEVER;
+      }),
+    COMPAT_ALIASES: z
+      .string()
+      .optional()
+      .transform((raw, ctx) => {
+        if (raw === undefined) return undefined;
+        const names = raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const valid = z.array(z.enum(ALIAS_SETS)).safeParse(names);
+        if (valid.success) return valid.data;
+        ctx.addIssue({
+          code: "custom",
+          message: `must be a comma-separated list of ${ALIAS_SETS.join(", ")}`,
+        });
+        return z.NEVER;
+      }),
+
     // Templates directory — optional, allows overriding login/register/verify-email pages
     // per-application (mount a volume at this path in Docker)
     TEMPLATES_DIR: z.string().optional(),
@@ -134,6 +201,15 @@ const envSchema = z
       .optional(),
     WALLET_MARGIN_PERCENT: z.coerce.number().int().min(0).max(1000).default(0),
 
+    // LLM gateway (LiteLLM) administration API, used to keep one gateway team per
+    // application with LiteLLM support. The key is a restricted virtual key (team
+    // routes only) written by `litellm-provision` on a volume this service reads.
+    LITELLM_URL: z.string().url().optional(),
+    LITELLM_PROVISIONER_KEY_FILE: z
+      .string()
+      .min(1)
+      .default("/run/litellm-provisioner/key"),
+
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -152,6 +228,13 @@ const envSchema = z
         code: "custom",
         path: ["WALLET_TOPUP_MIN_EUR"],
         message: "must not exceed WALLET_TOPUP_MAX_EUR",
+      });
+    }
+    if (data.APP_LOGO_DARK_URL && !data.APP_LOGO_URL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["APP_LOGO_DARK_URL"],
+        message: "requires APP_LOGO_URL (the light-theme logo)",
       });
     }
     // A half-configured CAPTCHA would otherwise silently stay disabled (all
@@ -220,6 +303,8 @@ export const config = {
   },
   appName: parsed.data.APP_NAME,
   appLogoUrl: parsed.data.APP_LOGO_URL,
+  appLogoDarkUrl: parsed.data.APP_LOGO_DARK_URL,
+  showcase: parsed.data.SHOWCASE,
   db: {
     url: parsed.data.DATABASE_URL,
   },
@@ -271,6 +356,15 @@ export const config = {
   redis: {
     url: parsed.data.REDIS_URL,
   },
+  compat: resolveCompat({
+    profile: parsed.data.COMPAT_PROFILE,
+    tokenAuthMethod: parsed.data.TOKEN_ENDPOINT_AUTH_METHOD,
+    signingAlg: parsed.data.JWT_PRIMARY_ALG,
+    defaultAudience: parsed.data.DEFAULT_AUDIENCE,
+    audienceParam: parsed.data.AUDIENCE_PARAM,
+    claimMappings: parsed.data.CLAIM_MAPPINGS,
+    aliases: parsed.data.COMPAT_ALIASES,
+  }),
   stripe: {
     secretKey: parsed.data.STRIPE_SECRET_KEY,
     webhookSecret: parsed.data.STRIPE_WEBHOOK_SECRET,
@@ -280,6 +374,10 @@ export const config = {
     maxTopupCents: parsed.data.WALLET_TOPUP_MAX_EUR * 100,
     usdToEurRate: parsed.data.WALLET_USD_TO_EUR_RATE,
     marginPercent: parsed.data.WALLET_MARGIN_PERCENT,
+  },
+  litellm: {
+    url: parsed.data.LITELLM_URL?.replace(/\/+$/, ""),
+    provisionerKeyFile: parsed.data.LITELLM_PROVISIONER_KEY_FILE,
   },
   templatesDir: parsed.data.TEMPLATES_DIR ?? null,
   providers: {

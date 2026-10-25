@@ -7,6 +7,15 @@ export async function listApplications(): Promise<{ applications: Application[] 
   return apiFetch<{ applications: Application[] }>('/admin/applications');
 }
 
+/** The favicon declared by the page at `url`, or null when none was found. */
+export async function detectFavicon(url: string): Promise<string | null> {
+  if (USE_MOCK) return null;
+  const res = await apiFetch<{ iconUrl: string | null }>(
+    `/admin/applications/favicon?url=${encodeURIComponent(url)}`,
+  );
+  return res.iconUrl;
+}
+
 export async function getApplication(id: string): Promise<{ application: Application }> {
   if (USE_MOCK) {
     const application = MOCK_APPLICATIONS.find(a => a.id === id);
@@ -36,6 +45,13 @@ export interface CreateApplicationBody {
   enableEndSession?: boolean
   /** Strict whitelist for `post_logout_redirect_uri` on /oauth2/end-session. */
   postLogoutRedirectUris?: string[]
+  /**
+   * OIDC Back-Channel Logout 1.0 endpoint (https). When set, ending a session
+   * POSTs a signed logout token there so the app can drop its local session.
+   */
+  backchannelLogoutUri?: string | null
+  /** Require the logout token to carry `sid`. */
+  backchannelLogoutSessionRequired?: boolean
   /**
    * Free-form per-application metadata. Stored as a flat string→string map
    * and surfaced inside the JWT under the `client_attrs` field for resource
@@ -67,6 +83,8 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       enabledSocialProviders: body.enabledSocialProviders ?? null,
       enableEndSession: body.enableEndSession ?? false,
       postLogoutRedirectUris: body.postLogoutRedirectUris ?? [],
+      backchannelLogoutUri: body.backchannelLogoutUri ?? null,
+      backchannelLogoutSessionRequired: body.backchannelLogoutSessionRequired ?? false,
       metadata: body.metadata ?? {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -115,9 +133,10 @@ export async function getUserLoginHistory(appId: string, userId: string, params:
   return apiFetch<LoginHistoryResponse>(`/admin/applications/${appId}/users/${userId}/history?${qs}`);
 }
 
-export async function grantAppAccess(appId: string, body: { userId: string; roleId?: string }): Promise<{ access: UserApplication }> {
+export async function grantAppAccess(appId: string, body: { userId: string; roleId?: string; subscriptionPlanId?: string }): Promise<{ access: UserApplication }> {
   if (USE_MOCK) {
-    const access: UserApplication = { userId: body.userId, applicationId: appId, isActive: true, subscriptionPlanId: null, createdAt: new Date().toISOString(), name: null, email: null, roleId: body.roleId ?? null };
+    const plan = body.subscriptionPlanId ? MOCK_PLANS.find(p => p.id === body.subscriptionPlanId) : undefined;
+    const access: UserApplication = { userId: body.userId, applicationId: appId, isActive: true, subscriptionPlanId: body.subscriptionPlanId ?? null, createdAt: new Date().toISOString(), name: null, email: null, roleId: body.roleId ?? null, subscriptionPlanName: plan?.name ?? null };
     MOCK_USER_APPLICATIONS.push(access);
     return { access };
   }
@@ -126,11 +145,12 @@ export async function grantAppAccess(appId: string, body: { userId: string; role
 
 /**
  * Grant access to many users at once, either every member of an organization
- * or an explicit list of user ids.
+ * or an explicit list of user ids. An optional plan applies to every grantee;
+ * when omitted the application's default plan is used.
  */
 export async function bulkGrantAppAccess(
   appId: string,
-  body: { organizationId?: string; userIds?: string[]; roleId?: string },
+  body: { organizationId?: string; userIds?: string[]; roleId?: string; subscriptionPlanId?: string },
 ): Promise<{ granted: number; skipped?: number }> {
   if (USE_MOCK) return { granted: body.userIds?.length ?? 0 };
   return apiFetch<{ granted: number; skipped?: number }>(`/admin/applications/${appId}/users/bulk`, {
@@ -139,10 +159,17 @@ export async function bulkGrantAppAccess(
   });
 }
 
-export async function updateAppAccess(appId: string, userId: string, body: { isActive?: boolean; roleId?: string; subscriptionPlanId?: string }): Promise<{ ok: true }> {
+/**
+ * Update a user's access record. Changing the subscription plan requires a
+ * reason (recorded in the subscription audit journal).
+ */
+export async function updateAppAccess(appId: string, userId: string, body: { isActive?: boolean; roleId?: string; subscriptionPlanId?: string | null; reason?: string }): Promise<{ ok: true }> {
   if (USE_MOCK) {
     const ua = MOCK_USER_APPLICATIONS.find(u => u.applicationId === appId && u.userId === userId);
-    if (ua) Object.assign(ua, body);
+    if (ua) {
+      const planId = body.subscriptionPlanId ?? null;
+      Object.assign(ua, body, { subscriptionPlanName: planId ? MOCK_PLANS.find(p => p.id === planId)?.name ?? null : null });
+    }
     return { ok: true };
   }
   return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -155,16 +182,6 @@ export async function revokeAppAccess(appId: string, userId: string): Promise<vo
     return;
   }
   return apiFetch<void>(`/admin/applications/${appId}/users/${userId}`, { method: 'DELETE' });
-}
-
-export async function assignSubscription(appId: string, userId: string, body: { planId: string }): Promise<{ ok: true }> {
-  if (USE_MOCK) return { ok: true };
-  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ subscriptionPlanId: body.planId }) });
-}
-
-export async function removeSubscription(appId: string, userId: string): Promise<{ ok: true }> {
-  if (USE_MOCK) return { ok: true };
-  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/users/${userId}`, { method: 'PATCH', body: JSON.stringify({ subscriptionPlanId: null }) });
 }
 
 export async function listRoles(appId: string): Promise<{ roles: AppRole[] }> {
@@ -181,7 +198,7 @@ export async function createRole(appId: string, body: { name: string; descriptio
   return apiFetch<{ role: AppRole }>(`/admin/applications/${appId}/roles`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function updateRole(appId: string, roleId: string, body: Partial<{ name: string; description: string; isDefault: boolean }>): Promise<{ role: AppRole }> {
+export async function updateRole(appId: string, roleId: string, body: { description?: string | null; isDefault?: boolean }): Promise<{ role: AppRole }> {
   if (USE_MOCK) {
     const idx = MOCK_ROLES.findIndex(r => r.id === roleId);
     if (idx >= 0) Object.assign(MOCK_ROLES[idx], body);
@@ -228,7 +245,7 @@ export async function assignPermissionToRole(appId: string, roleId: string, perm
     if (role && !role.permissionIds.includes(permId)) role.permissionIds.push(permId);
     return { ok: true };
   }
-  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/roles/${roleId}/permissions/${permId}`, { method: 'POST' });
+  return apiFetch<{ ok: true }>(`/admin/applications/${appId}/roles/${roleId}/permissions`, { method: 'POST', body: JSON.stringify({ permissionId: permId }) });
 }
 
 export async function removePermissionFromRole(appId: string, roleId: string, permId: string): Promise<void> {

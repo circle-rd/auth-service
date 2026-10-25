@@ -91,6 +91,10 @@ export interface Application {
   enableEndSession: boolean
   /** Whitelist for `post_logout_redirect_uri` on the end-session endpoint. */
   postLogoutRedirectUris: string[]
+  /** OIDC Back-Channel Logout 1.0 endpoint; null when the app does not support it. */
+  backchannelLogoutUri: string | null
+  /** Require the logout token to carry `sid` (spec §2.8). */
+  backchannelLogoutSessionRequired: boolean
   createdAt: string
   updatedAt: string
 }
@@ -155,6 +159,32 @@ export interface SubscriptionPlanPrice {
   interval: 'month' | 'year' | 'one_time'
   stripePriceId: string | null
   createdAt: string
+}
+
+/** A plan as returned by the user-facing subscription listing. */
+export interface UserSubscriptionPlan {
+  id: string
+  name: string
+  description: string | null
+  features: Record<string, unknown>
+  isDefault: boolean | null
+  prices: SubscriptionPlanPrice[]
+}
+
+export interface UserSubscriptionEntry {
+  applicationId: string
+  applicationName: string
+  applicationSlug: string
+  applicationIcon: string | null
+  isActive: boolean
+  plan: UserSubscriptionPlan | null
+  availablePlans: UserSubscriptionPlan[]
+}
+
+export interface UserSubscriptionsResponse {
+  subscriptions: UserSubscriptionEntry[]
+  /** When false, the self-service plan selector is hidden (admins only). */
+  stripeConfigured: boolean
 }
 
 export interface UserApplication {
@@ -260,8 +290,25 @@ export interface OAuthProviderConfig {
   clientSecret?: string
 }
 
+export interface CompatMapping {
+  claim: string
+  source: 'roles' | 'permissions' | 'scope' | 'email' | 'clientId'
+  scope?: string
+}
+
+export interface CompatConfig {
+  profile: 'default' | 'okta' | 'auth0' | 'keycloak' | 'custom'
+  tokenAuthMethod: 'basic' | 'post'
+  signingAlg: 'EdDSA' | 'RS256'
+  defaultAudience: boolean
+  audienceParam: boolean
+  claimMappings: CompatMapping[]
+  aliases: string[]
+}
+
 export interface ServicesConfig {
   stripe: boolean
+  compat: CompatConfig
   providers: {
     google: OAuthProviderConfig
     github: OAuthProviderConfig

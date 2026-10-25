@@ -25,7 +25,7 @@ const menuOpen = ref(false);
 async function handleLogout() {
   menuOpen.value = false;
   await auth.logout();
-  await router.push('/login');
+  await router.push('/auth');
 }
 </script>
 

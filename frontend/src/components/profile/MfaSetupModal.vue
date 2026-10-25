@@ -9,6 +9,7 @@ import { useToast } from '@/composables/useToast';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
+import OtpInput from '@/components/ui/OtpInput.vue';
 import CopyField from '@/components/ui/CopyField.vue';
 
 const props = defineProps<{ open: boolean }>();
@@ -82,7 +83,7 @@ async function handlePasswordSubmit() {
 }
 
 async function handleVerify() {
-  if (code.value.length !== 6) return;
+  if (code.value.length !== 6 || loading.value) return;
   loading.value = true;
   error.value = '';
   try {
@@ -90,6 +91,7 @@ async function handleVerify() {
     step.value = 'codes';
   } catch (err) {
     error.value = err instanceof Error ? err.message : t('mfa.errors.invalidCode');
+    code.value = '';
   } finally {
     loading.value = false;
   }
@@ -163,15 +165,7 @@ function handleClose() {
     <!-- Step 3: verify code -->
     <div v-else-if="step === 'verify'" class="space-y-4">
       <p class="text-sm text-surface-400">{{ t('mfa.setup.verifyIntro') }}</p>
-      <BaseInput
-        v-model="code"
-        :label="t('mfa.code')"
-        :placeholder="t('mfa.codePlaceholder')"
-        :error="error"
-        inputmode="numeric"
-        autocomplete="one-time-code"
-        @keyup.enter="handleVerify"
-      />
+      <OtpInput v-model="code" :label="t('mfa.code')" :error="error" :disabled="loading" @complete="handleVerify" />
     </div>
 
     <!-- Step 4: backup codes -->

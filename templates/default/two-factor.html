@@ -283,7 +283,7 @@
         const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-totp', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, oauth_query: oauthQuery || undefined }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -309,7 +309,7 @@
         const res = await fetch(AUTH_URL + '/api/auth/two-factor/verify-backup-code', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, oauth_query: oauthQuery || undefined }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {

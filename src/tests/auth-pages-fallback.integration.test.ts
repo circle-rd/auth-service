@@ -33,7 +33,7 @@ describe("Auth pages — template render failure (integration)", () => {
   it("logs a warning with the page name and never serves the broken template", async () => {
     const warn = vi.spyOn(handle.app.log, "warn");
 
-    const res = await handle.app.inject({ method: "GET", url: "/login" });
+    const res = await handle.app.inject({ method: "GET", url: "/login?client_id=some-app" });
 
     // Falls back to the SPA (or 404 when no frontend build is present).
     expect([200, 404]).toContain(res.statusCode);

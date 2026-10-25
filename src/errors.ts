@@ -43,6 +43,11 @@ export const ERR = {
     new ApiError(409, "AUTH_010", msg),
   AUTH_011: (msg = "Insufficient permissions") =>
     new ApiError(403, "AUTH_011", msg),
+  AUTH_012: (
+    msg = "Invalid, expired or already used registration invitation",
+  ) => new ApiError(400, "AUTH_012", msg),
+  AUTH_013: (msg = "An account already exists for this email") =>
+    new ApiError(409, "AUTH_013", msg),
 
   // ── APP ───────────────────────────────────────────────────────────────────
   APP_001: (msg = "Invalid application data", details?: unknown) =>
@@ -80,6 +85,12 @@ export const ERR = {
   SUB_003: (msg = "Plan has active subscribers, cannot delete") =>
     new ApiError(400, "SUB_003", msg),
   SUB_004: (msg = "Subscription expired") => new ApiError(400, "SUB_004", msg),
+  SUB_005: (
+    msg = "Self-service plan changes require Stripe to be configured",
+  ) => new ApiError(403, "SUB_005", msg),
+  SUB_006: (
+    msg = "Changing to a paid plan requires a payment, which is not available yet",
+  ) => new ApiError(403, "SUB_006", msg),
 
   // ── CONS ──────────────────────────────────────────────────────────────────
   CONS_001: (msg = "Invalid key format") => new ApiError(400, "CONS_001", msg),
@@ -130,6 +141,8 @@ export const ERR = {
   SRV_002: (msg = "Service temporarily unavailable") =>
     new ApiError(503, "SRV_002", msg),
   SRV_003: (msg = "Database error") => new ApiError(500, "SRV_003", msg),
+  SRV_004: (msg = "LLM gateway unavailable") =>
+    new ApiError(502, "SRV_004", msg),
 
   // ── MAIL ──────────────────────────────────────────────────────────────────
   MAIL_001: (msg = "Email template not found", details?: unknown) =>

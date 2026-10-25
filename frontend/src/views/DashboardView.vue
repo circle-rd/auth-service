@@ -8,7 +8,7 @@ import { listUsers } from '@/api/users';
 import { listSessions, revokeSession } from '@/api/sessions';
 import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
-import { getActiveUsers, getLogins, type LoginsSeriesPoint } from '@/api/stats';
+import { getActiveUsers, getLogins, getRegistrations, type DailyCountPoint, type LoginsSeriesPoint } from '@/api/stats';
 import { useDebounce } from '@/composables/useDebounce';
 import { useAdminEvents } from '@/composables/useAdminEvents';
 import AppLayout from '@/components/layout/AppLayout.vue';
@@ -24,8 +24,9 @@ import type { Session, User, Application, Organization } from '@/types';
 import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import {
   Users, MonitorSmartphone, AppWindow, Building2, Activity,
-  AlertTriangle, Info, UserPlus, Plus, Settings, Clock,
+  AlertTriangle, Info, UserPlus, Plus, Settings, Clock, Layers,
 } from 'lucide-vue-next';
+import type { SelectOption } from '@/types/select';
 import { Line } from 'vue-chartjs';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from 'chart.js';
 
@@ -56,8 +57,10 @@ const debouncedSessionSearch = useDebounce(sessionSearch, 300);
 
 const onlineCount = ref<number | null>(null);
 const loginsSeries = ref<LoginsSeriesPoint[]>([]);
+const registrationsSeries = ref<DailyCountPoint[]>([]);
 const loginsTotal = ref(0);
-const loginsLoading = ref(true);
+const activityLoading = ref(true);
+const activityError = ref(false);
 let onlinePollHandle: ReturnType<typeof setInterval> | null = null;
 
 async function fetchOnline() {
@@ -71,17 +74,38 @@ async function fetchOnline() {
 
 // `silent` is what the real-time path uses: an event-driven refresh must not
 // flip the chart back to its skeleton, otherwise a sustained login stream would
-// keep the logins chart unreadable. The value swaps in place instead.
-async function fetchLogins(options: { silent?: boolean } = {}) {
+// keep the chart unreadable. The value swaps in place instead.
+//
+// Both series come from the server over the same UTC day range and are fetched
+// with `allSettled`, so one failing endpoint cannot abort the dashboard mount.
+// A non-silent failure clears the affected series, which makes the axis fall
+// back to the selected window instead of showing the previous range's points
+// as if they were current.
+async function fetchActivity(options: { silent?: boolean } = {}) {
   const silent = options.silent === true;
-  if (!silent) loginsLoading.value = true;
-  try {
-    const res = await getLogins({ range: timeRange.value });
-    loginsSeries.value = res.series;
-    loginsTotal.value = res.total;
-  } finally {
-    if (!silent) loginsLoading.value = false;
+  if (!silent) activityLoading.value = true;
+  const [logins, registrations] = await Promise.allSettled([
+    getLogins({ range: timeRange.value }),
+    getRegistrations({ range: timeRange.value }),
+  ]);
+
+  if (logins.status === 'fulfilled') {
+    loginsSeries.value = logins.value.series;
+    loginsTotal.value = logins.value.total;
+  } else if (!silent) {
+    loginsSeries.value = [];
+    loginsTotal.value = 0;
   }
+
+  if (registrations.status === 'fulfilled') {
+    registrationsSeries.value = registrations.value.series;
+  } else if (!silent) {
+    registrationsSeries.value = [];
+  }
+
+  activityError.value =
+    logins.status === 'rejected' || registrations.status === 'rejected';
+  if (!silent) activityLoading.value = false;
 }
 
 // Real-time signal: a `login.recorded` frame re-reads the logins series and the
@@ -92,7 +116,7 @@ const walletSection = ref<InstanceType<typeof DashboardWalletSection> | null>(nu
 
 const adminEvents = useAdminEvents({
   'login.recorded': () => {
-    void fetchLogins({ silent: true });
+    void fetchActivity({ silent: true });
     void fetchOnline();
   },
   'wallet.changed': () => void walletSection.value?.refresh(),
@@ -102,7 +126,7 @@ onMounted(async () => {
   await Promise.all([
     services.fetch(),
     fetchOnline(),
-    fetchLogins(),
+    fetchActivity(),
     loadSessions(),
     (async () => {
       const [u, a, o] = await Promise.all([
@@ -175,9 +199,9 @@ const filteredSessions = computed(() => {
   return sessions.value.filter(s => (s.applications ?? []).some(a => a.id === sessionAppFilter.value));
 });
 
-const appFilterOptions = computed(() => [
-  { value: '', label: t('dashboard.allApplications') },
-  ...applications.value.map(a => ({ value: a.id, label: a.name })),
+const appFilterOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('dashboard.allApplications'), icon: Layers },
+  ...applications.value.map(a => ({ value: a.id, label: a.name, icon: AppWindow })),
 ]);
 
 const sessionPagination = computed<DataTablePagination>(() => ({
@@ -186,66 +210,131 @@ const sessionPagination = computed<DataTablePagination>(() => ({
   total: sessionTotal.value,
 }));
 
-function generateDateLabels(days: number): string[] {
-  return Array.from({ length: days }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (days - 1 - i));
-    return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-  });
+const chartDays = computed(() => (timeRange.value === '7d' ? 7 : 30));
+
+// Both axes are counts, so keep tick *positions* integer-safe: `precision`
+// alone only formats labels, and a low maximum would otherwise place ticks at
+// fractional steps whose rounded labels repeat (e.g. 0, 1, 1). Hiding the
+// non-integer labels guarantees one label per integer value.
+function integerTickLabel(value: string | number): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(n) ? String(n) : '';
 }
 
-function generateUserRegistrationData(days: number) {
-  const counts = Array(days).fill(0);
-  const now = new Date();
-  users.value.forEach(u => {
-    const diff = Math.floor((now.getTime() - new Date(u.createdAt).getTime()) / 86400000);
-    if (diff < days) counts[days - 1 - diff]++;
-  });
-  return counts;
-}
-
-const chartDays = computed(() => timeRange.value === '7d' ? 7 : 30);
-
+// Dual vertical axes: logins (left, emerald) and registrations (right, blue)
+// live on very different scales, so each gets its own axis. The right axis
+// draws no grid lines so the two grids do not interleave.
 const chartOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { display: false }, tooltip: { mode: 'index' as const, intersect: false } },
+  interaction: { mode: 'index' as const, intersect: false },
+  plugins: {
+    legend: {
+      display: true,
+      position: 'top' as const,
+      labels: {
+        color: '#94a3b8',
+        boxWidth: 10,
+        boxHeight: 10,
+        usePointStyle: true,
+        pointStyle: 'circle' as const,
+        font: { size: 11 },
+      },
+    },
+    tooltip: { mode: 'index' as const, intersect: false },
+  },
   scales: {
     x: { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#64748b', font: { size: 11 } } },
-    y: { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#64748b', font: { size: 11 }, stepSize: 1 }, beginAtZero: true },
+    y: {
+      position: 'left' as const,
+      beginAtZero: true,
+      grid: { color: 'rgba(148,163,184,0.08)' },
+      ticks: { color: '#10b981', font: { size: 11 }, maxTicksLimit: 6, callback: integerTickLabel },
+    },
+    y1: {
+      position: 'right' as const,
+      beginAtZero: true,
+      grid: { drawOnChartArea: false },
+      ticks: { color: '#3b82f6', font: { size: 11 }, maxTicksLimit: 6, callback: integerTickLabel },
+    },
   },
 };
 
-const userChartData = computed(() => ({
-  labels: generateDateLabels(chartDays.value),
-  datasets: [{
-    data: generateUserRegistrationData(chartDays.value),
-    borderColor: '#3b82f6',
-    backgroundColor: 'rgba(59,130,246,0.08)',
-    fill: true,
-    tension: 0.4,
-    pointRadius: 3,
-    pointBackgroundColor: '#3b82f6',
-  }],
-}));
+// ── Login / registration chart (single card, dual vertical axes) ───────────
+// Both series share one x-axis so the two trends can be read together. The
+// server's dense login series is the canonical axis (UTC day keys); a non-silent
+// fetch failure clears it, so the axis falls back to the selected last-N-days
+// window. Registrations come from the server-side daily aggregate over the same
+// range, and both datasets are emitted in the axis order so they can never
+// drift out of alignment.
 
-const loginsChartData = computed(() => ({
-  labels: loginsSeries.value.map(p => {
-    const d = new Date(p.date);
-    return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-  }),
-  datasets: [{
-    data: loginsSeries.value.map(p => p.count),
-    borderColor: '#10b981',
-    backgroundColor: 'rgba(16,185,129,0.08)',
-    fill: true,
-    tension: 0.4,
-    pointRadius: 3,
-    pointBackgroundColor: '#10b981',
-  }],
-}));
+/** Last N calendar days as `YYYY-MM-DD` UTC keys, oldest first. */
+function lastNDayKeys(days: number): string[] {
+  const out: string[] = [];
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
 
-watch(timeRange, () => { void fetchLogins(); });
+function formatDayKey(key: string): string {
+  return new Date(`${key}T00:00:00Z`).toLocaleDateString('en', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+const chartKeys = computed<string[]>(() =>
+  loginsSeries.value.length > 0
+    ? loginsSeries.value.map(p => p.date)
+    : lastNDayKeys(chartDays.value),
+);
+
+const activityChartData = computed(() => {
+  const loginsByDay = new Map(loginsSeries.value.map(p => [p.date, p.count]));
+  // Server-side aggregate over the same UTC range as the login series, so the
+  // registration counts are not limited to the user page loaded for the cards.
+  const registrationsByDay = new Map(
+    registrationsSeries.value.map(p => [p.date, p.count]),
+  );
+
+  return {
+    labels: chartKeys.value.map(formatDayKey),
+    datasets: [
+      {
+        label: t('dashboard.loginsChart'),
+        data: chartKeys.value.map(k => loginsByDay.get(k) ?? 0),
+        yAxisID: 'y',
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16,185,129,0.08)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 3,
+        pointBackgroundColor: '#10b981',
+      },
+      {
+        label: t('dashboard.newRegistrations'),
+        data: chartKeys.value.map(k => registrationsByDay.get(k) ?? 0),
+        yAxisID: 'y1',
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.08)',
+        // Only the primary (login) series is filled: two filled areas on two
+        // different scales would overlap and read as comparable magnitudes.
+        fill: false,
+        tension: 0.4,
+        pointRadius: 3,
+        pointBackgroundColor: '#3b82f6',
+      },
+    ],
+  };
+});
+
+watch(timeRange, () => { void fetchActivity(); });
 
 const hasNoProviders = computed(() => {
   const p = services.config?.providers;
@@ -302,7 +391,11 @@ void d;
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div class="lg:col-span-2 rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
           <div class="flex items-center justify-between mb-4">
-            <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.newRegistrations') }}</p>
+            <div>
+              <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.activityChart') }}</p>
+              <p v-if="activityError" class="text-xs text-amber-400 mt-0.5">{{ t('dashboard.activityUnavailable') }}</p>
+              <p v-else class="text-xs text-surface-500 mt-0.5">{{ t('dashboard.totalLogins', { count: loginsTotal }) }}</p>
+            </div>
             <div class="flex gap-1">
               <button
                 v-for="r in (['7d', '30d'] as const)"
@@ -314,8 +407,8 @@ void d;
               </button>
             </div>
           </div>
-          <div class="h-48">
-            <Line v-if="!loading" :data="userChartData" :options="chartOptions" />
+          <div class="h-64">
+            <Line v-if="!loading && !activityLoading" :data="activityChartData" :options="chartOptions" />
             <div v-else class="h-full bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-xl" />
           </div>
         </div>
@@ -342,29 +435,6 @@ void d;
               {{ t('dashboard.goToConfiguration') }}
             </button>
           </div>
-        </div>
-      </div>
-
-      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.loginsChart') }}</p>
-            <p class="text-xs text-surface-500 mt-0.5">{{ t('dashboard.totalLogins', { count: loginsTotal }) }}</p>
-          </div>
-          <div class="flex gap-1">
-            <button
-              v-for="r in (['7d', '30d'] as const)"
-              :key="`logins-${r}`"
-              @click="timeRange = r"
-              :class="['px-2.5 py-1 rounded-lg text-xs font-medium transition-colors', timeRange === r ? 'bg-emerald-600/20 text-emerald-300' : 'text-surface-500 hover:text-surface-300']"
-            >
-              {{ t(`dashboard.timeRanges.${r}`) }}
-            </button>
-          </div>
-        </div>
-        <div class="h-48">
-          <Line v-if="!loginsLoading" :data="loginsChartData" :options="chartOptions" />
-          <div v-else class="h-full bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-xl" />
         </div>
       </div>
 

@@ -22,7 +22,8 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import AppIconStack from '@/components/ui/AppIconStack.vue';
-import { UserPlus, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail, Upload } from 'lucide-vue-next';
+import { UserPlus, Users, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail, Upload } from 'lucide-vue-next';
+import type { SelectOption } from '@/types/select';
 import type { ColumnDef } from '@/types/data-table';
 import { useAuthStore } from '@/stores/auth';
 
@@ -80,18 +81,18 @@ const filteredUsers = computed(() => {
   return list;
 });
 
-const roleOptions = [
-  { value: '', label: t('users.allRoles') },
-  { value: 'superadmin', label: t('users.superadmin') },
-  { value: 'admin', label: t('users.admin') },
-  { value: 'user', label: t('users.user') },
-];
+const roleOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('users.allRoles'), icon: Users },
+  { value: 'superadmin', label: t('users.superadmin'), icon: ShieldAlert },
+  { value: 'admin', label: t('users.admin'), icon: Shield },
+  { value: 'user', label: t('users.user'), icon: UserIcon },
+]);
 
-const statusOptions = [
-  { value: '', label: t('users.allStatuses') },
-  { value: 'active', label: t('common.active') },
-  { value: 'banned', label: t('users.banned') },
-];
+const statusOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('users.allStatuses'), icon: Users },
+  { value: 'active', label: t('common.active'), icon: CheckCircle },
+  { value: 'banned', label: t('users.banned'), icon: Ban },
+]);
 
 function roleBadgeVariant(role: string | null) {
   if (role === 'superadmin') return 'error' as const;
@@ -102,8 +103,12 @@ function roleBadgeVariant(role: string | null) {
 // Role options for create/edit: superadmin is never assignable via UI (env-only).
 // Only superadmins can see and assign the admin role.
 const assignableRoleOptions = computed(() => {
-  const opts: { value: string; label: string }[] = [{ value: 'user', label: t('users.user') }];
-  if (auth.isSuperAdmin()) opts.push({ value: 'admin', label: t('users.admin') });
+  const opts: SelectOption[] = [
+    { value: 'user', label: t('users.user'), description: t('users.roleDescUser'), icon: UserIcon },
+  ];
+  if (auth.isSuperAdmin()) {
+    opts.push({ value: 'admin', label: t('users.admin'), description: t('users.roleDescAdmin'), icon: Shield });
+  }
   return opts;
 });
 
@@ -392,8 +397,8 @@ const editModalTags = computed(() => {
               class="w-full pl-9 pr-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500"
             />
           </div>
-          <BaseSelect v-model="filterRole" :options="roleOptions" class="w-40" />
-          <BaseSelect v-model="filterStatus" :options="statusOptions" class="w-40" />
+          <BaseSelect v-model="filterRole" :options="roleOptions" class="w-48" />
+          <BaseSelect v-model="filterStatus" :options="statusOptions" class="w-48" />
         </div>
         <div class="flex items-center gap-2">
           <BaseButton variant="outline" @click="openImportModal">

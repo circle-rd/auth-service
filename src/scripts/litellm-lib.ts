@@ -13,6 +13,7 @@ const scriptEnvSchema = z.object({
   LITELLM_URL: z.string().url().optional(),
   LITELLM_MASTER_KEY: z.string().min(1).optional(),
   LITELLM_WALLET_CLIENT_SECRET: z.string().min(1).optional(),
+  LITELLM_DB_ADMIN_URL: z.string().url().optional(),
   LITELLM_SSO_ENABLED: z.enum(["true", "false"]).default("true"),
 });
 
@@ -107,7 +108,7 @@ export function replaceEnvValue(
 ): string {
   const assignment = new RegExp(`^${key}=.*$`, "m");
   if (assignment.test(content)) {
-    return content.replace(assignment, `${key}=${value}`);
+    return content.replace(assignment, () => `${key}=${value}`);
   }
   const separator = content === "" || content.endsWith("\n") ? "" : "\n";
   return `${content}${separator}${key}=${value}\n`;
@@ -116,6 +117,55 @@ export function replaceEnvValue(
 /** Return `content` without any `KEY=` assignment. */
 export function removeEnvValue(content: string, key: string): string {
   return content.replace(new RegExp(`^${key}=.*\\n?`, "m"), "");
+}
+
+/**
+ * `value` as one shell word. The state file is sourced by `sh` before the
+ * gateway starts, so a value with spaces, quotes or braces must be quoted.
+ */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export interface SsoGatewayUrls {
+  /** Public URL of the gateway (the browser comes back to `/sso/callback`). */
+  gatewayPublicUrl: string;
+  /** Public URL of auth-service, where the browser is sent to sign in. */
+  authPublicUrl: string;
+  /** Address of auth-service the gateway itself reaches (token, userinfo). */
+  authInternalUrl: string;
+}
+
+/**
+ * Every LiteLLM setting of the admin-interface sign-in through auth-service
+ * (generic OIDC), except the client id and secret. They are written next to the
+ * secrets by `litellm-setup`, so the gateway configuration always matches the
+ * auth-service version that provisioned it and a deployment cannot go on with an
+ * older copy of it in its compose file.
+ */
+export function ssoGatewayEnv(urls: SsoGatewayUrls): Record<string, string> {
+  const trim = (u: string) => u.replace(/\/+$/, "");
+  return {
+    PROXY_BASE_URL: trim(urls.gatewayPublicUrl),
+    GENERIC_AUTHORIZATION_ENDPOINT: `${trim(urls.authPublicUrl)}/api/auth/oauth2/authorize`,
+    GENERIC_TOKEN_ENDPOINT: `${trim(urls.authInternalUrl)}/api/auth/oauth2/token`,
+    GENERIC_USERINFO_ENDPOINT: `${trim(urls.authInternalUrl)}/api/auth/oauth2/userinfo`,
+    GENERIC_SCOPE: "openid profile email roles",
+    // auth-service requires PKCE (OAuth 2.1).
+    GENERIC_CLIENT_USE_PKCE: "true",
+    // Straight to auth-service from the login page; the master key still signs in
+    // at /fallback/login.
+    AUTO_REDIRECT_UI_LOGIN_TO_SSO: "true",
+    GENERIC_USER_ID_ATTRIBUTE: "sub",
+    GENERIC_USER_EMAIL_ATTRIBUTE: "email",
+    GENERIC_USER_DISPLAY_NAME_ATTRIBUTE: "name",
+    // The application role `admin` makes a LiteLLM administrator, `user` (or no
+    // role) a read-only viewer.
+    GENERIC_ROLE_MAPPINGS_GROUP_CLAIM: "roles",
+    GENERIC_ROLE_MAPPINGS_ROLES:
+      '{"proxy_admin": ["admin"], "proxy_admin_viewer": ["user"]}',
+    GENERIC_ROLE_MAPPINGS_DEFAULT_ROLE: "proxy_admin_viewer",
+  };
 }
 
 export function generateSecret(prefix = ""): string {
@@ -171,6 +221,34 @@ async function redirectTarget(res: Response): Promise<string> {
   return body.success ? body.data.url : "";
 }
 
+const twoFactorChallengeSchema = z.object({
+  twoFactorRedirect: z.literal(true),
+});
+
+export class TwoFactorRequiredError extends Error {
+  constructor(email: string) {
+    super(
+      `Admin sign-in requires a second factor: ${email} has MFA enabled, but the setup scripts can only sign in with a password. Use an administrator account without MFA (see docs: LiteLLM gateway).`,
+    );
+    this.name = "TwoFactorRequiredError";
+  }
+}
+
+/**
+ * Whether a previous run of `litellm-setup` left everything the gateway reads
+ * from the state file: the keys, the wallet client secret and, with the admin
+ * interface sign-in on, the SSO client secret.
+ */
+export function isSetupComplete(state: string, ssoEnabled: boolean): boolean {
+  const required = [
+    "LITELLM_MASTER_KEY",
+    "LITELLM_SALT_KEY",
+    "LITELLM_WALLET_CLIENT_SECRET",
+    ...(ssoEnabled ? ["GENERIC_CLIENT_SECRET"] : []),
+  ];
+  return required.every((key) => readEnvValue(state, key) !== undefined);
+}
+
 const walletAccountSchema = z.object({
   balance: z.string().regex(/^-?[0-9]+$/),
   canSpend: z.boolean(),
@@ -191,6 +269,8 @@ const usageLedgerPageSchema = z.object({
 
 const tokenResponseSchema = z.object({ access_token: z.string() });
 
+const ADMIN_SCRIPT_USER_AGENT = "auth-service-admin-script";
+
 export class AuthAdminClient {
   private readonly cookies = new Map<string, string>();
 
@@ -204,13 +284,15 @@ export class AuthAdminClient {
     private readonly origin: string = new URL(baseUrl).origin,
   ) {}
 
-  private async send(
+  protected async send(
     path: string,
     init: RequestInit & { json?: unknown } = {},
   ): Promise<Response> {
     const { json, ...rest } = init;
     const headers = new Headers(rest.headers);
     headers.set("Origin", this.origin);
+    // Names the session in the admin "Active Sessions" list.
+    headers.set("User-Agent", ADMIN_SCRIPT_USER_AGENT);
     if (json !== undefined) headers.set("Content-Type", "application/json");
     if (this.cookies.size > 0) {
       headers.set(
@@ -232,7 +314,7 @@ export class AuthAdminClient {
     return res;
   }
 
-  private async expectOk(res: Response, what: string): Promise<Response> {
+  protected async expectOk(res: Response, what: string): Promise<Response> {
     if (!res.ok) {
       throw new Error(`${what} failed: HTTP ${res.status} ${await res.text()}`);
     }
@@ -251,9 +333,32 @@ export class AuthAdminClient {
         "Admin sign-in returned no session cookie (MFA or email verification required?)",
       );
     }
-    return z
-      .object({ user: z.object({ id: z.string() }) })
-      .parse(await res.json()).user.id;
+    const body: unknown = await res.json();
+    // The twoFactor plugin answers 200 with a pending-challenge cookie and no user.
+    if (twoFactorChallengeSchema.safeParse(body).success) {
+      throw new TwoFactorRequiredError(email);
+    }
+    return z.object({ user: z.object({ id: z.string() }) }).parse(body).user.id;
+  }
+
+  /**
+   * Ends the session opened by `signIn`. Every run of a script signs in, so
+   * without this each `docker compose up` would leave a live admin session behind.
+   * A failure here must not hide the outcome of the script, so it only warns.
+   */
+  async signOut(): Promise<void> {
+    if (this.cookies.size === 0) return;
+    try {
+      await this.expectOk(
+        await this.send("/api/auth/sign-out", { method: "POST", json: {} }),
+        "Admin sign-out",
+      );
+    } catch (err) {
+      process.stderr.write(
+        `! ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+    this.cookies.clear();
   }
 
   async listRoles(appId: string): Promise<{ id: string; name: string }[]> {

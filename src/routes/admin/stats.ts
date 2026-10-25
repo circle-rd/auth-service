@@ -12,6 +12,8 @@ const loginsQuerySchema = z.object({
   range: rangeSchema.optional(),
   appId: z.string().uuid().optional(),
 });
+// Registrations are platform-wide: there is no per-application dimension.
+const rangeQuerySchema = z.object({ range: rangeSchema.optional() });
 
 function rangeToDays(range: "7d" | "30d"): number {
   return range === "30d" ? 30 : 7;
@@ -78,6 +80,38 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
                  COUNT(*)::int AS count
           FROM login_history
           WHERE ${and(...conditions)}
+          GROUP BY day
+          ORDER BY day ASC`,
+    )) as { day: string; count: number }[];
+
+    const series = denseSeries(rows, days);
+    const total = series.reduce((acc, r) => acc + r.count, 0);
+    await reply.send({ range, series, total });
+  });
+
+  // GET /api/admin/stats/registrations?range=7d|30d
+  // Daily account creations, platform-wide. Same dense shape as /logins so the
+  // two series can share one chart axis; counted on the `user.created_at` UTC
+  // day to match the login series' day basis.
+  fastify.get("/registrations", async (req, reply) => {
+    const parsed = rangeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw ERR.APP_001("Invalid stats query", parsed.error.flatten());
+    }
+    const range = parsed.data.range ?? "7d";
+    const days = rangeToDays(range);
+    const since = new Date();
+    since.setUTCDate(since.getUTCDate() - (days - 1));
+    since.setUTCHours(0, 0, 0, 0);
+    const sinceIso = since.toISOString();
+
+    // Raw aggregate via sql`` because date_trunc is not exposed by the typed
+    // builder; the input is server-controlled (no user concatenation).
+    const rows = (await db.execute(
+      sql`SELECT to_char(date_trunc('day', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day,
+                 COUNT(*)::int AS count
+          FROM "user"
+          WHERE created_at >= ${sinceIso}::timestamptz
           GROUP BY day
           ORDER BY day ASC`,
     )) as { day: string; count: number }[];

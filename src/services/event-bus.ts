@@ -31,6 +31,7 @@ export const DOMAIN_EVENT_TYPES = [
   "application.changed",
   "organization.changed",
   "wallet.changed",
+  "subscription.changed",
 ] as const;
 
 export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number];

@@ -289,7 +289,7 @@ Adding a new code:
 2. Take the next sequential number in that domain.
 3. Add the entry in `src/errors.ts` following the existing pattern.
 4. Document it in the specifications
-   (`docs-site/content/docs/project/2.specifications.md`, error-code registry).
+   (`docs-site/content/docs/5.project/2.specifications.md`, error-code registry).
 
 **Never** create ad-hoc `Error` objects or call
 `reply.status(xxx).send({ error: "…" })` directly in routes. Always go
@@ -357,25 +357,31 @@ The thresholds are declared in `vitest.config.ts` (`coverage.thresholds`).
 
 ### Migrations
 
-1. Modify the schema in `src/db/schema.ts` (or `src/db/auth-schema.ts` for
-   BetterAuth tables — see above).
-2. Run `pnpm db:generate` to produce a new file in `drizzle/`.
-3. **Review the generated SQL** before committing.
-4. Run `pnpm db:migrate` to apply locally.
-5. Commit the migration file alongside the schema change, same PR.
+> **Pre-production: regenerate the baseline, never ship a delta.** Until the
+> first production deploy, every schema change is folded into the consolidated
+> baseline `drizzle/0000_initial_schema.sql` by regenerating it from the schema
+> TS. Do **not** produce or commit additional `0001_*.sql` files. Concretely:
+>
+> 1. Modify the schema in `src/db/schema.ts` (or `src/db/auth-schema.ts` for
+>    BetterAuth tables — see above).
+> 2. Delete `drizzle/` and re-run `pnpm db:generate --name initial_schema`, so
+>    drizzle-kit emits one `0000_initial_schema.sql` plus a matching
+>    `drizzle/meta/0000_snapshot.json` and a single-entry `_journal.json`.
+> 3. **Review the generated SQL** — the diff against the previous baseline must
+>    contain only the intended change, nothing unrelated.
+> 4. Recreate every database from scratch (`docker compose down -v`). There is
+>    no data to preserve before production, so no data migration is written.
+> 5. Commit `0000_initial_schema.sql` (and `drizzle/meta/_journal.json`)
+>    alongside the schema change, same PR.
+>
+> **After the first production deploy this is forbidden.** From then on,
+> migrations are immutable history: never modify an applied migration, and add
+> a new `NNNN_*.sql` instead (steps: modify schema → `pnpm db:generate` →
+> review the SQL → `pnpm db:migrate` → commit the migration with the schema
+> change in the same PR).
 
 **Never modify an existing migration file that has been applied to any
-environment.** Add a new migration instead.
-
-> **Pre-production exception** — until the first production deploy, the
-> consolidated baseline `0000_initial_schema.sql` is treated as malleable.
-> A column added during this period may be inlined into the baseline
-> instead of shipped as a delta. Doing so requires (a) deleting any
-> post-baseline migrations + their snapshots in `drizzle/meta/`, (b)
-> re-running `pnpm db:generate` so drizzle-kit produces a fresh
-> `0000_snapshot.json` matching the schema TS, and (c) recreating every
-> deployed database from scratch. **After the first production deploy this
-> is forbidden** — migrations become immutable history.
+production environment.**
 
 ### Migration runner
 

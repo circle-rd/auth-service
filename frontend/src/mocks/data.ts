@@ -153,6 +153,8 @@ export const MOCK_APPLICATIONS: Application[] = [
     enabledSocialProviders: null,
     enableEndSession: true,
     postLogoutRedirectUris: ['https://dashboard.circle.internal/'],
+    backchannelLogoutUri: null,
+    backchannelLogoutSessionRequired: false,
     metadata: {},
     createdAt: '2024-01-15T10:00:00.000Z',
     updatedAt: '2024-11-01T12:00:00.000Z',
@@ -176,6 +178,8 @@ export const MOCK_APPLICATIONS: Application[] = [
     enabledSocialProviders: ['google', 'github'],
     enableEndSession: true,
     postLogoutRedirectUris: ['https://app.acme.com/'],
+    backchannelLogoutUri: 'https://app.acme.com/backchannel-logout',
+    backchannelLogoutSessionRequired: true,
     metadata: {},
     createdAt: '2024-03-22T14:30:00.000Z',
     updatedAt: '2024-10-15T09:45:00.000Z',
@@ -199,6 +203,8 @@ export const MOCK_APPLICATIONS: Application[] = [
     enabledSocialProviders: [],
     enableEndSession: false,
     postLogoutRedirectUris: [],
+    backchannelLogoutUri: null,
+    backchannelLogoutSessionRequired: false,
     metadata: { client_kind: 'server' },
     createdAt: '2024-06-01T08:00:00.000Z',
     updatedAt: '2024-06-01T08:00:00.000Z',
@@ -327,6 +333,20 @@ export const MOCK_CONSUMPTION: ConsumptionAggregate[] = [
 
 export const MOCK_SERVICES_CONFIG: ServicesConfig = {
   stripe: true,
+  compat: {
+    profile: 'okta',
+    tokenAuthMethod: 'basic',
+    signingAlg: 'RS256',
+    defaultAudience: true,
+    audienceParam: false,
+    claimMappings: [
+      { claim: 'groups', source: 'roles', scope: 'groups' },
+      { claim: 'scp', source: 'scope' },
+      { claim: 'preferred_username', source: 'email', scope: 'profile' },
+      { claim: 'cid', source: 'clientId' },
+    ],
+    aliases: ['okta'],
+  },
   providers: {
     google: { enabled: true, clientId: 'AIzaSyD-sample-google-id' },
     github: { enabled: true, clientId: 'gh-sample-client-id' },
@@ -367,6 +387,8 @@ function appRecord(over: Partial<Application> & Pick<Application, 'id' | 'name' 
     enabledSocialProviders: null,
     enableEndSession: true,
     postLogoutRedirectUris: [],
+    backchannelLogoutUri: null,
+    backchannelLogoutSessionRequired: false,
     metadata: {},
     createdAt: daysAgo(120),
     updatedAt: daysAgo(12),
@@ -379,6 +401,7 @@ const DEMO_APPS: Application[] = [
   appRecord({ id: 'a0000001-0000-4000-8000-000000000002', name: 'Docs Assistant', slug: 'docs-assistant', description: 'Answers questions about the documentation.', allowedResources: ['https://llm.example.com'], createdAt: daysAgo(64) }),
   appRecord({ id: 'a0000001-0000-4000-8000-000000000003', name: 'Billing Portal', slug: 'billing-portal', description: 'Invoices, plans and payment methods.', isPublic: false, isMfaRequired: true, createdAt: daysAgo(150) }),
   appRecord({ id: 'a0000001-0000-4000-8000-000000000004', name: 'LiteLLM gateway', slug: 'litellm', description: 'LLM and MCP gateway (protected resource).', isPublic: false, isSystem: true, allowRegister: false, url: 'https://llm.example.com', redirectUris: [], createdAt: daysAgo(30) }),
+  appRecord({ id: 'a0000001-0000-4000-8000-000000000005', name: 'Auth Service API', slug: 'auth-service', description: 'Protected resource for auth-service user APIs.', isPublic: false, isSystem: true, allowRegister: false, url: 'https://auth.example.com', redirectUris: [], createdAt: daysAgo(30) }),
 ];
 
 const NAMES = [

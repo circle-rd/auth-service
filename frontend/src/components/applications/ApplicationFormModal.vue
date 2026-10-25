@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { createApplication, updateApplication } from '@/api/applications';
+import { createApplication, detectFavicon, listApplications, updateApplication } from '@/api/applications';
 import { getServicesConfig } from '@/api/services';
 import type { Application, ServicesConfig } from '@/types';
 import { useToast } from '@/composables/useToast';
@@ -27,7 +27,57 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
+// ── LiteLLM support ──────────────────────────────────────────────────────
+// One switch stands for three settings: the gateway and Auth Service resources,
+// and the wallet scope. They live in the regular arrays so nothing is lost on
+// save, but are hidden from the resource list and the scope chips.
+const litellmUrls = ref<string[]>([]);
+const litellmAvailable = computed(() => litellmUrls.value.length === 2);
+const litellmEnabled = ref(false);
+
+async function loadLitellmUrls() {
+  try {
+    const { applications } = await listApplications();
+    const urls = [GATEWAY_SLUG, AUTH_SERVICE_SLUG].map(
+      (slug) => applications.find((a) => a.slug === slug)?.url ?? null,
+    );
+    litellmUrls.value = urls.every((u): u is string => !!u) ? urls : [];
+  } catch {
+    litellmUrls.value = [];
+  }
+}
+
+const litellmSupport = computed({
+  get: () => litellmEnabled.value,
+  set: (on: boolean) => {
+    litellmEnabled.value = on;
+    const f = form.value;
+    if (on) {
+      for (const url of litellmUrls.value) {
+        if (!f.allowedResources.includes(url)) f.allowedResources.push(url);
+      }
+      if (!f.allowedScopes.includes(WALLET_SCOPE)) f.allowedScopes.push(WALLET_SCOPE);
+    } else {
+      f.allowedResources = f.allowedResources.filter((u) => !litellmUrls.value.includes(u));
+      f.allowedScopes = f.allowedScopes.filter((sc) => sc !== WALLET_SCOPE);
+    }
+  },
+});
+
+// Indexes of the resources the user manages by hand (the LiteLLM ones are hidden while it is on).
+const visibleResourceIndexes = computed(() =>
+  form.value.allowedResources.flatMap((url, i) =>
+    litellmEnabled.value && litellmUrls.value.includes(url) ? [] : [i],
+  ),
+);
+
+// `wallet:self:read` is not listed: the LiteLLM option manages it.
 const SCOPES = ['openid', 'profile', 'email', 'phone', 'offline_access', 'roles', 'permissions', 'features', 'org'];
+const WALLET_SCOPE = 'wallet:self:read';
+// System applications whose `url` is the resource identifier (RFC 8707) of the
+// LLM gateway and of the Auth Service API.
+const GATEWAY_SLUG = 'litellm';
+const AUTH_SERVICE_SLUG = 'auth-service';
 const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type ProviderKey = (typeof ALL_PROVIDERS)[number];
 
@@ -50,6 +100,10 @@ const form = ref({
   // application actually needs to terminate the central SSO session.
   enableEndSession: false,
   postLogoutRedirectUris: [] as string[],
+  // OIDC Back-Channel Logout: an https endpoint that receives a signed logout
+  // token when a session ends. Empty string = the app does not support it.
+  backchannelLogoutUri: '' as string,
+  backchannelLogoutSessionRequired: false,
   // Metadata is edited as an ordered list of key/value pairs in the UI;
   // we serialize back to a plain Record<string, string> on submit. Keys must
   // be valid identifiers (server enforces /^[a-zA-Z_][a-zA-Z0-9_]*$/) and
@@ -86,10 +140,62 @@ watch(
   },
 );
 
+// ── Icon detection ───────────────────────────────────────────────────────
+// Once the URL is typed (a pause of FAVICON_DEBOUNCE_MS, or leaving the field)
+// the page's favicon is looked up and offered as the icon. It never overwrites an
+// icon the user typed: only an empty one, or the one detected for the previous URL.
+const FAVICON_DEBOUNCE_MS = 600;
+const lastAutoIcon = ref('');
+let lastLookedUpUrl = '';
+let faviconTimer: ReturnType<typeof setTimeout> | undefined;
+let faviconRequest = 0;
+
+const iconAutoDetected = computed(() => !!form.value.icon && form.value.icon === lastAutoIcon.value);
+
+function iconIsUserOwned(): boolean {
+  return !!form.value.icon && form.value.icon !== lastAutoIcon.value;
+}
+
+async function lookupFavicon() {
+  clearTimeout(faviconTimer);
+  const url = form.value.url.trim();
+  if (!/^https?:\/\/[^\s/.]+\.[^\s/]+/i.test(url) || url === lastLookedUpUrl || iconIsUserOwned()) return;
+  lastLookedUpUrl = url;
+  const request = ++faviconRequest;
+  let iconUrl: string | null = null;
+  try {
+    iconUrl = await detectFavicon(url);
+  } catch {
+    // Best effort: the icon stays editable by hand.
+  }
+  // A newer lookup started, or the user typed an icon while this one ran.
+  if (request !== faviconRequest || iconIsUserOwned()) return;
+  if (iconUrl) {
+    form.value.icon = iconUrl;
+    lastAutoIcon.value = iconUrl;
+  } else if (lastAutoIcon.value) {
+    // The new URL has no favicon: do not keep the previous site's.
+    form.value.icon = '';
+    lastAutoIcon.value = '';
+  }
+}
+
+function onUrlInput() {
+  clearTimeout(faviconTimer);
+  faviconTimer = setTimeout(() => void lookupFavicon(), FAVICON_DEBOUNCE_MS);
+}
+
+onBeforeUnmount(() => clearTimeout(faviconTimer));
+
 watch(
   () => props.open,
   async (open) => {
     if (!open) return;
+    clearTimeout(faviconTimer);
+    faviconRequest++;
+    lastAutoIcon.value = '';
+    lastLookedUpUrl = props.application?.url ?? '';
+    const urlsLoaded = loadLitellmUrls();
     if (!services.value) {
       try {
         services.value = await getServicesConfig();
@@ -97,7 +203,10 @@ watch(
         services.value = null;
       }
     }
+    await urlsLoaded;
     const a = props.application;
+    litellmEnabled.value =
+      !!a && litellmAvailable.value && (a.allowedResources ?? []).includes(litellmUrls.value[0]!);
     if (a) {
       form.value = {
         name: a.name,
@@ -120,6 +229,9 @@ watch(
         postLogoutRedirectUris: a.postLogoutRedirectUris
           ? [...a.postLogoutRedirectUris]
           : [],
+        backchannelLogoutUri: a.backchannelLogoutUri ?? '',
+        backchannelLogoutSessionRequired:
+          a.backchannelLogoutSessionRequired ?? false,
         metadata: Object.entries(a.metadata ?? {}).map(([key, value]) => ({
           key,
           value: String(value),
@@ -144,6 +256,8 @@ watch(
         enabledSocialProviders: null,
         enableEndSession: false,
         postLogoutRedirectUris: [],
+        backchannelLogoutUri: '',
+        backchannelLogoutSessionRequired: false,
         metadata: [],
       };
     }
@@ -276,6 +390,8 @@ async function submit() {
       enabledSocialProviders: form.value.enabledSocialProviders,
       enableEndSession: form.value.enableEndSession,
       postLogoutRedirectUris: form.value.postLogoutRedirectUris.filter(Boolean),
+      backchannelLogoutUri: form.value.backchannelLogoutUri || null,
+      backchannelLogoutSessionRequired: form.value.backchannelLogoutSessionRequired,
       metadata,
     };
     if (isEdit.value && props.application) {
@@ -311,6 +427,7 @@ async function submit() {
     @close="emit('close')"
   >
     <form @submit.prevent="submit" class="space-y-5">
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionGeneral') }}</h3>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <BaseInput v-model="form.name" :label="t('applications.name')" required />
         <BaseInput
@@ -322,12 +439,23 @@ async function submit() {
       </div>
       <BaseInput v-model="form.description" :label="t('applications.description')" />
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <BaseInput v-model="form.url" :label="t('applications.url')" placeholder="https://app.example.com" />
-        <BaseInput v-model="form.icon" :label="t('applications.icon')" placeholder="https://..." />
+        <BaseInput
+          v-model="form.url"
+          :label="t('applications.url')"
+          placeholder="https://app.example.com"
+          @update:model-value="onUrlInput"
+          @blur="lookupFavicon"
+        />
+        <BaseInput
+          v-model="form.icon"
+          :label="t('applications.icon')"
+          placeholder="https://..."
+          :hint="iconAutoDetected ? t('applications.iconDetected') : undefined"
+        />
       </div>
-
+      <div class="border-t border-surface-800/60"></div>
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionOptions') }}</h3>
       <div class="pt-1">
-        <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-3">Options</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
           <BaseToggle v-model="form.isActive" :label="t('applications.isActive')" />
           <BaseToggle
@@ -345,8 +473,17 @@ async function submit() {
             :description="t('applications.enableEndSessionHint')"
           />
         </div>
+        <BaseToggle
+          v-model="litellmSupport"
+          class="mt-4"
+          :label="t('applications.litellmSupport')"
+          :description="litellmAvailable ? t('applications.litellmSupportHint') : t('applications.litellmUnavailable')"
+          :disabled="!litellmAvailable"
+        />
       </div>
 
+      <div class="border-t border-surface-800/60"></div>
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionAuthorization') }}</h3>
       <div>
         <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
           {{ t('applications.allowedScopes') }}
@@ -365,45 +502,6 @@ async function submit() {
             ]"
           >
             {{ scope }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="enabledProvidersGlobally.length > 0">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-            {{ t('applications.socialProviders') }}
-          </p>
-          <button
-            v-if="form.enabledSocialProviders !== null"
-            type="button"
-            @click="inheritProviders"
-            class="text-xs text-primary-400 hover:text-primary-300 font-medium"
-          >
-            {{ t('applications.inheritProviders') }}
-          </button>
-        </div>
-        <p class="text-xs text-surface-500 mb-2">
-          {{
-            form.enabledSocialProviders === null
-              ? t('applications.providersInherited')
-              : t('applications.providersOverridden')
-          }}
-        </p>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            v-for="p in enabledProvidersGlobally"
-            :key="p"
-            type="button"
-            @click="toggleProvider(p)"
-            :class="[
-              'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize',
-              isProviderSelected(p)
-                ? 'bg-primary-600/20 border-primary-500/40 text-primary-300'
-                : 'bg-surface-800/60 border-surface-700/60 text-surface-500 hover:border-surface-500 hover:text-surface-300',
-            ]"
-          >
-            {{ p }}
           </button>
         </div>
       </div>
@@ -484,6 +582,32 @@ async function submit() {
       </div>
 
       <!--
+        OIDC Back-Channel Logout 1.0: when a session ends, AuthService POSTs a
+        signed logout token to this endpoint so the application can terminate
+        its own session. Must be an https URL.
+      -->
+      <div>
+        <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
+          {{ t('applications.backchannelLogoutUri') }}
+        </p>
+        <input
+          v-model="form.backchannelLogoutUri"
+          placeholder="https://your-app.com/backchannel-logout"
+          class="w-full px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
+        />
+        <p class="text-xs text-surface-500 mt-2">
+          {{ t('applications.backchannelLogoutUriHint') }}
+        </p>
+        <div v-if="form.backchannelLogoutUri" class="mt-2">
+          <BaseToggle
+            v-model="form.backchannelLogoutSessionRequired"
+            :label="t('applications.backchannelLogoutSessionRequired')"
+            :description="t('applications.backchannelLogoutSessionRequiredHint')"
+          />
+        </div>
+      </div>
+
+      <!--
         Allowed resources: URLs of other applications (protected resources,
         e.g. the LLM gateway) this application may request access tokens for
         through the RFC 8707 `resource` parameter.
@@ -506,7 +630,7 @@ async function submit() {
         </p>
         <div class="space-y-2">
           <div
-            v-for="(_, i) in form.allowedResources"
+            v-for="i in visibleResourceIndexes"
             :key="i"
             class="flex gap-2"
           >
@@ -523,6 +647,47 @@ async function submit() {
               ✕
             </button>
           </div>
+        </div>
+      </div>
+
+      <div class="border-t border-surface-800/60"></div>
+      <h3 class="text-sm font-semibold text-surface-200 mb-1">{{ t('applications.sectionAdvanced') }}</h3>
+      <div v-if="enabledProvidersGlobally.length > 0">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
+            {{ t('applications.socialProviders') }}
+          </p>
+          <button
+            v-if="form.enabledSocialProviders !== null"
+            type="button"
+            @click="inheritProviders"
+            class="text-xs text-primary-400 hover:text-primary-300 font-medium"
+          >
+            {{ t('applications.inheritProviders') }}
+          </button>
+        </div>
+        <p class="text-xs text-surface-500 mb-2">
+          {{
+            form.enabledSocialProviders === null
+              ? t('applications.providersInherited')
+              : t('applications.providersOverridden')
+          }}
+        </p>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="p in enabledProvidersGlobally"
+            :key="p"
+            type="button"
+            @click="toggleProvider(p)"
+            :class="[
+              'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize',
+              isProviderSelected(p)
+                ? 'bg-primary-600/20 border-primary-500/40 text-primary-300'
+                : 'bg-surface-800/60 border-surface-700/60 text-surface-500 hover:border-surface-500 hover:text-surface-300',
+            ]"
+          >
+            {{ p }}
+          </button>
         </div>
       </div>
 

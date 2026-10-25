@@ -4,8 +4,16 @@ const insertValuesMock = vi.fn<(...args: unknown[]) => Promise<void>>(() =>
   Promise.resolve(),
 );
 const updateSetMock = vi.fn<(...args: unknown[]) => unknown>();
+const selectLimitMock = vi.fn<() => Promise<unknown[]>>(() =>
+  Promise.resolve([]),
+);
 
 vi.mock("../db/index.js", () => {
+  const chain: Record<string, unknown> = {};
+  chain.from = () => chain;
+  chain.where = () => chain;
+  chain.orderBy = () => chain;
+  chain.limit = () => selectLimitMock();
   return {
     db: {
       insert: vi.fn(() => ({ values: insertValuesMock })),
@@ -14,6 +22,7 @@ vi.mock("../db/index.js", () => {
           where: vi.fn(() => Promise.resolve()),
         })),
       })),
+      select: vi.fn(() => chain),
     },
   };
 });
@@ -25,6 +34,8 @@ describe("recordLogin", () => {
   beforeEach(() => {
     insertValuesMock.mockClear();
     updateSetMock.mockClear();
+    selectLimitMock.mockClear();
+    selectLimitMock.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -69,6 +80,30 @@ describe("recordLogin", () => {
     const loggedAt = new Date("2026-05-17T13:30:00Z");
     await recordLogin({ userId: "user-3", loggedAt });
     expect(updateSetMock).toHaveBeenCalledWith({ lastLoginAt: loggedAt });
+  });
+
+  it("derives IP and user agent from the latest session when absent", async () => {
+    selectLimitMock.mockResolvedValueOnce([
+      { ipAddress: "203.0.113.9", userAgent: "Mozilla/5.0 (Macintosh)" },
+    ]);
+
+    await recordLogin({ userId: "user-7", applicationId: "app-1" });
+
+    const call = (insertValuesMock.mock.calls[0]?.[0] ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(call.ipAddress).toBe("203.0.113.9");
+    expect(call.userAgent).toBe("Mozilla/5.0 (Macintosh)");
+  });
+
+  it("does not look up a session when the context is provided", async () => {
+    await recordLogin({
+      userId: "user-8",
+      ipAddress: "10.0.0.1",
+      userAgent: "Mozilla/5.0",
+    });
+    expect(selectLimitMock).not.toHaveBeenCalled();
   });
 
   it("announces login.recorded on the event bus, without any identity", async () => {

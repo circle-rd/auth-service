@@ -1,10 +1,14 @@
 import { auth } from "./auth.js";
 import { db } from "./db/index.js";
 import { config } from "./config.js";
-import { user as userTable } from "./db/auth-schema.js";
-import { eq } from "drizzle-orm";
+import { oauthClient, user as userTable } from "./db/auth-schema.js";
+import { applications } from "./db/schema.js";
+import { generateId } from "better-auth";
+import { eq, or } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { publishEvent } from "./services/event-bus.js";
+import { replaceClientResource } from "./services/oauth-resources.js";
+import { AUTH_SERVICE_SLUG } from "./services/system-apps.js";
 
 // Known default/placeholder bootstrap passwords that must never be accepted in
 // production. Matching is exact so a legitimate password that merely contains a
@@ -25,17 +29,142 @@ const WEAK_PASSWORDS = new Set([
   "letmein",
 ]);
 
+const AUTH_SERVICE_APPLICATION_NAME = "Auth Service API";
+
+function authServiceOauthClientValues(app: {
+  id: string;
+  slug: string;
+  name: string;
+}) {
+  return {
+    id: generateId(),
+    clientId: app.slug,
+    clientSecret: null,
+    disabled: true,
+    skipConsent: true,
+    scopes: ["wallet:self:read"],
+    clientCredentialsScopes: [],
+    name: app.name,
+    uri: config.betterAuth.url,
+    redirectUris: [],
+    postLogoutRedirectUris: [],
+    tokenEndpointAuthMethod: "client_secret_basic",
+    applicationType: "web",
+    grantTypes: ["authorization_code", "refresh_token"],
+    responseTypes: ["code"],
+    requirePKCE: true,
+    metadata: { clientId: app.slug, applicationId: app.id },
+  };
+}
+
+/**
+ * Register auth-service itself as a protected OAuth resource so applications
+ * can request JWTs for the user-bound wallet API with `resource=BETTER_AUTH_URL`.
+ */
+async function ensureAuthServiceApplication(): Promise<boolean> {
+  const matches = await db
+    .select({
+      id: applications.id,
+      slug: applications.slug,
+      name: applications.name,
+      url: applications.url,
+      isSystem: applications.isSystem,
+    })
+    .from(applications)
+    .where(
+      or(
+        eq(applications.slug, AUTH_SERVICE_SLUG),
+        eq(applications.url, config.betterAuth.url),
+      ),
+    );
+
+  const uniqueMatches = new Map(matches.map((row) => [row.id, row]));
+  if (uniqueMatches.size > 1) {
+    throw new Error(
+      `[bootstrap] Multiple applications match the auth-service protected resource (${config.betterAuth.url})`,
+    );
+  }
+
+  let changed = false;
+  let app = [...uniqueMatches.values()][0];
+  if (!app) {
+    // The admin create flow bootstraps roles, plans and user grants we do not
+    // want for an infrastructure-only protected resource.
+    const [created] = await db
+      .insert(applications)
+      .values({
+        name: AUTH_SERVICE_APPLICATION_NAME,
+        slug: AUTH_SERVICE_SLUG,
+        description: "Protected resource for auth-service user APIs",
+        isActive: true,
+        isSystem: true,
+        skipConsent: true,
+        allowRegister: false,
+        allowedScopes: ["wallet:self:read"],
+        redirectUris: [],
+        isPublic: false,
+        url: config.betterAuth.url,
+      })
+      .returning({
+        id: applications.id,
+        slug: applications.slug,
+        name: applications.name,
+        url: applications.url,
+        isSystem: applications.isSystem,
+      });
+    app = created!;
+    changed = true;
+    logger.info(
+      "[bootstrap] Auth-service protected resource application created",
+    );
+  } else if (!app.isSystem || app.url !== config.betterAuth.url) {
+    await db
+      .update(applications)
+      .set({
+        isSystem: true,
+        url: config.betterAuth.url,
+        updatedAt: new Date(),
+      })
+      .where(eq(applications.id, app.id));
+    app = { ...app, isSystem: true, url: config.betterAuth.url };
+    changed = true;
+    logger.info(
+      "[bootstrap] Auth-service protected resource application ensured",
+    );
+  }
+
+  const [client] = await db
+    .select({ clientId: oauthClient.clientId })
+    .from(oauthClient)
+    .where(eq(oauthClient.clientId, app.slug))
+    .limit(1);
+  if (!client) {
+    await db.insert(oauthClient).values(authServiceOauthClientValues(app));
+    changed = true;
+  }
+
+  await replaceClientResource({
+    clientId: app.slug,
+    identifier: config.betterAuth.url,
+    name: app.name,
+    allowedResources: [],
+  });
+  return changed;
+}
+
 /**
  * Creates the superadmin user at startup if none exists yet.
  * Reads ADMIN_EMAIL + ADMIN_PASSWORD from environment.
  */
 export async function bootstrap(): Promise<void> {
+  const authServiceAppChanged = await ensureAuthServiceApplication();
   const { adminEmail, adminPassword } = config.bootstrap;
 
   if (!adminEmail || !adminPassword) {
     logger.warn(
       "[bootstrap] ADMIN_EMAIL / ADMIN_PASSWORD not set — skipping superadmin creation.",
     );
+    if (authServiceAppChanged) publishEvent("application.changed");
     return;
   }
 
@@ -78,6 +207,7 @@ export async function bootstrap(): Promise<void> {
     logger.info(
       "[bootstrap] Superadmin already exists — ensured email is verified.",
     );
+    if (authServiceAppChanged) publishEvent("application.changed");
     return;
   }
 
@@ -113,4 +243,5 @@ export async function bootstrap(): Promise<void> {
     .where(eq(userTable.email, adminEmail));
 
   publishEvent("user.changed");
+  if (authServiceAppChanged) publishEvent("application.changed");
 }

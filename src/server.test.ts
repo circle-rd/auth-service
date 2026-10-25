@@ -115,7 +115,7 @@ vi.mock("../routes/stripe-webhook.js", () => ({
 }));
 vi.mock("../routes/app-config.js", () => ({
   appConfigRoutes: notFoundRoutes().appConfigRoutes,
-  globallyEnabledProviders: () => [],
+  socialProvidersFor: () => [],
 }));
 vi.mock("./auth.js", () => ({
   auth: { api: {}, handler: async () => new Response(null, { status: 404 }) },

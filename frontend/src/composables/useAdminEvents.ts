@@ -18,7 +18,11 @@ import { USE_MOCK } from '@/api/client';
 const EVENTS_URL = '/api/admin/events';
 
 /** Event types the channel may carry — mirrors `DOMAIN_EVENT_TYPES` server-side. */
-export const ADMIN_EVENT_TYPES = ['login.recorded', 'wallet.changed'] as const;
+export const ADMIN_EVENT_TYPES = [
+  'login.recorded',
+  'wallet.changed',
+  'subscription.changed',
+] as const;
 
 export type AdminEventType = (typeof ADMIN_EVENT_TYPES)[number];
 

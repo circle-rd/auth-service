@@ -9,7 +9,7 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import PasswordStrengthMeter from '@/components/auth/PasswordStrengthMeter.vue';
 import { resetPassword } from '@/api/auth';
 import { useAppBranding } from '@/composables/useAppBranding';
-import { authPagePath } from '@/utils/authRedirect';
+import { authPagePath, signInPath } from '@/utils/authRedirect';
 import { MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH } from '@/utils/passwordStrength';
 
 const { t } = useI18n();
@@ -113,7 +113,7 @@ async function handleSubmit() {
           <p class="text-sm text-surface-300">{{ t('auth.resetPasswordDone') }}</p>
           <BaseButton
             class="w-full"
-            @click="router.push(authPagePath('/login', route.query))"
+            @click="router.push(signInPath(route.query))"
           >
             {{ t('auth.backToLogin') }}
           </BaseButton>

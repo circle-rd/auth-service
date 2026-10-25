@@ -24,11 +24,16 @@ import { config } from "./config.js";
 import { trustedOrigins } from "./runtime-config.js";
 import { logger } from "./logger.js";
 import {
-  getUserClaims,
   userHasAppAccessBySlug,
   assignDefaultRoleIfNeeded,
-  assignDefaultPlanIfNeeded,
 } from "./services/claims.js";
+import { getCompatUserClaims } from "./compat/claims.js";
+import { resolveAudiencePatch } from "./compat/audience.js";
+import { jwksOptions } from "./compat/key-pair.js";
+import { hashPassword } from "better-auth/crypto";
+import { verifyStoredPassword } from "./services/legacy-password.js";
+import { supportedScopes } from "./compat/scopes.js";
+import { assignDefaultPlanIfNeeded } from "./services/subscriptions.js";
 import {
   sendResetPasswordEmail,
   sendVerificationEmail,
@@ -38,8 +43,16 @@ import {
   sendOrganizationInvitationEmail,
 } from "./services/email.js";
 import { userMustSetupMfa } from "./services/mfa.js";
+import {
+  clientIdOf,
+  registrationOpenFor,
+} from "./services/registration-policy.js";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
+import {
+  listUserOrganizationIds,
+  resolveOrganization,
+} from "./services/organization-selection.js";
 import { publishEvent } from "./services/event-bus.js";
 import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
@@ -62,18 +75,6 @@ function confirmationStatusOf(
     callbackURL.slice(EMAIL_VERIFIED_PATH.length + 1),
   ).get("status");
   return CONFIRMATION_STATUSES.find((status) => status === value) ?? null;
-}
-
-/** The `client_id` an OAuth or confirmation callback carries, if any. */
-function clientIdOf(callbackURL: string | null): string | null {
-  if (!callbackURL) return null;
-  try {
-    return new URL(callbackURL, config.betterAuth.url).searchParams.get(
-      "client_id",
-    );
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -380,13 +381,23 @@ export const auth = betterAuth({
     : {}),
   // Disable built-in /token route — /oauth2/token is used instead
   disabledPaths: ["/token"],
-  // Social login providers — only enabled when both CLIENT_ID and CLIENT_SECRET are set
+  // Browser-facing errors that cannot be redirected back to a relying party
+  // (no trusted `redirect_uri`) land on our templated error page instead of the
+  // plugin's bare default. The route is registered in `src/server.ts`.
+  onAPIError: {
+    errorURL: `${config.betterAuth.url}/error`,
+  },
+  // Social login providers — only enabled when both CLIENT_ID and CLIENT_SECRET are set.
+  // `disableImplicitSignUp`: a first social sign-in creates an account only when
+  // the `before` hook below sets `requestSignUp` for an application that allows
+  // registration (see services/registration-policy.ts).
   socialProviders: {
     ...(config.providers.google.enabled
       ? {
           google: {
             clientId: config.providers.google.clientId as string,
             clientSecret: config.providers.google.clientSecret as string,
+            disableImplicitSignUp: true,
           },
         }
       : {}),
@@ -395,6 +406,7 @@ export const auth = betterAuth({
           github: {
             clientId: config.providers.github.clientId as string,
             clientSecret: config.providers.github.clientSecret as string,
+            disableImplicitSignUp: true,
           },
         }
       : {}),
@@ -402,6 +414,9 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
+    // Native scrypt hashes plus hashes imported from another provider, which
+    // are replaced by native ones at the first successful sign-in.
+    password: { hash: hashPassword, verify: verifyStoredPassword },
     requireEmailVerification: config.email.requireVerification,
     sendResetPassword: async (params: {
       user: { email: string };
@@ -562,6 +577,32 @@ export const auth = betterAuth({
   // any admin action whose target outranks (or equals) the caller.
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      // Instance-wide compatibility: `audience` alias and default resource.
+      const audience = await resolveAudiencePatch(ctx);
+      if (audience) return audience;
+      // Accounts are created through an application that allows registration:
+      // its callbackURL carries its client_id. Anything else (no client_id, or an
+      // application that does not allow it) cannot create one.
+      if (ctx.path === "/sign-up/email") {
+        if (!(await registrationOpenFor(ctx.body?.callbackURL))) {
+          throw new APIError("FORBIDDEN", {
+            message: "Registration is not open for this application",
+          });
+        }
+        return;
+      }
+      // A social sign-in only signs in an existing account, unless registration
+      // is open. Always set here: a client must not grant itself `requestSignUp`.
+      if (ctx.path === "/sign-in/social") {
+        return {
+          context: {
+            body: {
+              requestSignUp: await registrationOpenFor(ctx.body?.callbackURL),
+            },
+          },
+        };
+      }
+
       const targetUserId = await resolveAdminTargetUserId(ctx.path, ctx.body);
       if (!targetUserId) return;
 
@@ -646,12 +687,8 @@ export const auth = betterAuth({
       // mistaken for one by downstream resource servers. Bearer tokens must
       // come from the token endpoint.
       disableSettingJwtHeader: true,
-      // Rotate signing keys monthly; keep the previous key for a month so
-      // access tokens issued just before rotation still verify.
-      jwks: {
-        rotationInterval: 60 * 60 * 24 * 30,
-        gracePeriod: 60 * 60 * 24 * 30,
-      },
+      // Algorithm and monthly rotation: see compat/key-pair.ts.
+      jwks: jwksOptions(config.compat.signingAlg),
     }),
     twoFactor({ issuer: config.appName }),
     passkey(),
@@ -776,6 +813,8 @@ export const auth = betterAuth({
     ...(config.email.magicLinkEnabled
       ? [
           magicLink({
+            // Signs in existing accounts only: accounts come from registration.
+            disableSignUp: true,
             // Store a hash of the token instead of the plaintext so a leaked
             // database dump cannot be replayed to sign in.
             storeToken: "hashed",
@@ -788,6 +827,8 @@ export const auth = betterAuth({
     ...(config.email.otpEnabled
       ? [
           emailOTP({
+            // Signs in existing accounts only: accounts come from registration.
+            disableSignUp: true,
             sendVerificationOTP: async (params: {
               email: string;
               otp: string;
@@ -820,20 +861,7 @@ export const auth = betterAuth({
       // `oauth_resource` table, synced from applications.url by
       // services/oauth-resources.ts, and linked to their client via
       // `oauth_client_resource`.
-      scopes: [
-        "openid",
-        "profile",
-        "email",
-        "phone",
-        "offline_access",
-        "roles",
-        "permissions",
-        "features",
-        // org — injects org_id (activeOrganizationId) as a claim in the access token.
-        // Clients that need org-scoped data should request this scope and include
-        // `resource=<audience>` to receive a JWT (RFC 8707).
-        "org",
-      ],
+      scopes: supportedScopes(config.compat),
       // Inject roles, permissions, features, and org_id into id_token.
       // Also gates token issuance:
       //   - throws FORBIDDEN when the user has no access AND the app is neither
@@ -851,7 +879,7 @@ export const auth = betterAuth({
           clientId,
         );
         return {
-          ...(await getUserClaims(user.id, clientId, scopes, {
+          ...(await getCompatUserClaims(user.id, clientId, scopes, {
             email: (user as Record<string, unknown>).email as
               string | null | undefined,
             emailVerified: (user as Record<string, unknown>).emailVerified as
@@ -906,7 +934,7 @@ export const auth = betterAuth({
           user as Record<string, unknown> & { id: string },
           clientId,
         );
-        const claims = await getUserClaims(user.id, clientId, scopes, {
+        const claims = await getCompatUserClaims(user.id, clientId, scopes, {
           email: (user as Record<string, unknown>).email as
             string | null | undefined,
           emailVerified: (user as Record<string, unknown>).emailVerified as
@@ -957,7 +985,7 @@ export const auth = betterAuth({
         const clientId = (jwt as Record<string, unknown>)?.azp as
           string | undefined;
         return {
-          ...(await getUserClaims(user.id, clientId, scopes, {
+          ...(await getCompatUserClaims(user.id, clientId, scopes, {
             email: (user as Record<string, unknown>).email as
               string | null | undefined,
             emailVerified: (user as Record<string, unknown>).emailVerified as
@@ -976,36 +1004,33 @@ export const auth = betterAuth({
           ...(await getApplicationMetadataClaims(clientId)),
         };
       },
-      // When the "org" scope is requested: after login, determine whether we need
-      // to redirect the user to the org-selection page (postLogin flow).
+      // When the "org" scope is requested: after login, redirect to the
+      // org-selection page only if the user must choose between several
+      // organizations. A single organization is bound implicitly and none means
+      // the token carries no org_id.
       postLogin: {
         page: "/select-org",
-        shouldRedirect: async ({ session, scopes, headers }) => {
+        shouldRedirect: async ({ user, scopes }) => {
           if (!scopes.includes("org")) return false;
-          const organizations = await auth.api.listOrganizations({ headers });
-          const orgs = organizations ?? [];
-          // Skip redirect if the user has 0 orgs (nothing to select)
-          // or exactly 1 org that is already set as active.
-          if (orgs.length === 0) return false;
-          if (
-            orgs.length === 1 &&
-            orgs[0]?.id ===
-              (session as Record<string, unknown>)?.activeOrganizationId
-          ) {
-            return false;
-          }
-          return true;
+          const { selectionRequired } = resolveOrganization(
+            await listUserOrganizationIds(user.id),
+            undefined,
+          );
+          return selectionRequired;
         },
-        consentReferenceId: ({ session, scopes }) => {
+        consentReferenceId: async ({ user, session, scopes }) => {
           if (!scopes.includes("org")) return undefined;
-          const orgId = (session as Record<string, unknown>)
-            ?.activeOrganizationId as string | undefined;
-          if (!orgId) {
+          const { organizationId, selectionRequired } = resolveOrganization(
+            await listUserOrganizationIds(user.id),
+            (session as Record<string, unknown>)?.activeOrganizationId as
+              string | undefined,
+          );
+          if (selectionRequired && !organizationId) {
             throw new APIError("BAD_REQUEST", {
               message: "Please select an organization before continuing.",
             });
           }
-          return orgId;
+          return organizationId;
         },
       },
     }),

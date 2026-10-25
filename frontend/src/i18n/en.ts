@@ -870,7 +870,7 @@ export default {
     heroTitle: 'One identity provider for every application.',
     heroSubtitle: 'You own the users, the keys and the data.',
     heroLede:
-      '{appName} is a self-hosted OAuth 2.1 / OpenID Connect provider built on BetterAuth. Register your applications, give each one its own roles, secure sign-in with passkeys and TOTP, and meter what people consume — from a single admin console.',
+      '{appName} is a self-hosted OAuth 2.1 / OpenID Connect provider built on BetterAuth. Register your applications, give each one its own roles, secure sign-in with passkeys and TOTP, and meter what people consume, including through your LiteLLM gateway — from a single admin console.',
     heroNote: 'Open source, GPL-3.0. Run it on your own infrastructure.',
     screenshotAlt: 'The administration dashboard: users, sessions, logins and credit usage',
     screenshotCaption: 'The administration dashboard (demo data).',

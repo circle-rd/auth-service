@@ -1,20 +1,33 @@
-# Auth Service
+<p align="center">
+  <img src="frontend/public/icon-512.png" alt="CIRCLE Authentication logo" width="140" />
+</p>
 
-**Self-hosted OAuth 2.1 / OIDC identity provider** to centralize authentication
-across your own applications — with per-app roles, organizations, MFA and
-subscription billing.
+<h1 align="center">CIRCLE Authentication</h1>
 
-[![CI](https://github.com/circle-rd/auth-service/actions/workflows/ci.yml/badge.svg)](https://github.com/circle-rd/auth-service/actions/workflows/ci.yml)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-22-3c873a?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Container](https://img.shields.io/badge/ghcr.io-auth--service-blue?logo=docker&logoColor=white)](https://github.com/circle-rd/auth-service/pkgs/container/auth-service)
-[![Tests](https://img.shields.io/badge/tests-vitest-6da55f?logo=vitest&logoColor=white)](https://vitest.dev)
+<p align="center">
+  <em>Self-hosted OAuth 2.1 / OIDC identity provider — your applications, your users, your keys.</em>
+</p>
 
-![Auth Service admin dashboard](docs-site/public/screenshots/dashboard.png)
+<p align="center">
+  <a href="https://github.com/circle-rd/auth-service/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/circle-rd/auth-service/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/License-GPLv3-blue.svg"></a>
+  <a href="https://nodejs.org"><img alt="Node" src="https://img.shields.io/badge/node-22-3c873a?logo=node.js&logoColor=white"></a>
+  <a href="https://better-auth.com"><img alt="BetterAuth" src="https://img.shields.io/badge/BetterAuth-1.7-black.svg"></a>
+  <a href="https://vuejs.org"><img alt="Vue" src="https://img.shields.io/badge/Vue-3-4FC08D.svg?logo=vuedotjs&logoColor=white"></a>
+  <a href="https://github.com/circle-rd/auth-service/pkgs/container/auth-service"><img alt="Container" src="https://img.shields.io/badge/ghcr.io-auth--service-blue?logo=docker&logoColor=white"></a>
+</p>
 
-_The admin dashboard, shown with demo data._
+<p align="center">
+  <img src="docs-site/public/screenshots/dashboard.png" alt="CIRCLE Authentication admin dashboard, shown with demo data" width="100%" />
+</p>
 
----
+Register your applications, give each one its own roles, secure sign-in with
+passkeys and TOTP, and meter what people consume — including through a
+[LiteLLM](https://docs.litellm.ai) gateway — from a single admin console. It
+centralizes authentication across your own applications, with per-app roles,
+organizations, MFA, subscription billing and a prepaid credit wallet.
+
+Full documentation: **https://docs.circle-cyber.com/auth-service**
 
 ## Principles
 
@@ -37,12 +50,18 @@ _The admin dashboard, shown with demo data._
 
 - Email / password with verification, password reset and change-email.
 - Passkeys (FIDO2) and TOTP two-factor with backup codes, plus admin-enforced MFA.
+- Social sign-in (Google, GitHub) restricted per application.
 - Opt-in passwordless: magic link and email OTP (blocked for 2FA accounts).
+- Registration policy per application, with invitations and bulk user import.
+- Opt-in Have I Been Pwned checks, CAPTCHA and last-login-method hints.
 - Session management, revocation and login history.
 
 **Authorization**
 
 - OAuth 2.1 / OIDC provider with discovery, PKCE, consent and refresh-token rotation.
+- Opt-in device authorization grant and OIDC back-channel logout.
+- Compatibility profiles (Okta, Auth0, Keycloak) and migration guides to switch
+  from another identity provider with as few application changes as possible.
 - Applications as first-class OAuth clients with per-app scopes and redirect URIs.
 - Protected resources (RFC 8707) and machine-to-machine `client_credentials` tokens.
 - Per-application roles and permissions, delivered as JWT claims.
@@ -53,6 +72,7 @@ _The admin dashboard, shown with demo data._
 - Subscription plans with feature flags surfaced in access tokens.
 - Stripe integration with an idempotent webhook handler.
 - Usage / consumption tracking API, scoped per application.
+- Accounting journal of every credit and billing movement.
 
 **Credit wallet & LLM gateway**
 
@@ -67,20 +87,13 @@ _The admin dashboard, shown with demo data._
 **Platform**
 
 - Node.js 22 · Fastify 5 · BetterAuth 1.7 · Drizzle ORM · PostgreSQL 17 · Zod.
-- Vue 3 admin SPA (users, applications, plans, roles, organizations, sessions).
+- Vue 3 admin SPA (users, applications, plans, roles, organizations, wallets,
+  accounting, runtime configuration), in English and French.
+- Optional public landing page and per-application branding.
 - SMTP email pipeline with Eta templates, overridable per application.
-- Helmet security headers, rate limiting, structured (pino) logging, `/health`.
+- Helmet security headers, rate limiting (optionally Redis-backed), structured
+  (pino) logging, `/health`.
 - Published Docker images (`nightly`, `latest`, version tags) and GitHub Actions CI.
-
-## Screenshots
-
-All captures use demo data.
-
-| | |
-| --- | --- |
-| ![Users](docs-site/public/screenshots/users.png)<br>**Users** — roles, MFA, applications, last login | ![Applications](docs-site/public/screenshots/applications.png)<br>**Applications** — OAuth clients, system applications hidden by default |
-| ![Application detail](docs-site/public/screenshots/application-detail.png)<br>**Roles and permissions** — per application, with a permission matrix | ![Wallets](docs-site/public/screenshots/wallets.png)<br>**Wallets** — credit held, spend, pricing, top consumers |
-| ![User wallet](docs-site/public/screenshots/user-detail.png)<br>**User credit** — balance, spend and ledger, with admin operations | ![Profile credit](docs-site/public/screenshots/profile-credit.png)<br>**My credit** — balance, top-up and consumption for the user |
 
 ## Architecture
 
@@ -218,9 +231,8 @@ for any contribution to this repository.
 
 ## Roadmap
 
-- **Optional Redis** secondary storage for multi-instance rate limiting.
-- **DPoP**, back-channel logout and device authorization.
-- **Account security**: Have I Been Pwned checks, CAPTCHA, last-login method.
+- **DPoP** sender-constrained access tokens: the admin surface and tests are missing.
+- **CAPTCHA widget** in the sign-in pages (the server-side check already ships, opt-in).
 - **Internationalization** of the auth pages.
 - **Quality**: raise route/service test coverage to ≥ 80 % and split the largest modules.
 - **Loose ends**: wire the remaining social providers, add a database probe to `/health`.

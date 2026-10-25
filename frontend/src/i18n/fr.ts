@@ -124,6 +124,8 @@ export default {
     onlineNow: 'En ligne',
     onlineNowSub: 'Actifs dans les 5 dernières minutes',
     loginsChart: 'Activité des connexions',
+    activityChart: 'Connexions & inscriptions',
+    activityUnavailable: "Impossible de charger l'activité pour le moment.",
     totalLogins: '{count} connexions',
     timeRanges: {
       '7d': '7 derniers jours',

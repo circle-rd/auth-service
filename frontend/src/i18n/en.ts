@@ -124,6 +124,8 @@ export default {
     onlineNow: 'Online Now',
     onlineNowSub: 'Active in the last 5 min',
     loginsChart: 'Login Activity',
+    activityChart: 'Logins & Registrations',
+    activityUnavailable: 'Could not load activity right now.',
     totalLogins: '{count} logins',
     timeRanges: {
       '7d': 'Last 7 days',

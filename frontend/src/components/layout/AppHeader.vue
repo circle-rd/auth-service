@@ -7,17 +7,22 @@ import { useAuthStore } from '@/stores/auth';
 import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen, LayoutDashboard } from 'lucide-vue-next';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';
+import AppLogo from '@/components/branding/AppLogo.vue';
+import { useAppBranding } from '@/composables/useAppBranding';
 import { useMobileNav } from '@/composables/useMobileNav';
 
 const { t } = useI18n();
 const router = useRouter();
 const auth = useAuthStore();
 const { theme, toggle } = useTheme();
+const { branding } = useAppBranding();
 const { toggle: toggleSidebar, toggleCollapsed, isSidebarCollapsed } = useMobileNav();
 
+// Pages without a sidebar show the instance logo where the sidebar toggles would be.
 defineProps<{
   title?: string;
   subtitle?: string;
+  brand?: boolean;
 }>();
 
 const menuOpen = ref(false);
@@ -31,7 +36,14 @@ async function handleLogout() {
 
 <template>
   <header class="relative z-40 h-16 shrink-0 flex items-center justify-between px-4 md:px-6 border-b border-surface-800/40 bg-surface-950/40 backdrop-blur-xl">
-    <div class="flex items-center gap-2">
+    <div v-if="brand" class="flex items-center">
+      <div v-if="!branding.logoUrl" class="w-8 h-8 rounded-lg bg-primary-600 flex items-center justify-center shadow-lg shadow-primary-900/40 overflow-hidden">
+        <AppLogo :size="16" icon-class="text-white" />
+      </div>
+      <AppLogo v-else :size="32" icon-class="text-white" />
+    </div>
+
+    <div v-else class="flex items-center gap-2">
       <!-- Mobile burger button -->
       <button
         @click="toggleSidebar"

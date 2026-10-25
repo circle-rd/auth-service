@@ -7,6 +7,8 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml* frontend/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
+# The build reads the release version from the server package.json.
+COPY package.json /app/package.json
 COPY frontend/ ./
 RUN pnpm build
 

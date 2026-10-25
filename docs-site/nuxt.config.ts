@@ -7,6 +7,12 @@ export default defineNuxtConfig({
     url: process.env.NUXT_SITE_URL ?? "https://docs.circle-cyber.com/auth-service",
   },
   robots: { robotsTxt: false },
+  image: {
+    provider: "passthrough",
+    providers: {
+      passthrough: { name: "passthrough", provider: "~/providers/passthrough" },
+    },
+  },
   meta: {
     title: "Auth Service",
     description:

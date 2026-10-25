@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="frontend/public/icon-512.png" alt="CIRCLE Authentication logo" width="140" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/logo-dark.svg">
+    <img src="frontend/public/logo-light.svg" alt="CIRCLE Authentication logo" width="140" />
+  </picture>
 </p>
 
 <h1 align="center">CIRCLE Authentication</h1>

@@ -867,7 +867,7 @@ export default {
     heroTitle: 'Un seul fournisseur d\'identité pour toutes vos applications.',
     heroSubtitle: 'Les utilisateurs, les clés et les données vous appartiennent.',
     heroLede:
-      '{appName} est un fournisseur OAuth 2.1 / OpenID Connect auto-hébergé, bâti sur BetterAuth. Enregistrez vos applications, donnez à chacune ses propres rôles, sécurisez la connexion avec des passkeys et du TOTP, et mesurez la consommation — depuis une seule console d\'administration.',
+      '{appName} est un fournisseur OAuth 2.1 / OpenID Connect auto-hébergé, bâti sur BetterAuth. Enregistrez vos applications, donnez à chacune ses propres rôles, sécurisez la connexion avec des passkeys et du TOTP, et mesurez la consommation, y compris via votre passerelle LiteLLM — depuis une seule console d\'administration.',
     heroNote: 'Open source, GPL-3.0. À exécuter sur votre propre infrastructure.',
     screenshotAlt: 'Le tableau de bord d\'administration : utilisateurs, sessions, connexions et crédit consommé',
     screenshotCaption: 'Le tableau de bord d\'administration (données de démonstration).',

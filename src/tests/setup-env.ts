@@ -26,3 +26,8 @@ process.env.EMAIL_OTP_ENABLED = "true";
 // Gate session issuance on verified email so the verification flow can be
 // exercised end-to-end (sign-up returns no session; user must click the link).
 process.env.REQUIRE_EMAIL_VERIFICATION = "true";
+
+// Fake credentials so the GitHub provider is mounted regardless of the
+// developer's local `.env` (CI has none). The OAuth flow is never completed.
+process.env.GITHUB_CLIENT_ID = "test-github-client-id";
+process.env.GITHUB_CLIENT_SECRET = "test-github-client-secret";

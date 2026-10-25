@@ -6,16 +6,13 @@ import { config } from "../config.js";
 import { ERR } from "../errors.js";
 import { isMailConfigured } from "../services/mail/index.js";
 
-export type SocialProvider =
-  "google" | "github" | "linkedin" | "microsoft" | "apple";
+// Only providers actually registered with BetterAuth are advertised. Config and
+// the admin diagnostics still know about other providers, but offering a button
+// the service cannot complete would break sign-in, so the list stays closed
+// until each provider is fully wired in `src/auth.ts`.
+export type SocialProvider = "google" | "github";
 
-const ALL_PROVIDERS: readonly SocialProvider[] = [
-  "google",
-  "github",
-  "linkedin",
-  "microsoft",
-  "apple",
-];
+const ALL_PROVIDERS: readonly SocialProvider[] = ["google", "github"];
 
 export function globallyEnabledProviders(): SocialProvider[] {
   return ALL_PROVIDERS.filter(

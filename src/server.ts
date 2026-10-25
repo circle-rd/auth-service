@@ -47,6 +47,8 @@ import { applicationMachineScopesRoutes } from "./routes/admin/application-machi
 import { applicationFaviconRoutes } from "./routes/admin/application-favicon.js";
 import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
+import { registrationInvitationRoutes } from "./routes/admin/registration-invitations.js";
+import { registrationRoutes } from "./routes/registration.js";
 import { appConfigRoutes, socialProvidersFor } from "./routes/app-config.js";
 import { ERR } from "./errors.js";
 import { globalErrorHandler } from "./error-handler.js";
@@ -58,6 +60,14 @@ import {
 } from "./services/templates.js";
 import { createRateLimitStore } from "./services/rate-limit-store.js";
 import { createEventBus, setEventBus } from "./services/event-bus.js";
+import {
+  narrowSocialProvidersByLastUsed,
+  parseLastUsedLoginMethod,
+} from "./services/last-login-method.js";
+import {
+  findRegistrationInvitationByToken,
+  invitationState,
+} from "./services/registration-invitations.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
 import { eq } from "drizzle-orm";
@@ -105,6 +115,23 @@ const EMAIL_SEND_WINDOW = 60_000;
 const DEVICE_RATE_PATHS = ["/api/auth/device"];
 const DEVICE_RATE_MAX = 60;
 const DEVICE_RATE_WINDOW = 60_000;
+
+/**
+ * Accept a same-origin relative path and nothing else.
+ *
+ * A leading `//` makes the value protocol-relative, and browsers treat a
+ * leading backslash like a slash — so `/\/evil.com` and `/\evil.com` would both
+ * resolve to another origin. Either form would turn a `redirectTo` or a
+ * back-to-sign-in link into an open redirect, so any backslash or whitespace is
+ * rejected outright.
+ */
+function safeRelativePath(value: unknown, fallback = "/"): string {
+  if (typeof value !== "string") return fallback;
+  if (!value.startsWith("/")) return fallback;
+  if (value.startsWith("//")) return fallback;
+  if (/[\\\s]/.test(value)) return fallback;
+  return value;
+}
 
 export async function buildServer(): Promise<FastifyInstance> {
   const aliasTable = buildAliasTable(config.compat.aliases);
@@ -295,11 +322,26 @@ export async function buildServer(): Promise<FastifyInstance> {
           socialProviders = socialProvidersFor(appRow.enabledSocialProviders);
         }
       }
-      const socialProvidersJson = JSON.stringify(socialProviders);
+      // Narrow the offered social buttons to the provider this browser last
+      // signed in with, so a returning social user keeps a one-click path while
+      // a new visitor is not steered towards a sign-up the app may not allow.
+      // Registration pages keep the full list: a new account has no history.
+      const lastUsedLoginMethod = parseLastUsedLoginMethod(req.headers.cookie);
+      const socialProvidersAllJson = JSON.stringify(socialProviders);
+      const socialProvidersJson = JSON.stringify(
+        page === "login"
+          ? narrowSocialProvidersByLastUsed(
+              socialProviders,
+              lastUsedLoginMethod,
+            )
+          : socialProviders,
+      );
 
       if (page === "register" && !allowRegister) {
-        const loginUrl = rawQs ? `/login?${rawQs}` : "/login";
-        return reply.redirect(loginUrl, 302);
+        const params = new URLSearchParams({ error: "REGISTRATION_CLOSED" });
+        if (appSlug) params.set("client_id", appSlug);
+        if (rawQs) params.set("login", `/login?${rawQs}`);
+        return reply.redirect(`/error?${params.toString()}`, 302);
       }
 
       // The service's own sign-in (no client_id) is the admin SPA's login page,
@@ -313,12 +355,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       }
 
       const rawRedirect = query.redirectTo ?? query.next ?? "/";
-      const redirectTo =
-        typeof rawRedirect === "string" &&
-        rawRedirect.startsWith("/") &&
-        !rawRedirect.startsWith("//")
-          ? rawRedirect
-          : "/";
+      const redirectTo = safeRelativePath(rawRedirect, "/");
       const oauthQuery =
         query.client_id !== undefined && query.sig !== undefined ? rawQs : "";
 
@@ -348,9 +385,13 @@ export async function buildServer(): Promise<FastifyInstance> {
             oauthQuery,
             allowRegister,
             socialProvidersJson,
+            socialProvidersAllJson,
             loginUrl,
             registerUrl,
             confirmationStatus,
+            appName: config.appName,
+            logoUrl: config.appLogoUrl ?? "",
+            logoDarkUrl: config.appLogoDarkUrl ?? "",
           },
           appSlug || null,
           config.templatesDir,
@@ -364,6 +405,124 @@ export async function buildServer(): Promise<FastifyInstance> {
       }
     });
   }
+
+  // ── Templated authentication-error page ─────────────────────────
+  // The OAuth provider plugin redirects unrecoverable authorization errors to
+  // `onAPIError.errorURL` (`/error`, set in `src/auth.ts`), and our own flows
+  // (a refused registration, an invalid invitation) redirect here too. Rendering
+  // through the template system lets an application ship its own design via
+  // `TEMPLATES_DIR/<slug>/error.html`; without a `TEMPLATES_DIR` the SPA keeps
+  // handling every non-API path.
+  fastify.get("/error", async (req, reply) => {
+    const query = req.query as Record<string, string>;
+    const appSlug = typeof query.client_id === "string" ? query.client_id : "";
+    const errorCode = typeof query.error === "string" ? query.error : "";
+    const errorDescription =
+      typeof query.error_description === "string"
+        ? query.error_description
+        : "";
+    // Only a same-origin relative path is honoured, so `login` cannot be turned
+    // into an open redirect.
+    const loginUrl = safeRelativePath(query.login, "/login");
+
+    if (!config.templatesDir) {
+      if (existsSync(frontendDist)) {
+        return reply.sendFile("index.html", frontendDist);
+      }
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    try {
+      const html = renderAuthPage(
+        "error",
+        {
+          actionUrl: "",
+          redirectTo: "",
+          appSlug,
+          authUrl: config.betterAuth.url,
+          appName: config.appName,
+          logoUrl: config.appLogoUrl ?? "",
+          logoDarkUrl: config.appLogoDarkUrl ?? "",
+          errorCode,
+          errorDescription,
+          loginUrl,
+        },
+        appSlug || null,
+        config.templatesDir,
+      );
+      return reply
+        .status(200)
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
+    } catch (err) {
+      return sendSpaFallback(reply, "error", appSlug || null, err);
+    }
+  });
+
+  // ── Complete-registration page (invitation redemption) ──────────
+  // An administrator-triggered, one-shot registration link. A missing, expired,
+  // revoked or already-used token lands on the templated error page; a pending
+  // one renders the form whose POST is handled by `/api/registration/complete`.
+  fastify.get("/complete-registration", async (req, reply) => {
+    const query = req.query as Record<string, string>;
+    const token = typeof query.token === "string" ? query.token : "";
+    const appSlug = typeof query.client_id === "string" ? query.client_id : "";
+
+    const errorRedirect = (code: string) => {
+      const params = new URLSearchParams({ error: code });
+      if (appSlug) params.set("client_id", appSlug);
+      return reply.redirect(`/error?${params.toString()}`, 302);
+    };
+
+    if (!token) return errorRedirect("INVITATION_INVALID");
+
+    const invitation = await findRegistrationInvitationByToken(token);
+    if (!invitation) return errorRedirect("INVITATION_INVALID");
+    const state = invitationState(invitation);
+    if (state === "expired") return errorRedirect("INVITATION_EXPIRED");
+    if (state !== "pending") return errorRedirect("INVITATION_INVALID");
+
+    if (!config.templatesDir) {
+      if (existsSync(frontendDist)) {
+        return reply.sendFile("index.html", frontendDist);
+      }
+      return reply.status(404).send({ error: "Not found" });
+    }
+
+    const loginUrl = appSlug
+      ? `/login?client_id=${encodeURIComponent(appSlug)}`
+      : "/login";
+    try {
+      const html = renderAuthPage(
+        "complete-registration",
+        {
+          actionUrl: "/api/registration/complete",
+          redirectTo: "",
+          appSlug,
+          authUrl: config.betterAuth.url,
+          appName: config.appName,
+          logoUrl: config.appLogoUrl ?? "",
+          logoDarkUrl: config.appLogoDarkUrl ?? "",
+          email: invitation.email,
+          invitationToken: token,
+          loginUrl,
+        },
+        appSlug || null,
+        config.templatesDir,
+      );
+      return reply
+        .status(200)
+        .header("content-type", "text/html; charset=utf-8")
+        .send(html);
+    } catch (err) {
+      return sendSpaFallback(
+        reply,
+        "complete-registration",
+        appSlug || null,
+        err,
+      );
+    }
+  });
 
   // ── Organization selection page ─────────────────────────────────
   fastify.get("/select-org", async (req, reply) => {
@@ -580,6 +739,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(organizationsRoutes, {
     prefix: "/api/admin/organizations",
   });
+  await fastify.register(registrationInvitationRoutes, {
+    prefix: "/api/admin/registration-invitations",
+  });
+  await fastify.register(registrationRoutes, { prefix: "/api/registration" });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });
   await fastify.register(walletRoutes, { prefix: "/api/user/wallet" });

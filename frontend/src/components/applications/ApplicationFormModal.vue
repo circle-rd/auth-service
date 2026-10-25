@@ -100,6 +100,10 @@ const form = ref({
   // application actually needs to terminate the central SSO session.
   enableEndSession: false,
   postLogoutRedirectUris: [] as string[],
+  // OIDC Back-Channel Logout: an https endpoint that receives a signed logout
+  // token when a session ends. Empty string = the app does not support it.
+  backchannelLogoutUri: '' as string,
+  backchannelLogoutSessionRequired: false,
   // Metadata is edited as an ordered list of key/value pairs in the UI;
   // we serialize back to a plain Record<string, string> on submit. Keys must
   // be valid identifiers (server enforces /^[a-zA-Z_][a-zA-Z0-9_]*$/) and
@@ -225,6 +229,9 @@ watch(
         postLogoutRedirectUris: a.postLogoutRedirectUris
           ? [...a.postLogoutRedirectUris]
           : [],
+        backchannelLogoutUri: a.backchannelLogoutUri ?? '',
+        backchannelLogoutSessionRequired:
+          a.backchannelLogoutSessionRequired ?? false,
         metadata: Object.entries(a.metadata ?? {}).map(([key, value]) => ({
           key,
           value: String(value),
@@ -249,6 +256,8 @@ watch(
         enabledSocialProviders: null,
         enableEndSession: false,
         postLogoutRedirectUris: [],
+        backchannelLogoutUri: '',
+        backchannelLogoutSessionRequired: false,
         metadata: [],
       };
     }
@@ -381,6 +390,8 @@ async function submit() {
       enabledSocialProviders: form.value.enabledSocialProviders,
       enableEndSession: form.value.enableEndSession,
       postLogoutRedirectUris: form.value.postLogoutRedirectUris.filter(Boolean),
+      backchannelLogoutUri: form.value.backchannelLogoutUri || null,
+      backchannelLogoutSessionRequired: form.value.backchannelLogoutSessionRequired,
       metadata,
     };
     if (isEdit.value && props.application) {
@@ -567,6 +578,32 @@ async function submit() {
               ✕
             </button>
           </div>
+        </div>
+      </div>
+
+      <!--
+        OIDC Back-Channel Logout 1.0: when a session ends, AuthService POSTs a
+        signed logout token to this endpoint so the application can terminate
+        its own session. Must be an https URL.
+      -->
+      <div>
+        <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
+          {{ t('applications.backchannelLogoutUri') }}
+        </p>
+        <input
+          v-model="form.backchannelLogoutUri"
+          placeholder="https://your-app.com/backchannel-logout"
+          class="w-full px-3 py-2 text-sm bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-100 placeholder:text-surface-600 focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-500/60 transition-all"
+        />
+        <p class="text-xs text-surface-500 mt-2">
+          {{ t('applications.backchannelLogoutUriHint') }}
+        </p>
+        <div v-if="form.backchannelLogoutUri" class="mt-2">
+          <BaseToggle
+            v-model="form.backchannelLogoutSessionRequired"
+            :label="t('applications.backchannelLogoutSessionRequired')"
+            :description="t('applications.backchannelLogoutSessionRequiredHint')"
+          />
         </div>
       </div>
 

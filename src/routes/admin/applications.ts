@@ -61,32 +61,63 @@ function hashClientSecret(secret: string): string {
 }
 
 /**
- * `enableEndSession` and `postLogoutRedirectUris` live on the BetterAuth
- * `oauth_client` table, not on `applications`. The admin UI needs them in
- * every payload that exposes an application, so we fetch them by `clientId`
- * (= application slug) and merge them into the response.
+ * `enableEndSession`, `postLogoutRedirectUris` and the back-channel logout
+ * settings live on the BetterAuth `oauth_client` table, not on `applications`.
+ * The admin UI needs them in every payload that exposes an application, so we
+ * fetch them by `clientId` (= application slug) and merge them into the
+ * response.
  */
 interface OauthClientView {
   enableEndSession: boolean;
   postLogoutRedirectUris: string[];
+  /** OIDC Back-Channel Logout endpoint, or null when the app does not support it. */
+  backchannelLogoutUri: string | null;
+  backchannelLogoutSessionRequired: boolean;
+}
+
+/**
+ * The single source of truth for the logout-related column selection, so the
+ * read path and the write path cannot drift. Reused by every select below.
+ */
+const oauthClientViewFields = {
+  enableEndSession: oauthClient.enableEndSession,
+  postLogoutRedirectUris: oauthClient.postLogoutRedirectUris,
+  backchannelLogoutUri: oauthClient.backchannelLogoutUri,
+  backchannelLogoutSessionRequired:
+    oauthClient.backchannelLogoutSessionRequired,
+} as const;
+
+/**
+ * Normalise a possibly-missing row into the shape the API promises. The
+ * defaults live here once: a historical row may have `enable_end_session =
+ * NULL`, and absence is treated as "feature off" rather than silently exposed.
+ */
+function toOauthClientView(
+  row:
+    | {
+        enableEndSession: boolean | null;
+        postLogoutRedirectUris: string[] | null;
+        backchannelLogoutUri: string | null;
+        backchannelLogoutSessionRequired: boolean | null;
+      }
+    | undefined,
+): OauthClientView {
+  return {
+    enableEndSession: row?.enableEndSession ?? false,
+    postLogoutRedirectUris: row?.postLogoutRedirectUris ?? [],
+    backchannelLogoutUri: row?.backchannelLogoutUri ?? null,
+    backchannelLogoutSessionRequired:
+      row?.backchannelLogoutSessionRequired ?? false,
+  };
 }
 
 async function fetchOauthClientView(slug: string): Promise<OauthClientView> {
   const [row] = await db
-    .select({
-      enableEndSession: oauthClient.enableEndSession,
-      postLogoutRedirectUris: oauthClient.postLogoutRedirectUris,
-    })
+    .select(oauthClientViewFields)
     .from(oauthClient)
     .where(eq(oauthClient.clientId, slug))
     .limit(1);
-  return {
-    // Historical rows may have `enable_end_session = NULL`; treat absence as
-    // disabled so the API never silently exposes a feature the operator did
-    // not opt into.
-    enableEndSession: row?.enableEndSession ?? false,
-    postLogoutRedirectUris: row?.postLogoutRedirectUris ?? [],
-  };
+  return toOauthClientView(row);
 }
 
 async function fetchOauthClientViews(
@@ -94,22 +125,26 @@ async function fetchOauthClientViews(
 ): Promise<Map<string, OauthClientView>> {
   if (slugs.length === 0) return new Map();
   const rows = await db
-    .select({
-      clientId: oauthClient.clientId,
-      enableEndSession: oauthClient.enableEndSession,
-      postLogoutRedirectUris: oauthClient.postLogoutRedirectUris,
-    })
+    .select({ clientId: oauthClient.clientId, ...oauthClientViewFields })
     .from(oauthClient)
     .where(inArray(oauthClient.clientId, slugs));
-  return new Map(
-    rows.map((r) => [
-      r.clientId,
-      {
-        enableEndSession: r.enableEndSession ?? false,
-        postLogoutRedirectUris: r.postLogoutRedirectUris ?? [],
-      },
-    ]),
-  );
+  return new Map(rows.map((r) => [r.clientId, toOauthClientView(r)]));
+}
+
+/**
+ * Columns an application create/update writes to the `oauth_client` row for the
+ * back-channel logout feature. Defined once so the insert and the response
+ * cannot disagree on the null/false sentinels.
+ */
+function backchannelLogoutValues(data: {
+  backchannelLogoutUri?: string | null;
+  backchannelLogoutSessionRequired?: boolean;
+}) {
+  return {
+    backchannelLogoutUri: data.backchannelLogoutUri ?? null,
+    backchannelLogoutSessionRequired:
+      data.backchannelLogoutSessionRequired ?? false,
+  };
 }
 
 function mergeOauthView<T extends { slug: string }>(
@@ -209,6 +244,19 @@ const allowedResourcesSchema = z
   .array(z.string().url())
   .transform((list) => [...new Set(list)]);
 
+// Only providers the service actually registers with BetterAuth can be
+// assigned; a button for an unwired provider would fail at sign-in.
+const socialProviderSchema = z.enum(["google", "github"]);
+
+// The OIDC Back-Channel Logout endpoint must be reachable over TLS: a logout
+// token is a credential and travelling over plaintext would leak it.
+const backchannelLogoutUriSchema = z
+  .string()
+  .url()
+  .refine((value) => value.startsWith("https://"), {
+    message: "must be an https URL",
+  });
+
 const createAppSchema = z.object({
   name: z.string().min(1).max(100),
   slug: z
@@ -232,26 +280,43 @@ const createAppSchema = z.object({
   // Whitelist of URLs that may be passed as `post_logout_redirect_uri` to
   // the end-session endpoint. Empty array = no post-logout redirect allowed.
   postLogoutRedirectUris: z.array(z.string().url()).default([]),
+  // OIDC Back-Channel Logout 1.0. When set, ending a session POSTs a signed
+  // logout token to this endpoint so the application can drop its local
+  // session. null = the application does not support back-channel logout.
+  backchannelLogoutUri: backchannelLogoutUriSchema.nullable().optional(),
+  // When true, the logout token carries `sid` and the application must reject
+  // tokens whose `sid` does not match an active session (spec §2.8).
+  backchannelLogoutSessionRequired: z.boolean().default(false),
   url: z.string().url().optional().nullable(),
   // Protected resources (other applications' URLs, e.g. the LiteLLM gateway)
   // this application may request access tokens for (RFC 8707 `resource`).
   allowedResources: allowedResourcesSchema.default([]),
   icon: z.string().optional().nullable(),
-  enabledSocialProviders: z
-    .array(z.enum(["google", "github", "linkedin", "microsoft", "apple"]))
-    .nullable()
-    .optional(),
+  enabledSocialProviders: z.array(socialProviderSchema).nullable().optional(),
   metadata: metadataSchema.optional().default({}),
 });
 
-// `allowedResources` is re-declared without its create-time default: a partial
-// update that omits it must leave the stored list untouched.
+// Fields that carry a create-time default must be re-declared `.optional()`:
+// Zod's `.partial()` keeps a field's `.default()`, so a partial update that
+// omits one would otherwise parse to the default and silently reset the stored
+// value (e.g. a PATCH that only renames an application turning off
+// `allowRegister`, `enableEndSession` or `backchannelLogoutSessionRequired`).
 const updateAppSchema = createAppSchema
   .partial()
   .omit({ slug: true, isPublic: true })
   .extend({
-    allowedResources: allowedResourcesSchema.optional(),
+    isActive: z.boolean().optional(),
     isSystem: z.boolean().optional(),
+    skipConsent: z.boolean().optional(),
+    isMfaRequired: z.boolean().optional(),
+    allowRegister: z.boolean().optional(),
+    allowedScopes: z.array(z.string()).optional(),
+    redirectUris: z.array(z.string().url()).optional(),
+    enableEndSession: z.boolean().optional(),
+    postLogoutRedirectUris: z.array(z.string().url()).optional(),
+    backchannelLogoutSessionRequired: z.boolean().optional(),
+    allowedResources: allowedResourcesSchema.optional(),
+    metadata: metadataSchema.optional(),
   });
 
 const grantUserAccessSchema = z.object({
@@ -315,13 +380,7 @@ export async function applicationRoutes(
       .orderBy(applications.createdAt);
     const views = await fetchOauthClientViews(rows.map((r) => r.slug));
     const enriched = rows.map((r) =>
-      mergeOauthView(
-        r,
-        views.get(r.slug) ?? {
-          enableEndSession: false,
-          postLogoutRedirectUris: [],
-        },
-      ),
+      mergeOauthView(r, views.get(r.slug) ?? toOauthClientView(undefined)),
     );
     await reply.send({ applications: enriched });
   });
@@ -403,6 +462,7 @@ export async function applicationRoutes(
           data.postLogoutRedirectUris,
           data.url,
         ),
+        ...backchannelLogoutValues(data),
         // OAuth 2.1 client metadata. Web clients that hold a secret use
         // client_secret_basic and may use the client_credentials grant; public
         // clients (SPAs) use `none` and are limited to the authorization code
@@ -514,6 +574,7 @@ export async function applicationRoutes(
           data.postLogoutRedirectUris,
           data.url,
         ),
+        ...backchannelLogoutValues(data),
       }),
       clientId: data.slug,
     };
@@ -589,16 +650,20 @@ export async function applicationRoutes(
       before.allowedResources,
     );
 
-    // `enableEndSession` and `postLogoutRedirectUris` live exclusively on the
-    // BetterAuth `oauthClient` row, not on `applications` \u2014 strip them before
-    // updating the application table.
+    // `enableEndSession`, `postLogoutRedirectUris` and the back-channel logout
+    // settings live exclusively on the BetterAuth `oauthClient` row, not on
+    // `applications` — strip them before updating the application table.
     const {
       enableEndSession: _ees,
       postLogoutRedirectUris: _plru,
+      backchannelLogoutUri: _bclu,
+      backchannelLogoutSessionRequired: _bclsr,
       ...applicationData
     } = parsed.data;
     void _ees;
     void _plru;
+    void _bclu;
+    void _bclsr;
 
     const [app] = await db
       .update(applications)
@@ -635,6 +700,11 @@ export async function applicationRoutes(
       oauthUpdate.enableEndSession = parsed.data.enableEndSession;
     if (parsed.data.postLogoutRedirectUris !== undefined)
       oauthUpdate.postLogoutRedirectUris = parsed.data.postLogoutRedirectUris;
+    if (parsed.data.backchannelLogoutUri !== undefined)
+      oauthUpdate.backchannelLogoutUri = parsed.data.backchannelLogoutUri;
+    if (parsed.data.backchannelLogoutSessionRequired !== undefined)
+      oauthUpdate.backchannelLogoutSessionRequired =
+        parsed.data.backchannelLogoutSessionRequired;
 
     if (Object.keys(oauthUpdate).length > 0) {
       await db
@@ -1067,6 +1137,9 @@ export async function applicationRoutes(
 
         // Revoking access must also burn the user's OAuth refresh tokens for
         // this app, otherwise they keep minting access tokens indefinitely.
+        // Scoped to one app by design: it must not end the shared SSO session.
+        // No back-channel logout is sent here — that fires on session end —
+        // so the application learns at the next refresh attempt.
         if (parsed.data.isActive === false) {
           const [app] = await db
             .select({ slug: applications.slug })
@@ -1227,9 +1300,7 @@ export async function applicationRoutes(
 
   // PATCH /api/admin/applications/:id/providers — update per-app social providers
   const updateProvidersSchema = z.object({
-    enabledSocialProviders: z
-      .array(z.enum(["google", "github", "linkedin", "microsoft", "apple"]))
-      .nullable(),
+    enabledSocialProviders: z.array(socialProviderSchema).nullable(),
   });
 
   fastify.patch<{ Params: { id: string } }>(

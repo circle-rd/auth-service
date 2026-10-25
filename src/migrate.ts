@@ -7,20 +7,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Apply pending Drizzle migrations at startup. The migrations folder is the
- * single source of truth: until the first production deploy the consolidated
- * baseline is regenerated (see AGENTS.md §8), so no history reconciliation is
- * needed here — a fresh database simply applies the baseline in one go.
+ * single source of truth: until the first production deploy a schema change is
+ * either inlined into the consolidated `0000` baseline or shipped as a normal
+ * delta (AGENTS.md §8 allows both), so no history reconciliation is needed
+ * here — a fresh database applies whatever the folder contains, in order.
  */
 export async function runMigrations(): Promise<void> {
   const migrationsFolder = join(__dirname, "..", "drizzle");
   try {
     await migrate(db, { migrationsFolder });
   } catch (err) {
-    // The consolidated baseline is regenerated until the first production
-    // deploy (AGENTS.md §8). An already-initialised database still carries the
-    // previous baseline hash, so Drizzle re-runs the baseline and hits an
-    // "already exists" error. Surface a clear instruction instead of a raw
-    // Postgres error.
+    // A database initialised before the baseline was last regenerated still
+    // carries the previous baseline hash, so Drizzle re-runs the baseline and
+    // hits an "already exists" error. Surface a clear instruction instead of a
+    // raw Postgres error.
     if (err instanceof Error && /already exists/i.test(err.message)) {
       throw new Error(
         "Migrations failed: the database schema already exists but is not " +

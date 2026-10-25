@@ -345,6 +345,37 @@ export const loginHistory = pgTable(
   ],
 );
 
+// ── Registration Invitations ──────────────────────────────────────────────────
+// An administrator grants one person the right to create an account for one
+// application even though self-registration is closed. The token is emailed as
+// a link, stored only as a hash, single-use (`consumedAt`) and time-limited
+// (`expiresAt`). Redemption creates the account with a verified address, then
+// grants application access — the admin has vouched for the person.
+export const registrationInvitations = pgTable(
+  "registration_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    // SHA-256 (base64url) of the emailed token; the plaintext is never stored.
+    tokenHash: text("token_hash").notNull(),
+    invitedByUserId: text("invited_by_user_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("registration_invitations_token_hash_idx").on(t.tokenHash),
+    index("registration_invitations_email_idx").on(t.email),
+    index("registration_invitations_app_idx").on(t.applicationId),
+  ],
+);
+
 // ── Stripe Events ─────────────────────────────────────────────────────────────
 // Idempotency ledger keyed by the Stripe event id. A webhook event is recorded
 // before it is handled; Stripe's at-least-once retries are then deduplicated

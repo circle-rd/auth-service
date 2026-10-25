@@ -1,0 +1,19 @@
+---
+subject: You're invited to create your <%= it.appName %> account
+---
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;color:#09090b;">Create your account</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#3f3f46;"><% if (it.inviterName) { %><strong><%= it.inviterName %></strong> has arranged<% } else { %>An administrator has arranged<% } %> access to <strong><%= it.appName %></strong> for this email address. No account exists yet — use the link below to create one.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0;"><tr><td align="center" style="border-radius:8px;background-color:#2563eb;"><a href="<%= it.url %>" style="display:inline-block;padding:12px 26px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">Create your account</a></td></tr></table>
+<p style="margin:16px 0 0;font-size:13px;line-height:1.6;color:#71717a;">This link is valid for <%= it.expiresInHours %> hours and can be used once. If the button doesn't work, copy and paste this URL into your browser:<br /><a href="<%= it.url %>" style="color:#2563eb;text-decoration:none;word-break:break-all;"><%= it.url %></a></p>
+<p style="margin:20px 0 0;font-size:13px;line-height:1.6;color:#71717a;">If you weren't expecting this email, you can safely ignore it.</p>
+===TEXT===
+Create your account on <%= it.appName %>
+
+<% if (it.inviterName) { %><%= it.inviterName %> has arranged<% } else { %>An administrator has arranged<% } %>
+access to <%= it.appName %> for this email address. No account exists yet —
+use the link below to create one:
+
+  <%= it.url %>
+
+This link is valid for <%= it.expiresInHours %> hours and can be used once.
+If you weren't expecting this email, you can safely ignore it.

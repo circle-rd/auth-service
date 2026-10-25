@@ -1,14 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { fromNodeHeaders } from "better-auth/node";
-import { generateId } from "better-auth";
 import { hashPassword } from "better-auth/crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import { z } from "zod";
 import { auth } from "../auth.js";
 import { db } from "../db/index.js";
-import { account, user as userTable } from "../db/auth-schema.js";
 import { logger } from "../logger.js";
 import { encodeLegacyHash, legacyHashSchema } from "./legacy-password.js";
+import { insertCredentialUser } from "./credential-user.js";
 
 // Identifier of the account at the provider the user comes from, kept as the
 // token `sub` so applications keyed on it need no mapping (`00u…`,
@@ -81,8 +80,6 @@ const needsSuperadmin = (row: ImportRow) =>
  * directly, in one transaction.
  */
 async function createTrustedUser(row: ImportRow, email: string) {
-  const id = row.id ?? generateId();
-  const now = new Date();
   let temporaryPassword: string | undefined;
   let stored: string;
   if (row.passwordHash) {
@@ -94,23 +91,13 @@ async function createTrustedUser(row: ImportRow, email: string) {
     stored = await hashPassword(temporaryPassword);
   }
   await db.transaction(async (tx) => {
-    await tx.insert(userTable).values({
-      id,
+    await insertCredentialUser(tx, {
+      id: row.id,
       name: row.name,
       email,
       emailVerified: row.emailVerified ?? false,
       role: row.role,
-      createdAt: now,
-      updatedAt: now,
-    });
-    await tx.insert(account).values({
-      id: generateId(),
-      accountId: id,
-      providerId: "credential",
-      userId: id,
-      password: stored,
-      createdAt: now,
-      updatedAt: now,
+      storedPasswordHash: stored,
     });
   });
   return temporaryPassword;

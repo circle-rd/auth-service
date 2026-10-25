@@ -322,4 +322,114 @@ describe("renderAuthPage", () => {
       expect(html).toContain("const allowRegister = true");
     });
   });
+
+  describe("error page", () => {
+    const errorVars = {
+      actionUrl: "",
+      redirectTo: "",
+      appSlug: "",
+      authUrl: "https://auth.example.com",
+    };
+
+    it("renders the copy for a known error code", () => {
+      const html = renderAuthPage(
+        "error",
+        { ...errorVars, errorCode: "REGISTRATION_CLOSED" },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).toContain("Registration is not available");
+      expect(html).toContain("Registration closed");
+      expect(html).toContain("Back to sign in");
+    });
+
+    it("falls back to neutral copy for an unknown code", () => {
+      const html = renderAuthPage(
+        "error",
+        { ...errorVars, errorCode: "some_unexpected_value" },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).toContain("Something went wrong");
+    });
+
+    it("HTML-escapes the provider error description", () => {
+      const html = renderAuthPage(
+        "error",
+        {
+          ...errorVars,
+          errorCode: "access_denied",
+          errorDescription: '<script>alert("x")</script>',
+        },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).not.toContain("<script>alert");
+      expect(html).toContain("&lt;script&gt;");
+    });
+
+    it("honours a per-application override of the error page", () => {
+      const dir = mkdtempSync(join(tmpdir(), "auth-pages-test-"));
+      try {
+        mkdirSync(join(dir, "my-app"), { recursive: true });
+        writeFileSync(
+          join(dir, "my-app", "error.html"),
+          "<p>custom <%= it.ERROR_HEADING %></p>",
+        );
+
+        const html = renderAuthPage(
+          "error",
+          { ...errorVars, appSlug: "my-app", errorCode: "access_denied" },
+          "my-app",
+          dir,
+        );
+
+        expect(html).toContain("custom Access denied");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("social provider variables", () => {
+    it("exposes the narrowed and full provider lists separately", () => {
+      const html = renderAuthPage(
+        "login",
+        {
+          actionUrl: "/api/auth/sign-in/email",
+          redirectTo: "/",
+          appSlug: "",
+          authUrl: "https://auth.example.com",
+          socialProvidersJson: JSON.stringify(["github"]),
+          socialProvidersAllJson: JSON.stringify(["github", "google"]),
+        },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).toContain('["github"]');
+      expect(html).toContain('["github","google"]');
+    });
+
+    it("defaults the full list to the narrowed list when omitted", () => {
+      const html = renderAuthPage(
+        "login",
+        {
+          actionUrl: "/api/auth/sign-in/email",
+          redirectTo: "/",
+          appSlug: "",
+          authUrl: "https://auth.example.com",
+          socialProvidersJson: JSON.stringify(["google"]),
+        },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).toContain('["google"]');
+      expect(html).not.toContain("SOCIAL_PROVIDERS_ALL_JSON");
+    });
+  });
 });

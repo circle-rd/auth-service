@@ -164,6 +164,13 @@
     .btn-social:hover:not(:disabled) { border-color: var(--border-focus); }
     .btn-social:disabled { opacity: .5; cursor: not-allowed; }
     .btn-social svg { flex-shrink: 0; }
+    .social-more {
+      display: block; width: 100%; margin-top: .5rem; padding: .375rem;
+      background: none; border: none; cursor: pointer;
+      font: inherit; font-size: .8125rem; color: var(--text-muted);
+      text-align: center; border-radius: var(--radius);
+    }
+    .social-more:hover { color: var(--primary); }
 
     /* ── OTP (6 digits split 3+3) ───────────────────────────────────────── */
     .otp-group {
@@ -569,12 +576,15 @@
       apple:     { label: 'Continue with Apple',     icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>' },
     };
     const socialProviders = (() => { try { return JSON.parse('<%~ it.SOCIAL_PROVIDERS_JSON %>'); } catch { return []; } })();
-    if (socialProviders.length > 0) {
+    // The full allow-list, so the last-used provider is offered first without
+    // locking a returning user out of the other options.
+    const allSocialProviders = (() => { try { return JSON.parse('<%~ it.SOCIAL_PROVIDERS_ALL_JSON %>'); } catch { return []; } })();
+    if (allSocialProviders.length > 0) {
       const sec = document.getElementById('social-section');
       sec.innerHTML = '<div class="divider"><span>or continue with</span></div><div class="social-buttons" id="social-buttons"></div>';
       const container = document.getElementById('social-buttons');
-      socialProviders.forEach(provider => {
-        const cfg = PROVIDER_CONFIG[provider]; if (!cfg) return;
+      const makeButton = (provider) => {
+        const cfg = PROVIDER_CONFIG[provider]; if (!cfg) return null;
         const btn = document.createElement('button');
         btn.type = 'button'; btn.className = 'btn-social'; btn.dataset.provider = provider;
         btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>';
@@ -602,8 +612,19 @@
             btn.innerHTML = cfg.icon + '<span>' + cfg.label + '</span>';
           }
         });
-        container.appendChild(btn);
-      });
+        return btn;
+      };
+      socialProviders.forEach(provider => { const b = makeButton(provider); if (b) container.appendChild(b); });
+      const hidden = allSocialProviders.filter(p => !socialProviders.includes(p));
+      if (hidden.length > 0) {
+        const more = document.createElement('button');
+        more.type = 'button'; more.className = 'social-more'; more.textContent = 'More sign-in options';
+        more.addEventListener('click', () => {
+          more.remove();
+          hidden.forEach(p => { const b = makeButton(p); if (b) container.appendChild(b); });
+        });
+        container.appendChild(more);
+      }
     }
   </script>
 </body>

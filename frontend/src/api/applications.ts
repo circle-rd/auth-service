@@ -46,6 +46,13 @@ export interface CreateApplicationBody {
   /** Strict whitelist for `post_logout_redirect_uri` on /oauth2/end-session. */
   postLogoutRedirectUris?: string[]
   /**
+   * OIDC Back-Channel Logout 1.0 endpoint (https). When set, ending a session
+   * POSTs a signed logout token there so the app can drop its local session.
+   */
+  backchannelLogoutUri?: string | null
+  /** Require the logout token to carry `sid`. */
+  backchannelLogoutSessionRequired?: boolean
+  /**
    * Free-form per-application metadata. Stored as a flat string→string map
    * and surfaced inside the JWT under the `client_attrs` field for resource
    * servers (e.g. EMQX uses `client_attrs.NAME` in its ACL placeholders).
@@ -76,6 +83,8 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       enabledSocialProviders: body.enabledSocialProviders ?? null,
       enableEndSession: body.enableEndSession ?? false,
       postLogoutRedirectUris: body.postLogoutRedirectUris ?? [],
+      backchannelLogoutUri: body.backchannelLogoutUri ?? null,
+      backchannelLogoutSessionRequired: body.backchannelLogoutSessionRequired ?? false,
       metadata: body.metadata ?? {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

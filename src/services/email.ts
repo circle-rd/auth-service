@@ -106,6 +106,28 @@ export async function sendOrganizationInvitationEmail(
   );
 }
 
+export async function sendRegistrationInvitationEmail(
+  email: string,
+  args: {
+    url: string;
+    expiresInHours: number;
+    inviterName?: string;
+  },
+  appSlug?: string | null,
+): Promise<void> {
+  await sendEmail(
+    "registration-invitation",
+    email,
+    {
+      url: args.url,
+      email,
+      inviterName: args.inviterName,
+      expiresInHours: args.expiresInHours,
+    },
+    appSlug ?? null,
+  );
+}
+
 // Re-export config getter for callers that wish to display the configured
 // from-address (e.g. admin diagnostics page).
 export const smtpFrom = config.smtp.from;

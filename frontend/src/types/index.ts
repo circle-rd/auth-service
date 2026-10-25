@@ -91,6 +91,10 @@ export interface Application {
   enableEndSession: boolean
   /** Whitelist for `post_logout_redirect_uri` on the end-session endpoint. */
   postLogoutRedirectUris: string[]
+  /** OIDC Back-Channel Logout 1.0 endpoint; null when the app does not support it. */
+  backchannelLogoutUri: string | null
+  /** Require the logout token to carry `sid` (spec §2.8). */
+  backchannelLogoutSessionRequired: boolean
   createdAt: string
   updatedAt: string
 }

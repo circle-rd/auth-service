@@ -79,6 +79,25 @@ describe("Login page social providers (integration)", () => {
     expect(await providersOf("?client_id=does-not-exist")).toEqual([]);
   });
 
+  it("narrows the buttons to the last-used provider for a returning user", async () => {
+    const res = await handle.app.inject({
+      method: "GET",
+      url: "/login?client_id=inherits",
+      headers: { cookie: "better-auth.last_used_login_method=github" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body.trim())).toEqual(["github"]);
+  });
+
+  it("keeps the full list when the last-used method is not a social provider", async () => {
+    const res = await handle.app.inject({
+      method: "GET",
+      url: "/login?client_id=inherits",
+      headers: { cookie: "better-auth.last_used_login_method=email" },
+    });
+    expect(JSON.parse(res.body.trim())).toEqual(["google", "github"]);
+  });
+
   it("sends an application's pages back to its own sign-in, not the service's", async () => {
     const link = async (query: string) =>
       (await handle.app.inject({ method: "GET", url: `/verify-email${query}` })).body.trim();

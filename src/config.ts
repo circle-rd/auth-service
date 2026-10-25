@@ -105,7 +105,7 @@ const envSchema = z
     // outbound call on every password write.
     HAVEIBEENPWNED_ENABLED: envBoolean(false),
     // Cookie-based "last used sign-in method" hint. No database column needed.
-    LAST_LOGIN_METHOD_ENABLED: envBoolean(false),
+    LAST_LOGIN_METHOD_ENABLED: envBoolean(true),
     // OAuth 2.0 Device Authorization Grant (RFC 8628). Adds the `deviceCode`
     // table and /device approval page; opt-in because it widens the schema.
     DEVICE_AUTHORIZATION_ENABLED: envBoolean(false),

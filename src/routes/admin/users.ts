@@ -411,6 +411,13 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         headers: fromNodeHeaders(req.headers),
         body: { userId: req.params.id },
       });
+      // Ending every session is what makes the ban effective: deleting the
+      // session rows also drives the OAuth provider's session-delete hook,
+      // which revokes the session-bound tokens and posts a back-channel logout
+      // to each relying party. `revokeAllUserTokens` then clears what session
+      // deletion deliberately spares (offline_access refresh tokens).
+      const authCtx = await auth.$context;
+      await authCtx.internalAdapter.deleteUserSessions(req.params.id);
       // A ban must also invalidate the user's OAuth tokens so an existing
       // refresh token cannot keep issuing access tokens.
       await revokeAllUserTokens(req.params.id);

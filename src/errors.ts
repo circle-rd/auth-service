@@ -43,6 +43,11 @@ export const ERR = {
     new ApiError(409, "AUTH_010", msg),
   AUTH_011: (msg = "Insufficient permissions") =>
     new ApiError(403, "AUTH_011", msg),
+  AUTH_012: (
+    msg = "Invalid, expired or already used registration invitation",
+  ) => new ApiError(400, "AUTH_012", msg),
+  AUTH_013: (msg = "An account already exists for this email") =>
+    new ApiError(409, "AUTH_013", msg),
 
   // ── APP ───────────────────────────────────────────────────────────────────
   APP_001: (msg = "Invalid application data", details?: unknown) =>

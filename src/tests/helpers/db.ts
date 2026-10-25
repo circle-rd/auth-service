@@ -32,6 +32,7 @@ export async function cleanDb(): Promise<void> {
       consumption_aggregates,
       consumption_entries,
       user_applications,
+      registration_invitations,
       applications,
       login_history,
       invitation,

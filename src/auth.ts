@@ -381,6 +381,12 @@ export const auth = betterAuth({
     : {}),
   // Disable built-in /token route — /oauth2/token is used instead
   disabledPaths: ["/token"],
+  // Browser-facing errors that cannot be redirected back to a relying party
+  // (no trusted `redirect_uri`) land on our templated error page instead of the
+  // plugin's bare default. The route is registered in `src/server.ts`.
+  onAPIError: {
+    errorURL: `${config.betterAuth.url}/error`,
+  },
   // Social login providers — only enabled when both CLIENT_ID and CLIENT_SECRET are set.
   // `disableImplicitSignUp`: a first social sign-in creates an account only when
   // the `before` hook below sets `requestSignUp` for an application that allows

@@ -71,6 +71,18 @@ CREATE TABLE "login_history" (
 	"user_agent" text
 );
 --> statement-breakpoint
+CREATE TABLE "registration_invitations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"email" text NOT NULL,
+	"application_id" uuid NOT NULL,
+	"token_hash" text NOT NULL,
+	"invited_by_user_id" text NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"consumed_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "stripe_events" (
 	"id" text PRIMARY KEY NOT NULL,
 	"type" text NOT NULL,
@@ -462,6 +474,7 @@ ALTER TABLE "app_roles" ADD CONSTRAINT "app_roles_application_id_applications_id
 ALTER TABLE "consumption_aggregates" ADD CONSTRAINT "consumption_aggregates_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "consumption_entries" ADD CONSTRAINT "consumption_entries_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "login_history" ADD CONSTRAINT "login_history_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "registration_invitations" ADD CONSTRAINT "registration_invitations_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plan_prices" ADD CONSTRAINT "subscription_plan_prices_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plans" ADD CONSTRAINT "subscription_plans_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -503,6 +516,9 @@ CREATE UNIQUE INDEX "applications_slug_idx" ON "applications" USING btree ("slug
 CREATE INDEX "consumption_entries_user_app_key_idx" ON "consumption_entries" USING btree ("user_id","application_id","key");--> statement-breakpoint
 CREATE INDEX "login_history_user_logged_idx" ON "login_history" USING btree ("user_id","logged_at");--> statement-breakpoint
 CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("application_id","logged_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "registration_invitations_token_hash_idx" ON "registration_invitations" USING btree ("token_hash");--> statement-breakpoint
+CREATE INDEX "registration_invitations_email_idx" ON "registration_invitations" USING btree ("email");--> statement-breakpoint
+CREATE INDEX "registration_invitations_app_idx" ON "registration_invitations" USING btree ("application_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_user_app_created_idx" ON "user_subscription_events" USING btree ("user_id","application_id","created_at");--> statement-breakpoint

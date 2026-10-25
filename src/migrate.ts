@@ -6,11 +6,11 @@ import { db } from "./db/index.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Apply pending Drizzle migrations at startup. The migrations folder is the
- * single source of truth: until the first production deploy a schema change is
- * either inlined into the consolidated `0000` baseline or shipped as a normal
- * delta (AGENTS.md §8 allows both), so no history reconciliation is needed
- * here — a fresh database applies whatever the folder contains, in order.
+ * Apply pending migrations at startup. The migrations folder is the single
+ * source of truth: until the first production deploy the consolidated `0000`
+ * baseline is regenerated from the schema and no delta migration is shipped
+ * (see AGENTS.md §8), so no history reconciliation is needed here — a fresh
+ * database applies the baseline in one go.
  */
 export async function runMigrations(): Promise<void> {
   const migrationsFolder = join(__dirname, "..", "drizzle");

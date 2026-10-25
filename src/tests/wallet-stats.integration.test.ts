@@ -113,6 +113,16 @@ describe("getUserSpendStats", () => {
     expect((await getUserSpendStats(id, 7)).total).toBe("4000");
   });
 
+  it("reports the unbilled share of the spend (unlimited accounts)", async () => {
+    const id = await newAccount("u1");
+    await row(id, { amount: -4_000n, at: daysAgo(0), unlimited: true });
+    await row(id, { amount: -1_000n, at: daysAgo(1) });
+    await row(id, { amount: -900n, at: daysAgo(30), unlimited: true });
+    const stats = await getUserSpendStats(id, 7);
+    expect(stats.total).toBe("5000");
+    expect(stats.notBilled).toBe("4000");
+  });
+
   it("breaks the spend down by application and by kind", async () => {
     const id = await newAccount("u1");
     const [chat] = await db.insert(applications).values({ name: "Chat", slug: "chat" }).returning({ id: applications.id });
@@ -176,13 +186,19 @@ describe("getAdminWalletStats", () => {
 
   it("reports spend and top-up series with their totals", async () => {
     const a = await newAccount("u1");
+    const b = await newAccount("u2");
     await row(a, { amount: -400n, at: daysAgo(0) });
     await row(a, { amount: -100n, at: daysAgo(1) });
+    await row(b, { amount: -250n, at: daysAgo(1), unlimited: true });
     await row(a, { type: "topup", amount: 10_000n, at: daysAgo(1) });
     await row(a, { type: "grant", amount: 5_000n, at: daysAgo(1) });
 
     const stats = await getAdminWalletStats(7);
-    expect(stats.spend).toMatchObject({ total: "500", calls: 2 });
+    expect(stats.spend).toMatchObject({
+      total: "750",
+      notBilled: "250",
+      calls: 3,
+    });
     expect(stats.spend.series).toHaveLength(7);
     expect(stats.topUps).toMatchObject({ total: "10000", count: 1 });
   });

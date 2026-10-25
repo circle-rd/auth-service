@@ -17,6 +17,12 @@ const { fmt } = useMoney();
 const stats = ref<AdminWalletStats | null>(null);
 const failed = ref(false);
 
+function dashboardSpendSub(s: AdminWalletStats): string {
+  const calls = t('wallet.spend.calls', { count: s.spend.calls });
+  if (BigInt(s.spend.notBilled) === 0n) return calls;
+  return `${calls} · ${t('wallet.spend.notBilled', { amount: fmt(s.spend.notBilled) })}`;
+}
+
 async function refresh(): Promise<void> {
   try {
     stats.value = await getWalletStats(DAYS);
@@ -57,7 +63,7 @@ onUnmounted(() => {
       <StatCard
         :label="t('wallet.dashboard.spend', { days: DAYS })"
         :value="stats ? fmt(stats.spend.total) : ''"
-        :sub="stats ? t('wallet.spend.calls', { count: stats.spend.calls }) : ''"
+        :sub="stats ? dashboardSpendSub(stats) : ''"
         :loading="!stats"
         :icon="Coins"
       />

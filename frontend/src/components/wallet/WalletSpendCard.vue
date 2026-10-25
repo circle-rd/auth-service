@@ -24,6 +24,9 @@ const { fmt } = useMoney();
       <div v-if="stats" class="text-right">
         <p class="text-xl font-semibold tabular-nums text-surface-50">{{ fmt(stats.total) }}</p>
         <p class="text-xs text-surface-500">{{ t('wallet.spend.calls', { count: stats.calls }) }}</p>
+        <p v-if="BigInt(stats.notBilled) > 0n" class="text-xs text-primary-400" data-testid="wallet-spend-not-billed">
+          {{ t('wallet.spend.notBilled', { amount: fmt(stats.notBilled) }) }}
+        </p>
       </div>
     </div>
 

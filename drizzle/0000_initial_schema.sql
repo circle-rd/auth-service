@@ -43,6 +43,16 @@ CREATE TABLE "applications" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "billing_customers" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"owner_type" text NOT NULL,
+	"owner_id" text NOT NULL,
+	"stripe_customer_id" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "billing_customers_owner_type_check" CHECK ("billing_customers"."owner_type" IN ('user', 'org'))
+);
+--> statement-breakpoint
 CREATE TABLE "consumption_aggregates" (
 	"user_id" text NOT NULL,
 	"application_id" uuid NOT NULL,
@@ -513,6 +523,8 @@ ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN 
 CREATE UNIQUE INDEX "app_permissions_app_resource_action_idx" ON "app_permissions" USING btree ("application_id","resource","action");--> statement-breakpoint
 CREATE UNIQUE INDEX "app_roles_app_name_idx" ON "app_roles" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "applications_slug_idx" ON "applications" USING btree ("slug");--> statement-breakpoint
+CREATE UNIQUE INDEX "billing_customers_owner_idx" ON "billing_customers" USING btree ("owner_type","owner_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "billing_customers_stripe_idx" ON "billing_customers" USING btree ("stripe_customer_id");--> statement-breakpoint
 CREATE INDEX "consumption_entries_user_app_key_idx" ON "consumption_entries" USING btree ("user_id","application_id","key");--> statement-breakpoint
 CREATE INDEX "login_history_user_logged_idx" ON "login_history" USING btree ("user_id","logged_at");--> statement-breakpoint
 CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("application_id","logged_at");--> statement-breakpoint

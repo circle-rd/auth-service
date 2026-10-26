@@ -109,6 +109,10 @@ export const ERR = {
   CONS_005: (msg = "Invalid consumption identifier", details?: unknown) =>
     new ApiError(400, "CONS_005", msg, details),
 
+  // ── BIL ───────────────────────────────────────────────────────────────────
+  BIL_001: (msg = "Billing is not configured") =>
+    new ApiError(503, "BIL_001", msg),
+
   // ── WAL ───────────────────────────────────────────────────────────────────
   WAL_001: (msg = "Wallet account not found") =>
     new ApiError(404, "WAL_001", msg),

@@ -1,4 +1,5 @@
 import type { walletAccounts, walletTransactions } from "../../db/schema.js";
+import type { OwnerType } from "../owners.js";
 
 /** 1 EUR in the ledger unit (integer micro-euros). */
 export const MICRO_PER_EUR = 1_000_000n;
@@ -18,7 +19,7 @@ export const WALLET_TRANSACTION_TYPES = [
 /** Operations that record something already done: they may overdraw. */
 export const NEGATIVE_BALANCE_TYPES: readonly string[] = ["usage", "reversal"];
 
-export type WalletOwnerType = "user" | "org";
+export type WalletOwnerType = OwnerType;
 export type WalletCreditType = "topup" | "grant" | "refund" | "adjust";
 export type WalletDebitType = "usage" | "adjust" | "reversal";
 

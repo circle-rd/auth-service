@@ -388,6 +388,35 @@ export const stripeEvents = pgTable("stripe_events", {
     .notNull(),
 });
 
+// ── Billing Customers ─────────────────────────────────────────────────────────
+// Maps an owner (a user today, an organization later) to its Stripe Customer.
+// Created lazily the first time the owner starts a paid flow, so the Stripe
+// account needs no manual setup. `owner_id` carries no FK on purpose, exactly
+// like `wallet_accounts`: the column is polymorphic.
+export const billingCustomers = pgTable(
+  "billing_customers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerType: text("owner_type").notNull(),
+    ownerId: text("owner_id").notNull(),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("billing_customers_owner_idx").on(t.ownerType, t.ownerId),
+    uniqueIndex("billing_customers_stripe_idx").on(t.stripeCustomerId),
+    check(
+      "billing_customers_owner_type_check",
+      sql`${t.ownerType} IN ('user', 'org')`,
+    ),
+  ],
+);
+
 // ── Wallet Accounts ───────────────────────────────────────────────────────────
 // Prepaid credit shared by every application. Amounts are integer micro-euros
 // (1 EUR = 1_000_000): tokens and tool calls are priced into the same balance

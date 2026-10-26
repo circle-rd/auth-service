@@ -24,6 +24,21 @@ export type SubscriptionChangeSource = "admin" | "self" | "default" | "stripe";
 
 export type SubscriptionAction = "assigned" | "changed" | "removed";
 
+/**
+ * Stripe state to persist alongside a subscription. Every field is optional so
+ * an event that only knows part of the state (an invoice, say) never clears a
+ * field it did not read: `undefined` leaves the column untouched, while `null`
+ * clears it.
+ */
+export interface StripeSubscriptionState {
+  stripeSubscriptionId?: string;
+  stripeStatus?: string | null;
+  currentPeriodStart?: Date | null;
+  currentPeriodEnd?: Date | null;
+  cancelAtPeriodEnd?: boolean;
+  canceledAt?: Date | null;
+}
+
 export interface SetUserSubscriptionInput {
   userId: string;
   applicationId: string;
@@ -35,6 +50,10 @@ export interface SetUserSubscriptionInput {
   reason?: string | null;
   /** Optional expiry. Left untouched on a change when omitted. */
   expiresAt?: Date | null;
+  /** Entitlement state when a plan is set; defaults to active. */
+  isActive?: boolean;
+  /** Stripe linkage; present only for `source: "stripe"`. */
+  stripe?: StripeSubscriptionState;
 }
 
 export interface SubscriptionChange {
@@ -114,25 +133,53 @@ function sameInstant(
   return (a ? a.getTime() : null) === (b ? b.getTime() : null);
 }
 
+type SubscriptionColumns = Partial<typeof userSubscriptions.$inferInsert>;
+
+/** Only the Stripe columns the caller actually supplied (see the input docs). */
+function stripeColumns(
+  stripe: StripeSubscriptionState | undefined,
+): SubscriptionColumns {
+  if (!stripe) return {};
+  const out: SubscriptionColumns = {};
+  if (stripe.stripeSubscriptionId !== undefined) {
+    out.stripeSubscriptionId = stripe.stripeSubscriptionId;
+  }
+  if (stripe.stripeStatus !== undefined) out.stripeStatus = stripe.stripeStatus;
+  if (stripe.currentPeriodStart !== undefined) {
+    out.currentPeriodStart = stripe.currentPeriodStart;
+  }
+  if (stripe.currentPeriodEnd !== undefined) {
+    out.currentPeriodEnd = stripe.currentPeriodEnd;
+  }
+  if (stripe.cancelAtPeriodEnd !== undefined) {
+    out.cancelAtPeriodEnd = stripe.cancelAtPeriodEnd;
+  }
+  if (stripe.canceledAt !== undefined) out.canceledAt = stripe.canceledAt;
+  return out;
+}
+
 /**
  * Persist a subscription change on an already-validated plan.
  *
- * A change that only differs in `expiresAt`, or that reactivates a de-activated
- * subscription, is an effective change: it is audited and announced even when
- * the plan id itself is unchanged.
+ * A change that only differs in `expiresAt`, or that flips the entitlement
+ * state (reactivation after a `past_due`, deactivation after a cancellation),
+ * is an effective change: it is audited and announced even when the plan id
+ * itself is unchanged.
  */
 async function applySubscriptionChange(
   current: CurrentSubscription | null,
   input: SetUserSubscriptionInput,
 ): Promise<SubscriptionChange> {
   const { userId, applicationId, planId } = input;
+  const isActive = input.isActive ?? true;
 
   const fromPlanId = current?.planId ?? null;
   const expiryChanged =
     input.expiresAt !== undefined &&
     !sameInstant(input.expiresAt, current?.expiresAt);
-  const reactivated = planId !== null && current !== null && !current.isActive;
-  const changed = fromPlanId !== planId || expiryChanged || reactivated;
+  const statusChanged =
+    planId !== null && current !== null && current.isActive !== isActive;
+  const changed = fromPlanId !== planId || expiryChanged || statusChanged;
 
   const action: SubscriptionAction | null = !changed
     ? null
@@ -153,31 +200,36 @@ async function applySubscriptionChange(
           ),
         );
     } else {
+      const stripe = stripeColumns(input.stripe);
       await tx
         .insert(userSubscriptions)
         .values({
           userId,
           applicationId,
           planId,
-          isActive: true,
+          isActive,
           expiresAt: input.expiresAt ?? null,
+          ...stripe,
         })
         .onConflictDoUpdate({
           target: [userSubscriptions.userId, userSubscriptions.applicationId],
           set: {
             planId,
-            isActive: true,
+            isActive,
             updatedAt: new Date(),
             ...(input.expiresAt !== undefined
               ? { expiresAt: input.expiresAt }
               : {}),
+            ...stripe,
           },
         });
     }
 
+    // The mirror is the "live plan" the admin UI reads: an inactive
+    // subscription must not be displayed as the user's current plan.
     await tx
       .update(userApplications)
-      .set({ subscriptionPlanId: planId })
+      .set({ subscriptionPlanId: isActive && planId !== null ? planId : null })
       .where(
         and(
           eq(userApplications.userId, userId),

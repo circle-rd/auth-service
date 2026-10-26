@@ -161,6 +161,12 @@ CREATE TABLE "user_subscriptions" (
 	"plan_id" uuid NOT NULL,
 	"expires_at" timestamp with time zone,
 	"is_active" boolean DEFAULT true NOT NULL,
+	"stripe_subscription_id" text,
+	"stripe_status" text,
+	"current_period_start" timestamp with time zone,
+	"current_period_end" timestamp with time zone,
+	"cancel_at_period_end" boolean DEFAULT false NOT NULL,
+	"canceled_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -536,6 +542,7 @@ CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USIN
 CREATE INDEX "user_subscription_events_user_app_created_idx" ON "user_subscription_events" USING btree ("user_id","application_id","created_at");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_app_created_idx" ON "user_subscription_events" USING btree ("application_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_subscriptions_user_app_idx" ON "user_subscriptions" USING btree ("user_id","application_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_subscriptions_stripe_idx" ON "user_subscriptions" USING btree ("stripe_subscription_id");--> statement-breakpoint
 CREATE INDEX "wallet_account_events_account_created_idx" ON "wallet_account_events" USING btree ("account_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_accounts_owner_idx" ON "wallet_accounts" USING btree ("owner_type","owner_id");--> statement-breakpoint
 CREATE INDEX "wallet_pricing_settings_created_idx" ON "wallet_pricing_settings" USING btree ("created_at");--> statement-breakpoint

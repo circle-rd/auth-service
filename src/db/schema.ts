@@ -212,6 +212,17 @@ export const userSubscriptions = pgTable(
       .references(() => subscriptionPlans.id, { onDelete: "restrict" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
+    // Stripe linkage (null for plan assignments made by an admin or the
+    // default-plan rule). `stripe_subscription_id` is the key used to reconcile
+    // webhook events back to the row when the metadata is missing.
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    stripeStatus: text("stripe_status"),
+    currentPeriodStart: timestamp("current_period_start", {
+      withTimezone: true,
+    }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -224,6 +235,7 @@ export const userSubscriptions = pgTable(
       t.userId,
       t.applicationId,
     ),
+    uniqueIndex("user_subscriptions_stripe_idx").on(t.stripeSubscriptionId),
   ],
 );
 

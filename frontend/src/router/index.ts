@@ -136,6 +136,20 @@ const routes = [
     meta: { requiresAdmin: false, isPublic: true, skipSessionFetch: true },
   },
   {
+    // Always server-rendered pages. Vue Router only needs to force a full page
+    // load so the browser asks Fastify for the invitation HTML.
+    path: '/accept-invitation',
+    name: 'accept-invitation',
+    component: () => import('@/views/ServerPageRedirectView.vue'),
+    meta: { requiresAdmin: false, isPublic: true, skipSessionFetch: true },
+  },
+  {
+    path: '/complete-registration',
+    name: 'complete-registration',
+    component: () => import('@/views/ServerPageRedirectView.vue'),
+    meta: { requiresAdmin: false, isPublic: true, skipSessionFetch: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),

@@ -144,6 +144,73 @@ export async function getRegistrationInvitation(
   return invitation ?? null;
 }
 
+/**
+ * Complete an application invitation for an account that was created through a
+ * social provider. The provider callback already created the user and session;
+ * this grants the application access the invitation promised and consumes the
+ * one-shot token. No organization is assigned.
+ */
+export async function acceptApplicationInvitation(opts: {
+  token: string;
+  userId: string;
+  email: string;
+}): Promise<{ applicationId: string; email: string }> {
+  const invitationRow = await findRegistrationInvitationByToken(opts.token);
+  if (!invitationRow) throw ERR.AUTH_012();
+
+  const state = invitationState(invitationRow);
+  if (state === "expired") throw ERR.AUTH_012("This invitation has expired");
+  if (state !== "pending") throw ERR.AUTH_012();
+
+  if (
+    invitationRow.email.trim().toLowerCase() !== opts.email.trim().toLowerCase()
+  ) {
+    throw ERR.AUTH_014();
+  }
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    const [consumed] = await tx
+      .update(registrationInvitations)
+      .set({ consumedAt: now })
+      .where(
+        and(
+          eq(registrationInvitations.id, invitationRow.id),
+          isNull(registrationInvitations.consumedAt),
+          isNull(registrationInvitations.revokedAt),
+          gt(registrationInvitations.expiresAt, now),
+        ),
+      )
+      .returning({ id: registrationInvitations.id });
+    if (!consumed) throw ERR.AUTH_012();
+
+    await tx
+      .insert(userApplications)
+      .values({
+        userId: opts.userId,
+        applicationId: invitationRow.applicationId,
+        isActive: true,
+      })
+      .onConflictDoNothing();
+  });
+
+  await assignDefaultRoleIfNeeded(opts.userId, invitationRow.applicationId);
+  await assignDefaultPlanIfNeeded(opts.userId, invitationRow.applicationId);
+  publishEvent("user.changed");
+  logger.info(
+    {
+      userId: opts.userId,
+      applicationId: invitationRow.applicationId,
+    },
+    "[invitation] application invitation accepted after social sign-in",
+  );
+
+  return {
+    applicationId: invitationRow.applicationId,
+    email: invitationRow.email,
+  };
+}
+
 export async function listRegistrationInvitations(opts: {
   applicationId?: string;
   limit?: number;

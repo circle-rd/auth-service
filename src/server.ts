@@ -49,6 +49,7 @@ import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
 import { registrationInvitationRoutes } from "./routes/admin/registration-invitations.js";
 import { registrationRoutes } from "./routes/registration.js";
+import { invitationPagesRoutes } from "./routes/invitation-pages.js";
 import { appConfigRoutes, socialProvidersFor } from "./routes/app-config.js";
 import { ERR } from "./errors.js";
 import { globalErrorHandler } from "./error-handler.js";
@@ -64,10 +65,6 @@ import {
   narrowSocialProvidersByLastUsed,
   parseLastUsedLoginMethod,
 } from "./services/last-login-method.js";
-import {
-  findRegistrationInvitationByToken,
-  invitationState,
-} from "./services/registration-invitations.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
 import { eq } from "drizzle-orm";
@@ -459,71 +456,6 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // ── Complete-registration page (invitation redemption) ──────────
-  // An administrator-triggered, one-shot registration link. A missing, expired,
-  // revoked or already-used token lands on the templated error page; a pending
-  // one renders the form whose POST is handled by `/api/registration/complete`.
-  fastify.get("/complete-registration", async (req, reply) => {
-    const query = req.query as Record<string, string>;
-    const token = typeof query.token === "string" ? query.token : "";
-    const appSlug = typeof query.client_id === "string" ? query.client_id : "";
-
-    const errorRedirect = (code: string) => {
-      const params = new URLSearchParams({ error: code });
-      if (appSlug) params.set("client_id", appSlug);
-      return reply.redirect(`/error?${params.toString()}`, 302);
-    };
-
-    if (!token) return errorRedirect("INVITATION_INVALID");
-
-    const invitation = await findRegistrationInvitationByToken(token);
-    if (!invitation) return errorRedirect("INVITATION_INVALID");
-    const state = invitationState(invitation);
-    if (state === "expired") return errorRedirect("INVITATION_EXPIRED");
-    if (state !== "pending") return errorRedirect("INVITATION_INVALID");
-
-    if (!config.templatesDir) {
-      if (existsSync(frontendDist)) {
-        return reply.sendFile("index.html", frontendDist);
-      }
-      return reply.status(404).send({ error: "Not found" });
-    }
-
-    const loginUrl = appSlug
-      ? `/login?client_id=${encodeURIComponent(appSlug)}`
-      : "/login";
-    try {
-      const html = renderAuthPage(
-        "complete-registration",
-        {
-          actionUrl: "/api/registration/complete",
-          redirectTo: "",
-          appSlug,
-          authUrl: config.betterAuth.url,
-          appName: config.appName,
-          logoUrl: config.appLogoUrl ?? "",
-          logoDarkUrl: config.appLogoDarkUrl ?? "",
-          email: invitation.email,
-          invitationToken: token,
-          loginUrl,
-        },
-        appSlug || null,
-        config.templatesDir,
-      );
-      return reply
-        .status(200)
-        .header("content-type", "text/html; charset=utf-8")
-        .send(html);
-    } catch (err) {
-      return sendSpaFallback(
-        reply,
-        "complete-registration",
-        appSlug || null,
-        err,
-      );
-    }
-  });
-
   // ── Organization selection page ─────────────────────────────────
   fastify.get("/select-org", async (req, reply) => {
     if (!config.templatesDir) {
@@ -742,6 +674,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(registrationInvitationRoutes, {
     prefix: "/api/admin/registration-invitations",
   });
+  await fastify.register(invitationPagesRoutes);
   await fastify.register(registrationRoutes, { prefix: "/api/registration" });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });

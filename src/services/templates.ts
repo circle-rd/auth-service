@@ -35,7 +35,8 @@ export type PageName =
   | "two-factor"
   | "device"
   | "error"
-  | "complete-registration";
+  | "complete-registration"
+  | "accept-invitation";
 
 /**
  * Path of the post-verification confirmation page, and the flows it can report.
@@ -212,6 +213,17 @@ export interface TemplateVars {
   // complete-registration page.
   email?: string;
   invitationToken?: string;
+  // Shared invitation pages (`accept-invitation`, `complete-registration`).
+  invitationKind?: "organization" | "application";
+  invitationId?: string;
+  targetName?: string;
+  inviterName?: string;
+  invitationRole?: string;
+  sessionEmail?: string;
+  sessionMatches?: boolean;
+  hasAccount?: boolean;
+  acceptUrl?: string;
+  socialUrl?: string;
 }
 
 function confirmationCopy(
@@ -297,6 +309,16 @@ export function renderAuthPage(
     ERROR_DESCRIPTION: vars.errorDescription ?? "",
     EMAIL: vars.email ?? "",
     INVITATION_TOKEN: vars.invitationToken ?? "",
+    INVITATION_KIND: vars.invitationKind ?? "",
+    INVITATION_ID: vars.invitationId ?? "",
+    TARGET_NAME: vars.targetName ?? "",
+    INVITER_NAME: vars.inviterName ?? "",
+    INVITATION_ROLE: vars.invitationRole ?? "",
+    SESSION_EMAIL: vars.sessionEmail ?? "",
+    SESSION_MATCHES: vars.sessionMatches === true,
+    HAS_ACCOUNT: vars.hasAccount === true,
+    ACCEPT_URL: vars.acceptUrl ?? "",
+    SOCIAL_URL: vars.socialUrl ?? "",
     ...errorCopy(vars.errorCode),
   };
 

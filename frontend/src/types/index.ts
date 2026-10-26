@@ -284,6 +284,17 @@ export interface Invitation {
   createdAt: string
 }
 
+export interface RegistrationInvitation {
+  id: string
+  email: string
+  applicationId: string
+  invitedByUserId: string | null
+  createdAt: string
+  expiresAt: string
+  consumedAt: string | null
+  revokedAt: string | null
+}
+
 export interface OAuthProviderConfig {
   enabled: boolean
   clientId?: string

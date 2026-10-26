@@ -25,6 +25,7 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
 import RolesPermissionsTab from '@/components/applications/RolesPermissionsTab.vue';
+import ApplicationInvitationsTab from '@/components/applications/ApplicationInvitationsTab.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
@@ -40,7 +41,7 @@ const toast = useToast();
 const services = useServicesStore();
 
 const appId = route.params.id as string;
-const activeTab = ref<'roles' | 'users' | 'plans' | 'integration' | 'consumption' | 'financial'>('roles');
+const activeTab = ref<'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial'>('roles');
 
 const app = ref<Application | null>(null);
 const roles = ref<AppRole[]>([]);
@@ -504,6 +505,7 @@ const tabs = [
   { key: 'roles', label: t('appDetail.rolesPermissions') },
   { key: 'users', label: t('appDetail.users') },
   { key: 'plans', label: t('appDetail.plans') },
+  { key: 'invitations', label: t('appDetail.invitations') },
   { key: 'integration', label: t('appDetail.integration') },
   { key: 'consumption', label: t('appDetail.consumption') },
   { key: 'financial', label: t('appDetail.financial') },
@@ -854,6 +856,8 @@ const financialKpis = computed(() => {
             </template>
           </DataTable>
         </div>
+
+        <ApplicationInvitationsTab v-if="activeTab === 'invitations'" :application-id="appId" />
 
         <div v-if="activeTab === 'plans'" class="space-y-4">
           <div class="flex justify-end">

@@ -25,9 +25,11 @@ import {
   registrationInvitations,
   userApplications,
 } from "../db/schema.js";
-import { user as userTable } from "../db/auth-schema.js";
+import { hashPassword } from "better-auth/crypto";
+import { member, user as userTable } from "../db/auth-schema.js";
+import { insertCredentialUser } from "../services/credential-user.js";
 import { cleanDb } from "./helpers/db.js";
-import { extractUrl } from "./helpers/email-capture.js";
+import { cookiesFromResponse, extractUrl } from "./helpers/email-capture.js";
 
 describe("Registration invitations (integration)", () => {
   let handle: AuthServerHandle;
@@ -153,6 +155,27 @@ describe("Registration invitations (integration)", () => {
     expect(res.body).toContain(token);
   });
 
+  it("renders the built-in registration page when no TEMPLATES_DIR is set", async () => {
+    const appId = await makeClosedApp();
+    const email = freshEmail();
+    await createInvitation(appId, email);
+    const token = tokenFromLastEmail(email);
+
+    mutable.templatesDir = null;
+    try {
+      const res = await handle.app.inject({
+        method: "GET",
+        url: `/complete-registration?token=${encodeURIComponent(token)}&client_id=closed-app-${seq - 1}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toContain("Create your account");
+      expect(res.body).toContain(email);
+      expect(res.body).toContain("Continue with");
+    } finally {
+      mutable.templatesDir = dir;
+    }
+  });
+
   it("redirects an unknown token to the error page", async () => {
     const res = await handle.app.inject({
       method: "GET",
@@ -226,6 +249,103 @@ describe("Registration invitations (integration)", () => {
     });
     expect(second.statusCode).toBe(400);
     expect(second.json<{ error: { code: string } }>().error.code).toBe("AUTH_012");
+  });
+
+
+  it("starts a social sign-in for an application invitation", async () => {
+    const appId = await makeClosedApp();
+    const email = freshEmail();
+    await createInvitation(appId, email);
+    const token = tokenFromLastEmail(email);
+
+    const res = await handle.app.inject({
+      method: "POST",
+      url: "/api/registration/application-invitation/social",
+      headers: { "content-type": "application/json" },
+      payload: { token, provider: "github" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<{ url: string }>().url).toContain("github.com");
+    const raw = res.headers["set-cookie"];
+    const cookies = Array.isArray(raw) ? raw.join("\n") : String(raw ?? "");
+    expect(cookies.length).toBeGreaterThan(0);
+    expect(cookies).not.toContain("auth_invitation_flow=");
+  });
+
+  it("accepts an invitation for a session created after the invitation, without an organization", async () => {
+    const appId = await makeClosedApp();
+    const email = freshEmail();
+    await createInvitation(appId, email);
+    const token = tokenFromLastEmail(email);
+
+    const passwordHash = await hashPassword("Password123!");
+    const { id: userId } = await insertCredentialUser(db, {
+      name: "Social Guest",
+      email,
+      emailVerified: true,
+      storedPasswordHash: passwordHash,
+    });
+
+    const signIn = await handle.app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      headers: { "content-type": "application/json" },
+      payload: { email, password: "Password123!" },
+    });
+    expect(signIn.statusCode).toBe(200);
+    const cookie = cookiesFromResponse(signIn.headers["set-cookie"]);
+
+    const sessionPage = await handle.app.inject({
+      method: "GET",
+      url: `/complete-registration?token=${encodeURIComponent(token)}`,
+      headers: { cookie },
+    });
+    expect(sessionPage.statusCode).toBe(200);
+    expect(sessionPage.body).toContain("Finish accepting your invitation");
+    expect(sessionPage.body).toContain("/api/registration/application-invitation/accept");
+
+    const accountExistsPage = await handle.app.inject({
+      method: "GET",
+      url: `/complete-registration?token=${encodeURIComponent(token)}`,
+    });
+    expect(accountExistsPage.statusCode).toBe(200);
+    expect(accountExistsPage.body).toContain(
+      "/api/registration/application-invitation/social",
+    );
+    expect(accountExistsPage.body).toContain("Continue with");
+
+    const accepted = await handle.app.inject({
+      method: "POST",
+      url: "/api/registration/application-invitation/accept",
+      headers: { "content-type": "application/json", cookie },
+      payload: { token },
+    });
+    expect(accepted.statusCode).toBe(200);
+
+    const [access] = await db
+      .select({ userId: userApplications.userId })
+      .from(userApplications)
+      .where(
+        and(
+          eq(userApplications.userId, userId),
+          eq(userApplications.applicationId, appId),
+        ),
+      )
+      .limit(1);
+    expect(access?.userId).toBe(userId);
+
+    const [invitation] = await db
+      .select({ consumedAt: registrationInvitations.consumedAt })
+      .from(registrationInvitations)
+      .where(eq(registrationInvitations.applicationId, appId))
+      .limit(1);
+    expect(invitation?.consumedAt).not.toBeNull();
+
+    const memberships = await db
+      .select({ id: member.id })
+      .from(member)
+      .where(eq(member.userId, userId));
+    expect(memberships).toHaveLength(0);
   });
 
   it("refuses an expired invitation", async () => {

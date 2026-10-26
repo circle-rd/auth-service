@@ -322,6 +322,7 @@ export default {
     rejected: 'Rejected',
     cancelled: 'Cancelled',
     noMembers: 'No members yet',
+    loadMoreMembers: 'Load more members',
     noInvitations: 'No pending invitations',
   },
   applications: {

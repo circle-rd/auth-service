@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { RefreshCw } from 'lucide-vue-next';
@@ -12,6 +12,7 @@ import { createCheckout, getMySpendStats, getMyTransactions, getMyWallet, getTop
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
 import { useWalletData } from '@/composables/useWalletData';
+import { PAGE_SIZE_OPTIONS, usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { eurToCents } from '@/utils/money';
 import type { TopupOptions } from '@/types/wallet';
 
@@ -28,11 +29,15 @@ const toast = useToast();
 const route = useRoute();
 const router = useRouter();
 
+const pageSize = usePersistentPageSize('wallet-my-transactions', 20);
+const pageSizeOptions = PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) }));
 const { account, stats, items, nextCursor, loading, loadingMore, error, refresh, loadMore } = useWalletData({
   getAccount: getMyWallet,
   getStats: getMySpendStats,
   getPage: getMyTransactions,
-});
+}, 30, pageSize);
+
+watch(pageSize, () => void refresh());
 
 const options = ref<TopupOptions | null>(null);
 const amount = ref('10');
@@ -182,7 +187,10 @@ onUnmounted(() => {
         :loading="loading"
         :has-more="nextCursor !== null"
         :loading-more="loadingMore"
+        :page-size="pageSize"
+        :page-size-options="pageSizeOptions"
         @load-more="loadMore"
+        @update:page-size="pageSize = $event"
       />
     </div>
   </div>

@@ -10,7 +10,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import {
@@ -234,24 +234,41 @@ export async function acceptApplicationInvitation(opts: {
 
 export async function listRegistrationInvitations(opts: {
   applicationId?: string;
+  page?: number;
   limit?: number;
   offset?: number;
-}): Promise<RegistrationInvitation[]> {
+}): Promise<{
+  invitations: RegistrationInvitation[];
+  total: number;
+  page: number;
+  limit: number;
+}> {
   const limit = Math.min(
     Math.max(opts.limit ?? INVITATION_PAGE_DEFAULT, 1),
     INVITATION_PAGE_MAX,
   );
-  const offset = Math.max(opts.offset ?? 0, 0);
-  const filtered = opts.applicationId
-    ? db
-        .select()
-        .from(registrationInvitations)
-        .where(eq(registrationInvitations.applicationId, opts.applicationId))
-    : db.select().from(registrationInvitations);
-  return await filtered
+  const offset = Math.max(
+    opts.offset ?? (Math.max(opts.page ?? 1, 1) - 1) * limit,
+    0,
+  );
+  const where = opts.applicationId
+    ? eq(registrationInvitations.applicationId, opts.applicationId)
+    : undefined;
+
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(registrationInvitations)
+    .where(where);
+
+  const invitations = await db
+    .select()
+    .from(registrationInvitations)
+    .where(where)
     .orderBy(desc(registrationInvitations.createdAt))
     .limit(limit)
     .offset(offset);
+
+  return { invitations, total, page: Math.floor(offset / limit) + 1, limit };
 }
 
 /** Revoke a pending invitation. A consumed one is history and is left intact. */

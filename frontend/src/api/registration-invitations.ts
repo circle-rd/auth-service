@@ -9,12 +9,33 @@ export interface CreateRegistrationInvitationResponse {
 
 const MOCK_INVITATIONS: RegistrationInvitation[] = [];
 
-export async function listRegistrationInvitations(applicationId: string): Promise<{ invitations: RegistrationInvitation[] }> {
+export interface RegistrationInvitationsPage {
+  invitations: RegistrationInvitation[]
+  total: number
+  page: number
+  limit: number
+}
+
+export async function listRegistrationInvitations(
+  applicationId: string,
+  params: { page?: number; limit?: number } = {},
+): Promise<RegistrationInvitationsPage> {
   if (USE_MOCK) {
-    return { invitations: MOCK_INVITATIONS.filter((i) => i.applicationId === applicationId) };
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const filtered = MOCK_INVITATIONS.filter((i) => i.applicationId === applicationId);
+    const start = (page - 1) * limit;
+    return {
+      invitations: filtered.slice(start, start + limit),
+      total: filtered.length,
+      page,
+      limit,
+    };
   }
   const qs = new URLSearchParams({ applicationId });
-  return apiFetch<{ invitations: RegistrationInvitation[] }>(`/admin/registration-invitations?${qs}`);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  return apiFetch<RegistrationInvitationsPage>(`/admin/registration-invitations?${qs}`);
 }
 
 export async function createRegistrationInvitation(body: { email: string; applicationId: string }): Promise<CreateRegistrationInvitationResponse> {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
@@ -15,6 +15,7 @@ import { useAdminEvents } from '@/composables/useAdminEvents';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/useToast';
 import { useWalletData } from '@/composables/useWalletData';
+import { PAGE_SIZE_OPTIONS, usePersistentPageSize } from '@/composables/usePersistentPageSize';
 
 const props = defineProps<{ userId: string }>();
 
@@ -22,11 +23,13 @@ const { t } = useI18n();
 const auth = useAuthStore();
 const toast = useToast();
 
+const pageSize = usePersistentPageSize(`wallet-transactions:${props.userId}`, 20);
+const pageSizeOptions = PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) }));
 const { account, stats, items, nextCursor, loading, loadingMore, refresh, loadMore } = useWalletData({
   getAccount: () => getUserWallet(props.userId),
   getStats: (days) => getUserSpendStatsAdmin(props.userId, days),
   getPage: (params) => getUserTransactions(props.userId, params),
-});
+}, 30, pageSize);
 
 const actionMode = ref<WalletActionMode | null>(null);
 const unlimitedOpen = ref(false);
@@ -54,6 +57,7 @@ async function toggleUnlimited(): Promise<void> {
   }
 }
 
+watch(pageSize, () => void refresh());
 onMounted(() => void refresh());
 onUnmounted(() => events.close());
 </script>
@@ -94,7 +98,10 @@ onUnmounted(() => events.close());
         :loading="loading"
         :has-more="nextCursor !== null"
         :loading-more="loadingMore"
+        :page-size="pageSize"
+        :page-size-options="pageSizeOptions"
         @load-more="loadMore"
+        @update:page-size="pageSize = $event"
       />
     </div>
 

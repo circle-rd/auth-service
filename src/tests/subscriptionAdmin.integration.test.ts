@@ -291,6 +291,32 @@ describe("admin subscription management", () => {
     });
   });
 
+  it("GET subscriptions returns compact rows for the financial tab", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const free = await seedPlan(a.id, "free", true);
+    asAdmin();
+
+    const grant = await app.inject({
+      method: "POST",
+      url: `/${a.id}/users`,
+      payload: { userId: "user-1" },
+    });
+    expect(grant.statusCode).toBe(201);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/${a.id}/subscriptions`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{
+      subscriptions: Array<{ userId: string; planId: string; isActive: boolean }>;
+    }>();
+    expect(body.subscriptions).toEqual([
+      { userId: "user-1", planId: free.id, isActive: true },
+    ]);
+  });
+
   it("POST grant without a plan falls back to the default plan", async () => {
     await seedUser();
     const a = await seedApp();

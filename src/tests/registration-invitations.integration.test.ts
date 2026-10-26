@@ -122,6 +122,30 @@ describe("Registration invitations (integration)", () => {
     expect(token.length).toBeGreaterThan(20);
   });
 
+  it("paginates the invitation listing for an application", async () => {
+    const appId = await makeClosedApp();
+    await createInvitation(appId, freshEmail());
+    await createInvitation(appId, freshEmail());
+
+    const res = await handle.app.inject({
+      method: "GET",
+      url: `/api/admin/registration-invitations?applicationId=${appId}&limit=1&page=2`,
+      headers: { cookie: adminCookie() },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{
+      invitations: Array<{ applicationId: string }>;
+      total: number;
+      page: number;
+      limit: number;
+    }>();
+    expect(body.total).toBe(2);
+    expect(body.page).toBe(2);
+    expect(body.limit).toBe(1);
+    expect(body.invitations).toHaveLength(1);
+    expect(body.invitations[0]!.applicationId).toBe(appId);
+  });
+
   it("rejects an invitation for an address that already has an account", async () => {
     const appId = await makeClosedApp();
     const res = await createInvitation(appId, ADMIN_EMAIL);

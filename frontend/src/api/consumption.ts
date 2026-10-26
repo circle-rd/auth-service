@@ -9,6 +9,35 @@ export async function getUserConsumption(userId: string, appId: string): Promise
   return apiFetch<{ aggregates: ConsumptionAggregate[] }>(`/consumption/${userId}/${appId}`);
 }
 
+export interface AppConsumptionEntry {
+  userId: string
+  userName: string | null
+  userEmail: string | null
+  subscriptionPlanId: string | null
+  key: string
+  total: string
+  updatedAt: string
+}
+
+export async function getAppConsumption(appId: string): Promise<{ entries: AppConsumptionEntry[] }> {
+  if (USE_MOCK) {
+    return {
+      entries: MOCK_CONSUMPTION
+        .filter(c => c.applicationId === appId)
+        .map(c => ({
+          userId: c.userId,
+          userName: null,
+          userEmail: null,
+          subscriptionPlanId: null,
+          key: c.key,
+          total: c.total,
+          updatedAt: c.updatedAt,
+        })),
+    };
+  }
+  return apiFetch<{ entries: AppConsumptionEntry[] }>(`/admin/applications/${appId}/consumption`);
+}
+
 export async function getMyConsumption(appId: string): Promise<{ aggregates: ConsumptionAggregate[] }> {
   if (USE_MOCK) {
     return { aggregates: MOCK_CONSUMPTION.filter(c => c.applicationId === appId) };

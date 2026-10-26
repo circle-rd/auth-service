@@ -5,6 +5,7 @@ import { useOrganizationsStore } from '@/stores/organizations';
 import { createOrganization, updateOrganization, addMember, removeMember, sendInvitation, cancelInvitation } from '@/api/organizations';
 import { listUsers } from '@/api/users';
 import { useToast } from '@/composables/useToast';
+import { PAGE_SIZE_OPTIONS, usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import type { Organization } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
@@ -25,6 +26,8 @@ const store = useOrganizationsStore();
 const toast = useToast();
 
 const searchInput = ref('');
+const pageSize = usePersistentPageSize('organizations', 20);
+const orgMemberPageSize = usePersistentPageSize('organization-members', 20);
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 const expandedOrg = ref<string | null>(null);
@@ -43,7 +46,7 @@ const editForm = ref({ name: '', slug: '', logo: '', metadata: '' });
 const addMemberForm = ref({ userId: '', role: 'member' as 'owner' | 'admin' | 'member' });
 const inviteForm = ref({ email: '', role: 'member' as 'owner' | 'admin' | 'member' });
 
-onMounted(() => store.fetchOrganizations());
+onMounted(() => store.fetchOrganizations({ limit: pageSize.value }));
 
 // Server-side search with debounce
 watch(searchInput, (val) => {
@@ -54,6 +57,13 @@ watch(searchInput, (val) => {
 });
 
 const totalPages = computed(() => Math.ceil(store.total / store.limit) || 1);
+const pageSizeOptions = computed<SelectOption[]>(() =>
+  PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) })),
+);
+
+watch(pageSize, () => {
+  void store.fetchOrganizations({ page: 1, limit: pageSize.value });
+});
 
 function goToPage(p: number) {
   if (p < 1 || p > totalPages.value) return;
@@ -70,10 +80,20 @@ watch(() => createForm.value.name, (name) => {
 
 // Lazy-load members when expanding an org row
 watch(expandedOrg, (orgId) => {
-  if (orgId && !store.orgMembers[orgId]) {
-    store.fetchOrgMembers(orgId);
+  if (orgId) {
+    void store.fetchOrgMembers(orgId, { limit: orgMemberPageSize.value });
   }
 });
+
+watch(orgMemberPageSize, () => {
+  if (expandedOrg.value) {
+    void store.fetchOrgMembers(expandedOrg.value, { limit: orgMemberPageSize.value });
+  }
+});
+
+function loadMoreMembers(orgId: string) {
+  void store.loadMoreOrgMembers(orgId, orgMemberPageSize.value);
+}
 
 async function handleCreate() {
   formLoading.value = true;
@@ -126,7 +146,7 @@ async function handleAddMember() {
   try {
     await addMember(selectedOrg.value.id, { userId: addMemberForm.value.userId, role: addMemberForm.value.role });
     // Refresh only that org's members (not the whole list)
-    await store.fetchOrgMembers(selectedOrg.value.id);
+    await store.fetchOrgMembers(selectedOrg.value.id, { limit: orgMemberPageSize.value });
     toast.success('Member added');
     showAddMember.value = false;
     addMemberForm.value = { userId: '', role: 'member' };
@@ -141,7 +161,7 @@ async function handleRemoveMember(orgId: string, userId: string) {
   try {
     await removeMember(orgId, userId);
     // Refresh only that org's members
-    await store.fetchOrgMembers(orgId);
+    await store.fetchOrgMembers(orgId, { limit: orgMemberPageSize.value });
     toast.success('Member removed');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to remove member');
@@ -247,7 +267,7 @@ void cancelInvitation;
             <div class="flex items-center gap-4 shrink-0">
               <div class="flex items-center gap-1.5 text-xs text-surface-500">
                 <Users class="w-3.5 h-3.5" />
-                {{ org.memberCount ?? store.orgMembers[org.id]?.length ?? 0 }}
+                {{ org.memberCount ?? store.orgMemberTotals[org.id] ?? store.orgMembers[org.id]?.length ?? 0 }}
               </div>
               <span class="text-xs text-surface-600 hidden sm:block">{{ formatDate(org.createdAt) }}</span>
               <div class="flex items-center gap-1">
@@ -262,7 +282,14 @@ void cancelInvitation;
             <div>
               <div class="flex items-center justify-between mb-3">
                 <h4 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">Members</h4>
-                <div class="flex gap-2">
+                <div class="flex items-center gap-2">
+                  <BaseSelect
+                    :model-value="String(orgMemberPageSize)"
+                    :options="pageSizeOptions"
+                    size="sm"
+                    class="w-20"
+                    @update:model-value="(value: string) => (orgMemberPageSize = Number(value))"
+                  />
                   <BaseButton variant="outline" size="sm" @click="selectedOrg = org; showInviteModal = true">
                     <Mail class="w-3.5 h-3.5" /> Invite
                   </BaseButton>
@@ -287,6 +314,16 @@ void cancelInvitation;
                     <X class="w-3.5 h-3.5" />
                   </button>
                 </div>
+                <div v-if="(store.orgMembers[org.id]?.length ?? 0) < (store.orgMemberTotals[org.id] ?? 0)" class="pt-2">
+                  <BaseButton
+                    variant="outline"
+                    size="sm"
+                    :loading="store.orgMembersLoadingMore[org.id]"
+                    @click="loadMoreMembers(org.id)"
+                  >
+                    {{ t('organizations.loadMoreMembers') }}
+                  </BaseButton>
+                </div>
               </div>
             </div>
           </div>
@@ -294,10 +331,22 @@ void cancelInvitation;
       </div>
 
       <!-- Pagination -->
-      <div v-if="store.total > store.limit" class="flex items-center justify-between pt-2">
-        <p class="text-xs text-surface-500">
-          {{ t('common.showing', { from: (store.page - 1) * store.limit + 1, to: Math.min(store.page * store.limit, store.total), total: store.total }) }}
-        </p>
+      <div v-if="store.total > 0" class="flex items-center justify-between gap-3 pt-2">
+        <div class="flex items-center gap-3">
+          <p class="text-xs text-surface-500">
+            {{ t('common.showing', { from: (store.page - 1) * store.limit + 1, to: Math.min(store.page * store.limit, store.total), total: store.total }) }}
+          </p>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-surface-500">{{ t('dataTable.rowsPerPage') }}</label>
+            <BaseSelect
+              :model-value="String(pageSize)"
+              :options="pageSizeOptions"
+              size="sm"
+              class="w-20"
+              @update:model-value="(value: string) => (pageSize = Number(value))"
+            />
+          </div>
+        </div>
         <div class="flex items-center gap-1">
           <button
             :disabled="store.page <= 1"

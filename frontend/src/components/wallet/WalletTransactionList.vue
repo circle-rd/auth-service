@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import BaseSelect from '@/components/ui/BaseSelect.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useMoney } from '@/composables/useMoney';
@@ -15,9 +16,14 @@ defineProps<{
   loading?: boolean;
   hasMore?: boolean;
   loadingMore?: boolean;
+  pageSize: number;
+  pageSizeOptions: Array<{ value: string; label: string }>;
 }>();
 
-const emit = defineEmits<{ 'load-more': [] }>();
+const emit = defineEmits<{
+  'load-more': [];
+  'update:pageSize': [value: number];
+}>();
 
 const { t, locale } = useI18n();
 const { fmt } = useMoney();
@@ -48,6 +54,16 @@ function signed(tx: WalletTransaction): string {
 
 <template>
   <div data-testid="wallet-history">
+    <div class="flex items-center justify-end gap-2 px-5 pt-3 text-xs text-surface-500">
+      <label>{{ t('dataTable.rowsPerPage') }}</label>
+      <BaseSelect
+        :model-value="String(pageSize)"
+        :options="pageSizeOptions"
+        size="sm"
+        class="w-20"
+        @update:model-value="(value: string) => emit('update:pageSize', Number(value))"
+      />
+    </div>
     <DataTable
       :columns="columns"
       :items="items"

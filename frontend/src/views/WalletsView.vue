@@ -16,6 +16,7 @@ import { useAdminEvents } from '@/composables/useAdminEvents';
 import { useDebounce } from '@/composables/useDebounce';
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
+import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import type { ColumnDef } from '@/types/data-table';
 import type { AdminWalletStats, WalletListFilter, WalletListItem } from '@/types/wallet';
 
@@ -32,7 +33,7 @@ const stats = ref<AdminWalletStats | null>(null);
 const wallets = ref<WalletListItem[]>([]);
 const total = ref(0);
 const page = ref(1);
-const limit = ref(20);
+const limit = usePersistentPageSize('admin-wallets', 20);
 const filter = ref<WalletListFilter>('all');
 const search = ref('');
 const debouncedSearch = useDebounce(search, 300);

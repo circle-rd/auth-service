@@ -39,17 +39,17 @@ export async function listOrganizations(params: OrganizationsListParams = {}): P
   return apiFetch<OrganizationsListResponse>(`/admin/organizations${query ? `?${query}` : ''}`);
 }
 
-export async function listOrganizationMembers(orgId: string, params: { limit?: number; offset?: number; search?: string } = {}): Promise<{ members: OrganizationMember[] }> {
+export async function listOrganizationMembers(orgId: string, params: { limit?: number; offset?: number; search?: string } = {}): Promise<{ members: OrganizationMember[]; total: number }> {
   if (USE_MOCK) {
     const org = MOCK_ORGANIZATIONS.find(o => o.id === orgId);
-    return { members: org?.members ?? [] };
+    return { members: org?.members ?? [], total: org?.members?.length ?? 0 };
   }
   const qs = new URLSearchParams();
   if (params.limit) qs.set('limit', String(params.limit));
   if (params.offset) qs.set('offset', String(params.offset));
   if (params.search) qs.set('search', params.search);
   const query = qs.toString();
-  return apiFetch<{ members: OrganizationMember[] }>(`/admin/organizations/${orgId}/members${query ? `?${query}` : ''}`);
+  return apiFetch<{ members: OrganizationMember[]; total: number }>(`/admin/organizations/${orgId}/members${query ? `?${query}` : ''}`);
 }
 
 export async function createOrganization(body: { name: string; slug: string; logo?: string; metadata?: string }): Promise<{ organization: Organization }> {

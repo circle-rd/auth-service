@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Mail, Send, Trash2 } from 'lucide-vue-next';
 import * as invitationsApi from '@/api/registration-invitations';
+import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useToast } from '@/composables/useToast';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
@@ -10,7 +11,7 @@ import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import CopyField from '@/components/ui/CopyField.vue';
 import DataTable from '@/components/ui/DataTable.vue';
-import type { ColumnDef } from '@/types/data-table';
+import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import type { RegistrationInvitation } from '@/types';
 
 const props = defineProps<{ applicationId: string }>();
@@ -19,6 +20,9 @@ const { t } = useI18n();
 const toast = useToast();
 
 const invitations = ref<RegistrationInvitation[]>([]);
+const total = ref(0);
+const page = ref(1);
+const pageSize = usePersistentPageSize('app-registration-invitations', 20);
 const loading = ref(true);
 const saving = ref(false);
 const showModal = ref(false);
@@ -59,15 +63,35 @@ const columns = computed<ColumnDef<RegistrationInvitation>[]>(() => [
   { key: 'actions', label: t('users.columns.actions'), align: 'right' },
 ]);
 
+const pagination = computed<DataTablePagination>(() => ({
+  page: page.value,
+  limit: pageSize.value,
+  total: total.value,
+}));
+
 async function load() {
   loading.value = true;
   try {
-    invitations.value = (await invitationsApi.listRegistrationInvitations(props.applicationId)).invitations;
+    const res = await invitationsApi.listRegistrationInvitations(props.applicationId, {
+      page: page.value,
+      limit: pageSize.value,
+    });
+    invitations.value = res.invitations;
+    total.value = res.total;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('appDetail.operationFailed'));
   } finally {
     loading.value = false;
   }
+}
+
+function onPageChange(next: number) {
+  page.value = next;
+  void load();
+}
+
+function onLimitChange(next: number) {
+  pageSize.value = next;
 }
 
 function openModal() {
@@ -87,7 +111,13 @@ async function sendInvitation() {
       email,
       applicationId: props.applicationId,
     });
-    invitations.value = [res.invitation, ...invitations.value];
+    if (page.value === 1) {
+      invitations.value = [res.invitation, ...invitations.value].slice(0, pageSize.value);
+      total.value += 1;
+    } else {
+      page.value = 1;
+      await load();
+    }
     lastInviteUrl.value = res.inviteUrl;
     lastInviteEmailSent.value = res.emailSent;
     toast.success(
@@ -105,12 +135,8 @@ async function sendInvitation() {
 async function resend(invitation: RegistrationInvitation) {
   try {
     const res = await invitationsApi.resendRegistrationInvitation(invitation.id);
-    invitations.value = [
-      res.invitation,
-      ...invitations.value.map((i) =>
-        i.id === invitation.id ? { ...i, revokedAt: new Date().toISOString() } : i,
-      ),
-    ];
+    page.value = 1;
+    await load();
     modalMode.value = 'resend';
     form.value = { email: invitation.email };
     lastInviteUrl.value = res.inviteUrl;
@@ -124,10 +150,8 @@ async function resend(invitation: RegistrationInvitation) {
 
 async function revoke(invitation: RegistrationInvitation) {
   try {
-    const res = await invitationsApi.revokeRegistrationInvitation(invitation.id);
-    invitations.value = invitations.value.map((i) =>
-      i.id === invitation.id ? res.invitation : i,
-    );
+    await invitationsApi.revokeRegistrationInvitation(invitation.id);
+    await load();
     toast.success(t('appDetail.invitationRevoked'));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('appDetail.operationFailed'));
@@ -135,7 +159,14 @@ async function revoke(invitation: RegistrationInvitation) {
 }
 
 onMounted(load);
-watch(() => props.applicationId, load);
+watch(() => props.applicationId, () => {
+  page.value = 1;
+  void load();
+});
+watch(pageSize, () => {
+  page.value = 1;
+  void load();
+});
 
 defineExpose({ openModal });
 </script>
@@ -155,6 +186,9 @@ defineExpose({ openModal });
       :loading="loading"
       :empty="!loading && invitations.length === 0"
       :row-key="(i: RegistrationInvitation) => i.id"
+      :pagination="pagination"
+      @update:page="onPageChange"
+      @update:limit="onLimitChange"
     >
       <template #empty>
         <div class="px-5 py-8 text-center text-sm text-surface-500">{{ t('appDetail.noInvitations') }}</div>

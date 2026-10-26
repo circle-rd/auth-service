@@ -251,6 +251,9 @@ export interface ConsumptionAggregate {
   key: string
   total: string
   updatedAt: string
+  userName?: string | null
+  userEmail?: string | null
+  subscriptionPlanId?: string | null
 }
 
 export interface Organization {

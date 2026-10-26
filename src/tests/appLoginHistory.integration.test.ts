@@ -128,6 +128,22 @@ describe("admin application users — last login and history", () => {
     expect(u2.lastLoginAt).toBeNull();
     expect(u2.lastIp).toBeNull();
     expect(u2.lastUserAgent).toBeNull();
+
+    const page2 = await app.inject({
+      method: "GET",
+      url: `/${a.id}/users?limit=1&page=2`,
+    });
+    expect(page2.statusCode).toBe(200);
+    const paged = page2.json<{
+      users: Array<{ userId: string }>;
+      total: number;
+      page: number;
+      limit: number;
+    }>();
+    expect(paged.total).toBe(2);
+    expect(paged.page).toBe(2);
+    expect(paged.limit).toBe(1);
+    expect(paged.users).toHaveLength(1);
   });
 
   it("returns the paginated history entries for the user inside the app", async () => {

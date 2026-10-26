@@ -7,6 +7,7 @@ import { createUser, disableUser, enableUser, sendVerificationEmail, importUsers
 import type { ImportUserRow, ImportResultRow } from '@/api/users';
 import { useToast } from '@/composables/useToast';
 import { useDebounce } from '@/composables/useDebounce';
+import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useAppBranding } from '@/composables/useAppBranding';
 import type { User } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
@@ -24,7 +25,7 @@ import EmptyState from '@/components/ui/EmptyState.vue';
 import AppIconStack from '@/components/ui/AppIconStack.vue';
 import { UserPlus, Users, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail, Upload } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
-import type { ColumnDef } from '@/types/data-table';
+import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import { useAuthStore } from '@/stores/auth';
 
 const { t } = useI18n();
@@ -39,6 +40,7 @@ const debouncedSearch = useDebounce(search);
 const filterRole = ref('');
 const filterStatus = ref('');
 const page = ref(1);
+const pageSize = usePersistentPageSize('users', 20);
 
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
@@ -70,8 +72,28 @@ watch([debouncedSearch, filterRole, filterStatus], () => {
 });
 
 async function loadUsers() {
-  await store.fetchUsers({ page: page.value, limit: 20, search: debouncedSearch.value });
+  await store.fetchUsers({ page: page.value, limit: pageSize.value, search: debouncedSearch.value });
 }
+
+const pagination = computed<DataTablePagination>(() => ({
+  page: page.value,
+  limit: pageSize.value,
+  total: store.total,
+}));
+
+function onPageChange(next: number) {
+  page.value = next;
+  void loadUsers();
+}
+
+function onLimitChange(next: number) {
+  pageSize.value = next;
+}
+
+watch(pageSize, () => {
+  page.value = 1;
+  void loadUsers();
+});
 
 const filteredUsers = computed(() => {
   let list = store.users;
@@ -418,8 +440,11 @@ const editModalTags = computed(() => {
         :loading="store.loading"
         :empty="!store.loading && filteredUsers.length === 0"
         :row-key="(u: User) => u.id"
+        :pagination="pagination"
         clickable-rows
         @row-click="(u: User) => router.push(`/users/${u.id}`)"
+        @update:page="onPageChange"
+        @update:limit="onLimitChange"
       >
         <template #empty>
           <EmptyState :title="t('users.noUsers')" :message="t('users.noUsersMessage')">
@@ -507,13 +532,6 @@ const editModalTags = computed(() => {
         </template>
       </DataTable>
 
-      <div v-if="store.total > 20" class="flex items-center justify-between text-sm text-surface-500">
-        <span>{{ store.total }} {{ t('users.title').toLowerCase() }}</span>
-        <div class="flex gap-2">
-          <BaseButton variant="outline" size="sm" :disabled="page === 1" @click="page--; loadUsers()">{{ t('common.previous') }}</BaseButton>
-          <BaseButton variant="outline" size="sm" :disabled="page * 20 >= store.total" @click="page++; loadUsers()">{{ t('common.next') }}</BaseButton>
-        </div>
-      </div>
     </div>
 
     <EntityModal

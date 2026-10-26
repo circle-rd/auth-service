@@ -101,16 +101,32 @@ export async function registrationInvitationRoutes(
     );
   });
 
-  // GET /api/admin/registration-invitations?applicationId=&limit=&offset=
+  // GET /api/admin/registration-invitations?applicationId=&page=&limit=&offset=
   fastify.get<{
-    Querystring: { applicationId?: string; limit?: string; offset?: string };
+    Querystring: {
+      applicationId?: string;
+      page?: string;
+      limit?: string;
+      offset?: string;
+    };
   }>("/", async (req, reply) => {
-    const invitations = await listRegistrationInvitations({
+    const page = Math.max(1, parseInt(req.query.page ?? "1", 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit ?? "20", 10) || 20),
+    );
+    const offset = parsePageParam(req.query.offset) ?? (page - 1) * limit;
+    const result = await listRegistrationInvitations({
       applicationId: req.query.applicationId,
-      limit: parsePageParam(req.query.limit),
-      offset: parsePageParam(req.query.offset),
+      limit,
+      offset,
     });
-    return reply.send({ invitations: invitations.map(toPublicInvitation) });
+    return reply.send({
+      invitations: result.invitations.map(toPublicInvitation),
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    });
   });
 
   // DELETE /api/admin/registration-invitations/:id — revoke a pending invitation.

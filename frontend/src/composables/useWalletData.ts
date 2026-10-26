@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { ref, type Ref } from 'vue';
 import type {
   UserSpendStats,
   WalletAccount,
@@ -9,11 +9,15 @@ import type {
 export interface WalletDataSource {
   getAccount: () => Promise<WalletAccount>;
   getStats: (days: number) => Promise<UserSpendStats>;
-  getPage: (params: { cursor?: string }) => Promise<WalletTransactionPage>;
+  getPage: (params: { cursor?: string; limit?: number }) => Promise<WalletTransactionPage>;
 }
 
 /** Balance, spend statistics and cursor-paginated history of one wallet. */
-export function useWalletData(source: WalletDataSource, days = 30) {
+export function useWalletData(
+  source: WalletDataSource,
+  days = 30,
+  pageSize?: Ref<number>,
+) {
   const account = ref<WalletAccount | null>(null);
   const stats = ref<UserSpendStats | null>(null);
   const items = ref<WalletTransaction[]>([]);
@@ -32,7 +36,7 @@ export function useWalletData(source: WalletDataSource, days = 30) {
       const [acc, st, page] = await Promise.all([
         source.getAccount(),
         source.getStats(days),
-        source.getPage({}),
+        source.getPage({ limit: pageSize?.value }),
       ]);
       if (current !== generation) return;
       account.value = acc;
@@ -53,7 +57,10 @@ export function useWalletData(source: WalletDataSource, days = 30) {
     const current = generation;
     loadingMore.value = true;
     try {
-      const page = await source.getPage({ cursor: nextCursor.value });
+      const page = await source.getPage({
+        cursor: nextCursor.value,
+        limit: pageSize?.value,
+      });
       if (current !== generation) return;
       items.value = [...items.value, ...page.items];
       nextCursor.value = page.nextCursor;

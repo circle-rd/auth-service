@@ -394,6 +394,39 @@ describe("renderAuthPage", () => {
     });
   });
 
+  describe("invitation template script safety", () => {
+    it("serialises dynamic values for the inline script instead of HTML-escaping them", () => {
+      const html = renderAuthPage(
+        "accept-invitation",
+        {
+          actionUrl: "/api/registration/organization-invitation/complete",
+          acceptUrl: "/api/registration/organization-invitation/accept",
+          socialUrl: "/api/registration/organization-invitation/social",
+          redirectTo: "",
+          appSlug: "",
+          authUrl: "https://auth.example.com",
+          appName: "Auth",
+          invitationKind: "organization",
+          invitationId: "inv-1",
+          targetName: "Acme & </script><img src=x>",
+          email: "user@example.com",
+          sessionEmail: "user&admin@example.com",
+          sessionMatches: true,
+          hasAccount: true,
+          loginUrl: "/login",
+          socialProvidersJson: "[]",
+        },
+        null,
+        NO_EXTERNAL_DIR,
+      );
+
+      expect(html).not.toContain("</script><img src=x>");
+      expect(html).toContain("\\u0026");
+      expect(html).toContain("\\u003c/script\\u003e");
+      expect(html).toContain("\\u003cimg src=x\\u003e");
+    });
+  });
+
   describe("social provider variables", () => {
     it("exposes the narrowed and full provider lists separately", () => {
       const html = renderAuthPage(

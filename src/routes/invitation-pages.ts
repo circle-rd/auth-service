@@ -236,7 +236,6 @@ export async function invitationPagesRoutes(
           targetName: application.name,
           email: invitationRow.email,
           invitationToken: token,
-          hasAccount,
           loginUrl: loginUrlFor(path),
           socialProvidersJson: JSON.stringify(socialProviders),
           errorMessage: invitationErrorMessage(query.error),

@@ -145,6 +145,51 @@ export async function getRegistrationInvitation(
 }
 
 /**
+ * Claim the invitation and create the application access row. Callers pass a
+ * transaction so the invitation cannot be consumed without the matching
+ * access grant (and, for password registration, the new user).
+ */
+async function consumeInvitationAndGrantAccess(
+  exec: DbExecutor,
+  invitation: RegistrationInvitation,
+  userId: string,
+  now: Date,
+): Promise<void> {
+  const [claimed] = await exec
+    .update(registrationInvitations)
+    .set({ consumedAt: now })
+    .where(
+      and(
+        eq(registrationInvitations.id, invitation.id),
+        isNull(registrationInvitations.consumedAt),
+        isNull(registrationInvitations.revokedAt),
+        gt(registrationInvitations.expiresAt, now),
+      ),
+    )
+    .returning({ id: registrationInvitations.id });
+  if (!claimed) throw ERR.AUTH_012();
+
+  await exec
+    .insert(userApplications)
+    .values({
+      userId,
+      applicationId: invitation.applicationId,
+      isActive: true,
+    })
+    .onConflictDoNothing();
+}
+
+/** Post-commit defaults shared by every application-invitation path. */
+async function applyDefaultApplicationAccess(
+  userId: string,
+  applicationId: string,
+): Promise<void> {
+  await assignDefaultRoleIfNeeded(userId, applicationId);
+  await assignDefaultPlanIfNeeded(userId, applicationId);
+  publishEvent("user.changed");
+}
+
+/**
  * Complete an application invitation for an account that was created through a
  * social provider. The provider callback already created the user and session;
  * this grants the application access the invitation promised and consumes the
@@ -170,33 +215,9 @@ export async function acceptApplicationInvitation(opts: {
 
   const now = new Date();
   await db.transaction(async (tx) => {
-    const [consumed] = await tx
-      .update(registrationInvitations)
-      .set({ consumedAt: now })
-      .where(
-        and(
-          eq(registrationInvitations.id, invitationRow.id),
-          isNull(registrationInvitations.consumedAt),
-          isNull(registrationInvitations.revokedAt),
-          gt(registrationInvitations.expiresAt, now),
-        ),
-      )
-      .returning({ id: registrationInvitations.id });
-    if (!consumed) throw ERR.AUTH_012();
-
-    await tx
-      .insert(userApplications)
-      .values({
-        userId: opts.userId,
-        applicationId: invitationRow.applicationId,
-        isActive: true,
-      })
-      .onConflictDoNothing();
+    await consumeInvitationAndGrantAccess(tx, invitationRow, opts.userId, now);
   });
-
-  await assignDefaultRoleIfNeeded(opts.userId, invitationRow.applicationId);
-  await assignDefaultPlanIfNeeded(opts.userId, invitationRow.applicationId);
-  publishEvent("user.changed");
+  await applyDefaultApplicationAccess(opts.userId, invitationRow.applicationId);
   logger.info(
     {
       userId: opts.userId,
@@ -281,42 +302,16 @@ export async function completeRegistration(opts: {
   const now = new Date();
 
   const userId = await db.transaction(async (tx) => {
-    // Conditional consume: only the transaction that flips the row from
-    // pending may proceed, so two concurrent redemptions cannot both create.
-    const [claimed] = await tx
-      .update(registrationInvitations)
-      .set({ consumedAt: now })
-      .where(
-        and(
-          eq(registrationInvitations.id, invitation.id),
-          isNull(registrationInvitations.consumedAt),
-          isNull(registrationInvitations.revokedAt),
-          gt(registrationInvitations.expiresAt, now),
-        ),
-      )
-      .returning({ id: registrationInvitations.id });
-    if (!claimed) throw ERR.AUTH_012();
-
     const { id } = await insertCredentialUser(tx, {
       name: opts.name,
       email: invitation.email,
       emailVerified: true,
       storedPasswordHash,
     });
-    await tx
-      .insert(userApplications)
-      .values({
-        userId: id,
-        applicationId: invitation.applicationId,
-        isActive: true,
-      })
-      .onConflictDoNothing();
+    await consumeInvitationAndGrantAccess(tx, invitation, id, now);
     return id;
   });
-
-  await assignDefaultRoleIfNeeded(userId, invitation.applicationId);
-  await assignDefaultPlanIfNeeded(userId, invitation.applicationId);
-  publishEvent("user.changed");
+  await applyDefaultApplicationAccess(userId, invitation.applicationId);
   logger.info(
     {
       userId,

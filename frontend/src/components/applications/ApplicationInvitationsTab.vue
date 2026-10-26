@@ -136,6 +136,8 @@ async function revoke(invitation: RegistrationInvitation) {
 
 onMounted(load);
 watch(() => props.applicationId, load);
+
+defineExpose({ openModal });
 </script>
 
 <template>

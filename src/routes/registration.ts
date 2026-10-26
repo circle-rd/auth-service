@@ -18,6 +18,7 @@ import {
 } from "../services/organization-invitations.js";
 import {
   acceptApplicationInvitation,
+  buildInvitationUrl,
   completeRegistration,
   findRegistrationInvitationByToken,
   invitationState,
@@ -319,7 +320,7 @@ export async function registrationRoutes(
       const token = parsed.data.token;
       return startSocialInvitation(reply, fromNodeHeaders(req.headers), {
         provider: parsed.data.provider,
-        callbackUrl: `${config.betterAuth.url}/complete-registration?token=${encodeURIComponent(token)}&client_id=${encodeURIComponent(application.slug)}`,
+        callbackUrl: buildInvitationUrl(application.slug, token),
         flow: {
           kind: "application",
           invitationId: invitationRow.id,

@@ -156,12 +156,6 @@
 
     <div class="card">
       <div class="error-box" id="error-box"><%= it.ERROR_MESSAGE %></div>
-      <div id="account-exists" class="hidden">
-        <p class="subtitle">An account already exists for <strong><%= it.EMAIL %></strong>. Sign in to finish accepting this invitation.</p>
-        <a class="btn btn-primary" href="<%= it.LOGIN_URL %>">Sign in</a>
-        <div class="divider">or continue with</div>
-        <div class="social-list" id="social-exists"></div>
-      </div>
       <form id="complete-form">
         <input type="hidden" id="token" value="<%= it.INVITATION_TOKEN %>" />
         <div class="form-group">
@@ -193,9 +187,7 @@
 
   <script type="module">
     const AUTH_URL = '<%= it.AUTH_URL %>';
-    const LOGIN_URL = '<%= it.LOGIN_URL %>';
     const TOKEN = '<%= it.INVITATION_TOKEN %>';
-    const HAS_ACCOUNT = <%~ it.HAS_ACCOUNT %>;
     const SOCIAL_PROVIDERS = <%~ it.SOCIAL_PROVIDERS_JSON %>;
     const PROVIDER_LABELS = { google: 'Google', github: 'GitHub' };
     const PROVIDER_ICONS = {
@@ -207,7 +199,7 @@
     const submitBtn = document.getElementById('submit-btn');
 
     function renderSocialButtons() {
-      const list = document.getElementById(HAS_ACCOUNT ? 'social-exists' : 'social-list');
+      const list = document.getElementById('social-list');
       if (!list) return;
       if (!SOCIAL_PROVIDERS.length) {
         document.getElementById('social-section')?.classList.add('hidden');
@@ -246,10 +238,6 @@
       }
     }
 
-    if (HAS_ACCOUNT) {
-      form.classList.add('hidden');
-      document.getElementById('social-section')?.classList.add('hidden');
-    }
     renderSocialButtons();
 
     form.addEventListener('submit', async (e) => {

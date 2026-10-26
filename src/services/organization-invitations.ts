@@ -23,7 +23,6 @@ export interface OrganizationInvitationDetails {
   expiresAt: Date;
   organizationId: string;
   organizationName: string;
-  organizationSlug: string;
   inviterName: string | null;
   inviterEmail: string;
 }
@@ -45,7 +44,6 @@ export async function findOrganizationInvitation(
       expiresAt: invitation.expiresAt,
       organizationId: invitation.organizationId,
       organizationName: organization.name,
-      organizationSlug: organization.slug,
       inviterName: userTable.name,
       inviterEmail: userTable.email,
     })

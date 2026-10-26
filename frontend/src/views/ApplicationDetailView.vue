@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useServicesStore } from '@/stores/services';
@@ -31,7 +31,7 @@ import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
 import type { ColumnDef } from '@/types/data-table';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Repeat, CalendarRange, Zap } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Repeat, CalendarRange, Zap, Mail } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
@@ -42,6 +42,7 @@ const services = useServicesStore();
 
 const appId = route.params.id as string;
 const activeTab = ref<'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial'>('roles');
+const invitationsTabRef = ref<InstanceType<typeof ApplicationInvitationsTab> | null>(null);
 
 const app = ref<Application | null>(null);
 const roles = ref<AppRole[]>([]);
@@ -501,6 +502,12 @@ const intervalOptions = computed<SelectOption[]>(() => [
   { value: 'one_time', label: t('appDetail.one_time'), icon: Zap },
 ]);
 
+async function openInviteFromUsers() {
+  activeTab.value = 'invitations';
+  await nextTick();
+  invitationsTabRef.value?.openModal();
+}
+
 const tabs = [
   { key: 'roles', label: t('appDetail.rolesPermissions') },
   { key: 'users', label: t('appDetail.users') },
@@ -778,7 +785,8 @@ const financialKpis = computed(() => {
 
         <div v-if="activeTab === 'users'" class="space-y-4">
           <div class="flex justify-end gap-2">
-            <BaseButton size="sm" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
+            <BaseButton size="sm" @click="openInviteFromUsers"><Mail class="w-3.5 h-3.5" />{{ t('appDetail.inviteUser') }}</BaseButton>
+            <BaseButton size="sm" variant="outline" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
             <BaseButton size="sm" variant="outline" @click="openBulkModal"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
           </div>
           <DataTable
@@ -857,7 +865,7 @@ const financialKpis = computed(() => {
           </DataTable>
         </div>
 
-        <ApplicationInvitationsTab v-if="activeTab === 'invitations'" :application-id="appId" />
+        <ApplicationInvitationsTab v-if="activeTab === 'invitations'" ref="invitationsTabRef" :application-id="appId" />
 
         <div v-if="activeTab === 'plans'" class="space-y-4">
           <div class="flex justify-end">

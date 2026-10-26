@@ -423,6 +423,7 @@ export default {
     plans: 'Plans d\'abonnement',
     invitations: 'Invitations',
     invitationsHint: 'Invitez un contact par email. L’invitation crée le compte avec un accès à l’application uniquement — aucune organisation n’est attribuée par défaut.',
+    inviteUser: 'Inviter un utilisateur',
     inviteByEmail: 'Inviter par email',
     sendInvitation: 'Envoyer l\'invitation',
     invitationEmail: 'Adresse e-mail',

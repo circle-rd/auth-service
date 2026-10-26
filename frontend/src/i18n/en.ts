@@ -427,6 +427,7 @@ export default {
     plans: 'Subscription Plans',
     invitations: 'Invitations',
     invitationsHint: 'Invite a contact by email. The invitation creates the account with application access only — no organization is assigned by default.',
+    inviteUser: 'Invite a user',
     inviteByEmail: 'Invite by email',
     sendInvitation: 'Send invitation',
     invitationEmail: 'Email address',

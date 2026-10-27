@@ -41,6 +41,11 @@ export const statsQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(30),
 });
 
+export const sessionUsageQuerySchema = z.object({
+  sessionId: z.string().trim().min(1).max(200),
+  days: z.coerce.number().int().min(1).max(90).default(30),
+});
+
 export const listWalletsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

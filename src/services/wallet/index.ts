@@ -29,6 +29,7 @@ export { recordUsage } from "./usage.js";
 export { listGatewayUsage } from "./reconciliation.js";
 export {
   getAdminWalletStats,
+  getSessionUsage,
   getUserSpendStats,
   listWalletAccounts,
 } from "./stats.js";
@@ -59,6 +60,9 @@ export type {
   WalletOperationResult,
   WalletOwnerType,
   WalletAccountView,
+  WalletModelEntry,
+  WalletSessionUsage,
+  WalletSpendDay,
   AdminWalletStats,
   UserSpendStats,
   WalletListFilter,

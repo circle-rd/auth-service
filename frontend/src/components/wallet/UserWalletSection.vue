@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { Receipt } from 'lucide-vue-next';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
 import WalletBalanceCard from '@/components/wallet/WalletBalanceCard.vue';
 import WalletSpendCard from '@/components/wallet/WalletSpendCard.vue';
+import WalletDailyTable from '@/components/wallet/WalletDailyTable.vue';
 import WalletTransactionList from '@/components/wallet/WalletTransactionList.vue';
 import WalletActionModal from '@/components/wallet/WalletActionModal.vue';
 import type { WalletActionMode } from '@/components/wallet/WalletActionModal.vue';
@@ -25,7 +27,9 @@ const toast = useToast();
 
 const pageSize = usePersistentPageSize(`wallet-transactions:${props.userId}`, 20);
 const pageSizeOptions = PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) }));
-const { account, stats, items, nextCursor, loading, loadingMore, refresh, loadMore } = useWalletData({
+const {
+  account, stats, items, nextCursor, loading, ledgerLoading, loadingMore, refresh, loadLedger, loadMore,
+} = useWalletData({
   getAccount: () => getUserWallet(props.userId),
   getStats: (days) => getUserSpendStatsAdmin(props.userId, days),
   getPage: (params) => getUserTransactions(props.userId, params),
@@ -35,8 +39,15 @@ const actionMode = ref<WalletActionMode | null>(null);
 const unlimitedOpen = ref(false);
 const unlimitedReason = ref('');
 const unlimitedSaving = ref(false);
+// The raw ledger is a detail view: it is fetched only when opened.
+const ledgerOpen = ref(false);
 
 const events = useAdminEvents({ 'wallet.changed': () => void refresh() });
+
+function openLedger(): void {
+  ledgerOpen.value = true;
+  if (items.value.length === 0) void loadLedger();
+}
 
 async function toggleUnlimited(): Promise<void> {
   if (!account.value || unlimitedReason.value.trim() === '') return;
@@ -57,7 +68,7 @@ async function toggleUnlimited(): Promise<void> {
   }
 }
 
-watch(pageSize, () => void refresh());
+watch(pageSize, () => { if (ledgerOpen.value) void loadLedger(); });
 onMounted(() => void refresh());
 onUnmounted(() => events.close());
 </script>
@@ -90,19 +101,13 @@ onUnmounted(() => events.close());
     <WalletSpendCard :stats="stats" :loading="loading" />
 
     <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-      <div class="px-5 py-4 border-b border-surface-700/40">
-        <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('wallet.history.title') }}</h3>
+      <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between gap-3">
+        <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('wallet.daily.title') }}</h3>
+        <BaseButton variant="outline" size="sm" @click="openLedger">
+          <Receipt class="w-3.5 h-3.5" /> {{ t('wallet.admin.actions.ledger') }}
+        </BaseButton>
       </div>
-      <WalletTransactionList
-        :items="items"
-        :loading="loading"
-        :has-more="nextCursor !== null"
-        :loading-more="loadingMore"
-        :page-size="pageSize"
-        :page-size-options="pageSizeOptions"
-        @load-more="loadMore"
-        @update:page-size="pageSize = $event"
-      />
+      <WalletDailyTable :daily="stats?.daily ?? []" :loading="loading" />
     </div>
 
     <WalletActionModal
@@ -113,6 +118,19 @@ onUnmounted(() => events.close());
       @close="actionMode = null"
       @done="refresh"
     />
+
+    <BaseModal :open="ledgerOpen" :title="t('wallet.history.title')" size="xl" @close="ledgerOpen = false">
+      <WalletTransactionList
+        :items="items"
+        :loading="ledgerLoading"
+        :has-more="nextCursor !== null"
+        :loading-more="loadingMore"
+        :page-size="pageSize"
+        :page-size-options="pageSizeOptions"
+        @load-more="loadMore"
+        @update:page-size="pageSize = $event"
+      />
+    </BaseModal>
 
     <BaseModal :open="unlimitedOpen" :title="t('wallet.admin.actions.unlimited')" size="sm" @close="unlimitedOpen = false">
       <form class="space-y-4" @submit.prevent="toggleUnlimited">

@@ -102,6 +102,26 @@ export interface WalletKindEntry {
   count: number;
 }
 
+/** Spend of one model over a window, with the token quantities it billed. */
+export interface WalletModelEntry {
+  /** Model name; `mcp` for tool calls, `other` when the gateway did not report one. */
+  model: string;
+  amount: string;
+  count: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/** One day of spend, split by application and by model. */
+export interface WalletSpendDay {
+  date: string;
+  amount: string;
+  count: number;
+  byApplication: WalletBreakdownEntry[];
+  byModel: WalletModelEntry[];
+}
+
 export interface UserSpendStats {
   days: number;
   total: string;
@@ -111,6 +131,9 @@ export interface UserSpendStats {
   series: WalletDailyPoint[];
   byApplication: WalletBreakdownEntry[];
   byKind: WalletKindEntry[];
+  byModel: WalletModelEntry[];
+  /** Per-day breakdown, the granularity the wallet views show by default. */
+  daily: WalletSpendDay[];
 }
 
 export interface WalletTopConsumer {
@@ -144,6 +167,7 @@ export interface AdminWalletStats {
   topConsumers: WalletTopConsumer[];
   byApplication: WalletBreakdownEntry[];
   byKind: WalletKindEntry[];
+  byModel: WalletModelEntry[];
 }
 
 export type WalletListFilter = "all" | "debt" | "credit" | "unlimited";
@@ -176,6 +200,22 @@ export interface GatewayUsageEntry {
 export interface GatewayUsagePage {
   items: GatewayUsageEntry[];
   nextCursor: string | null;
+}
+
+/**
+ * What a chat session spent, as an application can query it for its user: the
+ * session id is the one the application passed to the gateway, and a query is
+ * scoped to the calling application when the token carries one.
+ */
+export interface WalletSessionUsage {
+  sessionId: string;
+  applicationSlug: string | null;
+  days: number;
+  total: string;
+  /** Part of `total` that was never deducted (usage on an unlimited account). */
+  notBilled: string;
+  calls: number;
+  byModel: WalletModelEntry[];
 }
 
 /** Settings that turn a provider cost in US dollars into micro-euros. */

@@ -152,7 +152,7 @@ function formatDate(iso: string): string {
             <template #empty>{{ t('wallet.spend.none') }}</template>
           </SpendChart>
           <div v-if="stats && stats.spend.calls > 0" class="mt-6 pt-6 border-t border-surface-700/40">
-            <SpendBreakdown :by-application="stats.byApplication" :by-kind="stats.byKind" />
+            <SpendBreakdown :by-application="stats.byApplication" :by-kind="stats.byKind" :by-model="stats.byModel" />
           </div>
         </div>
 

@@ -315,23 +315,34 @@ class WalletLogger(CustomLogger):
     @staticmethod
     def _usage_metadata(slo: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
         """Raw quantities kept in the ledger so a charge can be audited and re-priced."""
+        # The end-user chat session the client passed (LiteLLM `metadata.session_id`),
+        # kept so an application can ask what a session cost. It is client-supplied,
+        # so it is bounded here and never used for authorization.
+        session = meta.get("session_id")
+        session_id = (
+            session[:200] if isinstance(session, str) and session else None
+        )
         call_type = slo.get("call_type")
         if call_type == "call_mcp_tool":
             tool = meta.get("mcp_tool_call_metadata") or {}
-            return {
+            out = {
                 "kind": "mcp",
                 "callType": call_type,
                 "mcpServer": tool.get("mcp_server_name"),
                 "tool": tool.get("name"),
             }
-        return {
-            "kind": "llm",
-            "callType": call_type,
-            "model": slo.get("model"),
-            "promptTokens": slo.get("prompt_tokens"),
-            "completionTokens": slo.get("completion_tokens"),
-            "totalTokens": slo.get("total_tokens"),
-        }
+        else:
+            out = {
+                "kind": "llm",
+                "callType": call_type,
+                "model": slo.get("model"),
+                "promptTokens": slo.get("prompt_tokens"),
+                "completionTokens": slo.get("completion_tokens"),
+                "totalTokens": slo.get("total_tokens"),
+            }
+        if session_id:
+            out["sessionId"] = session_id
+        return out
 
     # ── delivery with retry ──────────────────────────────────────────────────
 

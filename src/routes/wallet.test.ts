@@ -19,6 +19,8 @@ const {
   mockCheckout,
   mockOptions,
   mockStats,
+  mockSessionUsage,
+  mockVerifyBearer,
 } = vi.hoisted(() => ({
   mockRequireUserOrBearer: vi.fn(),
   mockGetSession: vi.fn(),
@@ -27,12 +29,17 @@ const {
   mockCheckout: vi.fn(),
   mockOptions: vi.fn(),
   mockStats: vi.fn(),
+  mockSessionUsage: vi.fn(),
+  mockVerifyBearer: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../middleware.js", () => ({
   requireUserOrBearer: mockRequireUserOrBearer,
   getRequestSession: mockGetSession,
+}));
+vi.mock("../services/oauth-tokens.js", () => ({
+  verifyBearerAccessToken: mockVerifyBearer,
 }));
 vi.mock("../services/wallet/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof WalletModule>()),
@@ -41,6 +48,7 @@ vi.mock("../services/wallet/index.js", async (importOriginal) => ({
   createTopupCheckout: mockCheckout,
   getTopupOptions: mockOptions,
   getUserSpendStats: mockStats,
+  getSessionUsage: mockSessionUsage,
 }));
 
 const { walletRoutes } = await import("./wallet.js");
@@ -64,6 +72,10 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ user: { id: "user-1", email: "u@example.com" } });
   mockStats.mockReset().mockResolvedValue({ days: 30, total: "0" });
+  mockSessionUsage
+    .mockReset()
+    .mockResolvedValue({ sessionId: "s1", days: 30, total: "0", calls: 0 });
+  mockVerifyBearer.mockReset().mockResolvedValue(null);
   mockCheckout
     .mockReset()
     .mockResolvedValue({ url: "https://checkout.test/s" });
@@ -265,5 +277,52 @@ describe("GET /stats", () => {
     const res = await app.inject({ method: "GET", url: "/stats" });
     expect(res.statusCode).toBe(401);
     expect(mockStats).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /usage", () => {
+  it("returns a session's spend, unbound for a session cookie", async () => {
+    const res = await app.inject({ method: "GET", url: "/usage?sessionId=s1" });
+    expect(mockSessionUsage).toHaveBeenCalledWith({
+      accountId: "acc",
+      sessionId: "s1",
+      applicationSlug: undefined,
+      days: 30,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("binds a bearer caller to the token's application", async () => {
+    mockVerifyBearer.mockResolvedValue({ clientId: "app-a" });
+    await app.inject({
+      method: "GET",
+      url: "/usage?sessionId=s1&days=7",
+      headers: { authorization: "Bearer tok" },
+    });
+    expect(mockSessionUsage).toHaveBeenCalledWith({
+      accountId: "acc",
+      sessionId: "s1",
+      applicationSlug: "app-a",
+      days: 7,
+    });
+  });
+
+  it("rejects a missing or oversized sessionId", async () => {
+    for (const url of [
+      "/usage",
+      "/usage?sessionId=",
+      `/usage?sessionId=${"x".repeat(201)}`,
+    ]) {
+      const res = await app.inject({ method: "GET", url });
+      expect(res.statusCode).toBe(400);
+    }
+    expect(mockSessionUsage).not.toHaveBeenCalled();
+  });
+
+  it("answers 401 without a session", async () => {
+    signedOut();
+    const res = await app.inject({ method: "GET", url: "/usage?sessionId=s1" });
+    expect(res.statusCode).toBe(401);
+    expect(mockSessionUsage).not.toHaveBeenCalled();
   });
 });

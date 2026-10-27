@@ -4,6 +4,7 @@ import {
   setUserSubscription,
 } from "../../services/subscriptions.js";
 import type { SubscriptionChangeSource } from "../../services/subscriptions.js";
+import { syncStripeSubscription } from "../../services/billing/subscriptions.js";
 
 /**
  * Shared shape of the audit-reason field used by every admin plan write, so the
@@ -48,6 +49,11 @@ export async function assignRequestedOrDefaultPlan(
       source: input.source ?? "admin",
       actorUserId: input.actorUserId,
       reason: input.reason ?? null,
+    });
+    await syncStripeSubscription({
+      userId: input.userId,
+      applicationId: input.applicationId,
+      planId: input.planId,
     });
     return;
   }

@@ -63,6 +63,7 @@ import {
   resolveOrganization,
 } from "./services/organization-selection.js";
 import { publishEvent } from "./services/event-bus.js";
+import { ensureBillingCustomerBestEffort } from "./services/billing/index.js";
 import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
@@ -580,8 +581,11 @@ export const auth = betterAuth({
           const email = (userData as { email?: unknown }).email;
           await assertInvitationFlowEmail(flow, String(email ?? ""));
         },
-        after: async () => {
+        after: async (user) => {
           publishEvent("user.changed");
+          // Stripe needs a Customer before a subscription can exist; create it
+          // eagerly but best-effort, so a Stripe incident cannot block sign-up.
+          await ensureBillingCustomerBestEffort("user", user.id);
         },
       },
       update: {

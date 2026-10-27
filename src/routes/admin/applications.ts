@@ -21,6 +21,12 @@ import {
   setUserSubscription,
 } from "../../services/subscriptions.js";
 import {
+  archiveApplicationCatalogue,
+  loadApplicationCatalogue,
+  provisionPlanProductBestEffort,
+  updateApplicationProducts,
+} from "../../services/billing/catalog.js";
+import {
   assignRequestedOrDefaultPlan,
   planChangeReasonRequired,
   subscriptionReasonSchema,
@@ -525,6 +531,18 @@ export async function applicationRoutes(
       })
       .returning();
 
+    // b2) Give the default plan its Stripe Product too. Best-effort: a Stripe
+    // incident must not fail the application creation (reconciliation fills it).
+    if (freePlan) {
+      await provisionPlanProductBestEffort({
+        planId: freePlan.id,
+        applicationId: app!.id,
+        appName: app!.name,
+        planName: freePlan.name,
+        description: freePlan.description,
+      });
+    }
+
     // c) Assign every existing superadmin — and the caller who just created the
     // application — to the app with the "admin" role and the "free" plan.
     if (adminRole && freePlan) {
@@ -734,6 +752,14 @@ export async function applicationRoutes(
       allowedResources: app.allowedResources,
     });
 
+    // Keep the Stripe Products named after the (possibly renamed) application.
+    if (parsed.data.name !== undefined && parsed.data.name !== before.name) {
+      await updateApplicationProducts({
+        applicationId: app.id,
+        appName: app.name,
+      });
+    }
+
     await retireTeamAfterSave(
       app.slug,
       before.allowedResources,
@@ -759,6 +785,10 @@ export async function applicationRoutes(
     if (!existing) throw ERR.APP_002();
     if (existing.isSystem) throw ERR.APP_007();
 
+    // Read the catalogue before the application's rows cascade away, so its
+    // Stripe objects can be archived (never deleted) afterwards.
+    const catalogue = await loadApplicationCatalogue(req.params.id);
+
     const [deleted] = await db
       .delete(applications)
       .where(eq(applications.id, req.params.id))
@@ -781,6 +811,7 @@ export async function applicationRoutes(
     }
 
     await retireTeamAfterSave(deleted.slug, existing.allowedResources, null);
+    await archiveApplicationCatalogue(catalogue);
 
     publishEvent("application.changed");
 

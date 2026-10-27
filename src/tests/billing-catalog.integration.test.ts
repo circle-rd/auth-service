@@ -13,6 +13,7 @@ import { db } from "../db/index.js";
 import { user } from "../db/auth-schema.js";
 import {
   applications,
+  subscriptionPlanPrices,
   subscriptionPlans,
   userSubscriptions,
 } from "../db/schema.js";
@@ -22,6 +23,12 @@ import { makeSuperadminSession } from "./helpers/auth.js";
 import { auth } from "../auth.js";
 import { plansRoutes } from "../routes/admin/plans.js";
 import { planPricesRoutes } from "../routes/admin/plan-prices.js";
+import {
+  archiveApplicationCatalogue,
+  loadApplicationCatalogue,
+  provisionPlanProductBestEffort,
+  updateApplicationProducts,
+} from "../services/billing/catalog.js";
 
 const { stripeHolder, calls } = vi.hoisted(() => {
   const calls = {
@@ -362,5 +369,107 @@ describe("plan deletion", () => {
       .from(subscriptionPlans)
       .where(eq(subscriptionPlans.id, plan.id));
     expect(still?.id).toBe(plan.id);
+  });
+});
+
+describe("application catalogue lifecycle", () => {
+  async function seedAppWithPlan(slug = "app") {
+    const [a] = await db
+      .insert(applications)
+      .values({ name: "App", slug, isActive: true })
+      .returning();
+    const [plan] = await db
+      .insert(subscriptionPlans)
+      .values({ applicationId: a!.id, name: "free", isDefault: true })
+      .returning();
+    return { app: a!, plan: plan! };
+  }
+
+  it("provisions the default plan's product and links it", async () => {
+    const { app: a, plan } = await seedAppWithPlan();
+    await provisionPlanProductBestEffort({
+      planId: plan.id,
+      applicationId: a.id,
+      appName: "App",
+      planName: "free",
+      description: null,
+    });
+    const [row] = await db
+      .select({ stripeProductId: subscriptionPlans.stripeProductId })
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.id, plan.id));
+    expect(row?.stripeProductId).toMatch(/^prod_/);
+    expect(calls.productsCreate).toHaveLength(1);
+  });
+
+  it("swallows a Stripe failure so it cannot break application creation", async () => {
+    const { app: a, plan } = await seedAppWithPlan();
+    stripeHolder.stripe.products.create.mockRejectedValueOnce(new Error("down"));
+    await expect(
+      provisionPlanProductBestEffort({
+        planId: plan.id,
+        applicationId: a.id,
+        appName: "App",
+        planName: "free",
+        description: null,
+      }),
+    ).resolves.toBeUndefined();
+    const [row] = await db
+      .select({ stripeProductId: subscriptionPlans.stripeProductId })
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.id, plan.id));
+    expect(row?.stripeProductId).toBeNull();
+  });
+
+  it("renames the products of an application's plans", async () => {
+    const { app: a } = await seedAppWithPlan();
+    await db
+      .update(subscriptionPlans)
+      .set({ stripeProductId: "prod_old" })
+      .where(eq(subscriptionPlans.applicationId, a.id));
+    await updateApplicationProducts({ applicationId: a.id, appName: "Renamed" });
+    expect(calls.productsUpdate).toEqual([
+      ["prod_old", expect.objectContaining({ name: "Renamed — free" })],
+    ]);
+  });
+
+  it("loads and archives an application's catalogue", async () => {
+    const { app: a, plan } = await seedAppWithPlan();
+    await db
+      .update(subscriptionPlans)
+      .set({ stripeProductId: "prod_a" })
+      .where(eq(subscriptionPlans.id, plan.id));
+    await db.insert(subscriptionPlanPrices).values([
+      { planId: plan.id, name: "Monthly", amount: "1500", stripePriceId: "price_a" },
+      {
+        planId: plan.id,
+        name: "Calls",
+        amount: "10",
+        billingType: "metered",
+        featureKey: "api.calls",
+        unit: "call",
+        usageLimit: 1000,
+        stripePriceId: "price_b",
+        stripeMeterId: "meter_a",
+      },
+    ]);
+
+    const catalogue = await loadApplicationCatalogue(a.id);
+    expect(catalogue).toHaveLength(1);
+    expect(catalogue[0]?.stripeProductId).toBe("prod_a");
+    expect(catalogue[0]?.prices.map((p) => p.stripePriceId).sort()).toEqual([
+      "price_a",
+      "price_b",
+    ]);
+
+    await archiveApplicationCatalogue(catalogue);
+    expect(calls.pricesUpdate.map((c) => c[0]).sort()).toEqual([
+      "price_a",
+      "price_b",
+    ]);
+    expect(calls.productsUpdate).toEqual([
+      ["prod_a", { active: false }],
+    ]);
+    expect(calls.metersDeactivate).toEqual(["meter_a"]);
   });
 });

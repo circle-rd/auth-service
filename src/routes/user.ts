@@ -22,6 +22,11 @@ import { requireSession, requireFullSession } from "../middleware.js";
 import { publishEvent } from "../services/event-bus.js";
 import { isStripeConfigured } from "../services/stripe.js";
 import { setUserSubscription } from "../services/subscriptions.js";
+import {
+  createBillingPortalUrl,
+  createSubscriptionCheckout,
+  syncStripeSubscription,
+} from "../services/billing/subscriptions.js";
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -185,10 +190,54 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         source: "self",
         actorUserId: userId,
       });
+      await syncStripeSubscription({
+        userId,
+        applicationId,
+        planId: parsed.data.planId,
+      });
 
       await reply.send({ ok: true, changed: change.changed });
     },
   );
+
+  const checkoutBodySchema = z.object({
+    applicationId: z.string().uuid(),
+    planId: z.string().uuid(),
+  });
+
+  // POST /api/user/billing/checkout — open a Stripe Checkout in subscription
+  // mode for a paid plan. The session needs the user's session (not a bearer
+  // token): the subscription is bound to their Stripe Customer.
+  fastify.post("/billing/checkout", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const parsed = checkoutBodySchema.safeParse(req.body);
+    if (!parsed.success)
+      throw ERR.APP_001("Invalid checkout request", parsed.error.flatten());
+    const [access] = await db
+      .select({ id: userApplications.id })
+      .from(userApplications)
+      .where(
+        and(
+          eq(userApplications.userId, userId),
+          eq(userApplications.applicationId, parsed.data.applicationId),
+          eq(userApplications.isActive, true),
+        ),
+      )
+      .limit(1);
+    if (!access) throw ERR.APP_005();
+    await reply.send(
+      await createSubscriptionCheckout({ userId, ...parsed.data }),
+    );
+  });
+
+  // POST /api/user/billing/portal — Stripe Billing Portal (payment methods,
+  // cancellation), on the user's Stripe Customer.
+  fastify.post("/billing/portal", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    await reply.send(await createBillingPortalUrl({ userId }));
+  });
 
   // GET /api/user/consumption/:appId
   // Returns the current user's consumption aggregates for a specific app.

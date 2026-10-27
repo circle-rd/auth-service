@@ -29,6 +29,10 @@ export const applications = pgTable(
     // Self-registration is opt-in per application: default false so a
     // misconfigured app cannot silently open public sign-up.
     allowRegister: boolean("allow_register").notNull().default(false),
+    // How the application presents billing. `none`: no billing pages (the
+    // default). `delegated`: the service serves the subscribe, invoices and
+    // billing-usage pages for it. The application keeps its own UI otherwise.
+    billingMode: text("billing_mode").notNull().default("none"),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()
@@ -58,7 +62,13 @@ export const applications = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (t) => [uniqueIndex("applications_slug_idx").on(t.slug)],
+  (t) => [
+    uniqueIndex("applications_slug_idx").on(t.slug),
+    check(
+      "applications_billing_mode_check",
+      sql`${t.billingMode} IN ('none', 'delegated')`,
+    ),
+  ],
 );
 
 // ── User Applications ─────────────────────────────────────────────────────────

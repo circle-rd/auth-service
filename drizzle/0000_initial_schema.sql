@@ -30,6 +30,7 @@ CREATE TABLE "applications" (
 	"skip_consent" boolean DEFAULT false NOT NULL,
 	"is_mfa_required" boolean DEFAULT false NOT NULL,
 	"allow_register" boolean DEFAULT false NOT NULL,
+	"billing_mode" text DEFAULT 'none' NOT NULL,
 	"allowed_scopes" text[] DEFAULT '{"openid","profile","email"}' NOT NULL,
 	"redirect_uris" text[] DEFAULT '{}' NOT NULL,
 	"is_public" boolean DEFAULT false NOT NULL,
@@ -40,7 +41,8 @@ CREATE TABLE "applications" (
 	"enabled_social_providers" text[],
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "applications_billing_mode_check" CHECK ("applications"."billing_mode" IN ('none', 'delegated'))
 );
 --> statement-breakpoint
 CREATE TABLE "billing_customers" (

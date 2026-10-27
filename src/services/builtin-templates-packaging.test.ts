@@ -29,8 +29,10 @@ describe("Dockerfile ships built-in templates", () => {
         existsSync(join(root, "templates", "default", "emails", `${name}.eml`)),
       ).toBe(true);
     }
-    expect(existsSync(join(root, "templates", "default", "login.html"))).toBe(
-      true,
-    );
+    for (const page of ["login", "subscribe", "invoices", "billing-usage"]) {
+      expect(
+        existsSync(join(root, "templates", "default", `${page}.html`)),
+      ).toBe(true);
+    }
   });
 });

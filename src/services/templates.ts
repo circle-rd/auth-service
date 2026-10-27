@@ -36,7 +36,10 @@ export type PageName =
   | "device"
   | "error"
   | "complete-registration"
-  | "accept-invitation";
+  | "accept-invitation"
+  | "subscribe"
+  | "invoices"
+  | "billing-usage";
 
 /**
  * Path of the post-verification confirmation page, and the flows it can report.
@@ -153,6 +156,18 @@ const ERROR_COPY: Record<
       "The application asked for permissions this service does not grant.",
     badge: "Invalid scope",
   },
+  BILLING_NOT_AVAILABLE: {
+    heading: "Billing is not available here",
+    subtitle:
+      "This application does not present its billing on this service. Return to the application to manage your subscription.",
+    badge: "Billing unavailable",
+  },
+  BILLING_NO_ACCESS: {
+    heading: "You do not have access to this application",
+    subtitle:
+      "Your account is not allowed to use this application, so its billing is not shown. Ask an administrator for access.",
+    badge: "No access",
+  },
   server_error: {
     heading: "Something went wrong",
     subtitle:
@@ -224,6 +239,9 @@ export interface TemplateVars {
   hasAccount?: boolean;
   acceptUrl?: string;
   socialUrl?: string;
+  // Structured data for the billing pages (lists, figures). Spread into the
+  // template context as-is: templates escape it with `<%= %>` like any value.
+  pageData?: Record<string, unknown>;
 }
 
 function confirmationCopy(
@@ -291,6 +309,7 @@ export function renderAuthPage(
   // Map TS camelCase fields to the UPPER_SNAKE names that built-in templates
   // reference. Defaults mirror the legacy substitution behaviour.
   const it: Record<string, unknown> = {
+    ...(vars.pageData ?? {}),
     ACTION_URL: vars.actionUrl,
     REDIRECT_TO: vars.redirectTo,
     APP_SLUG: vars.appSlug,

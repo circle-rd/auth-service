@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="<%= it.LOCALE %>">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= it.APPLICATION_NAME %></title>
+  <meta name="robots" content="noindex" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:             #f4f4f5;
+      --surface:        rgba(255,255,255,0.9);
+      --surface-inner:  #f4f4f5;
+      --border:         rgba(212,212,216,0.7);
+      --border-focus:   #2563eb;
+      --text:           #09090b;
+      --text-muted:     #71717a;
+      --text-subtle:    #a1a1aa;
+      --primary:        #2563eb;
+      --primary-hover:  #3b82f6;
+      --primary-glow:   rgba(37,99,235,0.15);
+      --danger:         #ef4444;
+      --danger-bg:      rgba(239,68,68,0.08);
+      --danger-border:  rgba(239,68,68,0.25);
+      --radius-sm: 4px; --radius: 7px; --radius-lg: 9px; --radius-xl: 12px;
+      --shadow-lg: 0 8px 24px rgba(0,0,0,.08), 0 2px 6px rgba(0,0,0,.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:             #09090b;
+        --surface:        rgba(24,24,27,0.6);
+        --surface-inner:  rgba(39,39,42,0.6);
+        --border:         rgba(63,63,70,0.4);
+        --border-focus:   #3b82f6;
+        --text:           #fafafa;
+        --text-muted:     #a1a1aa;
+        --text-subtle:    #52525b;
+        --primary:        #2563eb;
+        --primary-hover:  #3b82f6;
+        --primary-glow:   rgba(59,130,246,0.12);
+        --danger:         #f87171;
+        --danger-bg:      rgba(239,68,68,0.1);
+        --danger-border:  rgba(239,68,68,0.3);
+        --shadow-lg: 0 8px 32px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.3);
+      }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100svh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem 1rem;
+      -webkit-font-smoothing: antialiased;
+    }
+    .auth-container { width: 100%; max-width: 24rem; display: flex; flex-direction: column; align-items: center; }
+    .auth-header { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 1.75rem; text-align: center; }
+    .auth-icon {
+      width: 3rem; height: 3rem; border-radius: var(--radius-xl);
+      background: var(--danger); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 8px 20px rgba(239,68,68,0.35); margin-bottom: 0.25rem;
+    }
+    .auth-icon svg { width: 1.375rem; height: 1.375rem; }
+    .brand-logo { max-height: 2.5rem; max-width: 12rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    .subtitle { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-xl); padding: 1.5rem; width: 100%;
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    }
+    .error-badge {
+      display: inline-flex; align-items: center; gap: .375rem;
+      background: var(--danger-bg); color: var(--danger);
+      border: 1px solid var(--danger-border); border-radius: var(--radius-sm);
+      padding: 0.3125rem 0.625rem; font-size: 0.75rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .04em; margin-bottom: 1rem;
+    }
+    .error-detail {
+      font-size: 0.875rem; color: var(--text-muted); line-height: 1.55;
+      word-break: break-word;
+    }
+    .error-code {
+      margin-top: 1rem; font-size: 0.75rem; color: var(--text-subtle);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      word-break: break-all;
+    }
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+      width: 100%; padding: 0.5625rem 1rem; border-radius: var(--radius);
+      font-size: 0.9375rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: background .15s, box-shadow .15s, opacity .15s;
+      border: 1px solid transparent; line-height: 1.5; margin-top: 1.25rem;
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); box-shadow: 0 4px 12px rgba(37,99,235,0.3); }
+    .auth-footer { margin-top: 1.25rem; text-align: center; font-size: 0.8125rem; color: var(--text-subtle); }
+  
+    .billing-title { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.02em; }
+    .billing-app { font-size: 0.8125rem; color: var(--text-muted); }
+    .plan { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .plan + .plan { margin-top: 0.75rem; }
+    .plan-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+    .plan-name { font-weight: 600; }
+    .plan-price { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 0.875rem; }
+    .plan-desc { font-size: 0.8125rem; color: var(--text-muted); }
+    .badge { font-size: 0.6875rem; padding: 0.125rem 0.5rem; border-radius: 999px; background: var(--primary-glow); color: var(--primary); }
+    .btn { display: inline-flex; justify-content: center; align-items: center; padding: 0.5rem 0.875rem; border-radius: var(--radius); background: var(--primary); color: #fff; text-decoration: none; font-size: 0.875rem; font-weight: 500; border: 0; }
+    .btn-ghost { background: transparent; color: var(--primary); border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th, td { text-align: left; padding: 0.5rem 0.25rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--text-muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .meter { height: 0.5rem; border-radius: 999px; background: var(--surface-inner); overflow: hidden; margin-top: 0.375rem; }
+    .meter > span { display: block; height: 100%; background: var(--primary); }
+    .muted { color: var(--text-muted); font-size: 0.8125rem; }
+    .empty { text-align: center; color: var(--text-muted); padding: 1.5rem 0; font-size: 0.875rem; }
+    </style>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="auth-header">
+      <% if (it.LOGO_URL) { %>
+        <img class="brand-logo" src="<%= it.LOGO_URL %>" alt="<%= it.APP_NAME %>" />
+      <% } %>
+      <h1 class="billing-title">Usage</h1>
+      <p class="billing-app"><%= it.APPLICATION_NAME %></p>
+    </div>
+    <div class="card" style="width:100%">
+      <p class="muted">Current period from <%= it.PERIOD_START %></p>
+      <% if (!it.HAS_FEATURES) { %>
+      <p class="empty">No metered usage for your plan.</p>
+      <% } %>
+      <% it.FEATURES.forEach(function (f) { %>
+      <div class="plan">
+        <div class="plan-head">
+          <span class="plan-name"><%= f.featureKey %></span>
+          <span class="plan-price"><%= f.used %><% if (f.limit !== null) { %> / <%= f.limit %><% } %> <%= f.unit %></span>
+        </div>
+        <% if (f.percent !== null) { %>
+        <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<%= f.percent %>"><span style="width:<%= f.percent %>%"></span></div>
+        <p class="muted"><% if (f.remaining !== null) { %><%= f.remaining %> <%= f.unit %> remaining<% } %></p>
+        <% } %>
+      </div>
+      <% }) %>
+    </div>
+  </div>
+</body>
+</html>

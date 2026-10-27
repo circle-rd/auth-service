@@ -70,6 +70,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
         .select({
           allowRegister: applications.allowRegister,
           enabledSocialProviders: applications.enabledSocialProviders,
+          billingMode: applications.billingMode,
           name: applications.name,
           icon: applications.icon,
         })
@@ -82,6 +83,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.send({
         allowRegister: app.allowRegister,
         enabledSocialProviders: socialProvidersFor(app.enabledSocialProviders),
+        billingMode: app.billingMode,
         name: app.name,
         icon: app.icon ?? null,
         appName: config.appName,

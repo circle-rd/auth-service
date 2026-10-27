@@ -287,6 +287,7 @@ const createAppSchema = z.object({
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(false),
+  billingMode: z.enum(["none", "delegated"]).default("none"),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client may call
@@ -326,6 +327,7 @@ const updateAppSchema = createAppSchema
     skipConsent: z.boolean().optional(),
     isMfaRequired: z.boolean().optional(),
     allowRegister: z.boolean().optional(),
+    billingMode: z.enum(["none", "delegated"]).optional(),
     allowedScopes: z.array(z.string()).optional(),
     redirectUris: z.array(z.string().url()).optional(),
     enableEndSession: z.boolean().optional(),
@@ -449,6 +451,7 @@ export async function applicationRoutes(
           skipConsent: data.skipConsent,
           isMfaRequired: data.isMfaRequired,
           allowRegister: data.allowRegister,
+          billingMode: data.billingMode,
           allowedScopes: data.allowedScopes,
           redirectUris: data.redirectUris,
           url: data.url,

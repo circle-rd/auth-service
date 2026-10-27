@@ -16,6 +16,7 @@ import {
   provisionPlanProduct,
 } from "../services/billing/catalog.js";
 import { syncStripeSubscription } from "../services/billing/subscriptions.js";
+import { pushPendingMeterEvents } from "../services/billing/usage.js";
 
 /**
  * Idempotent reconciliation of the Stripe objects the database expects: a
@@ -139,8 +140,10 @@ async function main(): Promise<void> {
     await syncStripeSubscription(row);
   }
 
+  const meterEvents = await pushPendingMeterEvents();
+
   process.stdout.write(
-    `✓ reconciled: ${customers} customer(s), ${products} product(s), ${prices} price(s) created, ${unlinked.length} subscription(s) linked\n`,
+    `✓ reconciled: ${customers} customer(s), ${products} product(s), ${prices} price(s) created, ${unlinked.length} subscription(s) linked, ${meterEvents} meter event(s) pushed\n`,
   );
 }
 

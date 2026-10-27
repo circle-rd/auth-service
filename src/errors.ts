@@ -114,6 +114,8 @@ export const ERR = {
     new ApiError(503, "BIL_001", msg),
   BIL_002: (msg = "Invalid billing configuration") =>
     new ApiError(400, "BIL_002", msg),
+  BIL_003: (msg = "Metered usage limit reached") =>
+    new ApiError(403, "BIL_003", msg),
 
   // ── WAL ───────────────────────────────────────────────────────────────────
   WAL_001: (msg = "Wallet account not found") =>

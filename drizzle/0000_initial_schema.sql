@@ -53,6 +53,28 @@ CREATE TABLE "billing_customers" (
 	CONSTRAINT "billing_customers_owner_type_check" CHECK ("billing_customers"."owner_type" IN ('user', 'org'))
 );
 --> statement-breakpoint
+CREATE TABLE "billing_usage_events" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"application_id" uuid NOT NULL,
+	"user_id" text NOT NULL,
+	"feature_key" text NOT NULL,
+	"quantity" numeric NOT NULL,
+	"billing_period_start" timestamp with time zone NOT NULL,
+	"idempotency_key" text NOT NULL,
+	"stripe_meter_event_identifier" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "billing_usage_periods" (
+	"user_id" text NOT NULL,
+	"application_id" uuid NOT NULL,
+	"feature_key" text NOT NULL,
+	"billing_period_start" timestamp with time zone NOT NULL,
+	"quantity" numeric NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "billing_usage_periods_pk" PRIMARY KEY("user_id","application_id","feature_key","billing_period_start")
+);
+--> statement-breakpoint
 CREATE TABLE "consumption_aggregates" (
 	"user_id" text NOT NULL,
 	"application_id" uuid NOT NULL,
@@ -496,6 +518,8 @@ ALTER TABLE "app_permissions" ADD CONSTRAINT "app_permissions_application_id_app
 ALTER TABLE "app_role_permissions" ADD CONSTRAINT "app_role_permissions_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_role_permissions" ADD CONSTRAINT "app_role_permissions_permission_id_app_permissions_id_fk" FOREIGN KEY ("permission_id") REFERENCES "public"."app_permissions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_roles" ADD CONSTRAINT "app_roles_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "billing_usage_events" ADD CONSTRAINT "billing_usage_events_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "billing_usage_periods" ADD CONSTRAINT "billing_usage_periods_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "consumption_aggregates" ADD CONSTRAINT "consumption_aggregates_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "consumption_entries" ADD CONSTRAINT "consumption_entries_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "login_history" ADD CONSTRAINT "login_history_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -540,6 +564,8 @@ CREATE UNIQUE INDEX "app_roles_app_name_idx" ON "app_roles" USING btree ("applic
 CREATE UNIQUE INDEX "applications_slug_idx" ON "applications" USING btree ("slug");--> statement-breakpoint
 CREATE UNIQUE INDEX "billing_customers_owner_idx" ON "billing_customers" USING btree ("owner_type","owner_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "billing_customers_stripe_idx" ON "billing_customers" USING btree ("stripe_customer_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "billing_usage_events_idem_idx" ON "billing_usage_events" USING btree ("application_id","idempotency_key");--> statement-breakpoint
+CREATE INDEX "billing_usage_events_pending_idx" ON "billing_usage_events" USING btree ("stripe_meter_event_identifier");--> statement-breakpoint
 CREATE INDEX "consumption_entries_user_app_key_idx" ON "consumption_entries" USING btree ("user_id","application_id","key");--> statement-breakpoint
 CREATE INDEX "login_history_user_logged_idx" ON "login_history" USING btree ("user_id","logged_at");--> statement-breakpoint
 CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("application_id","logged_at");--> statement-breakpoint

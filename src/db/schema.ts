@@ -463,6 +463,64 @@ export const billingCustomers = pgTable(
   ],
 );
 
+// ── Billing usage (metered features) ─────────────────────────────────────────
+// Raw metered reports (append-only, idempotent per application) and the
+// per-period aggregate that enforces the hard cap. The aggregate is
+// authoritative for the cap; Stripe's meter is only billed at period end.
+export const billingUsageEvents = pgTable(
+  "billing_usage_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    featureKey: text("feature_key").notNull(),
+    quantity: numeric("quantity").notNull(),
+    billingPeriodStart: timestamp("billing_period_start", {
+      withTimezone: true,
+    }).notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    // Null until the Stripe meter event is accepted; the retry job pushes the
+    // pending ones (Stripe outage, missing subscription, …).
+    stripeMeterEventIdentifier: text("stripe_meter_event_identifier"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("billing_usage_events_idem_idx").on(
+      t.applicationId,
+      t.idempotencyKey,
+    ),
+    index("billing_usage_events_pending_idx").on(t.stripeMeterEventIdentifier),
+  ],
+);
+
+export const billingUsagePeriods = pgTable(
+  "billing_usage_periods",
+  {
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    featureKey: text("feature_key").notNull(),
+    billingPeriodStart: timestamp("billing_period_start", {
+      withTimezone: true,
+    }).notNull(),
+    quantity: numeric("quantity").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({
+      name: "billing_usage_periods_pk",
+      columns: [t.userId, t.applicationId, t.featureKey, t.billingPeriodStart],
+    }),
+  ],
+);
+
 // ── Wallet Accounts ───────────────────────────────────────────────────────────
 // Prepaid credit shared by every application. Amounts are integer micro-euros
 // (1 EUR = 1_000_000): tokens and tool calls are priced into the same balance

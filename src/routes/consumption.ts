@@ -11,6 +11,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { getRequestSession, requireAdmin } from "../middleware.js";
 import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
+import { recordMeteredUsage } from "../services/billing/usage.js";
 
 const CONSUMPTION_KEY_RE = /^[a-zA-Z0-9.]+$/;
 
@@ -23,6 +24,8 @@ const postConsumptionSchema = z.object({
     .max(64)
     .regex(CONSUMPTION_KEY_RE, "key must be alphanumeric with dots"),
   value: z.number().finite("value must be a finite number"),
+  // Optional retry key: the same key reported twice increments usage once.
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
 });
 
 const userAppParamsSchema = z.object({
@@ -121,6 +124,20 @@ export async function consumptionRoutes(
       )
       .limit(1);
     if (!access) throw ERR.CONS_003();
+
+    // A key that prices a metered feature of the user's active plan is billed
+    // through Stripe meters (hard cap enforced) instead of the free counters.
+    const metered = await recordMeteredUsage({
+      userId,
+      applicationId,
+      key,
+      value,
+      idempotencyKey: parsed.data.idempotencyKey,
+    });
+    if (metered) {
+      await reply.send({ success: true, metered: true, aggregate: metered });
+      return;
+    }
 
     // Insert raw entry
     await db.insert(consumptionEntries).values({

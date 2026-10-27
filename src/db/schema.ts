@@ -521,6 +521,57 @@ export const billingUsagePeriods = pgTable(
   ],
 );
 
+// ── Stripe invoices (read cache) ──────────────────────────────────────────────
+// Filled by the invoice webhooks so the profile and the application read API
+// never call Stripe. A subscription invoice belongs to the application of its
+// subscription; a wallet top-up invoice has no application. The row keeps the
+// time of the last event applied: Stripe may deliver events out of order, and a
+// stale event must not overwrite a newer state.
+export const stripeInvoices = pgTable(
+  "stripe_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    stripeInvoiceId: text("stripe_invoice_id").notNull(),
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id").references(() => applications.id, {
+      onDelete: "set null",
+    }),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    status: text("status").notNull(),
+    billingReason: text("billing_reason"),
+    currency: text("currency").notNull(),
+    amountDue: bigint("amount_due", { mode: "number" }).notNull(),
+    amountPaid: bigint("amount_paid", { mode: "number" }).notNull(),
+    amountRemaining: bigint("amount_remaining", { mode: "number" }).notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    hostedInvoiceUrl: text("hosted_invoice_url"),
+    invoicePdf: text("invoice_pdf"),
+    stripeCreatedAt: timestamp("stripe_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("stripe_invoices_stripe_idx").on(t.stripeInvoiceId),
+    index("stripe_invoices_owner_idx").on(
+      t.userId,
+      t.applicationId,
+      t.stripeCreatedAt,
+    ),
+    check(
+      "stripe_invoices_status_check",
+      sql`${t.status} IN ('draft', 'open', 'paid', 'uncollectible', 'void')`,
+    ),
+  ],
+);
+
 // ── Wallet Accounts ───────────────────────────────────────────────────────────
 // Prepaid credit shared by every application. Amounts are integer micro-euros
 // (1 EUR = 1_000_000): tokens and tool calls are priced into the same balance

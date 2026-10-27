@@ -4,7 +4,12 @@ import { oauthClient } from "../db/auth-schema.js";
 import { ERR } from "../errors.js";
 import { verifyBearerAccessToken } from "./oauth-tokens.js";
 
-export const MACHINE_SCOPES = ["m2m", "wallet:debit", "wallet:read"] as const;
+export const MACHINE_SCOPES = [
+  "m2m",
+  "wallet:debit",
+  "wallet:read",
+  "billing:read",
+] as const;
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 
 /**

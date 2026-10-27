@@ -62,6 +62,14 @@ export async function createTopupCheckout(input: {
       },
     ],
     adaptive_pricing: { enabled: true },
+    // A top-up is also a Stripe invoice (paid and receipted), cached for the
+    // profile. The metadata links it back to the wallet owner.
+    invoice_creation: {
+      enabled: true,
+      invoice_data: {
+        metadata: { purpose: "wallet_topup", userId: input.userId },
+      },
+    },
     metadata,
     payment_intent_data: { metadata },
     success_url: `${returnUrl}?topup=success`,

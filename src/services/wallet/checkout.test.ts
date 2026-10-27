@@ -67,6 +67,12 @@ describe("createTopupCheckout", () => {
       client_reference_id: "u1",
       customer_email: "u1@example.com",
       adaptive_pricing: { enabled: true },
+      invoice_creation: {
+        enabled: true,
+        invoice_data: {
+          metadata: { purpose: "wallet_topup", userId: "u1" },
+        },
+      },
       line_items: [
         { quantity: 1, price_data: { currency: "eur", unit_amount: 1000 } },
       ],

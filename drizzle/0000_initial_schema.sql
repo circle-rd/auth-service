@@ -121,6 +121,29 @@ CREATE TABLE "stripe_events" (
 	"processed_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "stripe_invoices" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"stripe_invoice_id" text NOT NULL,
+	"user_id" text NOT NULL,
+	"application_id" uuid,
+	"stripe_subscription_id" text,
+	"status" text NOT NULL,
+	"billing_reason" text,
+	"currency" text NOT NULL,
+	"amount_due" bigint NOT NULL,
+	"amount_paid" bigint NOT NULL,
+	"amount_remaining" bigint NOT NULL,
+	"period_start" timestamp with time zone,
+	"period_end" timestamp with time zone,
+	"hosted_invoice_url" text,
+	"invoice_pdf" text,
+	"stripe_created_at" timestamp with time zone NOT NULL,
+	"last_event_at" timestamp with time zone NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "stripe_invoices_status_check" CHECK ("stripe_invoices"."status" IN ('draft', 'open', 'paid', 'uncollectible', 'void'))
+);
+--> statement-breakpoint
 CREATE TABLE "subscription_plan_prices" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"plan_id" uuid NOT NULL,
@@ -524,6 +547,7 @@ ALTER TABLE "consumption_aggregates" ADD CONSTRAINT "consumption_aggregates_appl
 ALTER TABLE "consumption_entries" ADD CONSTRAINT "consumption_entries_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "login_history" ADD CONSTRAINT "login_history_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "registration_invitations" ADD CONSTRAINT "registration_invitations_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plan_prices" ADD CONSTRAINT "subscription_plan_prices_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plans" ADD CONSTRAINT "subscription_plans_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -572,6 +596,8 @@ CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("app
 CREATE UNIQUE INDEX "registration_invitations_token_hash_idx" ON "registration_invitations" USING btree ("token_hash");--> statement-breakpoint
 CREATE INDEX "registration_invitations_email_idx" ON "registration_invitations" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "registration_invitations_app_idx" ON "registration_invitations" USING btree ("application_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_invoices_stripe_idx" ON "stripe_invoices" USING btree ("stripe_invoice_id");--> statement-breakpoint
+CREATE INDEX "stripe_invoices_owner_idx" ON "stripe_invoices" USING btree ("user_id","application_id","stripe_created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plan_prices_plan_feature_idx" ON "subscription_plan_prices" USING btree ("plan_id","feature_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint

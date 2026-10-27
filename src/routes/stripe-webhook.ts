@@ -13,6 +13,7 @@ import {
   syncSubscription,
   type WebhookLog,
 } from "../services/billing/webhooks.js";
+import { cacheStripeInvoice } from "../services/billing/invoices.js";
 
 export async function stripeWebhookRoutes(
   fastify: FastifyInstance,
@@ -110,6 +111,16 @@ export async function stripeWebhookRoutes(
     }
 
     try {
+      // Every invoice event refreshes the read cache, whatever it does to the
+      // entitlement below (a wallet top-up invoice has no subscription at all).
+      if (event.type.startsWith("invoice.")) {
+        await cacheStripeInvoice(
+          event.data.object as Stripe.Invoice,
+          event.created,
+          log,
+        );
+      }
+
       switch (event.type) {
         case "customer.subscription.created":
         case "customer.subscription.updated":

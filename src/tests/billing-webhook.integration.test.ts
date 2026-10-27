@@ -15,6 +15,7 @@ import { db } from "../db/index.js";
 import { user } from "../db/auth-schema.js";
 import {
   applications,
+  stripeInvoices,
   subscriptionPlanPrices,
   subscriptionPlans,
   userApplications,
@@ -427,6 +428,7 @@ describe("POST /api/webhooks/stripe", () => {
     constructEvent.mockReturnValue({
       id,
       type,
+      created: Math.floor(Date.now() / 1000),
       data: { object },
     } as Stripe.Event);
     return app.inject({
@@ -458,5 +460,41 @@ describe("POST /api/webhooks/stripe", () => {
     // The duplicate is acknowledged without re-applying state.
     const after = await readSubscription("user-1", a.id);
     expect(after?.updatedAt).toEqual(created?.updatedAt);
+  });
+
+  it("caches an invoice event for the read API, whatever its entitlement effect", async () => {
+    await seedUser();
+    const a = await seedApp();
+    await seedAccess("user-1", a.id);
+    const response = await post("evt_inv_1", "invoice.finalized", {
+      id: "in_dispatch_1",
+      object: "invoice",
+      status: "open",
+      currency: "eur",
+      amount_due: 1500,
+      amount_paid: 0,
+      amount_remaining: 1500,
+      period_start: 1793000000,
+      period_end: 1793002592,
+      created: 1793000000,
+      billing_reason: "subscription_create",
+      hosted_invoice_url: "https://invoice.stripe.com/i/dispatch",
+      invoice_pdf: "https://pay.stripe.com/invoice/dispatch/pdf",
+      customer: "cus_dispatch",
+      metadata: { userId: "user-1" },
+      parent: null,
+    });
+    expect(response.statusCode).toBe(200);
+    const [row] = await db
+      .select({
+        userId: stripeInvoices.userId,
+        hostedInvoiceUrl: stripeInvoices.hostedInvoiceUrl,
+      })
+      .from(stripeInvoices)
+      .where(eq(stripeInvoices.stripeInvoiceId, "in_dispatch_1"));
+    expect(row).toEqual({
+      userId: "user-1",
+      hostedInvoiceUrl: "https://invoice.stripe.com/i/dispatch",
+    });
   });
 });

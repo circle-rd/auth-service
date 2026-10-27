@@ -43,6 +43,7 @@ import { userRoutes } from "./routes/user.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
+import { appBillingRoutes } from "./routes/app-billing.js";
 import { adminWalletRoutes } from "./routes/admin/wallets.js";
 import { accountingRoutes } from "./routes/admin/accounting.js";
 import { applicationMachineScopesRoutes } from "./routes/admin/application-machine-scopes.js";
@@ -688,6 +689,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(gatewayInternalRoutes, {
     prefix: "/api/internal/gateway",
   });
+  await fastify.register(appBillingRoutes, { prefix: "/api/app/billing" });
   await fastify.register(adminWalletRoutes, { prefix: "/api/admin/wallets" });
   await fastify.register(accountingRoutes, {
     prefix: "/api/admin/accounting",

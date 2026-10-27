@@ -228,7 +228,9 @@ function priceIdFromLineItem(lineItem: Stripe.InvoiceLineItem): string | null {
   return typeof price === "string" ? price : price.id;
 }
 
-function subscriptionIdFromInvoice(invoice: Stripe.Invoice): string | null {
+export function subscriptionIdFromInvoice(
+  invoice: Stripe.Invoice,
+): string | null {
   const ref = invoice.parent?.subscription_details?.subscription;
   if (!ref) return null;
   return typeof ref === "string" ? ref : ref.id;

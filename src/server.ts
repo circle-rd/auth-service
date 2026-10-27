@@ -31,6 +31,7 @@ import { healthRoutes } from "./routes/health.js";
 import { applicationRoutes } from "./routes/admin/applications.js";
 import { rolesRoutes } from "./routes/admin/roles.js";
 import { plansRoutes } from "./routes/admin/plans.js";
+import { planPricesRoutes } from "./routes/admin/plan-prices.js";
 import { adminConsumptionRoutes } from "./routes/admin/adminConsumption.js";
 import { usersRoutes } from "./routes/admin/users.js";
 import { sessionsRoutes } from "./routes/admin/sessions.js";
@@ -41,6 +42,7 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
+import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
 import { adminWalletRoutes } from "./routes/admin/wallets.js";
 import { accountingRoutes } from "./routes/admin/accounting.js";
 import { applicationMachineScopesRoutes } from "./routes/admin/application-machine-scopes.js";
@@ -662,6 +664,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   await fastify.register(rolesRoutes, { prefix: "/api/admin" });
   await fastify.register(plansRoutes, { prefix: "/api/admin" });
+  await fastify.register(planPricesRoutes, { prefix: "/api/admin" });
   await fastify.register(adminConsumptionRoutes, { prefix: "/api/admin" });
   await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
@@ -681,6 +684,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(walletRoutes, { prefix: "/api/user/wallet" });
   await fastify.register(walletInternalRoutes, {
     prefix: "/api/internal/wallet",
+  });
+  await fastify.register(gatewayInternalRoutes, {
+    prefix: "/api/internal/gateway",
   });
   await fastify.register(adminWalletRoutes, { prefix: "/api/admin/wallets" });
   await fastify.register(accountingRoutes, {

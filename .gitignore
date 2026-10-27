@@ -33,3 +33,5 @@ templates/*
 !templates/default/
 
 tmp/
+# Gateway config exported by `pnpm llm:export` (may reference credentials; never commit)
+litellm-gateway-config.json

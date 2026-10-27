@@ -183,20 +183,54 @@ export const subscriptionPlans = pgTable(
 );
 
 // ── Subscription Plan Prices ──────────────────────────────────────────────────
-export const subscriptionPlanPrices = pgTable("subscription_plan_prices", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  planId: uuid("plan_id")
-    .notNull()
-    .references(() => subscriptionPlans.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  amount: numeric("amount").notNull(), // in smallest currency unit (e.g. cents)
-  currency: text("currency").notNull().default("usd"),
-  interval: text("interval").notNull().default("month"), // "month" | "year" | "one_time"
-  stripePriceId: text("stripe_price_id"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+// One billable line of a plan. A `fixed` row is a recurring or one-off price; a
+// `metered` row is a usage-based price backed by a Stripe meter, with its own
+// hard cap. `amount` is the total (fixed) or the price per unit (metered), in
+// the smallest currency unit. See the Stripe billing programme plan.
+export const subscriptionPlanPrices = pgTable(
+  "subscription_plan_prices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => subscriptionPlans.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    amount: numeric("amount").notNull(), // smallest currency unit (e.g. cents)
+    currency: text("currency").notNull().default("usd"),
+    interval: text("interval").notNull().default("month"), // "month" | "year" | "one_time"
+    billingType: text("billing_type").notNull().default("fixed"), // "fixed" | "metered"
+    featureKey: text("feature_key"), // metered: usage key the apps report
+    unit: text("unit"), // metered: label of the billed unit
+    usageLimit: integer("usage_limit"), // metered: hard cap per period, -1 = unlimited
+    stripePriceId: text("stripe_price_id"),
+    stripeMeterId: text("stripe_meter_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("subscription_plan_prices_plan_feature_idx").on(
+      t.planId,
+      t.featureKey,
+    ),
+    check(
+      "subscription_plan_prices_billing_type_check",
+      sql`${t.billingType} IN ('fixed', 'metered')`,
+    ),
+    check(
+      "subscription_plan_prices_metered_check",
+      sql`${t.billingType} <> 'metered' OR (${t.featureKey} IS NOT NULL AND ${t.unit} IS NOT NULL AND ${t.usageLimit} IS NOT NULL AND ${t.interval} <> 'one_time')`,
+    ),
+    check(
+      "subscription_plan_prices_fixed_check",
+      sql`${t.billingType} <> 'fixed' OR (${t.featureKey} IS NULL AND ${t.unit} IS NULL AND ${t.usageLimit} IS NULL AND ${t.stripeMeterId} IS NULL)`,
+    ),
+    check(
+      "subscription_plan_prices_usage_limit_check",
+      sql`${t.usageLimit} IS NULL OR ${t.usageLimit} = -1 OR ${t.usageLimit} > 0`,
+    ),
+  ],
+);
 
 // ── User Subscriptions ────────────────────────────────────────────────────────
 export const userSubscriptions = pgTable(

@@ -173,11 +173,13 @@ async function main(): Promise<void> {
       "token carries azp = calling application",
     );
 
-    // Each application with LiteLLM support got its own gateway team, closed until
-    // a gateway administrator grants it models (done here with the master key).
+    // Each application with LiteLLM support got one gateway team per plan, closed
+    // until a gateway administrator grants it resources — here its access group,
+    // which is what carries models, MCP servers and agents.
+    const planTeamId = (slug: string) => `${slug}:free`;
     const team = async (slug: string) => {
       const res = await litellm(
-        `/team/info?team_id=${encodeURIComponent(slug)}`,
+        `/team/info?team_id=${encodeURIComponent(planTeamId(slug))}`,
         masterKey,
       );
       return res.ok ? teamInfoSchema.parse(await res.json()).team_info : null;
@@ -186,19 +188,38 @@ async function main(): Promise<void> {
     const publicSlug = publicApp.application.slug;
     report(
       (await team(privateSlug))?.metadata?.managed_by === "auth-service",
-      "creating an application with LiteLLM support creates its gateway team",
+      "creating an application with LiteLLM support creates its plan team",
     );
     await expectStatus(
-      "a new application's team is closed until models are granted",
+      "a new application's plan team is closed until resources are granted",
       403,
       () => chat(privateToken),
     );
     for (const slug of [privateSlug, publicSlug]) {
-      const grant = await litellm("/team/update", masterKey, {
-        method: "POST",
-        body: JSON.stringify({ team_id: slug, models: [MOCK_MODEL] }),
-      });
-      report(grant.ok, `models granted to the team of ${slug}`);
+      const teamId = planTeamId(slug);
+      const groups = z
+        .object({
+          access_groups: z.array(
+            z.object({
+              access_group_id: z.string(),
+              access_group_name: z.string(),
+            }),
+          ),
+        })
+        .parse(
+          (await litellm("/v1/access_group", masterKey)).json(),
+        ).access_groups;
+      const group = groups.find((g) => g.access_group_name === teamId);
+      if (!group) throw new Error(`access group ${teamId} not found`);
+      const grant = await litellm(
+        `/v1/access_group/${group.access_group_id}`,
+        masterKey,
+        {
+          method: "PUT",
+          body: JSON.stringify({ access_model_names: [MOCK_MODEL] }),
+        },
+      );
+      report(grant.ok, `model granted to the access group of ${teamId}`);
     }
     // The gateway caches teams for about a minute.
     report(
@@ -447,19 +468,19 @@ async function main(): Promise<void> {
       "calls sharing a client-chosen call id are all billed",
     );
 
-    // Losing the LiteLLM support blocks the team; deleting the application removes it.
+    // Losing the LiteLLM support blocks the plan teams; deleting removes them.
     await admin.updateApplication(privateApp.application.id, {
       allowedResources: [],
     });
     report(
       (await team(privateSlug))?.blocked === true,
-      "removing the LiteLLM support blocks the application's team",
+      "removing the LiteLLM support blocks the application's plan team",
     );
     await admin.deleteApplication(privateApp.application.id);
     created.splice(created.indexOf(privateApp.application), 1);
     report(
       (await team(privateSlug)) === null,
-      "deleting the application deletes its team",
+      "deleting the application deletes its plan team",
     );
   } finally {
     if (modelId) {

@@ -63,6 +63,7 @@ import {
   ensureTeamBeforeSave,
   retireTeamAfterSave,
 } from "../../services/litellm-sync.js";
+import { DEFAULT_PLAN_NAME } from "../../services/litellm-plan.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -420,7 +421,9 @@ export async function applicationRoutes(
     if (existing) throw ERR.APP_003();
 
     await assertAllowedResources(data.allowedResources, data.url ?? null);
-    await ensureTeamBeforeSave(data, []);
+    // The plans do not exist yet (a new application is created with just its
+    // default one), so the team ids are derived from the plan names here.
+    await ensureTeamBeforeSave(data, [], [DEFAULT_PLAN_NAME]);
 
     // Generate and hash the client secret (only for confidential clients)
     const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
@@ -516,7 +519,7 @@ export async function applicationRoutes(
       .insert(subscriptionPlans)
       .values({
         applicationId: app!.id,
-        name: "free",
+        name: DEFAULT_PLAN_NAME,
         isDefault: true,
         features: {},
       })

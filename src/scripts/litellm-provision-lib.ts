@@ -8,7 +8,13 @@ export const PROVISIONER_KEY_ALIAS = "auth-service-provisioner";
 
 /**
  * The only gateway routes the key may call: the team routes auth-service needs to
- * keep one team per application. It cannot add models, mint keys or serve calls.
+ * keep one team per application and plan, plus the access-group routes it needs
+ * to create and remove each plan's (empty) resource bundle. It cannot add models,
+ * mint keys or serve calls. `allowed_routes` matches the path only, never the
+ * method, so these also permit `PUT`/`DELETE` on an access group; auth-service
+ * only ever creates (`POST /v1/access_group`) and deletes
+ * (`DELETE /v1/access_group/{id}`) a plan's own group, and never edits the
+ * contents of a group an administrator fills.
  */
 export const PROVISIONER_ROUTES = [
   "/team/new",
@@ -18,6 +24,8 @@ export const PROVISIONER_ROUTES = [
   "/team/block",
   "/team/unblock",
   "/team/delete",
+  "/v1/access_group",
+  "/v1/access_group/*",
 ];
 
 const provisionEnvSchema = z.object({
@@ -88,7 +96,9 @@ export async function provisionKey(
 ): Promise<ProvisionOutcome> {
   const existing = readFileOrNull(env.keyFile)?.trim();
   if (existing) {
-    const probe = await gatewayCall(env, existing, "GET", "/team/list");
+    // The key must reach every route auth-service needs. Probing the access-group
+    // route (the newest addition) re-issues a key created before it existed.
+    const probe = await gatewayCall(env, existing, "GET", "/v1/access_group");
     if (probe.status === 200) return "kept";
   }
 

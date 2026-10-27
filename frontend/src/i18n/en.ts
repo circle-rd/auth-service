@@ -380,7 +380,7 @@ export default {
     isMfaRequiredHint: 'Users must have two-factor authentication set up before they can sign in to this application.',
     skipConsentHint: 'Do not ask users to approve the requested access. Meant for first-party applications you trust.',
     litellmSupport: 'LiteLLM support',
-    litellmSupportHint: 'Lets this application call the LLM gateway with its users\u2019 tokens and read their credit. Adds the gateway and Auth Service resources and the wallet scope, and creates the application\u2019s team on the gateway: closed until an administrator grants it models in LiteLLM.',
+    litellmSupportHint: 'Lets this application call the LLM gateway with its users\u2019 tokens and read their credit. Adds the gateway and Auth Service resources and the wallet scope, and creates one gateway team per subscription plan (each closed, with an empty access group the administrator fills in LiteLLM).',
     litellmUnavailable: 'LiteLLM is not provisioned on this deployment (the litellm and auth-service system applications are missing).',
     enabledSocialProviders: 'Social providers',
     socialProviders: 'Social providers',

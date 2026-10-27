@@ -24,8 +24,10 @@ vi.mock("../config.js", () => ({
 import {
   LitellmGatewayError,
   blockTeam,
+  deleteAccessGroupByName,
   deleteTeam,
-  ensureTeam,
+  ensureAccessGroup,
+  ensurePlanTeam,
   listTeams,
 } from "./litellm-teams.js";
 
@@ -53,7 +55,11 @@ beforeEach(() => {
         auth: new Headers(init.headers).get("Authorization"),
       });
       const next = responses.shift() ?? { status: 200, json: {} };
-      return new Response(JSON.stringify(next.json), { status: next.status });
+      const body =
+        next.status === 204 || next.json === null
+          ? null
+          : JSON.stringify(next.json);
+      return new Response(body, { status: next.status });
     }),
   );
 });
@@ -66,71 +72,157 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-describe("ensureTeam", () => {
-  it("creates a closed team, marked as managed, when it is missing", async () => {
-    responses = [{ status: 404, json: { detail: "not found" } }];
-    await ensureTeam("my-app", "My App");
+const groupList = (groups: Array<{ id: string; name: string }>) => ({
+  status: 200,
+  json: {
+    access_groups: groups.map((g) => ({
+      access_group_id: g.id,
+      access_group_name: g.name,
+    })),
+  },
+});
+
+describe("ensureAccessGroup", () => {
+  it("creates an empty group when it is missing", async () => {
+    responses = [
+      groupList([]),
+      {
+        status: 201,
+        json: { access_group_id: "g1", access_group_name: "app:free" },
+      },
+    ];
+    expect(await ensureAccessGroup("app:free")).toBe("g1");
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
-      "GET /team/info?team_id=my-app",
-      "POST /team/new",
+      "GET /v1/access_group",
+      "POST /v1/access_group",
     ]);
     expect(calls[1]!.body).toEqual({
-      team_id: "my-app",
-      team_alias: "My App",
-      models: ["no-default-models"],
-      metadata: { managed_by: "auth-service" },
+      access_group_name: "app:free",
+      description: "Managed by auth-service for the plan 'app:free'.",
     });
     expect(calls[0]!.auth).toBe("Bearer sk-prov");
   });
 
+  it("reuses an existing group", async () => {
+    responses = [groupList([{ id: "g9", name: "app:free" }])];
+    expect(await ensureAccessGroup("app:free")).toBe("g9");
+    expect(calls.map((c) => c.path)).toEqual(["/v1/access_group"]);
+  });
+});
+
+describe("deleteAccessGroupByName", () => {
+  it("deletes a group by name and ignores a missing one", async () => {
+    responses = [
+      groupList([{ id: "g1", name: "app:free" }]),
+      { status: 204, json: null },
+    ];
+    await deleteAccessGroupByName("app:free");
+    responses = [groupList([])];
+    await deleteAccessGroupByName("app:premium");
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "GET /v1/access_group",
+      "DELETE /v1/access_group/g1",
+      "GET /v1/access_group",
+    ]);
+  });
+});
+
+describe("ensurePlanTeam", () => {
+  it("creates a closed team carrying the plan's access group", async () => {
+    responses = [
+      groupList([]),
+      {
+        status: 201,
+        json: { access_group_id: "g1", access_group_name: "my-app:free" },
+      },
+      { status: 404, json: { detail: "not found" } },
+      { status: 200, json: {} },
+    ];
+    await ensurePlanTeam("my-app:free", "My App - Free", "my-app:free");
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      "GET /v1/access_group",
+      "POST /v1/access_group",
+      "GET /team/info?team_id=my-app%3Afree",
+      "POST /team/new",
+    ]);
+    expect(calls[3]!.body).toEqual({
+      team_id: "my-app:free",
+      team_alias: "My App - Free",
+      models: ["no-default-models"],
+      access_group_ids: ["g1"],
+      metadata: { managed_by: "auth-service" },
+    });
+  });
+
   it("treats a 'Team not found' error as missing", async () => {
     responses = [
+      groupList([{ id: "g1", name: "x" }]),
       {
         status: 500,
         json: { detail: { error: "Team not found, passed team_id=x" } },
       },
+      { status: 200, json: {} },
     ];
-    await ensureTeam("x", "X");
-    expect(calls[1]!.path).toBe("/team/new");
+    await ensurePlanTeam("x", "X", "x");
+    expect(calls.at(-1)!.path).toBe("/team/new");
   });
 
-  it("adopts an existing team without touching its configuration", async () => {
+  it("adopts an existing team and attaches the plan's group", async () => {
     responses = [
+      groupList([{ id: "g1", name: "a" }]),
       {
         status: 200,
         json: { team_info: { team_id: "a", metadata: { note: 1 } } },
       },
+      { status: 200, json: {} },
+      { status: 200, json: {} },
     ];
-    await ensureTeam("a", "A");
-    expect(calls[1]!.path).toBe("/team/update");
-    expect(calls[1]!.body).toEqual({
+    await ensurePlanTeam("a", "A", "a");
+    expect(calls.map((c) => c.path)).toEqual([
+      "/v1/access_group",
+      "/team/info?team_id=a",
+      "/team/update",
+      "/team/update",
+    ]);
+    expect(calls[2]!.body).toEqual({
       team_id: "a",
       metadata: { note: 1, managed_by: "auth-service" },
+    });
+    expect(calls[3]!.body).toEqual({
+      team_id: "a",
+      access_group_ids: ["g1"],
     });
     expect(calls.some((c) => c.path === "/team/new")).toBe(false);
   });
 
-  it("does nothing for a team already managed and usable", async () => {
+  it("does nothing for a managed team already carrying its group", async () => {
     responses = [
+      groupList([{ id: "g1", name: "a" }]),
       {
         status: 200,
         json: {
-          team_info: { team_id: "a", metadata: { managed_by: "auth-service" } },
+          team_info: {
+            team_id: "a",
+            access_group_ids: ["g1"],
+            metadata: { managed_by: "auth-service" },
+          },
         },
       },
     ];
-    await ensureTeam("a", "A");
-    expect(calls).toHaveLength(1);
+    await ensurePlanTeam("a", "A", "a");
+    expect(calls).toHaveLength(2);
   });
 
   it("unblocks a team auth-service blocked, but not one an admin blocked", async () => {
     responses = [
+      groupList([{ id: "g1", name: "a" }]),
       {
         status: 200,
         json: {
           team_info: {
             team_id: "a",
             blocked: true,
+            access_group_ids: ["g1"],
             metadata: {
               managed_by: "auth-service",
               blocked_by_auth_service: true,
@@ -138,9 +230,12 @@ describe("ensureTeam", () => {
           },
         },
       },
+      { status: 200, json: {} },
+      { status: 200, json: {} },
     ];
-    await ensureTeam("a", "A");
+    await ensurePlanTeam("a", "A", "a");
     expect(calls.map((c) => c.path)).toEqual([
+      "/v1/access_group",
       "/team/info?team_id=a",
       "/team/unblock",
       "/team/update",
@@ -148,34 +243,41 @@ describe("ensureTeam", () => {
 
     calls.length = 0;
     responses = [
+      groupList([{ id: "g1", name: "b" }]),
       {
         status: 200,
         json: {
           team_info: {
             team_id: "b",
             blocked: true,
+            access_group_ids: ["g1"],
             metadata: { managed_by: "auth-service" },
           },
         },
       },
     ];
-    await ensureTeam("b", "B");
-    expect(calls.map((c) => c.path)).toEqual(["/team/info?team_id=b"]);
+    await ensurePlanTeam("b", "B", "b");
+    expect(calls.map((c) => c.path)).toEqual([
+      "/v1/access_group",
+      "/team/info?team_id=b",
+    ]);
   });
 
   it("fails loud when the gateway refuses", async () => {
     responses = [
+      groupList([]),
+      { status: 201, json: { access_group_id: "g1", access_group_name: "a" } },
       { status: 404, json: { detail: "not found" } },
       { status: 403, json: { error: "denied" } },
     ];
-    await expect(ensureTeam("a", "A")).rejects.toThrow(
+    await expect(ensurePlanTeam("a", "A", "a")).rejects.toThrow(
       /team creation failed: HTTP 403/,
     );
   });
 
   it("fails loud when the key has not been delivered", async () => {
     rmSync(keyFile);
-    await expect(ensureTeam("a", "A")).rejects.toBeInstanceOf(
+    await expect(ensurePlanTeam("a", "A", "a")).rejects.toBeInstanceOf(
       LitellmGatewayError,
     );
   });
@@ -185,7 +287,7 @@ describe("ensureTeam", () => {
       "fetch",
       vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
     );
-    await expect(ensureTeam("a", "A")).rejects.toThrow(/unreachable/);
+    await expect(ensurePlanTeam("a", "A", "a")).rejects.toThrow(/unreachable/);
   });
 });
 

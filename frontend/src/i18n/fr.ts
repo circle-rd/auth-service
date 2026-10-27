@@ -376,7 +376,7 @@ export default {
     isMfaRequiredHint: 'Les utilisateurs doivent avoir configuré l\u2019authentification à deux facteurs avant de se connecter à cette application.',
     skipConsentHint: 'Ne demande pas aux utilisateurs d\u2019approuver les accès demandés. Pour les applications internes de confiance.',
     litellmSupport: 'Support LiteLLM',
-    litellmSupportHint: 'Permet \u00e0 cette application d\u2019appeler la passerelle LLM avec les tokens de ses utilisateurs et de lire leur cr\u00e9dit. Ajoute les ressources de la passerelle et d\u2019Auth Service ainsi que le scope wallet, et cr\u00e9e l\u2019\u00e9quipe de l\u2019application sur la passerelle : ferm\u00e9e tant qu\u2019un administrateur ne lui a pas accord\u00e9 de mod\u00e8les dans LiteLLM.',
+    litellmSupportHint: 'Permet \u00e0 cette application d\u2019appeler la passerelle LLM avec les tokens de ses utilisateurs et de lire leur cr\u00e9dit. Ajoute les ressources de la passerelle et d\u2019Auth Service ainsi que le scope wallet, et cr\u00e9e une \u00e9quipe par plan d\u2019abonnement sur la passerelle (chacune ferm\u00e9e, avec un groupe d\u2019acc\u00e8s vide que l\u2019administrateur remplit dans LiteLLM).',
     litellmUnavailable: 'LiteLLM n\u2019est pas provisionn\u00e9 sur ce d\u00e9ploiement (les applications syst\u00e8me litellm et auth-service sont absentes).',
     enabledSocialProviders: 'Fournisseurs sociaux',
     socialProviders: 'Fournisseurs sociaux',

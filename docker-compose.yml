@@ -216,9 +216,10 @@ services:
     restart: "no"
 
   # Gives auth-service its gateway key, then exits. The key is restricted to the
-  # team routes of the gateway (one team per application with LiteLLM support):
-  # it cannot add models, issue keys or make LLM calls. It is created once and
-  # kept while it works; the file lives on a volume only this service writes.
+  # team and access-group routes of the gateway (one team per application plan with
+  # LiteLLM support, each carrying an empty access group): it cannot add models,
+  # issue keys or make LLM calls. It is created once and kept while it works; the
+  # file lives on a volume only this service writes.
   litellm-provision:
     image: ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:nightly}
     profiles: ["llm"]

@@ -112,6 +112,8 @@ export const ERR = {
   // ── BIL ───────────────────────────────────────────────────────────────────
   BIL_001: (msg = "Billing is not configured") =>
     new ApiError(503, "BIL_001", msg),
+  BIL_002: (msg = "Invalid billing configuration") =>
+    new ApiError(400, "BIL_002", msg),
 
   // ── WAL ───────────────────────────────────────────────────────────────────
   WAL_001: (msg = "Wallet account not found") =>

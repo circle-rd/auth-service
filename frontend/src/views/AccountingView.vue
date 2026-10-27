@@ -16,6 +16,7 @@ import { listUsers } from '@/api/users';
 import { useAdminEvents } from '@/composables/useAdminEvents';
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
+import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useApplicationsStore } from '@/stores/applications';
 import { JOURNAL_KIND_META, isPlanKind } from '@/utils/journalKinds';
 import { JOURNAL_KINDS } from '@/types/accounting';
@@ -35,7 +36,7 @@ const applicationsStore = useApplicationsStore();
 const entries = ref<JournalEntry[]>([]);
 const total = ref(0);
 const page = ref(1);
-const limit = ref(20);
+const limit = usePersistentPageSize('accounting-journal', 20);
 const loading = ref(true);
 
 const kind = ref<JournalKind | ''>('');

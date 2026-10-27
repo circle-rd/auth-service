@@ -1,23 +1,41 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { ERR } from "../errors.js";
 import { getRequestSession, requireUserOrBearer } from "../middleware.js";
 import {
   createTopupCheckout,
   getOrCreateWalletAccount,
+  getSessionUsage,
   getTopupOptions,
   getUserSpendStats,
   listWalletTransactions,
   toAccountView,
 } from "../services/wallet/index.js";
+import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
 import {
   listTransactionsQuerySchema,
+  sessionUsageQuerySchema,
   statsQuerySchema,
 } from "./wallet-schemas.js";
 
 const checkoutBodySchema = z.object({
   amountCents: z.number().int().positive(),
 });
+
+/**
+ * The application behind a bearer token (its `azp`, the immutable OAuth client
+ * id), or undefined for a session cookie. Used to bind a session query to the
+ * application that made the calls, so two applications cannot read each other's
+ * identical session ids.
+ */
+async function callerApplicationSlug(
+  req: FastifyRequest,
+): Promise<string | undefined> {
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith("Bearer ")) return undefined;
+  const verified = await verifyBearerAccessToken(authorization.slice(7));
+  return verified?.clientId ?? undefined;
+}
 
 /** The signed-in user's own wallet. */
 export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
@@ -36,6 +54,24 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
     const { days } = statsQuerySchema.parse(req.query);
     const account = await getOrCreateWalletAccount("user", userId);
     await reply.send(await getUserSpendStats(account.id, days));
+  });
+
+  // GET /api/user/wallet/usage?sessionId=...&days=...
+  // What a chat session spent, for the application calling on its user's behalf.
+  fastify.get("/usage", async (req, reply) => {
+    const userId = await requireUserOrBearer(req, reply, "wallet:self:read");
+    if (!userId) return;
+    const { sessionId, days } = sessionUsageQuerySchema.parse(req.query);
+    const account = await getOrCreateWalletAccount("user", userId);
+    const applicationSlug = await callerApplicationSlug(req);
+    await reply.send(
+      await getSessionUsage({
+        accountId: account.id,
+        sessionId,
+        applicationSlug,
+        days,
+      }),
+    );
   });
 
   // GET /api/user/wallet/topup-options

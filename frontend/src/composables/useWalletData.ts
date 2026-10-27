@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { ref, type Ref } from 'vue';
 import type {
   UserSpendStats,
   WalletAccount,
@@ -9,16 +9,26 @@ import type {
 export interface WalletDataSource {
   getAccount: () => Promise<WalletAccount>;
   getStats: (days: number) => Promise<UserSpendStats>;
-  getPage: (params: { cursor?: string }) => Promise<WalletTransactionPage>;
+  /** Optional: the raw ledger, loaded on demand (administrator views only). */
+  getPage?: (params: { cursor?: string; limit?: number }) => Promise<WalletTransactionPage>;
 }
 
-/** Balance, spend statistics and cursor-paginated history of one wallet. */
-export function useWalletData(source: WalletDataSource, days = 30) {
+/**
+ * Balance, spend statistics and (on demand) cursor-paginated ledger of one
+ * wallet. The ledger is not fetched by `refresh`: the wallet views show the
+ * daily consumption by default, and the raw movements only when asked for.
+ */
+export function useWalletData(
+  source: WalletDataSource,
+  days = 30,
+  pageSize?: Ref<number>,
+) {
   const account = ref<WalletAccount | null>(null);
   const stats = ref<UserSpendStats | null>(null);
   const items = ref<WalletTransaction[]>([]);
   const nextCursor = ref<string | null>(null);
   const loading = ref(false);
+  const ledgerLoading = ref(false);
   const loadingMore = ref(false);
   const error = ref<Error | null>(null);
 
@@ -29,16 +39,10 @@ export function useWalletData(source: WalletDataSource, days = 30) {
     const current = ++generation;
     loading.value = account.value === null;
     try {
-      const [acc, st, page] = await Promise.all([
-        source.getAccount(),
-        source.getStats(days),
-        source.getPage({}),
-      ]);
+      const [acc, st] = await Promise.all([source.getAccount(), source.getStats(days)]);
       if (current !== generation) return;
       account.value = acc;
       stats.value = st;
-      items.value = page.items;
-      nextCursor.value = page.nextCursor;
       error.value = null;
     } catch (err) {
       if (current !== generation) return;
@@ -48,12 +52,32 @@ export function useWalletData(source: WalletDataSource, days = 30) {
     }
   }
 
+  /** Load the first page of the raw ledger; called when its view is opened. */
+  async function loadLedger(): Promise<void> {
+    if (!source.getPage || ledgerLoading.value) return;
+    const current = generation;
+    ledgerLoading.value = true;
+    try {
+      const page = await source.getPage({ limit: pageSize?.value });
+      if (current !== generation) return;
+      items.value = page.items;
+      nextCursor.value = page.nextCursor;
+    } catch (err) {
+      error.value = err instanceof Error ? err : new Error(String(err));
+    } finally {
+      ledgerLoading.value = false;
+    }
+  }
+
   async function loadMore(): Promise<void> {
-    if (nextCursor.value === null || loadingMore.value) return;
+    if (!source.getPage || nextCursor.value === null || loadingMore.value) return;
     const current = generation;
     loadingMore.value = true;
     try {
-      const page = await source.getPage({ cursor: nextCursor.value });
+      const page = await source.getPage({
+        cursor: nextCursor.value,
+        limit: pageSize?.value,
+      });
       if (current !== generation) return;
       items.value = [...items.value, ...page.items];
       nextCursor.value = page.nextCursor;
@@ -64,5 +88,17 @@ export function useWalletData(source: WalletDataSource, days = 30) {
     }
   }
 
-  return { account, stats, items, nextCursor, loading, loadingMore, error, refresh, loadMore };
+  return {
+    account,
+    stats,
+    items,
+    nextCursor,
+    loading,
+    ledgerLoading,
+    loadingMore,
+    error,
+    refresh,
+    loadLedger,
+    loadMore,
+  };
 }

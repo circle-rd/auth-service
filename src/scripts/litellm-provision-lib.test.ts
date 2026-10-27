@@ -27,7 +27,7 @@ beforeEach(() => {
     "/user/new": { status: 200, body: {} },
     "/key/delete": { status: 200, body: {} },
     "/key/generate": { status: 200, body: { key: "sk-new" } },
-    "/team/list": { status: 401, body: {} },
+    "/v1/access_group": { status: 401, body: {} },
   };
   vi.stubGlobal(
     "fetch",
@@ -62,15 +62,19 @@ describe("provisionKey", () => {
     expect(calls.find((c) => c.path === "/user/new")!.body).toMatchObject({
       user_role: "proxy_admin",
     });
-    expect(PROVISIONER_ROUTES.every((r) => r.startsWith("/team/"))).toBe(true);
+    expect(
+      PROVISIONER_ROUTES.every(
+        (r) => r.startsWith("/team/") || r.startsWith("/v1/access_group"),
+      ),
+    ).toBe(true);
   });
 
   it("keeps a key that still works", async () => {
     await provisionKey(env);
     calls.length = 0;
-    answers["/team/list"] = { status: 200, body: [] };
+    answers["/v1/access_group"] = { status: 200, body: { access_groups: [] } };
     expect(await provisionKey(env)).toBe("kept");
-    expect(calls.map((c) => c.path)).toEqual(["/team/list"]);
+    expect(calls.map((c) => c.path)).toEqual(["/v1/access_group"]);
   });
 
   it("replaces a key that no longer works, revoking the old one first", async () => {
@@ -79,7 +83,7 @@ describe("provisionKey", () => {
     answers["/key/generate"] = { status: 200, body: { key: "sk-newer" } };
     expect(await provisionKey(env)).toBe("created");
     expect(calls.map((c) => c.path)).toEqual([
-      "/team/list",
+      "/v1/access_group",
       "/user/new",
       "/key/delete",
       "/key/generate",

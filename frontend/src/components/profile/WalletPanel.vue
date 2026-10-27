@@ -7,8 +7,8 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import WalletBalanceCard from '@/components/wallet/WalletBalanceCard.vue';
 import WalletSpendCard from '@/components/wallet/WalletSpendCard.vue';
-import WalletTransactionList from '@/components/wallet/WalletTransactionList.vue';
-import { createCheckout, getMySpendStats, getMyTransactions, getMyWallet, getTopupOptions } from '@/api/wallet';
+import WalletDailyTable from '@/components/wallet/WalletDailyTable.vue';
+import { createCheckout, getMySpendStats, getMyWallet, getTopupOptions } from '@/api/wallet';
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
 import { useWalletData } from '@/composables/useWalletData';
@@ -28,11 +28,10 @@ const toast = useToast();
 const route = useRoute();
 const router = useRouter();
 
-const { account, stats, items, nextCursor, loading, loadingMore, error, refresh, loadMore } = useWalletData({
+const { account, stats, loading, error, refresh } = useWalletData({
   getAccount: getMyWallet,
   getStats: getMySpendStats,
-  getPage: getMyTransactions,
-});
+}, 30);
 
 const options = ref<TopupOptions | null>(null);
 const amount = ref('10');
@@ -175,15 +174,9 @@ onUnmounted(() => {
 
     <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
       <div class="px-5 py-4 border-b border-surface-700/40">
-        <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('wallet.history.title') }}</h3>
+        <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('wallet.daily.title') }}</h3>
       </div>
-      <WalletTransactionList
-        :items="items"
-        :loading="loading"
-        :has-more="nextCursor !== null"
-        :loading-more="loadingMore"
-        @load-more="loadMore"
-      />
+      <WalletDailyTable :daily="stats?.daily ?? []" :loading="loading" />
     </div>
   </div>
 </template>

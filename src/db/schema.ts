@@ -183,20 +183,54 @@ export const subscriptionPlans = pgTable(
 );
 
 // ── Subscription Plan Prices ──────────────────────────────────────────────────
-export const subscriptionPlanPrices = pgTable("subscription_plan_prices", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  planId: uuid("plan_id")
-    .notNull()
-    .references(() => subscriptionPlans.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  amount: numeric("amount").notNull(), // in smallest currency unit (e.g. cents)
-  currency: text("currency").notNull().default("usd"),
-  interval: text("interval").notNull().default("month"), // "month" | "year" | "one_time"
-  stripePriceId: text("stripe_price_id"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+// One billable line of a plan. A `fixed` row is a recurring or one-off price; a
+// `metered` row is a usage-based price backed by a Stripe meter, with its own
+// hard cap. `amount` is the total (fixed) or the price per unit (metered), in
+// the smallest currency unit. See the Stripe billing programme plan.
+export const subscriptionPlanPrices = pgTable(
+  "subscription_plan_prices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => subscriptionPlans.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    amount: numeric("amount").notNull(), // smallest currency unit (e.g. cents)
+    currency: text("currency").notNull().default("usd"),
+    interval: text("interval").notNull().default("month"), // "month" | "year" | "one_time"
+    billingType: text("billing_type").notNull().default("fixed"), // "fixed" | "metered"
+    featureKey: text("feature_key"), // metered: usage key the apps report
+    unit: text("unit"), // metered: label of the billed unit
+    usageLimit: integer("usage_limit"), // metered: hard cap per period, -1 = unlimited
+    stripePriceId: text("stripe_price_id"),
+    stripeMeterId: text("stripe_meter_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("subscription_plan_prices_plan_feature_idx").on(
+      t.planId,
+      t.featureKey,
+    ),
+    check(
+      "subscription_plan_prices_billing_type_check",
+      sql`${t.billingType} IN ('fixed', 'metered')`,
+    ),
+    check(
+      "subscription_plan_prices_metered_check",
+      sql`${t.billingType} <> 'metered' OR (${t.featureKey} IS NOT NULL AND ${t.unit} IS NOT NULL AND ${t.usageLimit} IS NOT NULL AND ${t.interval} <> 'one_time')`,
+    ),
+    check(
+      "subscription_plan_prices_fixed_check",
+      sql`${t.billingType} <> 'fixed' OR (${t.featureKey} IS NULL AND ${t.unit} IS NULL AND ${t.usageLimit} IS NULL AND ${t.stripeMeterId} IS NULL)`,
+    ),
+    check(
+      "subscription_plan_prices_usage_limit_check",
+      sql`${t.usageLimit} IS NULL OR ${t.usageLimit} = -1 OR ${t.usageLimit} > 0`,
+    ),
+  ],
+);
 
 // ── User Subscriptions ────────────────────────────────────────────────────────
 export const userSubscriptions = pgTable(
@@ -212,6 +246,17 @@ export const userSubscriptions = pgTable(
       .references(() => subscriptionPlans.id, { onDelete: "restrict" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
+    // Stripe linkage (null for plan assignments made by an admin or the
+    // default-plan rule). `stripe_subscription_id` is the key used to reconcile
+    // webhook events back to the row when the metadata is missing.
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    stripeStatus: text("stripe_status"),
+    currentPeriodStart: timestamp("current_period_start", {
+      withTimezone: true,
+    }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -224,6 +269,7 @@ export const userSubscriptions = pgTable(
       t.userId,
       t.applicationId,
     ),
+    uniqueIndex("user_subscriptions_stripe_idx").on(t.stripeSubscriptionId),
   ],
 );
 
@@ -387,6 +433,35 @@ export const stripeEvents = pgTable("stripe_events", {
     .defaultNow()
     .notNull(),
 });
+
+// ── Billing Customers ─────────────────────────────────────────────────────────
+// Maps an owner (a user today, an organization later) to its Stripe Customer.
+// Created lazily the first time the owner starts a paid flow, so the Stripe
+// account needs no manual setup. `owner_id` carries no FK on purpose, exactly
+// like `wallet_accounts`: the column is polymorphic.
+export const billingCustomers = pgTable(
+  "billing_customers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerType: text("owner_type").notNull(),
+    ownerId: text("owner_id").notNull(),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("billing_customers_owner_idx").on(t.ownerType, t.ownerId),
+    uniqueIndex("billing_customers_stripe_idx").on(t.stripeCustomerId),
+    check(
+      "billing_customers_owner_type_check",
+      sql`${t.ownerType} IN ('user', 'org')`,
+    ),
+  ],
+);
 
 // ── Wallet Accounts ───────────────────────────────────────────────────────────
 // Prepaid credit shared by every application. Amounts are integer micro-euros

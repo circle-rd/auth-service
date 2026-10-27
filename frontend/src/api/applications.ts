@@ -118,9 +118,42 @@ export async function rotateSecret(id: string): Promise<{ clientSecret: string }
   return apiFetch<{ clientSecret: string }>(`/admin/applications/${id}/rotate-secret`, { method: 'POST' });
 }
 
-export async function listAppUsers(appId: string): Promise<{ users: UserApplication[] }> {
-  if (USE_MOCK) return { users: MOCK_USER_APPLICATIONS.filter(u => u.applicationId === appId) };
-  return apiFetch<{ users: UserApplication[] }>(`/admin/applications/${appId}/users`);
+export async function listAppUsers(
+  appId: string,
+  params: { page?: number; limit?: number; search?: string } = {},
+): Promise<{ users: UserApplication[]; total: number; page: number; limit: number }> {
+  if (USE_MOCK) {
+    const page = params.page ?? 1;
+    const limit = params.limit ?? 20;
+    const filtered = MOCK_USER_APPLICATIONS.filter(u => u.applicationId === appId);
+    const start = (page - 1) * limit;
+    return { users: filtered.slice(start, start + limit), total: filtered.length, page, limit };
+  }
+  const qs = new URLSearchParams();
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.search) qs.set('search', params.search);
+  const query = qs.toString();
+  return apiFetch<{ users: UserApplication[]; total: number; page: number; limit: number }>(
+    `/admin/applications/${appId}/users${query ? `?${query}` : ''}`,
+  );
+}
+
+export interface AppSubscriptionRow {
+  userId: string
+  planId: string
+  isActive: boolean
+}
+
+export async function getAppSubscriptions(appId: string): Promise<{ subscriptions: AppSubscriptionRow[] }> {
+  if (USE_MOCK) {
+    return {
+      subscriptions: MOCK_USER_APPLICATIONS
+        .filter(u => u.applicationId === appId && u.subscriptionPlanId)
+        .map(u => ({ userId: u.userId, planId: u.subscriptionPlanId!, isActive: u.isActive })),
+    };
+  }
+  return apiFetch<{ subscriptions: AppSubscriptionRow[] }>(`/admin/applications/${appId}/subscriptions`);
 }
 
 export async function getUserLoginHistory(appId: string, userId: string, params: { page?: number; limit?: number } = {}): Promise<LoginHistoryResponse> {

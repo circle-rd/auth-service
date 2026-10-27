@@ -8,6 +8,7 @@ import {
   beforeEach,
 } from "vitest";
 import { plansRoutes } from "../routes/admin/plans.js";
+import { planPricesRoutes } from "../routes/admin/plan-prices.js";
 import { createTestApp } from "./helpers/app.js";
 import { db } from "../db/index.js";
 import {
@@ -33,6 +34,7 @@ const app = createTestApp();
 
 beforeAll(async () => {
   await app.register(plansRoutes);
+  await app.register(planPricesRoutes);
   await app.ready();
 });
 

@@ -33,6 +33,8 @@
         "llm:provision": "tsx src/scripts/litellm-provision.ts",
         "llm:smoke": "tsx src/scripts/litellm-smoke.ts",
         "llm:reconcile": "tsx src/scripts/litellm-reconcile.ts",
+        "llm:export": "tsx src/scripts/litellm-export.ts",
+        "llm:import": "tsx src/scripts/litellm-import.ts",
         "migrate:okta": "tsx src/scripts/migrate.ts okta",
         "migrate:auth0": "tsx src/scripts/migrate.ts auth0",
         "migrate:keycloak": "tsx src/scripts/migrate.ts keycloak",

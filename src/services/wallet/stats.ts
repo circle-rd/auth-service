@@ -21,6 +21,9 @@ import type {
   WalletKindEntry,
   WalletListFilter,
   WalletListItem,
+  WalletModelEntry,
+  WalletSessionUsage,
+  WalletSpendDay,
   WalletTopConsumer,
 } from "./types.js";
 
@@ -143,17 +146,143 @@ async function byKind(
   )) as unknown as WalletKindEntry[];
 }
 
+/** `YYYY-MM-DD` keys for the last `days` days (UTC), oldest first. */
+function dayKeys(days: number): string[] {
+  const out: string[] = [];
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function groupBy<T, K>(rows: T[], key: (row: T) => K): Map<K, T[]> {
+  const out = new Map<K, T[]>();
+  for (const row of rows) {
+    const k = key(row);
+    const list = out.get(k);
+    if (list) list.push(row);
+    else out.set(k, [row]);
+  }
+  return out;
+}
+
+/**
+ * Token quantity of a usage row, summed. The value is user-space JSON, so a
+ * malformed or missing one counts as zero rather than failing the whole report.
+ */
+function tokenSum(field: string): SQL {
+  return sql`COALESCE(SUM(
+    CASE WHEN (t.metadata->>${field}) ~ '^[0-9]+$'
+      THEN (t.metadata->>${field})::bigint ELSE 0 END), 0)::int`;
+}
+
+// A usage row with no model is an MCP tool call, or (rarely) an LLM call the
+// gateway did not name; both are grouped under a readable label.
+const MODEL_KEY = sql`COALESCE(NULLIF(t.metadata->>'model', ''),
+  CASE WHEN t.metadata->>'kind' = 'mcp' THEN 'mcp' ELSE 'other' END)`;
+
+async function byModel(
+  days: number,
+  accountId?: string,
+): Promise<WalletModelEntry[]> {
+  return (await db.execute(
+    sql`SELECT ${MODEL_KEY} AS model,
+               (-SUM(t.amount))::text AS amount,
+               COUNT(*)::int AS count,
+               ${tokenSum("promptTokens")} AS "promptTokens",
+               ${tokenSum("completionTokens")} AS "completionTokens",
+               ${tokenSum("totalTokens")} AS "totalTokens"
+        FROM wallet_transactions t
+        WHERE ${ledgerFilter("usage", startOfWindow(days), accountId)}
+        GROUP BY model
+        ORDER BY SUM(t.amount) ASC`,
+  )) as unknown as WalletModelEntry[];
+}
+
+async function dailyByApplication(
+  days: number,
+  accountId?: string,
+): Promise<(WalletBreakdownEntry & { day: string })[]> {
+  return (await db.execute(
+    sql`SELECT to_char(date_trunc('day', t.created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day,
+               t.application_id AS "applicationId",
+               COALESCE(a.name, t.metadata->>'applicationSlug') AS name,
+               COALESCE(a.slug, t.metadata->>'applicationSlug') AS slug,
+               (-SUM(t.amount))::text AS amount,
+               COUNT(*)::int AS count
+        FROM wallet_transactions t
+        LEFT JOIN applications a ON a.id = t.application_id
+        WHERE ${ledgerFilter("usage", startOfWindow(days), accountId)}
+        GROUP BY day, t.application_id, a.name, a.slug, t.metadata->>'applicationSlug'
+        ORDER BY day, SUM(t.amount) ASC`,
+  )) as unknown as (WalletBreakdownEntry & { day: string })[];
+}
+
+async function dailyByModel(
+  days: number,
+  accountId?: string,
+): Promise<(WalletModelEntry & { day: string })[]> {
+  return (await db.execute(
+    sql`SELECT to_char(date_trunc('day', t.created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day,
+               ${MODEL_KEY} AS model,
+               (-SUM(t.amount))::text AS amount,
+               COUNT(*)::int AS count,
+               ${tokenSum("promptTokens")} AS "promptTokens",
+               ${tokenSum("completionTokens")} AS "completionTokens",
+               ${tokenSum("totalTokens")} AS "totalTokens"
+        FROM wallet_transactions t
+        WHERE ${ledgerFilter("usage", startOfWindow(days), accountId)}
+        GROUP BY day, model
+        ORDER BY day, SUM(t.amount) ASC`,
+  )) as unknown as (WalletModelEntry & { day: string })[];
+}
+
+/** Per-day spend, each day split by application and by model (zero-filled). */
+async function daily(
+  days: number,
+  accountId?: string,
+): Promise<WalletSpendDay[]> {
+  const [appRows, modelRows] = await Promise.all([
+    dailyByApplication(days, accountId),
+    dailyByModel(days, accountId),
+  ]);
+  const appsByDay = groupBy(appRows, (r) => r.day);
+  const modelsByDay = groupBy(modelRows, (r) => r.day);
+  return dayKeys(days).map((date) => {
+    const apps = (appsByDay.get(date) ?? []).map(
+      ({ day: _day, ...entry }) => entry,
+    );
+    const models = (modelsByDay.get(date) ?? []).map(
+      ({ day: _day, ...entry }) => entry,
+    );
+    return {
+      date,
+      amount: apps.reduce((sum, a) => sum + BigInt(a.amount), 0n).toString(),
+      count: apps.reduce((sum, a) => sum + a.count, 0),
+      byApplication: apps,
+      byModel: models,
+    };
+  });
+}
+
 /** What one wallet spent over the last `days` days (UTC). */
 export async function getUserSpendStats(
   accountId: string,
   days: number,
 ): Promise<UserSpendStats> {
-  const [series, applications, kinds, notBilled] = await Promise.all([
-    dailySeries("usage", days, accountId),
-    byApplication(days, accountId),
-    byKind(days, accountId),
-    notBilledTotal(days, accountId),
-  ]);
+  const [series, applications, kinds, notBilled, models, dayRows] =
+    await Promise.all([
+      dailySeries("usage", days, accountId),
+      byApplication(days, accountId),
+      byKind(days, accountId),
+      notBilledTotal(days, accountId),
+      byModel(days, accountId),
+      daily(days, accountId),
+    ]);
   const { total, count } = sumAmounts(series);
   return {
     days,
@@ -163,6 +292,64 @@ export async function getUserSpendStats(
     series,
     byApplication: applications,
     byKind: kinds,
+    byModel: models,
+    daily: dayRows,
+  };
+}
+
+/**
+ * What one chat session spent, for the user it belongs to. A caller that is an
+ * application (a bearer token) is bound to its own `application_slug`, so two
+ * applications that happen to pick the same session id cannot read each other.
+ */
+export async function getSessionUsage(input: {
+  accountId: string;
+  sessionId: string;
+  applicationSlug?: string;
+  days: number;
+}): Promise<WalletSessionUsage> {
+  const since = startOfWindow(input.days).toISOString();
+  const filter = sql`t.type = 'usage'
+    AND t.created_at >= ${since}::timestamptz
+    AND t.account_id = ${input.accountId}::uuid
+    AND t.metadata->>'sessionId' = ${input.sessionId}
+    ${input.applicationSlug ? sql`AND t.metadata->>'applicationSlug' = ${input.applicationSlug}` : sql``}`;
+  const [totalsRows, notBilledRows, modelRows] = await Promise.all([
+    db.execute(
+      sql`SELECT COALESCE(-SUM(t.amount), 0)::text AS total, COUNT(*)::int AS calls
+          FROM wallet_transactions t
+          WHERE ${filter}`,
+    ),
+    db.execute(
+      sql`SELECT COALESCE(-SUM(t.amount), 0)::text AS total
+          FROM wallet_transactions t
+          WHERE ${filter} AND t.delta = 0`,
+    ),
+    db.execute(
+      sql`SELECT ${MODEL_KEY} AS model,
+                 (-SUM(t.amount))::text AS amount,
+                 COUNT(*)::int AS count,
+                 ${tokenSum("promptTokens")} AS "promptTokens",
+                 ${tokenSum("completionTokens")} AS "completionTokens",
+                 ${tokenSum("totalTokens")} AS "totalTokens"
+          FROM wallet_transactions t
+          WHERE ${filter}
+          GROUP BY model
+          ORDER BY SUM(t.amount) ASC`,
+    ),
+  ]);
+  const totals = (
+    totalsRows as unknown as { total: string; calls: number }[]
+  )[0]!;
+  const notBilled = (notBilledRows as unknown as { total: string }[])[0]!.total;
+  return {
+    sessionId: input.sessionId,
+    applicationSlug: input.applicationSlug ?? null,
+    days: input.days,
+    total: totals.total,
+    notBilled,
+    calls: totals.calls,
+    byModel: modelRows as unknown as WalletModelEntry[],
   };
 }
 
@@ -177,6 +364,7 @@ export async function getAdminWalletStats(
     topRows,
     applications,
     kinds,
+    models,
     notBilled,
   ] = await Promise.all([
     db.execute(
@@ -203,6 +391,7 @@ export async function getAdminWalletStats(
     ),
     byApplication(days),
     byKind(days),
+    byModel(days),
     notBilledTotal(days),
   ]);
 
@@ -221,6 +410,7 @@ export async function getAdminWalletStats(
     topConsumers: topRows as unknown as WalletTopConsumer[],
     byApplication: applications,
     byKind: kinds,
+    byModel: models,
   };
 }
 

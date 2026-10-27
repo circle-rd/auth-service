@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { getUser, sendVerificationEmail, markEmailVerified } from '@/api/users';
@@ -8,7 +8,8 @@ import { useToast } from '@/composables/useToast';
 import { useAppBranding } from '@/composables/useAppBranding';
 import { useAuthStore } from '@/stores/auth';
 import type { User, UserApplicationDetail, ConsumptionAggregate } from '@/types';
-import type { ColumnDef } from '@/types/data-table';
+import type { ColumnDef, DataTablePagination } from '@/types/data-table';
+import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
@@ -28,6 +29,8 @@ const { emailVerificationEnabled } = useAppBranding();
 
 const user = ref<User | null>(null);
 const userApps = ref<UserApplicationDetail[]>([]);
+const appsPage = ref(1);
+const appsPageSize = usePersistentPageSize('user-detail-apps', 20);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const loading = ref(true);
 const actionLoading = ref(false);
@@ -110,6 +113,21 @@ function roleBadgeVariant(role: string | null) {
   if (role === 'admin') return 'warning' as const;
   return 'neutral' as const;
 }
+
+const pagedUserApps = computed(() => {
+  const start = (appsPage.value - 1) * appsPageSize.value;
+  return userApps.value.slice(start, start + appsPageSize.value);
+});
+
+const appsPagination = computed<DataTablePagination>(() => ({
+  page: appsPage.value,
+  limit: appsPageSize.value,
+  total: userApps.value.length,
+}));
+
+watch(appsPageSize, () => {
+  appsPage.value = 1;
+});
 
 const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
   { key: 'app', label: t('users.columns.applications') },
@@ -236,9 +254,12 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
           <div class="p-3">
             <DataTable
               :columns="appColumns"
-              :items="userApps"
+              :items="pagedUserApps"
               :empty="userApps.length === 0"
               :row-key="(ua: UserApplicationDetail) => ua.id"
+              :pagination="appsPagination"
+              @update:page="appsPage = $event"
+              @update:limit="appsPageSize = $event"
             >
               <template #empty>
                 <EmptyState :title="t('users.applications')" :message="t('applications.noApps')" />

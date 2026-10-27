@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useServicesStore } from '@/stores/services';
@@ -10,7 +10,8 @@ import { listOrganizations } from '@/api/organizations';
 import { useToast } from '@/composables/useToast';
 import { useAdminEvents } from '@/composables/useAdminEvents';
 import { rotateSecret } from '@/api/applications';
-import type { Application, AppRole, AppPermission, SubscriptionPlan, UserApplication, ConsumptionAggregate, User } from '@/types';
+import type { Application, AppRole, AppPermission, SubscriptionPlan, UserApplication, ConsumptionAggregate } from '@/types';
+import type { AppSubscriptionRow } from '@/api/applications';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
@@ -25,12 +26,15 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
 import RolesPermissionsTab from '@/components/applications/RolesPermissionsTab.vue';
+import ApplicationInvitationsTab from '@/components/applications/ApplicationInvitationsTab.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { PlanFeature } from '@/types';
-import type { ColumnDef } from '@/types/data-table';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Repeat, CalendarRange, Zap } from 'lucide-vue-next';
+import type { ColumnDef, DataTablePagination } from '@/types/data-table';
+import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
+import { useDebounce } from '@/composables/useDebounce';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Repeat, CalendarRange, Zap, Mail } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
@@ -40,15 +44,21 @@ const toast = useToast();
 const services = useServicesStore();
 
 const appId = route.params.id as string;
-const activeTab = ref<'roles' | 'users' | 'plans' | 'integration' | 'consumption' | 'financial'>('roles');
+const activeTab = ref<'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial'>('roles');
+const invitationsTabRef = ref<InstanceType<typeof ApplicationInvitationsTab> | null>(null);
 
 const app = ref<Application | null>(null);
 const roles = ref<AppRole[]>([]);
 const permissions = ref<AppPermission[]>([]);
 const appUsers = ref<UserApplication[]>([]);
+const appUsersTotal = ref(0);
+const appUsersPage = ref(1);
+const appUsersPageSize = usePersistentPageSize(`app-users:${appId}`, 20);
+const appUsersSearch = ref('');
+const debouncedAppUsersSearch = useDebounce(appUsersSearch, 300);
 const plans = ref<SubscriptionPlan[]>([]);
 const consumption = ref<ConsumptionAggregate[]>([]);
-const allUsers = ref<User[]>([]);
+const appSubscriptions = ref<AppSubscriptionRow[]>([]);
 const loading = ref(true);
 
 const showUserModal = ref(false);
@@ -95,7 +105,10 @@ const noPlanSelectOptions = computed<SelectOption[]>(() => [
 // frame refreshes the last-login columns (date/IP/device) and the activity
 // strip. The composable coalesces a burst into a single refresh.
 const events = useAdminEvents({
-  'subscription.changed': () => void reloadUsers(),
+  'subscription.changed': () => {
+    void reloadUsers();
+    refreshAnalytics();
+  },
   'login.recorded': () => {
     void reloadUsers();
     void loadAppActivity();
@@ -121,17 +134,31 @@ onUnmounted(() => {
 });
 
 async function reloadUsers() {
-  appUsers.value = (await appsApi.listAppUsers(appId)).users;
+  const res = await appsApi.listAppUsers(appId, {
+    page: appUsersPage.value,
+    limit: appUsersPageSize.value,
+    search: debouncedAppUsersSearch.value || undefined,
+  });
+  if (res.users.length === 0 && appUsersPage.value > 1 && res.total > 0) {
+    appUsersPage.value -= 1;
+    return reloadUsers();
+  }
+  appUsers.value = res.users;
+  appUsersTotal.value = res.total;
 }
 
 async function loadAll() {
   loading.value = true;
   try {
-    const [appRes, rolesRes, permsRes, usersRes, plansRes, allUsersRes] = await Promise.all([
+    const [appRes, rolesRes, permsRes, usersRes, plansRes] = await Promise.all([
       appsApi.getApplication(appId),
       appsApi.listRoles(appId),
       appsApi.listPermissions(appId),
-      appsApi.listAppUsers(appId),
+      appsApi.listAppUsers(appId, {
+        page: appUsersPage.value,
+        limit: appUsersPageSize.value,
+        search: debouncedAppUsersSearch.value || undefined,
+      }),
       appsApi.listPlans(appId),
       listUsers({ limit: 200 }),
     ]);
@@ -139,22 +166,72 @@ async function loadAll() {
     roles.value = rolesRes.roles;
     permissions.value = permsRes.permissions;
     appUsers.value = usersRes.users;
+    appUsersTotal.value = usersRes.total;
     plans.value = plansRes.plans;
-    allUsers.value = allUsersRes.users;
-    await loadConsumption();
   } finally {
     loading.value = false;
   }
 }
 
 async function loadConsumption() {
-  const allAggs: ConsumptionAggregate[] = [];
-  for (const ua of appUsers.value) {
-    const res = await consumptionApi.getUserConsumption(ua.userId, appId);
-    allAggs.push(...res.aggregates);
-  }
-  consumption.value = allAggs;
+  const res = await consumptionApi.getAppConsumption(appId);
+  consumption.value = res.entries.map((entry) => ({
+    userId: entry.userId,
+    applicationId: appId,
+    key: entry.key,
+    total: entry.total,
+    updatedAt: entry.updatedAt,
+    userName: entry.userName,
+    userEmail: entry.userEmail,
+    subscriptionPlanId: entry.subscriptionPlanId,
+  }));
 }
+
+async function loadSubscriptions() {
+  appSubscriptions.value = (await appsApi.getAppSubscriptions(appId)).subscriptions;
+}
+
+function refreshAnalytics(): void {
+  if (activeTab.value === 'financial' || appSubscriptions.value.length > 0) {
+    void loadSubscriptions();
+  }
+  if (activeTab.value === 'consumption' || consumption.value.length > 0) {
+    void loadConsumption();
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'consumption' && consumption.value.length === 0) void loadConsumption();
+  if (tab === 'financial') {
+    if (appSubscriptions.value.length === 0) void loadSubscriptions();
+    if (consumption.value.length === 0) void loadConsumption();
+  }
+});
+
+watch(appUsersPageSize, () => {
+  appUsersPage.value = 1;
+  void reloadUsers();
+});
+
+watch(debouncedAppUsersSearch, () => {
+  appUsersPage.value = 1;
+  void reloadUsers();
+});
+
+function onAppUsersPageChange(next: number) {
+  appUsersPage.value = next;
+  void reloadUsers();
+}
+
+function onAppUsersLimitChange(next: number) {
+  appUsersPageSize.value = next;
+}
+
+const appUsersPagination = computed<DataTablePagination>(() => ({
+  page: appUsersPage.value,
+  limit: appUsersPageSize.value,
+  total: appUsersTotal.value,
+}));
 
 // — User-history modal state
 const historyModalOpen = ref(false);
@@ -244,6 +321,7 @@ async function handleManagePlan() {
       reason: managePlanForm.value.reason.trim(),
     });
     await reloadUsers();
+    refreshAnalytics();
     toast.success(t('appDetail.planChanged'));
     showManageUserPlanModal.value = false;
   } catch (err) {
@@ -263,6 +341,7 @@ async function handleGrantAccess() {
       subscriptionPlanId: userForm.value.subscriptionPlanId || undefined,
     });
     await reloadUsers();
+    refreshAnalytics();
     toast.success('Access granted');
     showUserModal.value = false;
     userForm.value = { userId: '', roleId: '', subscriptionPlanId: '' };
@@ -283,6 +362,7 @@ async function handleBulkGrantAccess() {
       subscriptionPlanId: bulkForm.value.subscriptionPlanId || undefined,
     });
     await reloadUsers();
+    refreshAnalytics();
     toast.success(t('appDetail.bulkGrantSuccess', { count: res.granted }));
     if ((res.skipped ?? 0) > 0) {
       toast.info(t('appDetail.bulkGrantSkipped', { count: res.skipped }));
@@ -301,7 +381,8 @@ async function handleRevokeAccess() {
   formLoading.value = true;
   try {
     await appsApi.revokeAppAccess(appId, selectedUserId.value);
-    appUsers.value = appUsers.value.filter(u => u.userId !== selectedUserId.value);
+    await reloadUsers();
+    refreshAnalytics();
     toast.success('Access revoked');
     showDeleteUserConfirm.value = false;
   } catch (err) {
@@ -449,16 +530,16 @@ function getUserName(userId: string) {
   const ua = appUsers.value.find(u => u.userId === userId);
   if (ua?.name) return ua.name;
   if (ua && ua.name === null) return t('appDetail.deletedUser');
-  return allUsers.value.find(u => u.id === userId)?.name ?? t('appDetail.deletedUser');
+  return t('appDetail.deletedUser');
 }
 function getUserEmail(userId: string) {
   const ua = appUsers.value.find(u => u.userId === userId);
   if (ua?.email) return ua.email;
   if (ua && ua.email === null) return '';
-  return allUsers.value.find(u => u.id === userId)?.email ?? '';
+  return '';
 }
 function getUserImage(userId: string) {
-  return allUsers.value.find(u => u.id === userId)?.image ?? null;
+  return appUsers.value.find(u => u.userId === userId)?.image ?? null;
 }
 function isDeletedUser(userId: string) {
   const ua = appUsers.value.find(u => u.userId === userId);
@@ -500,10 +581,17 @@ const intervalOptions = computed<SelectOption[]>(() => [
   { value: 'one_time', label: t('appDetail.one_time'), icon: Zap },
 ]);
 
+async function openInviteFromUsers() {
+  activeTab.value = 'invitations';
+  await nextTick();
+  invitationsTabRef.value?.openModal();
+}
+
 const tabs = [
   { key: 'roles', label: t('appDetail.rolesPermissions') },
   { key: 'users', label: t('appDetail.users') },
   { key: 'plans', label: t('appDetail.plans') },
+  { key: 'invitations', label: t('appDetail.invitations') },
   { key: 'integration', label: t('appDetail.integration') },
   { key: 'consumption', label: t('appDetail.consumption') },
   { key: 'financial', label: t('appDetail.financial') },
@@ -664,16 +752,31 @@ async function copyActiveCode(): Promise<void> {
 const PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 type PKey = typeof PROVIDERS[number];
 
+const consumptionUsers = computed(() => {
+  const byUser = new Map<string, { userId: string; name: string; email: string | null; image: string | null; subscriptionPlanId: string | null }>();
+  for (const entry of consumption.value) {
+    if (byUser.has(entry.userId)) continue;
+    const pageUser = appUsers.value.find((u) => u.userId === entry.userId);
+    byUser.set(entry.userId, {
+      userId: entry.userId,
+      name: entry.userName ?? pageUser?.name ?? entry.userEmail ?? entry.userId,
+      email: entry.userEmail ?? pageUser?.email ?? null,
+      image: pageUser?.image ?? null,
+      subscriptionPlanId: entry.subscriptionPlanId ?? pageUser?.subscriptionPlanId ?? null,
+    });
+  }
+  return [...byUser.values()];
+});
+
 const financialKpis = computed(() => {
-  const subscribedUsers = appUsers.value.filter(u => u.subscriptionPlanId);
-  const activeSubscribers = subscribedUsers.filter(u => u.isActive).length;
+  const subscribedUsers = appSubscriptions.value;
+  const activeSubscribers = subscribedUsers.filter((s) => s.isActive).length;
 
   let mrr = 0;
   const planRevenue: Record<string, { name: string; subscribers: number; monthly: number; currency: string }> = {};
 
-  for (const ua of subscribedUsers) {
-    if (!ua.subscriptionPlanId) continue;
-    const plan = plans.value.find(p => p.id === ua.subscriptionPlanId);
+  for (const subscription of subscribedUsers) {
+    const plan = plans.value.find(p => p.id === subscription.planId);
     if (!plan) continue;
     const price = plan.prices.find(p => p.interval === 'month');
     const amount = price ? Number(price.amount) : 0;
@@ -694,8 +797,8 @@ const financialKpis = computed(() => {
       const feature = v as { usage: true; limit: number; unit: string; pricePerUnit: number };
       if (!meteredKeys.has(key)) meteredKeys.set(key, { unit: feature.unit, totalUsage: 0, pricePerUnit: feature.pricePerUnit, revenue: 0, currency });
       // Sum consumption for users on this plan
-      for (const ua of subscribedUsers.filter(u => u.subscriptionPlanId === plan.id)) {
-        const agg = consumption.value.find(c => c.userId === ua.userId && c.key === key);
+      for (const subscription of subscribedUsers.filter((s) => s.planId === plan.id)) {
+        const agg = consumption.value.find(c => c.userId === subscription.userId && c.key === key);
         if (!agg) continue;
         const total = Number(agg.total);
         const entry = meteredKeys.get(key)!;
@@ -776,7 +879,8 @@ const financialKpis = computed(() => {
 
         <div v-if="activeTab === 'users'" class="space-y-4">
           <div class="flex justify-end gap-2">
-            <BaseButton size="sm" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
+            <BaseButton size="sm" @click="openInviteFromUsers"><Mail class="w-3.5 h-3.5" />{{ t('appDetail.inviteUser') }}</BaseButton>
+            <BaseButton size="sm" variant="outline" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
             <BaseButton size="sm" variant="outline" @click="openBulkModal"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
           </div>
           <DataTable
@@ -785,6 +889,12 @@ const financialKpis = computed(() => {
             :loading="loading"
             :empty="!loading && appUsers.length === 0"
             :row-key="(u: UserApplication) => u.userId"
+            searchable
+            :search="appUsersSearch"
+            :pagination="appUsersPagination"
+            @update:search="appUsersSearch = $event"
+            @update:page="onAppUsersPageChange"
+            @update:limit="onAppUsersLimitChange"
           >
             <template #empty>
               <div class="px-5 py-8 text-center text-sm text-surface-500">No users with access</div>
@@ -854,6 +964,8 @@ const financialKpis = computed(() => {
             </template>
           </DataTable>
         </div>
+
+        <ApplicationInvitationsTab v-if="activeTab === 'invitations'" ref="invitationsTabRef" :application-id="appId" />
 
         <div v-if="activeTab === 'plans'" class="space-y-4">
           <div class="flex justify-end">
@@ -1059,10 +1171,10 @@ const financialKpis = computed(() => {
           <div v-if="!consumption.length" class="text-center text-sm text-surface-500 py-8">{{ t('appDetail.noConsumption') }}</div>
           <template v-else>
             <!-- Group by user -->
-            <div v-for="ua in appUsers.filter(u => consumption.some(c => c.userId === u.userId))" :key="ua.userId" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
+            <div v-for="ua in consumptionUsers" :key="ua.userId" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
               <div class="px-5 py-3 border-b border-surface-700/40 flex items-center gap-3 bg-surface-800/30">
-                <UserAvatar :name="getUserName(ua.userId)" :image="getUserImage(ua.userId)" size="xs" />
-                <span class="text-sm font-medium text-surface-200">{{ getUserName(ua.userId) }}</span>
+                <UserAvatar :name="ua.name" :image="ua.image" size="xs" />
+                <span class="text-sm font-medium text-surface-200">{{ ua.name }}</span>
                 <BaseBadge v-if="ua.subscriptionPlanId" variant="primary" size="sm">{{ getPlanName(ua.subscriptionPlanId) }}</BaseBadge>
               </div>
               <div class="divide-y divide-surface-800/40">

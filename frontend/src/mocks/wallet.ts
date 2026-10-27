@@ -6,6 +6,8 @@ import type {
   WalletAccount,
   WalletDailyPoint,
   WalletListItem,
+  WalletModelEntry,
+  WalletSpendDay,
   WalletTransaction,
 } from '@/types/wallet';
 
@@ -52,6 +54,36 @@ export const MOCK_TRANSACTIONS: WalletTransaction[] = Array.from({ length: 28 },
   };
 });
 
+const MOCK_BY_MODEL: WalletModelEntry[] = [
+  { model: 'gpt-4o-mini', amount: '960000', count: 140, promptTokens: 184000, completionTokens: 62000, totalTokens: 246000 },
+  { model: 'claude-haiku', amount: '340000', count: 50, promptTokens: 52000, completionTokens: 21000, totalTokens: 73000 },
+  { model: 'mcp', amount: '217850', count: 22, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+];
+
+function mockDaily(days: number): WalletSpendDay[] {
+  return series(days, 2400).map((p, i) => {
+    const total = Number(p.amount);
+    if (total === 0) {
+      return { date: p.date, amount: p.amount, count: 0, byApplication: [], byModel: [] };
+    }
+    const chat = Math.round(total * 0.7);
+    const gpt = Math.round(total * 0.6);
+    return {
+      date: p.date,
+      amount: p.amount,
+      count: p.count,
+      byApplication: [
+        { applicationId: 'app-1', name: 'Chat App', slug: 'chat-app', amount: String(chat), count: p.count },
+        { applicationId: 'app-2', name: 'Docs Assistant', slug: 'docs', amount: String(total - chat), count: Math.max(1, p.count - 1) },
+      ],
+      byModel: [
+        { model: 'gpt-4o-mini', amount: String(gpt), count: p.count, promptTokens: 300 + i * 10, completionTokens: 120 + i * 5, totalTokens: 420 + i * 15 },
+        { model: 'claude-haiku', amount: String(total - gpt), count: 1, promptTokens: 100, completionTokens: 40, totalTokens: 140 },
+      ],
+    };
+  });
+}
+
 export const MOCK_USER_STATS: UserSpendStats = {
   days: 30,
   total: '1517850',
@@ -66,6 +98,8 @@ export const MOCK_USER_STATS: UserSpendStats = {
     { kind: 'llm', amount: '1300000', count: 190 },
     { kind: 'mcp', amount: '217850', count: 22 },
   ],
+  byModel: MOCK_BY_MODEL,
+  daily: mockDaily(30),
 };
 
 export const MOCK_ADMIN_STATS: AdminWalletStats = {
@@ -85,6 +119,7 @@ export const MOCK_ADMIN_STATS: AdminWalletStats = {
   ],
   byApplication: MOCK_USER_STATS.byApplication,
   byKind: MOCK_USER_STATS.byKind,
+  byModel: MOCK_BY_MODEL,
 };
 
 const WALLET_ROWS: Array<[string, string, string, string, string, boolean]> = [

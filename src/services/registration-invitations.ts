@@ -10,7 +10,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { hashPassword } from "better-auth/crypto";
-import { and, desc, eq, gt, isNull } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import {
@@ -144,26 +144,131 @@ export async function getRegistrationInvitation(
   return invitation ?? null;
 }
 
+/**
+ * Claim the invitation and create the application access row. Callers pass a
+ * transaction so the invitation cannot be consumed without the matching
+ * access grant (and, for password registration, the new user).
+ */
+async function consumeInvitationAndGrantAccess(
+  exec: DbExecutor,
+  invitation: RegistrationInvitation,
+  userId: string,
+  now: Date,
+): Promise<void> {
+  const [claimed] = await exec
+    .update(registrationInvitations)
+    .set({ consumedAt: now })
+    .where(
+      and(
+        eq(registrationInvitations.id, invitation.id),
+        isNull(registrationInvitations.consumedAt),
+        isNull(registrationInvitations.revokedAt),
+        gt(registrationInvitations.expiresAt, now),
+      ),
+    )
+    .returning({ id: registrationInvitations.id });
+  if (!claimed) throw ERR.AUTH_012();
+
+  await exec
+    .insert(userApplications)
+    .values({
+      userId,
+      applicationId: invitation.applicationId,
+      isActive: true,
+    })
+    .onConflictDoNothing();
+}
+
+/** Post-commit defaults shared by every application-invitation path. */
+async function applyDefaultApplicationAccess(
+  userId: string,
+  applicationId: string,
+): Promise<void> {
+  await assignDefaultRoleIfNeeded(userId, applicationId);
+  await assignDefaultPlanIfNeeded(userId, applicationId);
+  publishEvent("user.changed");
+}
+
+/**
+ * Complete an application invitation for an account that was created through a
+ * social provider. The provider callback already created the user and session;
+ * this grants the application access the invitation promised and consumes the
+ * one-shot token. No organization is assigned.
+ */
+export async function acceptApplicationInvitation(opts: {
+  token: string;
+  userId: string;
+  email: string;
+}): Promise<{ applicationId: string; email: string }> {
+  const invitationRow = await findRegistrationInvitationByToken(opts.token);
+  if (!invitationRow) throw ERR.AUTH_012();
+
+  const state = invitationState(invitationRow);
+  if (state === "expired") throw ERR.AUTH_012("This invitation has expired");
+  if (state !== "pending") throw ERR.AUTH_012();
+
+  if (
+    invitationRow.email.trim().toLowerCase() !== opts.email.trim().toLowerCase()
+  ) {
+    throw ERR.AUTH_014();
+  }
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await consumeInvitationAndGrantAccess(tx, invitationRow, opts.userId, now);
+  });
+  await applyDefaultApplicationAccess(opts.userId, invitationRow.applicationId);
+  logger.info(
+    {
+      userId: opts.userId,
+      applicationId: invitationRow.applicationId,
+    },
+    "[invitation] application invitation accepted after social sign-in",
+  );
+
+  return {
+    applicationId: invitationRow.applicationId,
+    email: invitationRow.email,
+  };
+}
+
 export async function listRegistrationInvitations(opts: {
   applicationId?: string;
+  page?: number;
   limit?: number;
   offset?: number;
-}): Promise<RegistrationInvitation[]> {
+}): Promise<{
+  invitations: RegistrationInvitation[];
+  total: number;
+  page: number;
+  limit: number;
+}> {
   const limit = Math.min(
     Math.max(opts.limit ?? INVITATION_PAGE_DEFAULT, 1),
     INVITATION_PAGE_MAX,
   );
-  const offset = Math.max(opts.offset ?? 0, 0);
-  const filtered = opts.applicationId
-    ? db
-        .select()
-        .from(registrationInvitations)
-        .where(eq(registrationInvitations.applicationId, opts.applicationId))
-    : db.select().from(registrationInvitations);
-  return await filtered
+  const offset = Math.max(
+    opts.offset ?? (Math.max(opts.page ?? 1, 1) - 1) * limit,
+    0,
+  );
+  const where = opts.applicationId
+    ? eq(registrationInvitations.applicationId, opts.applicationId)
+    : undefined;
+
+  const [{ total }] = await db
+    .select({ total: count() })
+    .from(registrationInvitations)
+    .where(where);
+
+  const invitations = await db
+    .select()
+    .from(registrationInvitations)
+    .where(where)
     .orderBy(desc(registrationInvitations.createdAt))
     .limit(limit)
     .offset(offset);
+
+  return { invitations, total, page: Math.floor(offset / limit) + 1, limit };
 }
 
 /** Revoke a pending invitation. A consumed one is history and is left intact. */
@@ -214,42 +319,16 @@ export async function completeRegistration(opts: {
   const now = new Date();
 
   const userId = await db.transaction(async (tx) => {
-    // Conditional consume: only the transaction that flips the row from
-    // pending may proceed, so two concurrent redemptions cannot both create.
-    const [claimed] = await tx
-      .update(registrationInvitations)
-      .set({ consumedAt: now })
-      .where(
-        and(
-          eq(registrationInvitations.id, invitation.id),
-          isNull(registrationInvitations.consumedAt),
-          isNull(registrationInvitations.revokedAt),
-          gt(registrationInvitations.expiresAt, now),
-        ),
-      )
-      .returning({ id: registrationInvitations.id });
-    if (!claimed) throw ERR.AUTH_012();
-
     const { id } = await insertCredentialUser(tx, {
       name: opts.name,
       email: invitation.email,
       emailVerified: true,
       storedPasswordHash,
     });
-    await tx
-      .insert(userApplications)
-      .values({
-        userId: id,
-        applicationId: invitation.applicationId,
-        isActive: true,
-      })
-      .onConflictDoNothing();
+    await consumeInvitationAndGrantAccess(tx, invitation, id, now);
     return id;
   });
-
-  await assignDefaultRoleIfNeeded(userId, invitation.applicationId);
-  await assignDefaultPlanIfNeeded(userId, invitation.applicationId);
-  publishEvent("user.changed");
+  await applyDefaultApplicationAccess(userId, invitation.applicationId);
   logger.info(
     {
       userId,

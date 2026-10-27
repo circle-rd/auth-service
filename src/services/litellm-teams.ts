@@ -1,11 +1,12 @@
 /**
- * Client for the team routes of the LLM gateway (LiteLLM) administration API.
+ * Client for the LLM gateway (LiteLLM) administration API.
  *
- * auth-service only decides that a team *exists* for an application with LiteLLM
- * support (and whether it is blocked); everything else about it (models, MCP
- * servers, budget, rate limits) is set by a gateway administrator in LiteLLM and
- * never overwritten here. The credential is a virtual key restricted to the
- * `/team/*` routes, delivered as a file by `litellm-provision`.
+ * auth-service only decides that a team *exists* for an application's plan (and
+ * whether it is blocked), and that the plan has an access group to carry it.
+ * What the team actually reaches — models, MCP servers, agents — is set by a
+ * gateway administrator on the access group and is never overwritten here. The
+ * credential is a virtual key restricted to the team and access-group routes,
+ * delivered as a file by `litellm-provision`.
  */
 
 import { readFileSync } from "node:fs";
@@ -13,7 +14,7 @@ import { z } from "zod";
 import { config } from "../config.js";
 
 /** Marks a team auth-service manages, and remembers that it blocked it itself. */
-const MANAGED_BY = "auth-service";
+export const MANAGED_BY = "auth-service";
 const BLOCKED_BY_US = "blocked_by_auth_service";
 
 /** A team with no model: nothing is reachable until an administrator grants some. */
@@ -26,9 +27,16 @@ export class LitellmGatewayError extends Error {}
 const teamSchema = z.object({
   team_id: z.string(),
   blocked: z.boolean().nullish(),
+  access_group_ids: z.array(z.string()).nullish(),
   metadata: z.record(z.string(), z.unknown()).nullish(),
 });
 export type GatewayTeam = z.infer<typeof teamSchema>;
+
+const accessGroupSchema = z.object({
+  access_group_id: z.string(),
+  access_group_name: z.string(),
+});
+export type GatewayAccessGroup = z.infer<typeof accessGroupSchema>;
 
 export function isGatewayConfigured(): boolean {
   return config.litellm.url !== undefined;
@@ -47,7 +55,7 @@ function readKey(): string {
 }
 
 async function call(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<{ status: number; json: unknown }> {
@@ -128,14 +136,62 @@ async function setMetadata(
   );
 }
 
+/** Every access group the gateway knows, by id and name. */
+export async function listAccessGroups(): Promise<GatewayAccessGroup[]> {
+  const json = await expectOk(
+    "access group list",
+    await call("GET", "/v1/access_group"),
+  );
+  return z.object({ access_groups: z.array(accessGroupSchema) }).parse(json)
+    .access_groups;
+}
+
 /**
- * Make sure the application's team exists and is usable. A new team is closed (no
- * model). An existing one keeps its whole configuration; it is only adopted, and
- * unblocked when auth-service itself blocked it before: a block set by a gateway
+ * The access group carrying a plan's resources, created empty when missing: the
+ * name is the team id, so it is unique per application and plan.
+ */
+export async function ensureAccessGroup(name: string): Promise<string> {
+  const existing = (await listAccessGroups()).find(
+    (g) => g.access_group_name === name,
+  );
+  if (existing) return existing.access_group_id;
+  const json = await expectOk(
+    "access group creation",
+    await call("POST", "/v1/access_group", {
+      access_group_name: name,
+      description: `Managed by auth-service for the plan '${name}'.`,
+    }),
+  );
+  return accessGroupSchema.parse(json).access_group_id;
+}
+
+/** Delete a plan's access group (no-op if absent). */
+export async function deleteAccessGroupByName(name: string): Promise<void> {
+  const existing = (await listAccessGroups()).find(
+    (g) => g.access_group_name === name,
+  );
+  if (!existing) return;
+  await expectOk(
+    "access group deletion",
+    await call("DELETE", `/v1/access_group/${existing.access_group_id}`),
+  );
+}
+
+/**
+ * Make sure a plan's team exists and is usable, and that its access group is
+ * attached. A new team is closed (no model). An existing one keeps its whole
+ * configuration; it is only adopted, its access group added, and unblocked when
+ * auth-service itself blocked it before — a block set by a gateway
  * administrator stays.
  */
-export async function ensureTeam(teamId: string, alias: string): Promise<void> {
+export async function ensurePlanTeam(
+  teamId: string,
+  alias: string,
+  accessGroupName: string,
+): Promise<void> {
+  const accessGroupId = await ensureAccessGroup(accessGroupName);
   const existing = await getTeam(teamId);
+
   if (!existing) {
     await expectOk(
       "team creation",
@@ -143,11 +199,13 @@ export async function ensureTeam(teamId: string, alias: string): Promise<void> {
         team_id: teamId,
         team_alias: alias,
         models: NO_MODELS,
+        access_group_ids: [accessGroupId],
         metadata: { managed_by: MANAGED_BY },
       }),
     );
     return;
   }
+
   if (existing.metadata?.[BLOCKED_BY_US] === true) {
     await expectOk(
       "team unblock",
@@ -160,9 +218,20 @@ export async function ensureTeam(teamId: string, alias: string): Promise<void> {
   } else if (existing.metadata?.managed_by !== MANAGED_BY) {
     await setMetadata(existing, { managed_by: MANAGED_BY });
   }
+
+  const groups = existing.access_group_ids ?? [];
+  if (!groups.includes(accessGroupId)) {
+    await expectOk(
+      "team access group attach",
+      await call("POST", "/team/update", {
+        team_id: teamId,
+        access_group_ids: [...groups, accessGroupId],
+      }),
+    );
+  }
 }
 
-/** Block the team of an application that lost its LiteLLM support (no-op if absent). */
+/** Block a plan's team (no-op if absent or already blocked). */
 export async function blockTeam(teamId: string): Promise<void> {
   const existing = await getTeam(teamId);
   if (!existing || existing.blocked) return;
@@ -176,7 +245,7 @@ export async function blockTeam(teamId: string): Promise<void> {
   );
 }
 
-/** Delete the team of a deleted application (no-op if absent). */
+/** Delete a plan's team (no-op if absent). */
 export async function deleteTeam(teamId: string): Promise<void> {
   if (!(await getTeam(teamId))) return;
   await expectOk(

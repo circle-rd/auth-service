@@ -228,6 +228,14 @@ export async function organizationsRoutes(
         )
       : undefined;
 
+    const where = and(eq(member.organizationId, id), searchFilter);
+
+    const [{ total }] = await db
+      .select({ total: count() })
+      .from(member)
+      .innerJoin(userTable, eq(userTable.id, member.userId))
+      .where(where);
+
     const rows = await db
       .select({
         id: member.id,
@@ -244,12 +252,12 @@ export async function organizationsRoutes(
       })
       .from(member)
       .innerJoin(userTable, eq(userTable.id, member.userId))
-      .where(and(eq(member.organizationId, id), searchFilter))
+      .where(where)
       .orderBy(asc(userTable.name))
       .limit(limit)
       .offset(offset);
 
-    await reply.send({ members: rows });
+    await reply.send({ members: rows, total });
   });
 
   // POST /api/admin/organizations/:id/members — add a member directly (no invite)

@@ -48,6 +48,12 @@ export const ERR = {
   ) => new ApiError(400, "AUTH_012", msg),
   AUTH_013: (msg = "An account already exists for this email") =>
     new ApiError(409, "AUTH_013", msg),
+  AUTH_014: (
+    msg = "This invitation was issued for a different email address",
+  ) => new ApiError(403, "AUTH_014", msg),
+  AUTH_015: (
+    msg = "Verify your email address before accepting this invitation",
+  ) => new ApiError(403, "AUTH_015", msg),
 
   // ── APP ───────────────────────────────────────────────────────────────────
   APP_001: (msg = "Invalid application data", details?: unknown) =>
@@ -102,6 +108,12 @@ export const ERR = {
     new ApiError(403, "CONS_004", msg),
   CONS_005: (msg = "Invalid consumption identifier", details?: unknown) =>
     new ApiError(400, "CONS_005", msg, details),
+
+  // ── BIL ───────────────────────────────────────────────────────────────────
+  BIL_001: (msg = "Billing is not configured") =>
+    new ApiError(503, "BIL_001", msg),
+  BIL_002: (msg = "Invalid billing configuration") =>
+    new ApiError(400, "BIL_002", msg),
 
   // ── WAL ───────────────────────────────────────────────────────────────────
   WAL_001: (msg = "Wallet account not found") =>

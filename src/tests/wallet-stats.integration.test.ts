@@ -11,6 +11,7 @@ import {
   creditWallet,
   getAdminWalletStats,
   getOrCreateWalletAccount,
+  getSessionUsage,
   getUserSpendStats,
   listGatewayUsage,
   listWalletAccounts,
@@ -160,6 +161,133 @@ describe("getUserSpendStats", () => {
     const stats = await getUserSpendStats(id, 30);
     expect(stats).toMatchObject({ total: "0", calls: 0, byApplication: [], byKind: [] });
     expect(stats.series).toHaveLength(30);
+  });
+});
+
+describe("by-model and per-day detail", () => {
+  it("groups the window by model with its tokens, and per day by app and model", async () => {
+    const id = await newAccount("u1");
+    const [chat] = await db
+      .insert(applications)
+      .values({ name: "Chat", slug: "chat" })
+      .returning({ id: applications.id });
+    await row(id, {
+      amount: -1_000n,
+      at: daysAgo(0),
+      applicationId: chat!.id,
+      metadata: {
+        kind: "llm",
+        model: "gpt",
+        promptTokens: 10,
+        completionTokens: 5,
+        totalTokens: 15,
+      },
+    });
+    await row(id, {
+      amount: -300n,
+      at: daysAgo(0),
+      applicationId: chat!.id,
+      metadata: { kind: "llm", model: "gpt", totalTokens: 5 },
+    });
+    await row(id, {
+      amount: -200n,
+      at: daysAgo(1),
+      metadata: { kind: "mcp", mcpServer: "srv", tool: "t" },
+    });
+
+    const stats = await getUserSpendStats(id, 7);
+    expect(
+      stats.byModel.map((m) => [m.model, m.amount, m.count, m.totalTokens]),
+    ).toEqual([
+      ["gpt", "1300", 2, 20],
+      ["mcp", "200", 1, 0],
+    ]);
+
+    const today = stats.daily.find(
+      (d) => d.date === daysAgo(0).toISOString().slice(0, 10),
+    )!;
+    expect(today.amount).toBe("1300");
+    expect(today.byApplication.map((a) => [a.slug, a.amount])).toEqual([
+      ["chat", "1300"],
+    ]);
+    expect(today.byModel.map((m) => [m.model, m.amount])).toEqual([
+      ["gpt", "1300"],
+    ]);
+    // A day with no spend is still present, empty.
+    const quietDay = stats.daily.find(
+      (d) => d.date === daysAgo(2).toISOString().slice(0, 10),
+    )!;
+    expect(quietDay).toMatchObject({
+      amount: "0",
+      count: 0,
+      byApplication: [],
+      byModel: [],
+    });
+  });
+});
+
+describe("getSessionUsage", () => {
+  it("totals one session, optionally bound to one application", async () => {
+    const id = await newAccount("u1");
+    const meta = { kind: "llm", model: "gpt", totalTokens: 7 };
+    await row(id, {
+      amount: -500n,
+      at: daysAgo(0),
+      metadata: { ...meta, sessionId: "s1", applicationSlug: "app-a" },
+    });
+    await row(id, {
+      amount: -200n,
+      at: daysAgo(0),
+      metadata: { ...meta, sessionId: "s1", applicationSlug: "app-a" },
+    });
+    await row(id, {
+      amount: -900n,
+      at: daysAgo(0),
+      metadata: { ...meta, sessionId: "s2", applicationSlug: "app-a" },
+    });
+    await row(id, {
+      amount: -400n,
+      at: daysAgo(0),
+      metadata: { ...meta, sessionId: "s1", applicationSlug: "app-b" },
+    });
+
+    const s1 = await getSessionUsage({ accountId: id, sessionId: "s1", days: 7 });
+    expect(s1).toMatchObject({
+      sessionId: "s1",
+      applicationSlug: null,
+      total: "1100",
+      calls: 3,
+    });
+    expect(s1.byModel.map((m) => [m.model, m.amount])).toEqual([["gpt", "1100"]]);
+
+    const scoped = await getSessionUsage({
+      accountId: id,
+      sessionId: "s1",
+      applicationSlug: "app-a",
+      days: 7,
+    });
+    expect(scoped).toMatchObject({ applicationSlug: "app-a", total: "700", calls: 2 });
+
+    const missing = await getSessionUsage({
+      accountId: id,
+      sessionId: "nope",
+      days: 7,
+    });
+    expect(missing).toMatchObject({ total: "0", calls: 0, byModel: [] });
+  });
+
+  it("reports the unbilled share of a session on an unlimited account", async () => {
+    const id = await newAccount("u1");
+    await row(id, {
+      amount: -1_000n,
+      at: daysAgo(0),
+      unlimited: true,
+      metadata: { sessionId: "s1" },
+    });
+    await row(id, { amount: -300n, at: daysAgo(0), metadata: { sessionId: "s1" } });
+    const usage = await getSessionUsage({ accountId: id, sessionId: "s1", days: 7 });
+    expect(usage.total).toBe("1300");
+    expect(usage.notBilled).toBe("1000");
   });
 });
 

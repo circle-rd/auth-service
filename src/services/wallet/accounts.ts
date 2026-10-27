@@ -1,8 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { organization, user } from "../../db/auth-schema.js";
 import { walletAccounts } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
+import { assertOwnerExists } from "../owners.js";
 import type { WalletAccount, WalletOwnerType } from "./types.js";
 
 const accountColumns = {
@@ -30,27 +30,6 @@ export async function findWalletAccount(
     )
     .limit(1);
   return account;
-}
-
-async function assertOwnerExists(
-  ownerType: WalletOwnerType,
-  ownerId: string,
-): Promise<void> {
-  if (ownerType === "user") {
-    const [row] = await db
-      .select({ id: user.id })
-      .from(user)
-      .where(eq(user.id, ownerId))
-      .limit(1);
-    if (!row) throw ERR.USR_001();
-    return;
-  }
-  const [row] = await db
-    .select({ id: organization.id })
-    .from(organization)
-    .where(eq(organization.id, ownerId))
-    .limit(1);
-  if (!row) throw ERR.ORG_001();
 }
 
 /** Return the owner's wallet, creating an empty one on first use. */

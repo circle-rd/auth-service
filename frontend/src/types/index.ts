@@ -251,6 +251,9 @@ export interface ConsumptionAggregate {
   key: string
   total: string
   updatedAt: string
+  userName?: string | null
+  userEmail?: string | null
+  subscriptionPlanId?: string | null
 }
 
 export interface Organization {
@@ -282,6 +285,17 @@ export interface Invitation {
   expiresAt: string
   inviterId: string
   createdAt: string
+}
+
+export interface RegistrationInvitation {
+  id: string
+  email: string
+  applicationId: string
+  invitedByUserId: string | null
+  createdAt: string
+  expiresAt: string
+  consumedAt: string | null
+  revokedAt: string | null
 }
 
 export interface OAuthProviderConfig {

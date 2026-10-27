@@ -43,6 +43,16 @@ CREATE TABLE "applications" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "billing_customers" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"owner_type" text NOT NULL,
+	"owner_id" text NOT NULL,
+	"stripe_customer_id" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "billing_customers_owner_type_check" CHECK ("billing_customers"."owner_type" IN ('user', 'org'))
+);
+--> statement-breakpoint
 CREATE TABLE "consumption_aggregates" (
 	"user_id" text NOT NULL,
 	"application_id" uuid NOT NULL,
@@ -96,8 +106,17 @@ CREATE TABLE "subscription_plan_prices" (
 	"amount" numeric NOT NULL,
 	"currency" text DEFAULT 'usd' NOT NULL,
 	"interval" text DEFAULT 'month' NOT NULL,
+	"billing_type" text DEFAULT 'fixed' NOT NULL,
+	"feature_key" text,
+	"unit" text,
+	"usage_limit" integer,
 	"stripe_price_id" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+	"stripe_meter_id" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "subscription_plan_prices_billing_type_check" CHECK ("subscription_plan_prices"."billing_type" IN ('fixed', 'metered')),
+	CONSTRAINT "subscription_plan_prices_metered_check" CHECK ("subscription_plan_prices"."billing_type" <> 'metered' OR ("subscription_plan_prices"."feature_key" IS NOT NULL AND "subscription_plan_prices"."unit" IS NOT NULL AND "subscription_plan_prices"."usage_limit" IS NOT NULL AND "subscription_plan_prices"."interval" <> 'one_time')),
+	CONSTRAINT "subscription_plan_prices_fixed_check" CHECK ("subscription_plan_prices"."billing_type" <> 'fixed' OR ("subscription_plan_prices"."feature_key" IS NULL AND "subscription_plan_prices"."unit" IS NULL AND "subscription_plan_prices"."usage_limit" IS NULL AND "subscription_plan_prices"."stripe_meter_id" IS NULL)),
+	CONSTRAINT "subscription_plan_prices_usage_limit_check" CHECK ("subscription_plan_prices"."usage_limit" IS NULL OR "subscription_plan_prices"."usage_limit" = -1 OR "subscription_plan_prices"."usage_limit" > 0)
 );
 --> statement-breakpoint
 CREATE TABLE "subscription_plans" (
@@ -151,6 +170,12 @@ CREATE TABLE "user_subscriptions" (
 	"plan_id" uuid NOT NULL,
 	"expires_at" timestamp with time zone,
 	"is_active" boolean DEFAULT true NOT NULL,
+	"stripe_subscription_id" text,
+	"stripe_status" text,
+	"current_period_start" timestamp with time zone,
+	"current_period_end" timestamp with time zone,
+	"cancel_at_period_end" boolean DEFAULT false NOT NULL,
+	"canceled_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -513,17 +538,21 @@ ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN 
 CREATE UNIQUE INDEX "app_permissions_app_resource_action_idx" ON "app_permissions" USING btree ("application_id","resource","action");--> statement-breakpoint
 CREATE UNIQUE INDEX "app_roles_app_name_idx" ON "app_roles" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "applications_slug_idx" ON "applications" USING btree ("slug");--> statement-breakpoint
+CREATE UNIQUE INDEX "billing_customers_owner_idx" ON "billing_customers" USING btree ("owner_type","owner_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "billing_customers_stripe_idx" ON "billing_customers" USING btree ("stripe_customer_id");--> statement-breakpoint
 CREATE INDEX "consumption_entries_user_app_key_idx" ON "consumption_entries" USING btree ("user_id","application_id","key");--> statement-breakpoint
 CREATE INDEX "login_history_user_logged_idx" ON "login_history" USING btree ("user_id","logged_at");--> statement-breakpoint
 CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("application_id","logged_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "registration_invitations_token_hash_idx" ON "registration_invitations" USING btree ("token_hash");--> statement-breakpoint
 CREATE INDEX "registration_invitations_email_idx" ON "registration_invitations" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "registration_invitations_app_idx" ON "registration_invitations" USING btree ("application_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "subscription_plan_prices_plan_feature_idx" ON "subscription_plan_prices" USING btree ("plan_id","feature_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_user_app_created_idx" ON "user_subscription_events" USING btree ("user_id","application_id","created_at");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_app_created_idx" ON "user_subscription_events" USING btree ("application_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_subscriptions_user_app_idx" ON "user_subscriptions" USING btree ("user_id","application_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_subscriptions_stripe_idx" ON "user_subscriptions" USING btree ("stripe_subscription_id");--> statement-breakpoint
 CREATE INDEX "wallet_account_events_account_created_idx" ON "wallet_account_events" USING btree ("account_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_accounts_owner_idx" ON "wallet_accounts" USING btree ("owner_type","owner_id");--> statement-breakpoint
 CREATE INDEX "wallet_pricing_settings_created_idx" ON "wallet_pricing_settings" USING btree ("created_at");--> statement-breakpoint

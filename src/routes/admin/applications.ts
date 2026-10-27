@@ -30,7 +30,16 @@ import {
   member,
   user as userTable,
 } from "../../db/auth-schema.js";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import {
+  and,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  or,
+} from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { clientSecretAuthMethod } from "../../compat/token-auth.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -54,6 +63,7 @@ import {
   ensureTeamBeforeSave,
   retireTeamAfterSave,
 } from "../../services/litellm-sync.js";
+import { DEFAULT_PLAN_NAME } from "../../services/litellm-plan.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -411,7 +421,9 @@ export async function applicationRoutes(
     if (existing) throw ERR.APP_003();
 
     await assertAllowedResources(data.allowedResources, data.url ?? null);
-    await ensureTeamBeforeSave(data, []);
+    // The plans do not exist yet (a new application is created with just its
+    // default one), so the team ids are derived from the plan names here.
+    await ensureTeamBeforeSave(data, [], [DEFAULT_PLAN_NAME]);
 
     // Generate and hash the client secret (only for confidential clients)
     const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
@@ -507,7 +519,7 @@ export async function applicationRoutes(
       .insert(subscriptionPlans)
       .values({
         applicationId: app!.id,
-        name: "free",
+        name: DEFAULT_PLAN_NAME,
         isDefault: true,
         features: {},
       })
@@ -815,7 +827,34 @@ export async function applicationRoutes(
   // Augments each row with `lastLoginAt` scoped to this application (computed
   // from `login_history`). A single grouped sub-select keeps this to one round
   // trip even when the membership list is large.
-  fastify.get<{ Params: { id: string } }>("/:id/users", async (req, reply) => {
+  fastify.get<{
+    Params: { id: string };
+    Querystring: { page?: string; limit?: string; search?: string };
+  }>("/:id/users", async (req, reply) => {
+    const page = Math.max(1, parseInt(req.query.page ?? "1", 10) || 1);
+    const limit = Math.min(
+      100,
+      Math.max(1, parseInt(req.query.limit ?? "20", 10) || 20),
+    );
+    const offset = (page - 1) * limit;
+    const search = req.query.search?.trim().slice(0, 200) || undefined;
+    const searchFilter = search
+      ? or(
+          ilike(userTable.name, `%${search}%`),
+          ilike(userTable.email, `%${search}%`),
+        )
+      : undefined;
+    const where = and(
+      eq(userApplications.applicationId, req.params.id),
+      searchFilter,
+    );
+
+    const [{ total }] = await db
+      .select({ total: countDistinct(userApplications.userId) })
+      .from(userApplications)
+      .leftJoin(userTable, eq(userApplications.userId, userTable.id))
+      .where(where);
+
     // A user may hold several roles (user_app_roles PK is user+app+role), so the
     // join would return one row per role. DISTINCT ON keeps exactly one row per
     // user, otherwise the UI shows duplicate rows and deleting one "removes both".
@@ -839,8 +878,10 @@ export async function applicationRoutes(
           eq(userAppRoles.applicationId, userApplications.applicationId),
         ),
       )
-      .where(eq(userApplications.applicationId, req.params.id))
-      .orderBy(userApplications.userId, userAppRoles.createdAt);
+      .where(where)
+      .orderBy(userApplications.userId, userAppRoles.createdAt)
+      .limit(limit)
+      .offset(offset);
 
     const userIds = Array.from(new Set(rows.map((r) => r.userId)));
     const lastLoginByUser = new Map<
@@ -882,8 +923,26 @@ export async function applicationRoutes(
       };
     });
 
-    await reply.send({ users: enriched });
+    await reply.send({ users: enriched, total, page, limit });
   });
+
+  // GET /api/admin/applications/:id/subscriptions — compact rows used by the
+  // financial tab. Keeping this separate from the paginated users table means
+  // revenue KPIs do not depend on which page of users is visible.
+  fastify.get<{ Params: { id: string } }>(
+    "/:id/subscriptions",
+    async (req, reply) => {
+      const subscriptions = await db
+        .select({
+          userId: userSubscriptions.userId,
+          planId: userSubscriptions.planId,
+          isActive: userSubscriptions.isActive,
+        })
+        .from(userSubscriptions)
+        .where(eq(userSubscriptions.applicationId, req.params.id));
+      await reply.send({ subscriptions });
+    },
+  );
 
   // GET /api/admin/applications/:id/users/:userId/history — paginated login
   // history for a single user inside a single application. Powers the history
@@ -1285,12 +1344,23 @@ export async function applicationRoutes(
           userId: consumptionAggregates.userId,
           userName: userTable.name,
           userEmail: userTable.email,
+          subscriptionPlanId: userApplications.subscriptionPlanId,
           key: consumptionAggregates.key,
           total: consumptionAggregates.total,
           updatedAt: consumptionAggregates.updatedAt,
         })
         .from(consumptionAggregates)
         .leftJoin(userTable, eq(consumptionAggregates.userId, userTable.id))
+        .leftJoin(
+          userApplications,
+          and(
+            eq(userApplications.userId, consumptionAggregates.userId),
+            eq(
+              userApplications.applicationId,
+              consumptionAggregates.applicationId,
+            ),
+          ),
+        )
         .where(eq(consumptionAggregates.applicationId, req.params.id))
         .orderBy(consumptionAggregates.userId, consumptionAggregates.key);
 

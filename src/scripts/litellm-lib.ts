@@ -19,6 +19,11 @@ const scriptEnvSchema = z.object({
 
 /** Machine application the gateway uses to call the wallet API. */
 export const WALLET_CLIENT_SLUG = "litellm-wallet";
+// Scopes granted to the gateway's own machine client (`litellm-wallet`): the
+// wallet debit/read the LLM hook uses, and `wallet:read`, which the gateway also
+// uses to resolve a user's plan/team for its custom auth. No dedicated scope:
+// reusing one already granted keeps an in-place upgrade from having to re-grant
+// scopes (which needs an administrator without MFA) before the gateway can serve.
 export const WALLET_SCOPES = ["wallet:debit", "wallet:read"];
 
 export type ScriptEnv = z.infer<typeof scriptEnvSchema> & {

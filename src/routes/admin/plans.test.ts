@@ -158,46 +158,6 @@ describe("Admin — plansRoutes", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  // ── POST /:appId/plans/:planId/prices — price validation ───────────────
-
-  it("POST /applications/:appId/plans/:planId/prices → 400 when amount is negative", async () => {
-    mockGetSession.mockResolvedValueOnce(adminSession);
-    const res = await app.inject({
-      method: "POST",
-      url: `/applications/${APP_ID}/plans/${PLAN_ID}/prices`,
-      payload: {
-        name: "monthly",
-        amount: -1,
-        currency: "usd",
-        interval: "month",
-      },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("POST /applications/:appId/plans/:planId/prices → 201 when amount is 0 (free tier)", async () => {
-    mockGetSession.mockResolvedValueOnce(adminSession);
-    mockDb.select.mockImplementationOnce(() =>
-      makeChain([{ id: PLAN_ID, stripeProductId: null }]),
-    );
-    const priceRow = {
-      id: "price-1",
-      planId: PLAN_ID,
-      name: "free",
-      amount: "0",
-      currency: "usd",
-      interval: "month",
-    };
-    mockDb.insert.mockImplementationOnce(() => makeChain([priceRow]));
-    const res = await app.inject({
-      method: "POST",
-      url: `/applications/${APP_ID}/plans/${PLAN_ID}/prices`,
-      payload: { name: "free", amount: 0, currency: "usd", interval: "month" },
-    });
-    expect(res.statusCode).toBe(201);
-    expect(res.json<{ price: { amount: string } }>().price.amount).toBe("0");
-  });
-
   // ── DELETE /applications/:appId/plans/:planId — auth ─────────────────
 
   it("DELETE /applications/:appId/plans/:planId → 401 when not authenticated", async () => {

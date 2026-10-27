@@ -1,17 +1,53 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import SpendChart from '@/components/wallet/SpendChart.vue';
+import type { SpendChartSeries } from '@/components/wallet/SpendChart.vue';
 import SpendBreakdown from '@/components/wallet/SpendBreakdown.vue';
 import { useMoney } from '@/composables/useMoney';
+import { modelColor } from '@/utils/chartPalette';
 import type { UserSpendStats } from '@/types/wallet';
 
-defineProps<{
+const props = defineProps<{
   stats: UserSpendStats | null;
   loading?: boolean;
 }>();
 
-const { t } = useI18n();
+// The chart is stacked by model; beyond the top few, the tail would crowd the
+// legend, so only the biggest series are drawn (the day detail shows the rest).
+const MAX_MODEL_SERIES = 6;
+
+const { t, locale } = useI18n();
 const { fmt } = useMoney();
+
+const modelLabel = (model: string): string =>
+  model === 'mcp' || model === 'other' ? t(`wallet.spend.models.${model}`) : model;
+
+const labels = computed(() =>
+  (props.stats?.daily ?? []).map((d) =>
+    new Date(`${d.date}T00:00:00Z`).toLocaleDateString(locale.value, { month: 'short', day: 'numeric', timeZone: 'UTC' }),
+  ),
+);
+
+const datasets = computed<SpendChartSeries[]>(() => {
+  const daily = props.stats?.daily ?? [];
+  const totals = new Map<string, bigint>();
+  for (const day of daily) {
+    for (const m of day.byModel) {
+      totals.set(m.model, (totals.get(m.model) ?? 0n) + BigInt(m.amount));
+    }
+  }
+  return [...totals.entries()]
+    .sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0))
+    .slice(0, MAX_MODEL_SERIES)
+    .map(([model]) => ({
+      label: modelLabel(model),
+      color: modelColor(model),
+      values: daily.map((d) => Number(d.byModel.find((m) => m.model === model)?.amount ?? '0')),
+    }));
+});
+
+const useStacks = computed(() => datasets.value.length > 0);
 </script>
 
 <template>
@@ -30,12 +66,20 @@ const { fmt } = useMoney();
       </div>
     </div>
 
-    <SpendChart :series="stats?.series ?? []" :loading="loading || !stats">
+    <SpendChart
+      v-if="useStacks"
+      :labels="labels"
+      :datasets="datasets"
+      :loading="loading || !stats"
+    >
+      <template #empty>{{ t('wallet.spend.none') }}</template>
+    </SpendChart>
+    <SpendChart v-else :series="stats?.series ?? []" :loading="loading || !stats">
       <template #empty>{{ t('wallet.spend.none') }}</template>
     </SpendChart>
 
     <div v-if="stats && stats.calls > 0" class="mt-6 pt-6 border-t border-surface-700/40">
-      <SpendBreakdown :by-application="stats.byApplication" :by-kind="stats.byKind" />
+      <SpendBreakdown :by-application="stats.byApplication" :by-kind="stats.byKind" :by-model="stats.byModel" />
     </div>
   </div>
 </template>

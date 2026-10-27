@@ -2,32 +2,29 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../../db/index.js";
 import {
-  applications,
   subscriptionPlans,
   subscriptionPlanPrices,
   userSubscriptions,
 } from "../../db/schema.js";
 import { and, eq, ne, count, inArray } from "drizzle-orm";
 import { ERR } from "../../errors.js";
-import { stripe } from "../../services/stripe.js";
+import {
+  archivePlanPrice,
+  archivePlanProduct,
+  deactivateMeterIfUnused,
+  provisionPlanProduct,
+  updatePlanProduct,
+} from "../../services/billing/catalog.js";
 import { setUserSubscription } from "../../services/subscriptions.js";
 import { getActorUserId, requireAdmin } from "../../middleware.js";
 import { subscriptionReasonSchema } from "./subscription-request.js";
-
-const createPlanSchema = z.object({
-  name: z.string().min(1).max(64),
-  description: z.string().max(500).optional().nullable(),
-  stripeProductId: z.string().optional().nullable(),
-  features: z.record(z.string(), z.unknown()).default({}),
-  isDefault: z.boolean().default(false),
-});
-
-const createPlanPriceSchema = z.object({
-  name: z.string().min(1).max(64),
-  amount: z.number().int().min(0), // in smallest currency unit (e.g. cents)
-  currency: z.string().length(3).default("usd"),
-  interval: z.enum(["month", "year", "one_time"]).default("month"),
-});
+import { createPlanSchema, ensureApp } from "./plan-shared.js";
+import {
+  ensurePlanTeamBeforeSave,
+  retirePlanTeam,
+  retireRenamedPlanTeam,
+} from "../../services/litellm-sync.js";
+import { planSlugConflict } from "../../services/litellm-plan.js";
 
 const assignSubscriptionSchema = z.object({
   planId: z.string().uuid(),
@@ -37,15 +34,6 @@ const assignSubscriptionSchema = z.object({
 
 export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
-
-  async function ensureApp(appId: string): Promise<void> {
-    const [app] = await db
-      .select({ id: applications.id })
-      .from(applications)
-      .where(eq(applications.id, appId))
-      .limit(1);
-    if (!app) throw ERR.APP_002();
-  }
 
   // GET /api/admin/applications/:appId/plans
   fastify.get<{ Params: { appId: string } }>(
@@ -90,30 +78,31 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.post<{ Params: { appId: string } }>(
     "/applications/:appId/plans",
     async (req, reply) => {
-      await ensureApp(req.params.appId);
+      const app = await ensureApp(req.params.appId);
       const parsed = createPlanSchema.safeParse(req.body);
       if (!parsed.success)
         throw ERR.APP_001("Invalid plan data", parsed.error.flatten());
 
-      let stripeProductId = parsed.data.stripeProductId ?? null;
-
-      // Create a Stripe Product if Stripe is configured and no product ID provided
-      if (stripe && !stripeProductId) {
-        const [app] = await db
-          .select({ name: applications.name })
-          .from(applications)
-          .where(eq(applications.id, req.params.appId))
-          .limit(1);
-
-        const product = await stripe.products.create({
-          name: `${app?.name ?? "App"} — ${parsed.data.name}`,
-          metadata: {
-            applicationId: req.params.appId,
-            planName: parsed.data.name,
-          },
+      // The gateway team (and its access group) is named after the plan's slug,
+      // so two plans of one application must not slugify to the same name.
+      if (await planSlugConflict(app.id, parsed.data.name))
+        throw ERR.APP_001("A plan with a similar name already exists", {
+          field: "name",
         });
-        stripeProductId = product.id;
-      }
+
+      // The plan's gateway team must exist before the plan can grant access.
+      await ensurePlanTeamBeforeSave(app.id, parsed.data.name);
+
+      // The operator never opens the Stripe dashboard: the Product is created
+      // here unless an explicit id was supplied.
+      const stripeProductId =
+        parsed.data.stripeProductId ??
+        (await provisionPlanProduct({
+          applicationId: app.id,
+          appName: app.name,
+          planName: parsed.data.name,
+          description: parsed.data.description ?? null,
+        }));
 
       const [plan] = await db.transaction(async (tx) => {
         // Ensure only one default plan per app
@@ -121,12 +110,12 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
           await tx
             .update(subscriptionPlans)
             .set({ isDefault: false })
-            .where(eq(subscriptionPlans.applicationId, req.params.appId));
+            .where(eq(subscriptionPlans.applicationId, app.id));
         }
         return tx
           .insert(subscriptionPlans)
           .values({
-            applicationId: req.params.appId,
+            applicationId: app.id,
             name: parsed.data.name,
             description: parsed.data.description ?? null,
             stripeProductId,
@@ -147,6 +136,34 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
       const parsed = createPlanSchema.partial().safeParse(req.body);
       if (!parsed.success)
         throw ERR.APP_001("Invalid plan data", parsed.error.flatten());
+
+      const [before] = await db
+        .select({ name: subscriptionPlans.name })
+        .from(subscriptionPlans)
+        .where(
+          and(
+            eq(subscriptionPlans.id, req.params.planId),
+            eq(subscriptionPlans.applicationId, req.params.appId),
+          ),
+        )
+        .limit(1);
+      if (!before) throw ERR.SUB_001();
+
+      // A renamed plan is a different plan as far as the gateway is concerned:
+      // its new team must exist before the rename, and the old one is retired after.
+      const renamedTo =
+        parsed.data.name && parsed.data.name !== before.name
+          ? parsed.data.name
+          : null;
+      if (renamedTo) {
+        if (
+          await planSlugConflict(req.params.appId, renamedTo, req.params.planId)
+        )
+          throw ERR.APP_001("A plan with a similar name already exists", {
+            field: "name",
+          });
+        await ensurePlanTeamBeforeSave(req.params.appId, renamedTo);
+      }
 
       const [plan] = await db.transaction(async (tx) => {
         // Ensure only one default plan per app
@@ -174,6 +191,21 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
       });
       if (!plan) throw ERR.SUB_001();
 
+      if (renamedTo)
+        await retireRenamedPlanTeam(req.params.appId, before.name, renamedTo);
+
+      // Keep the Stripe Product name/description aligned with the plan row.
+      if (plan.stripeProductId) {
+        const app = await ensureApp(req.params.appId);
+        await updatePlanProduct({
+          stripeProductId: plan.stripeProductId,
+          applicationId: app.id,
+          appName: app.name,
+          planName: plan.name,
+          description: plan.description,
+        });
+      }
+
       await reply.send({ plan });
     },
   );
@@ -193,35 +225,9 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
         );
       if (active && Number(active.cnt) > 0) throw ERR.SUB_003();
 
-      const [deleted] = await db
-        .delete(subscriptionPlans)
-        .where(
-          and(
-            eq(subscriptionPlans.id, req.params.planId),
-            eq(subscriptionPlans.applicationId, req.params.appId),
-          ),
-        )
-        .returning({ id: subscriptionPlans.id });
-      if (!deleted) throw ERR.SUB_001();
-
-      await reply.status(204).send();
-    },
-  );
-
-  // ── Plan price tiers ───────────────────────────────────────────────────────
-
-  // POST /api/admin/applications/:appId/plans/:planId/prices
-  fastify.post<{ Params: { appId: string; planId: string } }>(
-    "/applications/:appId/plans/:planId/prices",
-    async (req, reply) => {
-      const parsed = createPlanPriceSchema.safeParse(req.body);
-      if (!parsed.success)
-        throw ERR.APP_001("Invalid price data", parsed.error.flatten());
-
-      // Ensure plan belongs to app
       const [plan] = await db
         .select({
-          id: subscriptionPlans.id,
+          name: subscriptionPlans.name,
           stripeProductId: subscriptionPlans.stripeProductId,
         })
         .from(subscriptionPlans)
@@ -234,67 +240,46 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
       if (!plan) throw ERR.SUB_001();
 
-      let stripePriceId: string | null = null;
-
-      // Create Stripe Price if Stripe is configured and plan has a product
-      if (stripe && plan.stripeProductId) {
-        const stripePrice = await stripe.prices.create({
-          product: plan.stripeProductId,
-          unit_amount: parsed.data.amount,
-          currency: parsed.data.currency,
-          ...(parsed.data.interval === "one_time"
-            ? {}
-            : {
-                recurring: {
-                  interval: parsed.data.interval as "month" | "year",
-                },
-              }),
-          nickname: parsed.data.name,
-          metadata: { planId: req.params.planId },
-        });
-        stripePriceId = stripePrice.id;
-      }
-
-      const [price] = await db
-        .insert(subscriptionPlanPrices)
-        .values({
-          planId: req.params.planId,
-          name: parsed.data.name,
-          amount: String(parsed.data.amount),
-          currency: parsed.data.currency,
-          interval: parsed.data.interval,
-          stripePriceId,
-        })
-        .returning();
-
-      await reply.status(201).send({ price });
-    },
-  );
-
-  // DELETE /api/admin/applications/:appId/plans/:planId/prices/:priceId
-  fastify.delete<{
-    Params: { appId: string; planId: string; priceId: string };
-  }>(
-    "/applications/:appId/plans/:planId/prices/:priceId",
-    async (req, reply) => {
-      const [deleted] = await db
-        .delete(subscriptionPlanPrices)
-        .where(
-          and(
-            eq(subscriptionPlanPrices.id, req.params.priceId),
-            eq(subscriptionPlanPrices.planId, req.params.planId),
-          ),
-        )
-        .returning({
-          id: subscriptionPlanPrices.id,
+      const prices = await db
+        .select({
           stripePriceId: subscriptionPlanPrices.stripePriceId,
-        });
-      if (!deleted) throw ERR.SUB_001();
+          stripeMeterId: subscriptionPlanPrices.stripeMeterId,
+          featureKey: subscriptionPlanPrices.featureKey,
+        })
+        .from(subscriptionPlanPrices)
+        .where(eq(subscriptionPlanPrices.planId, req.params.planId));
 
-      // Archive Stripe price if configured (prices cannot be deleted in Stripe, only archived)
-      if (stripe && deleted.stripePriceId) {
-        await stripe.prices.update(deleted.stripePriceId, { active: false });
+      await db.transaction(async (tx) => {
+        // Inactive subscriptions still reference the plan through a RESTRICT FK;
+        // remove them so the plan can go. Active ones were rejected above.
+        await tx
+          .delete(userSubscriptions)
+          .where(eq(userSubscriptions.planId, req.params.planId));
+        await tx
+          .delete(subscriptionPlans)
+          .where(
+            and(
+              eq(subscriptionPlans.id, req.params.planId),
+              eq(subscriptionPlans.applicationId, req.params.appId),
+            ),
+          );
+      });
+
+      // Archive, never delete, the Stripe objects (prices/products are
+      // immutable history).
+      await archivePlanProduct(plan.stripeProductId);
+      for (const price of prices) {
+        await archivePlanPrice(price.stripePriceId);
+        if (price.stripeMeterId && price.featureKey) {
+          await deactivateMeterIfUnused({
+            applicationId: req.params.appId,
+            featureKey: price.featureKey,
+            stripeMeterId: price.stripeMeterId,
+          });
+        }
       }
+
+      await retirePlanTeam(req.params.appId, plan.name);
 
       await reply.status(204).send();
     },

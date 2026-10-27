@@ -10,6 +10,7 @@ import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
 import { getActiveUsers, getLogins, getRegistrations, type DailyCountPoint, type LoginsSeriesPoint } from '@/api/stats';
 import { useDebounce } from '@/composables/useDebounce';
+import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useAdminEvents } from '@/composables/useAdminEvents';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import StatCard from '@/components/ui/StatCard.vue';
@@ -49,7 +50,7 @@ const lastRefreshed = ref(new Date());
 // Server-driven state for the sessions table. Search is debounced so the
 // user can type a query without firing one request per keystroke.
 const sessionPage = ref(1);
-const sessionLimit = ref(20);
+const sessionLimit = usePersistentPageSize('dashboard-sessions', 20);
 const sessionTotal = ref(0);
 const sessionSearch = ref('');
 const sessionAppFilter = ref('');

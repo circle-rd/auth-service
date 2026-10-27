@@ -8,6 +8,8 @@ export const useOrganizationsStore = defineStore('organizations', () => {
   const organizations = ref<Organization[]>([]);
   const orgMembers = ref<Record<string, OrganizationMember[]>>({});
   const membersLoading = ref<Record<string, boolean>>({});
+  const orgMemberTotals = ref<Record<string, number>>({});
+  const orgMembersLoadingMore = ref<Record<string, boolean>>({});
   const loading = ref(false);
   const error = ref<ApiError | null>(null);
   const total = ref(0);
@@ -46,14 +48,33 @@ export const useOrganizationsStore = defineStore('organizations', () => {
     }
   }
 
-  async function fetchOrgMembers(orgId: string) {
-    membersLoading.value = { ...membersLoading.value, [orgId]: true };
+  async function fetchOrgMembers(
+    orgId: string,
+    opts: { offset?: number; limit?: number; append?: boolean } = {},
+  ) {
+    const loadingKey = opts.append ? orgMembersLoadingMore : membersLoading;
+    loadingKey.value = { ...loadingKey.value, [orgId]: true };
     try {
-      const res = await orgsApi.listOrganizationMembers(orgId, { limit: 100 });
-      orgMembers.value = { ...orgMembers.value, [orgId]: res.members };
+      const offset = opts.offset ?? 0;
+      const res = await orgsApi.listOrganizationMembers(orgId, {
+        limit: opts.limit ?? 20,
+        offset,
+      });
+      const existing = opts.append ? orgMembers.value[orgId] ?? [] : [];
+      const merged = [...existing];
+      for (const member of res.members) {
+        if (!merged.some((m) => m.id === member.id)) merged.push(member);
+      }
+      orgMembers.value = { ...orgMembers.value, [orgId]: merged };
+      orgMemberTotals.value = { ...orgMemberTotals.value, [orgId]: res.total };
     } finally {
-      membersLoading.value = { ...membersLoading.value, [orgId]: false };
+      loadingKey.value = { ...loadingKey.value, [orgId]: false };
     }
+  }
+
+  async function loadMoreOrgMembers(orgId: string, limit = 20) {
+    const current = orgMembers.value[orgId] ?? [];
+    await fetchOrgMembers(orgId, { offset: current.length, limit, append: true });
   }
 
   async function deleteOrganization(id: string) {
@@ -63,8 +84,8 @@ export const useOrganizationsStore = defineStore('organizations', () => {
   }
 
   return {
-    organizations, orgMembers, membersLoading, loading, error,
-    total, page, limit, search, sortBy, sortOrder,
-    fetchOrganizations, fetchOrgMembers, deleteOrganization,
+    organizations, orgMembers, membersLoading, orgMembersLoadingMore, orgMemberTotals,
+    loading, error, total, page, limit, search, sortBy, sortOrder,
+    fetchOrganizations, fetchOrgMembers, loadMoreOrgMembers, deleteOrganization,
   };
 });

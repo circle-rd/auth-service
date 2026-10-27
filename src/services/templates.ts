@@ -35,7 +35,8 @@ export type PageName =
   | "two-factor"
   | "device"
   | "error"
-  | "complete-registration";
+  | "complete-registration"
+  | "accept-invitation";
 
 /**
  * Path of the post-verification confirmation page, and the flows it can report.
@@ -212,6 +213,17 @@ export interface TemplateVars {
   // complete-registration page.
   email?: string;
   invitationToken?: string;
+  // Shared invitation pages (`accept-invitation`, `complete-registration`).
+  invitationKind?: "organization" | "application";
+  invitationId?: string;
+  targetName?: string;
+  inviterName?: string;
+  invitationRole?: string;
+  sessionEmail?: string;
+  sessionMatches?: boolean;
+  hasAccount?: boolean;
+  acceptUrl?: string;
+  socialUrl?: string;
 }
 
 function confirmationCopy(
@@ -251,6 +263,21 @@ function resolveTemplate(
   }
 
   throw new Error(`No template found for page "${page}"`);
+}
+
+/**
+ * Serialise a value for an inline <script>. JSON.stringify alone does not
+ * escape `<`, `>` or `&`, so a value containing `</script>` could break out of
+ * the script element. U+2028/U+2029 are escaped because they are valid JSON
+ * but line terminators in older JavaScript parsers.
+ */
+function jsString(value: string): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
 }
 
 export function renderAuthPage(
@@ -297,6 +324,18 @@ export function renderAuthPage(
     ERROR_DESCRIPTION: vars.errorDescription ?? "",
     EMAIL: vars.email ?? "",
     INVITATION_TOKEN: vars.invitationToken ?? "",
+    INVITATION_KIND: vars.invitationKind ?? "",
+    INVITATION_ID: vars.invitationId ?? "",
+    TARGET_NAME: vars.targetName ?? "",
+    TARGET_NAME_JS: jsString(vars.targetName ?? ""),
+    INVITER_NAME: vars.inviterName ?? "",
+    INVITATION_ROLE: vars.invitationRole ?? "",
+    SESSION_EMAIL: vars.sessionEmail ?? "",
+    SESSION_EMAIL_JS: jsString(vars.sessionEmail ?? ""),
+    SESSION_MATCHES: vars.sessionMatches === true,
+    HAS_ACCOUNT: vars.hasAccount === true,
+    ACCEPT_URL: vars.acceptUrl ?? "",
+    SOCIAL_URL: vars.socialUrl ?? "",
     ...errorCopy(vars.errorCode),
   };
 

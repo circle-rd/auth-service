@@ -31,6 +31,7 @@ import { healthRoutes } from "./routes/health.js";
 import { applicationRoutes } from "./routes/admin/applications.js";
 import { rolesRoutes } from "./routes/admin/roles.js";
 import { plansRoutes } from "./routes/admin/plans.js";
+import { planPricesRoutes } from "./routes/admin/plan-prices.js";
 import { adminConsumptionRoutes } from "./routes/admin/adminConsumption.js";
 import { usersRoutes } from "./routes/admin/users.js";
 import { sessionsRoutes } from "./routes/admin/sessions.js";
@@ -41,6 +42,7 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
+import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
 import { adminWalletRoutes } from "./routes/admin/wallets.js";
 import { accountingRoutes } from "./routes/admin/accounting.js";
 import { applicationMachineScopesRoutes } from "./routes/admin/application-machine-scopes.js";
@@ -49,6 +51,7 @@ import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
 import { organizationsRoutes } from "./routes/admin/organizations.js";
 import { registrationInvitationRoutes } from "./routes/admin/registration-invitations.js";
 import { registrationRoutes } from "./routes/registration.js";
+import { invitationPagesRoutes } from "./routes/invitation-pages.js";
 import { appConfigRoutes, socialProvidersFor } from "./routes/app-config.js";
 import { ERR } from "./errors.js";
 import { globalErrorHandler } from "./error-handler.js";
@@ -64,10 +67,6 @@ import {
   narrowSocialProvidersByLastUsed,
   parseLastUsedLoginMethod,
 } from "./services/last-login-method.js";
-import {
-  findRegistrationInvitationByToken,
-  invitationState,
-} from "./services/registration-invitations.js";
 import { db } from "./db/index.js";
 import { applications } from "./db/schema.js";
 import { eq } from "drizzle-orm";
@@ -459,71 +458,6 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
-  // ── Complete-registration page (invitation redemption) ──────────
-  // An administrator-triggered, one-shot registration link. A missing, expired,
-  // revoked or already-used token lands on the templated error page; a pending
-  // one renders the form whose POST is handled by `/api/registration/complete`.
-  fastify.get("/complete-registration", async (req, reply) => {
-    const query = req.query as Record<string, string>;
-    const token = typeof query.token === "string" ? query.token : "";
-    const appSlug = typeof query.client_id === "string" ? query.client_id : "";
-
-    const errorRedirect = (code: string) => {
-      const params = new URLSearchParams({ error: code });
-      if (appSlug) params.set("client_id", appSlug);
-      return reply.redirect(`/error?${params.toString()}`, 302);
-    };
-
-    if (!token) return errorRedirect("INVITATION_INVALID");
-
-    const invitation = await findRegistrationInvitationByToken(token);
-    if (!invitation) return errorRedirect("INVITATION_INVALID");
-    const state = invitationState(invitation);
-    if (state === "expired") return errorRedirect("INVITATION_EXPIRED");
-    if (state !== "pending") return errorRedirect("INVITATION_INVALID");
-
-    if (!config.templatesDir) {
-      if (existsSync(frontendDist)) {
-        return reply.sendFile("index.html", frontendDist);
-      }
-      return reply.status(404).send({ error: "Not found" });
-    }
-
-    const loginUrl = appSlug
-      ? `/login?client_id=${encodeURIComponent(appSlug)}`
-      : "/login";
-    try {
-      const html = renderAuthPage(
-        "complete-registration",
-        {
-          actionUrl: "/api/registration/complete",
-          redirectTo: "",
-          appSlug,
-          authUrl: config.betterAuth.url,
-          appName: config.appName,
-          logoUrl: config.appLogoUrl ?? "",
-          logoDarkUrl: config.appLogoDarkUrl ?? "",
-          email: invitation.email,
-          invitationToken: token,
-          loginUrl,
-        },
-        appSlug || null,
-        config.templatesDir,
-      );
-      return reply
-        .status(200)
-        .header("content-type", "text/html; charset=utf-8")
-        .send(html);
-    } catch (err) {
-      return sendSpaFallback(
-        reply,
-        "complete-registration",
-        appSlug || null,
-        err,
-      );
-    }
-  });
-
   // ── Organization selection page ─────────────────────────────────
   fastify.get("/select-org", async (req, reply) => {
     if (!config.templatesDir) {
@@ -730,6 +664,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   await fastify.register(rolesRoutes, { prefix: "/api/admin" });
   await fastify.register(plansRoutes, { prefix: "/api/admin" });
+  await fastify.register(planPricesRoutes, { prefix: "/api/admin" });
   await fastify.register(adminConsumptionRoutes, { prefix: "/api/admin" });
   await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
@@ -742,12 +677,16 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(registrationInvitationRoutes, {
     prefix: "/api/admin/registration-invitations",
   });
+  await fastify.register(invitationPagesRoutes);
   await fastify.register(registrationRoutes, { prefix: "/api/registration" });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });
   await fastify.register(walletRoutes, { prefix: "/api/user/wallet" });
   await fastify.register(walletInternalRoutes, {
     prefix: "/api/internal/wallet",
+  });
+  await fastify.register(gatewayInternalRoutes, {
+    prefix: "/api/internal/gateway",
   });
   await fastify.register(adminWalletRoutes, { prefix: "/api/admin/wallets" });
   await fastify.register(accountingRoutes, {

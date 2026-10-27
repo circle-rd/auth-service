@@ -56,6 +56,25 @@ export interface WalletKindEntry {
   count: number
 }
 
+export interface WalletModelEntry {
+  /** Model name; `mcp` for tool calls, `other` when the gateway did not report one. */
+  model: string
+  amount: string
+  count: number
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+}
+
+/** One day of spend, split by application and by model. */
+export interface WalletSpendDay {
+  date: string
+  amount: string
+  count: number
+  byApplication: WalletBreakdownEntry[]
+  byModel: WalletModelEntry[]
+}
+
 export interface UserSpendStats {
   days: number
   total: string
@@ -65,6 +84,9 @@ export interface UserSpendStats {
   series: WalletDailyPoint[]
   byApplication: WalletBreakdownEntry[]
   byKind: WalletKindEntry[]
+  byModel: WalletModelEntry[]
+  /** Per-day breakdown, the granularity the wallet views show by default. */
+  daily: WalletSpendDay[]
 }
 
 export interface WalletTopConsumer {
@@ -90,6 +112,7 @@ export interface AdminWalletStats {
   topConsumers: WalletTopConsumer[]
   byApplication: WalletBreakdownEntry[]
   byKind: WalletKindEntry[]
+  byModel: WalletModelEntry[]
 }
 
 export type WalletListFilter = 'all' | 'debt' | 'credit' | 'unlimited'

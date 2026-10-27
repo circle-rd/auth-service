@@ -47,6 +47,15 @@ import {
   clientIdOf,
   registrationOpenFor,
 } from "./services/registration-policy.js";
+import {
+  readInvitationFlow,
+  toInvitationFlow,
+} from "./services/invitation-cookie.js";
+import {
+  assertInvitationFlowEmail,
+  invitationFlowAllowsSignUp,
+} from "./services/invitation-flows.js";
+import { addOAuthServerContext, getOAuthState } from "better-auth/api";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
 import { recordLogin } from "./services/login-history.js";
 import {
@@ -390,7 +399,8 @@ export const auth = betterAuth({
   // Social login providers — only enabled when both CLIENT_ID and CLIENT_SECRET are set.
   // `disableImplicitSignUp`: a first social sign-in creates an account only when
   // the `before` hook below sets `requestSignUp` for an application that allows
-  // registration (see services/registration-policy.ts).
+  // registration (see services/registration-policy.ts) or for a signed
+  // invitation flow (see services/invitation-flows.ts).
   socialProviders: {
     ...(config.providers.google.enabled
       ? {
@@ -554,6 +564,22 @@ export const auth = betterAuth({
     },
     user: {
       create: {
+        // A social sign-in backed by an invitation may create an account even
+        // when registration is closed, but only for the address the invitation
+        // was sent to. The invitation rides in BetterAuth's server-trusted
+        // OAuth state; throwing here aborts the provider callback before any
+        // user or account row is written.
+        before: async (userData) => {
+          // The invitation is carried in BetterAuth's server-trusted OAuth
+          // state, not in a cookie that a callback request could omit.
+          const oauthState = await getOAuthState();
+          const flow = toInvitationFlow(
+            oauthState?.serverContext?.invitationFlow,
+          );
+          if (!flow) return;
+          const email = (userData as { email?: unknown }).email;
+          await assertInvitationFlowEmail(flow, String(email ?? ""));
+        },
         after: async () => {
           publishEvent("user.changed");
         },
@@ -593,11 +619,26 @@ export const auth = betterAuth({
       }
       // A social sign-in only signs in an existing account, unless registration
       // is open. Always set here: a client must not grant itself `requestSignUp`.
+      // An invitation-backed flow is the exception: the signed invitation
+      // token proves the server authorised this provider round-trip, and the
+      // `user.create.before` hook still enforces the invited address from the
+      // server-trusted OAuth state.
       if (ctx.path === "/sign-in/social") {
+        const invitationFlow = readInvitationFlow(ctx.headers);
+        const invitationSignUp = invitationFlow
+          ? await invitationFlowAllowsSignUp(invitationFlow)
+          : false;
+        if (invitationFlow && invitationSignUp) {
+          // Persist the invitation in BetterAuth's signed/server-stored OAuth
+          // state so the callback cannot drop it and bypass the email check.
+          await addOAuthServerContext({ invitationFlow });
+        }
         return {
           context: {
             body: {
-              requestSignUp: await registrationOpenFor(ctx.body?.callbackURL),
+              requestSignUp:
+                invitationSignUp ||
+                (await registrationOpenFor(ctx.body?.callbackURL)),
             },
           },
         };
@@ -723,6 +764,9 @@ export const auth = betterAuth({
           string | undefined;
         return role === "admin" || role === "superadmin";
       },
+      // An invitation was sent to a mailbox, so the account accepting it must
+      // have a verified address matching that mailbox.
+      requireEmailVerificationOnInvitation: true,
       // Email an invited user the accept-invitation link. Falls back
       // gracefully if the invitation row is missing some optional fields.
       sendInvitationEmail: async (data: {

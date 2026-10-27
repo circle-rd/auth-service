@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import BaseSelect from '@/components/ui/BaseSelect.vue';
 import { Clock, Globe, Monitor } from 'lucide-vue-next';
 import { getUserLoginHistory } from '@/api/applications';
+import { PAGE_SIZE_OPTIONS, usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import type { LoginHistoryEntry } from '@/types';
 
@@ -24,14 +26,16 @@ const loading = ref(false);
 const entries = ref<LoginHistoryEntry[]>([]);
 const total = ref(0);
 const page = ref(1);
-const limit = 20;
+const limit = usePersistentPageSize('app-user-history', 20);
 const error = ref<string | null>(null);
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / limit.value)));
+const pageSizeOptions = PAGE_SIZE_OPTIONS.map((size) => ({ value: String(size), label: String(size) }));
 
 async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await getUserLoginHistory(props.appId, props.userId, { page: page.value, limit });
+    const res = await getUserLoginHistory(props.appId, props.userId, { page: page.value, limit: limit.value });
     entries.value = res.entries;
     total.value = res.total;
   } catch (err) {
@@ -47,6 +51,11 @@ watch(() => [props.open, props.userId, props.appId], ([isOpen]) => {
     void load();
   }
 }, { immediate: true });
+
+watch(limit, () => {
+  page.value = 1;
+  if (props.open) void load();
+});
 
 // A live login event re-reads the current page without losing the user's place.
 watch(() => props.refreshKey, () => {
@@ -90,11 +99,22 @@ function formatDate(iso: string): string {
         </div>
       </div>
 
-      <div v-if="!loading && total > limit" class="flex items-center justify-between text-xs text-surface-500">
-        <span>{{ t('common.showing', { from: (page - 1) * limit + 1, to: Math.min(page * limit, total), total }) }}</span>
-        <div class="flex gap-2">
+      <div v-if="!loading && total > 0" class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-surface-500">
+        <div class="flex items-center gap-2">
+          <label class="text-surface-500">{{ t('dataTable.rowsPerPage') }}</label>
+          <BaseSelect
+            :model-value="String(limit)"
+            :options="pageSizeOptions"
+            size="sm"
+            class="w-20"
+            @update:model-value="(value: string) => (limit = Number(value))"
+          />
+          <span class="tabular-nums">{{ t('dataTable.pageOf', { from: (page - 1) * limit + 1, to: Math.min(page * limit, total), total }) }}</span>
+        </div>
+        <div class="flex items-center gap-2">
           <BaseButton variant="outline" size="sm" :disabled="page === 1" @click="page--; load()">{{ t('common.previous') }}</BaseButton>
-          <BaseButton variant="outline" size="sm" :disabled="page * limit >= total" @click="page++; load()">{{ t('common.next') }}</BaseButton>
+          <span class="tabular-nums">{{ page }} / {{ pageCount }}</span>
+          <BaseButton variant="outline" size="sm" :disabled="page >= pageCount" @click="page++; load()">{{ t('common.next') }}</BaseButton>
         </div>
       </div>
     </div>

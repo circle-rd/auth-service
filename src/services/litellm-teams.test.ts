@@ -72,14 +72,13 @@ afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// LiteLLM answers `GET /v1/access_group` with a bare array.
 const groupList = (groups: Array<{ id: string; name: string }>) => ({
   status: 200,
-  json: {
-    access_groups: groups.map((g) => ({
-      access_group_id: g.id,
-      access_group_name: g.name,
-    })),
-  },
+  json: groups.map((g) => ({
+    access_group_id: g.id,
+    access_group_name: g.name,
+  })),
 });
 
 describe("ensureAccessGroup", () => {
@@ -107,6 +106,20 @@ describe("ensureAccessGroup", () => {
     responses = [groupList([{ id: "g9", name: "app:free" }])];
     expect(await ensureAccessGroup("app:free")).toBe("g9");
     expect(calls.map((c) => c.path)).toEqual(["/v1/access_group"]);
+  });
+
+  it("accepts a wrapped access-group list too", async () => {
+    responses = [
+      {
+        status: 200,
+        json: {
+          access_groups: [
+            { access_group_id: "g7", access_group_name: "app:free" },
+          ],
+        },
+      },
+    ];
+    expect(await ensureAccessGroup("app:free")).toBe("g7");
   });
 });
 

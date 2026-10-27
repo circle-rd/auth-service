@@ -120,15 +120,13 @@ describe("exportGatewayConfig", () => {
       },
       {
         status: 200,
-        json: {
-          access_groups: [
-            {
-              access_group_id: "g1",
-              access_group_name: "app:free",
-              access_model_names: ["gpt"],
-            },
-          ],
-        },
+        json: [
+          {
+            access_group_id: "g1",
+            access_group_name: "app:free",
+            access_model_names: ["gpt"],
+          },
+        ],
       },
     ]);
     expect(await exportGatewayConfig(client)).toEqual({
@@ -169,11 +167,7 @@ describe("importGatewayConfig", () => {
       // GET /v1/access_group
       {
         status: 200,
-        json: {
-          access_groups: [
-            { access_group_id: "g1", access_group_name: "app:free" },
-          ],
-        },
+        json: [{ access_group_id: "g1", access_group_name: "app:free" }],
       },
       // PUT /v1/access_group/g1
       { status: 200, json: {} },

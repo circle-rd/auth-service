@@ -139,51 +139,41 @@ export async function consumptionRoutes(
       return;
     }
 
-    // Insert raw entry
-    await db.insert(consumptionEntries).values({
-      userId,
-      applicationId,
-      key,
-      value: String(value),
-    });
-
-    // Upsert aggregate (increment total by value, supporting negative credits)
-    await db
-      .insert(consumptionAggregates)
-      .values({
+    // The raw entry and the running total move together or not at all.
+    const [aggregate] = await db.transaction(async (tx) => {
+      await tx.insert(consumptionEntries).values({
         userId,
         applicationId,
         key,
-        total: String(value),
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [
-          consumptionAggregates.userId,
-          consumptionAggregates.applicationId,
-          consumptionAggregates.key,
-        ],
-        set: {
-          total: sql`${consumptionAggregates.total} + ${String(value)}`,
-          updatedAt: new Date(),
-        },
+        value: String(value),
       });
 
-    // Re-query aggregate for response
-    const [aggregate] = await db
-      .select({
-        key: consumptionAggregates.key,
-        total: consumptionAggregates.total,
-      })
-      .from(consumptionAggregates)
-      .where(
-        and(
-          eq(consumptionAggregates.userId, userId),
-          eq(consumptionAggregates.applicationId, applicationId),
-          eq(consumptionAggregates.key, key),
-        ),
-      )
-      .limit(1);
+      // Increment the total by value, supporting negative credits.
+      return tx
+        .insert(consumptionAggregates)
+        .values({
+          userId,
+          applicationId,
+          key,
+          total: String(value),
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [
+            consumptionAggregates.userId,
+            consumptionAggregates.applicationId,
+            consumptionAggregates.key,
+          ],
+          set: {
+            total: sql`${consumptionAggregates.total} + ${String(value)}`,
+            updatedAt: new Date(),
+          },
+        })
+        .returning({
+          key: consumptionAggregates.key,
+          total: consumptionAggregates.total,
+        });
+    });
 
     await reply.send({ success: true, aggregate });
   });
@@ -292,25 +282,30 @@ export async function consumptionRoutes(
           "Invalid consumption identifier",
           parsed.error.flatten(),
         );
-      await db
-        .delete(consumptionAggregates)
-        .where(
-          and(
-            eq(consumptionAggregates.userId, parsed.data.userId),
-            eq(consumptionAggregates.applicationId, parsed.data.applicationId),
-            eq(consumptionAggregates.key, parsed.data.key),
-          ),
-        );
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(consumptionAggregates)
+          .where(
+            and(
+              eq(consumptionAggregates.userId, parsed.data.userId),
+              eq(
+                consumptionAggregates.applicationId,
+                parsed.data.applicationId,
+              ),
+              eq(consumptionAggregates.key, parsed.data.key),
+            ),
+          );
 
-      await db
-        .delete(consumptionEntries)
-        .where(
-          and(
-            eq(consumptionEntries.userId, parsed.data.userId),
-            eq(consumptionEntries.applicationId, parsed.data.applicationId),
-            eq(consumptionEntries.key, parsed.data.key),
-          ),
-        );
+        await tx
+          .delete(consumptionEntries)
+          .where(
+            and(
+              eq(consumptionEntries.userId, parsed.data.userId),
+              eq(consumptionEntries.applicationId, parsed.data.applicationId),
+              eq(consumptionEntries.key, parsed.data.key),
+            ),
+          );
+      });
 
       await reply.status(204).send();
     },

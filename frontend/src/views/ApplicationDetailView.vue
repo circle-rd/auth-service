@@ -37,6 +37,7 @@ import { useDebounce } from '@/composables/useDebounce';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 import { SCOPE_CATALOGUE } from '@/components/applications/form/scopes';
+import { ioserverExample, pythonExample, typescriptExample } from '@/utils/integrationExamples';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -516,129 +517,15 @@ const activeCodeTab = ref<'typescript' | 'python' | 'ioserver'>('typescript');
 // Auth-service URL = origin of this SPA (same server)
 const authServiceUrl = computed(() => window.location.origin);
 
-const codeExampleTS = computed(() => {
-  if (!app.value) return '';
-  const redirectUri = app.value.redirectUris[0] ?? 'https://your-app.com/callback';
-  const audience = app.value.url ?? 'https://your-app.com';
-  const scope = app.value.allowedScopes.join(' ');
-  return `import * as oauth from 'oauth4webapi';
-
-const issuer = new URL('${authServiceUrl.value}');
-const as = await oauth.discoveryRequest(issuer).then(r => oauth.processDiscoveryResponse(issuer, r));
-
-const client: oauth.Client = { client_id: '${app.value.slug}' };
-
-// 1. Build authorization URL (PKCE + RFC 8707 resource)
-const codeVerifier = oauth.generateRandomCodeVerifier();
-const codeChallenge = await oauth.calculatePKCECodeChallenge(codeVerifier);
-
-const authUrl = new URL(as.authorization_endpoint!);
-authUrl.searchParams.set('client_id', '${app.value.slug}');
-authUrl.searchParams.set('response_type', 'code');
-authUrl.searchParams.set('redirect_uri', '${redirectUri}');
-authUrl.searchParams.set('scope', '${scope}');
-authUrl.searchParams.set('resource', '${audience}');  // RFC 8707
-authUrl.searchParams.set('code_challenge', codeChallenge);
-authUrl.searchParams.set('code_challenge_method', 'S256');
-authUrl.searchParams.set('state', oauth.generateRandomState());
-
-window.location.href = authUrl.toString();
-
-// 2. Exchange code for tokens (in your /callback handler)
-const currentUrl = new URL(window.location.href);
-const params = oauth.validateAuthResponse(as, client, currentUrl, expectedState);
-const response = await oauth.authorizationCodeGrantRequest(
-  as, client, oauth.None(), params,
-  '${redirectUri}', codeVerifier,
-  { additionalParameters: new URLSearchParams({ resource: '${audience}' }) },
+const codeExampleTS = computed(() =>
+  app.value ? typescriptExample(app.value, authServiceUrl.value) : '',
 );
-const tokens = await oauth.processAuthorizationCodeResponse(as, client, response);
-console.log(tokens.access_token);`;
-});
-
-const codeExamplePython = computed(() => {
-  if (!app.value) return '';
-  const redirectUri = app.value.redirectUris[0] ?? 'https://your-app.com/callback';
-  const audience = app.value.url ?? 'https://your-app.com';
-  const scope = app.value.allowedScopes.join(' ');
-  return `from authlib.integrations.requests_client import OAuth2Session
-import secrets, hashlib, base64
-
-client_id = '${app.value.slug}'
-redirect_uri = '${redirectUri}'
-scope = '${scope}'
-resource = '${audience}'  # RFC 8707
-
-# PKCE helpers
-verifier = secrets.token_urlsafe(64)
-challenge = base64.urlsafe_b64encode(
-    hashlib.sha256(verifier.encode()).digest()
-).rstrip(b'=').decode()
-
-client = OAuth2Session(
-    client_id, scope=scope, redirect_uri=redirect_uri,
-    code_challenge_method='S256',
-)
-
-# 1. Redirect user to authorization URL
-authorization_endpoint = '${authServiceUrl.value}/api/auth/oauth2/authorize'
-uri, state = client.create_authorization_url(
-    authorization_endpoint,
-    code_verifier=verifier,
-    resource=resource,
-)
-print('Redirect to:', uri)
-
-# 2. Exchange code for tokens (after callback)
-token_endpoint = '${authServiceUrl.value}/api/auth/oauth2/token'
-tokens = client.fetch_token(
-    token_endpoint,
-    authorization_response=callback_url,
-    code_verifier=verifier,
-    resource=resource,
-)
-print(tokens['access_token'])`;
-});
-
-const codeExampleIOServer = computed(() => {
-  if (!app.value) return '';
-  const audience = app.value.url ?? 'https://your-app.com';
-  return `# .env
-AUTH_SERVICE_URL=${authServiceUrl.value}
-AUTH_SERVICE_APP_SLUG=${app.value.slug}
-AUTH_SERVICE_AUDIENCE=${audience}  # JWT aud claim = resource URL
-
-# --- src/index.ts ---
-import {
-  OidcConfigManager,
-  OidcHttpMiddleware,
-  OidcSocketMiddleware,
-} from 'ioserver-oidc';
-
-// Register the OIDC config manager (reads env vars above)
-server.addManager({ name: 'oidcConfig', manager: OidcConfigManager });
-
-// Protect HTTP routes
-server.addController({
-  name: 'api',
-  controller: ApiController,
-  middlewares: [OidcHttpMiddleware],
-  prefix: '/api',
-});
-
-// Protect Socket.IO namespaces
-server.addService({
-  name: 'events',
-  service: EventService,
-  middlewares: [OidcSocketMiddleware],
-});
-
-// Inside a controller/service handler:
-// request.sub         → OIDC subject (stable user ID)
-// request.roles       → string[]  (from \'roles\' scope)
-// request.permissions → string[]  (from \'permissions\' scope)
-// request.features    → object    (from 'features' scope)`;
-});
+const codeExamplePython = computed(() =>
+  app.value ? pythonExample(app.value, authServiceUrl.value) : '',
+);
+const codeExampleIOServer = computed(() =>
+  app.value ? ioserverExample(app.value, authServiceUrl.value) : '',
+);
 
 const codeCopied = ref(false);
 let codeCopiedTimer: ReturnType<typeof setTimeout> | undefined;

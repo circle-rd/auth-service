@@ -45,6 +45,7 @@ import {
 import { userMustSetupMfa } from "./services/mfa.js";
 import {
   clientIdOf,
+  clientIdOfLink,
   registrationOpenFor,
 } from "./services/registration-policy.js";
 import {
@@ -433,7 +434,11 @@ export const auth = betterAuth({
       user: { email: string };
       url: string;
     }) => {
-      await sendResetPasswordEmail(params.user.email, params.url);
+      await sendResetPasswordEmail(
+        params.user.email,
+        params.url,
+        clientIdOfLink(params.url),
+      );
     },
   },
   // BetterAuth wires the verification email sender at the top level under
@@ -463,6 +468,7 @@ export const auth = betterAuth({
           // activating a new account.
           marked === "pending" ? "updated" : "activated",
         ),
+        clientIdOfLink(params.url),
       );
     },
   },
@@ -488,6 +494,7 @@ export const auth = betterAuth({
           params.user.email,
           params.newEmail,
           withConfirmationCallback(params.url, () => "pending"),
+          clientIdOfLink(params.url),
         );
       },
     },
@@ -867,7 +874,11 @@ export const auth = betterAuth({
             // database dump cannot be replayed to sign in.
             storeToken: "hashed",
             sendMagicLink: async (params: { email: string; url: string }) => {
-              await sendMagicLinkEmail(params.email, params.url);
+              await sendMagicLinkEmail(
+                params.email,
+                params.url,
+                clientIdOfLink(params.url),
+              );
             },
           }),
         ]

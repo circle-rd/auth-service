@@ -4,8 +4,8 @@
  * Resolution order is handled by callers (see `templates.ts` and
  * `email-templates.ts`); this module only exposes a single `renderTemplateFile`
  * helper that loads an absolute file path through Eta with HTML auto-escaping
- * enabled. Strings are rendered via `renderTemplateString` for inline cases
- * (e.g. email subject lines).
+ * enabled. Strings are rendered via `renderTemplateString` for inline cases;
+ * `renderPlainString` renders the non-HTML parts of an email (subject, text).
  *
  * Eta tag reference:
  *   `<%= it.x %>` — HTML-escaped output (default; matches the previous
@@ -24,8 +24,7 @@ const isProduction = process.env.NODE_ENV === "production";
 // short-circuit disk reads here too.
 const fileCache = new Map<string, string>();
 
-const eta = new Eta({
-  autoEscape: true,
+const engineOptions = {
   cache: isProduction,
   // `useWith` keeps the `it.` prefix mandatory; this is intentional so template
   // authors cannot shadow Eta internals by mistake.
@@ -33,7 +32,12 @@ const eta = new Eta({
   // Eta requires a `views` directory but we always pass absolute paths and
   // resolve overrides ourselves, so this is just a placeholder.
   views: "/",
-});
+};
+
+const eta = new Eta({ ...engineOptions, autoEscape: true });
+// Subject lines and plain-text bodies are not HTML: escaping would show
+// "O&#39;Brien" to the recipient.
+const plainEta = new Eta({ ...engineOptions, autoEscape: false });
 
 export function renderTemplateFile(
   absolutePath: string,
@@ -52,4 +56,11 @@ export function renderTemplateString(
   vars: Record<string, unknown>,
 ): string {
   return eta.renderString(source, vars);
+}
+
+export function renderPlainString(
+  source: string,
+  vars: Record<string, unknown>,
+): string {
+  return plainEta.renderString(source, vars);
 }

@@ -60,7 +60,7 @@ export type ConfirmationStatus = (typeof CONFIRMATION_STATUSES)[number];
 // Application slugs are constrained to this charset everywhere else (admin
 // route + OAuth client ids). Validating again here prevents `client_id` from
 // being used as a path-traversal vector when resolving per-app templates.
-const APP_SLUG_RE = /^[a-z0-9-]+$/;
+export const APP_SLUG_RE = /^[a-z0-9-]+$/;
 
 /**
  * Copy for the post-verification page, keyed by the flow that completed. The

@@ -21,14 +21,20 @@ export const corsOrigins = new Set<string>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// How many registrations (CORS_ORIGINS entries, application URLs) vouch for an
+// origin: it stays trusted until the last one is withdrawn.
+const originRefs = new Map<string, number>();
+
 /**
- * Add an origin derived from `rawUrl` to trustedOrigins and corsOrigins.
+ * Register an origin derived from `rawUrl` in trustedOrigins and corsOrigins.
  * Accepts a full URL (e.g. "https://app.example.com/callback") and extracts
- * the origin ("https://app.example.com"). No-op for invalid URLs.
+ * the origin ("https://app.example.com"). No-op for invalid URLs. Every call
+ * must be balanced by one `removeCorsOrigin` to withdraw the registration.
  */
 export function addCorsOrigin(rawUrl: string | null | undefined): void {
   const origin = toOrigin(rawUrl);
   if (!origin) return;
+  originRefs.set(origin, (originRefs.get(origin) ?? 0) + 1);
   if (!trustedOrigins.includes(origin)) {
     trustedOrigins.push(origin);
   }
@@ -36,12 +42,18 @@ export function addCorsOrigin(rawUrl: string | null | undefined): void {
 }
 
 /**
- * Remove an origin from trustedOrigins and corsOrigins.
- * Call only when no other registered application shares the same origin.
+ * Withdraw one registration of an origin. It stops being trusted only once no
+ * other application, nor CORS_ORIGINS, still vouches for it.
  */
 export function removeCorsOrigin(rawUrl: string | null | undefined): void {
   const origin = toOrigin(rawUrl);
   if (!origin) return;
+  const remaining = (originRefs.get(origin) ?? 0) - 1;
+  if (remaining > 0) {
+    originRefs.set(origin, remaining);
+    return;
+  }
+  originRefs.delete(origin);
   const idx = trustedOrigins.indexOf(origin);
   if (idx !== -1) trustedOrigins.splice(idx, 1);
   corsOrigins.delete(origin);

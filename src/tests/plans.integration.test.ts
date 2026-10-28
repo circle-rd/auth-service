@@ -248,21 +248,37 @@ describe("plansRoutes integration", () => {
     expect(res.json<{ error: { code: string } }>().error.code).toBe("SUB_001");
   });
 
-  it("POST plan with metered features → 201 stores features correctly", async () => {
+  it("POST plan with a metered feature declared in features → 400, nothing created", async () => {
+    // A metered feature is a metered price (billed, capped), never a feature.
     const seeded = await seedApp();
     asAdmin();
     const features = {
       apiCalls: { type: "metered", limit: 1000 },
-      storage: { type: "fixed", limit: 5 },
+      storage: 5,
     };
     const res = await app.inject({
       method: "POST",
       url: `/applications/${seeded.id}/plans`,
       payload: { name: "metered-plan", isDefault: false, features },
     });
+    expect(res.statusCode).toBe(400);
+    const listed = await app.inject({
+      method: "GET",
+      url: `/applications/${seeded.id}/plans`,
+    });
+    expect(listed.json<{ plans: unknown[] }>().plans).toHaveLength(0);
+  });
+
+  it("POST plan with plain features → 201 stores them as given", async () => {
+    const seeded = await seedApp();
+    asAdmin();
+    const features = { storage: 5, sso: true, tier: "gold" };
+    const res = await app.inject({
+      method: "POST",
+      url: `/applications/${seeded.id}/plans`,
+      payload: { name: "plain-plan", isDefault: false, features },
+    });
     expect(res.statusCode).toBe(201);
-    const body = res.json<{ plan: { features: unknown; name: string } }>();
-    expect(body.plan.name).toBe("metered-plan");
-    expect(body.plan.features).toMatchObject(features);
+    expect(res.json<{ plan: { features: unknown } }>().plan.features).toEqual(features);
   });
 });

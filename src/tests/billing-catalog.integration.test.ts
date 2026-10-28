@@ -473,3 +473,52 @@ describe("application catalogue lifecycle", () => {
     expect(calls.metersDeactivate).toEqual(["meter_a"]);
   });
 });
+
+describe("plan inputs are strict", () => {
+  it("refuses a Stripe Product id supplied by the caller", async () => {
+    const a = await seedApp("strict-product");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/admin/applications/${a.id}/plans`,
+      payload: { name: "pro", stripeProductId: "prod_someone_elses" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(calls.productsCreate).toHaveLength(0);
+  });
+
+  it("refuses a metered feature declared in the features JSON", async () => {
+    const a = await seedApp("strict-features");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/admin/applications/${a.id}/plans`,
+      payload: {
+        name: "pro",
+        features: { "api.calls": { usage: true, limit: 100, unit: "call", pricePerUnit: 2 } },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("metered price");
+  });
+
+  it("keeps plain included features", async () => {
+    const a = await seedApp("plain-features");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/admin/applications/${a.id}/plans`,
+      payload: { name: "pro", features: { seats: 5, sso: true, tier: "gold" } },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json<{ plan: { features: unknown } }>().plan.features).toEqual({
+      seats: 5,
+      sso: true,
+      tier: "gold",
+    });
+  });
+
+  it("refuses a Stripe Price id supplied by the caller on a price", async () => {
+    const a = await seedApp("strict-price");
+    const plan = await createPlan(a.id, "pro");
+    const res = await createPrice(a.id, plan.id, { ...fixed, stripePriceId: "price_x" });
+    expect(res.statusCode).toBe(400);
+  });
+});

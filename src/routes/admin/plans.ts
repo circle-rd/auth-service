@@ -93,16 +93,13 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
       // The plan's gateway team must exist before the plan can grant access.
       await ensurePlanTeamBeforeSave(app.id, parsed.data.name);
 
-      // The operator never opens the Stripe dashboard: the Product is created
-      // here unless an explicit id was supplied.
-      const stripeProductId =
-        parsed.data.stripeProductId ??
-        (await provisionPlanProduct({
-          applicationId: app.id,
-          appName: app.name,
-          planName: parsed.data.name,
-          description: parsed.data.description ?? null,
-        }));
+      // The operator never opens the Stripe dashboard: the Product is created here.
+      const stripeProductId = await provisionPlanProduct({
+        applicationId: app.id,
+        appName: app.name,
+        planName: parsed.data.name,
+        description: parsed.data.description ?? null,
+      });
 
       const [plan] = await db.transaction(async (tx) => {
         // Ensure only one default plan per app

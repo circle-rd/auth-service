@@ -123,19 +123,6 @@ export interface AppPermission {
   createdAt: string
 }
 
-export interface PlanFeatureFixed {
-  usage: false
-  value: string | number | boolean
-}
-
-export interface PlanFeatureMetered {
-  usage: true
-  limit: number // -1 = unlimited
-  unit: string
-  pricePerUnit: number // in smallest currency unit (cents)
-}
-
-export type PlanFeature = PlanFeatureFixed | PlanFeatureMetered
 
 export interface SubscriptionPlan {
   id: string
@@ -154,9 +141,17 @@ export interface SubscriptionPlanPrice {
   id: string
   planId: string
   name: string
+  /** Fixed: the charge. Metered: the price of one unit, in the smallest currency unit. */
   amount: string
   currency: string
   interval: 'month' | 'year' | 'one_time'
+  billingType: 'fixed' | 'metered'
+  /** The feature a metered price bills (null for a fixed price). */
+  featureKey: string | null
+  /** Display label of one unit (metered only). */
+  unit: string | null
+  /** Hard cap of the billing period, -1 for unlimited (metered only). */
+  usageLimit: number | null
   stripePriceId: string | null
   createdAt: string
 }

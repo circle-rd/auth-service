@@ -25,7 +25,7 @@
 </p>
 
 Register your applications, give each one its own roles, secure sign-in with
-passkeys and TOTP, and meter what people consume — including through a
+TOTP, and meter what people consume — including through a
 [LiteLLM](https://docs.litellm.ai) gateway — from a single admin console. It
 centralizes authentication across your own applications, with per-app roles,
 organizations, MFA, subscription billing and a prepaid credit wallet.
@@ -52,7 +52,9 @@ Full documentation: **https://docs.circle-cyber.com/auth-service**
 **Authentication**
 
 - Email / password with verification, password reset and change-email.
-- Passkeys (FIDO2) and TOTP two-factor with backup codes, plus admin-enforced MFA.
+- TOTP two-factor with backup codes, plus admin-enforced MFA. The WebAuthn
+  passkey endpoints are enabled server side; the admin SPA does not offer passkey
+  enrolment yet.
 - Social sign-in (Google, GitHub) restricted per application.
 - Opt-in passwordless: magic link and email OTP (blocked for 2FA accounts).
 - Registration policy per application, with invitations and bulk user import.
@@ -80,7 +82,7 @@ Full documentation: **https://docs.circle-cyber.com/auth-service**
 **Credit wallet & LLM gateway**
 
 - One prepaid euro wallet per user, shared by every application: top-ups (Stripe
-  or manual invoice), a signed append-only ledger, spend statistics.
+  or manual invoice), an append-only ledger of signed amounts, spend statistics.
 - Optional [LiteLLM](https://docs.litellm.ai) gateway (models and MCP servers)
   that accepts auth-service access tokens, checks the credit before each call and
   bills the cost afterwards; the admin interface signs in through auth-service.
@@ -92,8 +94,10 @@ Full documentation: **https://docs.circle-cyber.com/auth-service**
 - Node.js 22 · Fastify 5 · BetterAuth 1.7 · Drizzle ORM · PostgreSQL 17 · Zod.
 - Vue 3 admin SPA (users, applications, plans, roles, organizations, wallets,
   accounting, runtime configuration), in English and French.
-- Optional public landing page and per-application branding.
-- SMTP email pipeline with Eta templates, overridable per application.
+- Optional public landing page, instance branding (name and logo) and
+  per-application page templates.
+- SMTP email pipeline with Eta templates, overridable through `TEMPLATES_DIR`
+  (pages per application, emails globally).
 - Helmet security headers, rate limiting (optionally Redis-backed), structured
   (pino) logging, `/health`.
 - Published Docker images (`nightly`, `latest`, version tags) and GitHub Actions CI.
@@ -132,7 +136,7 @@ auth-service/
 │       ├── 📁 components/
 │       │   ├── 📁 ui/         Reusable primitives (buttons, inputs, modals, tables…)
 │       │   ├── 📁 layout/     Shell: header, sidebar, layout wrappers
-│       │   └── 📁 applications/ · 📁 users/ · 📁 profile/ · 📁 auth/ · 📁 branding/
+│       │   └── 📁 applications/ · 📁 users/ · 📁 profile/ · 📁 auth/ · 📁 branding/ · 📁 wallet/
 │       ├── 📁 composables/ Reusable logic (useAsync, usePagination, useToast, useTheme…)
 │       ├── 📁 i18n/       Locale files (en, fr) and setup
 │       ├── 📁 types/      Shared frontend types
@@ -145,7 +149,7 @@ auth-service/
 ├── AGENTS.md              Canonical technical standards (mandatory)
 ├── CONTRIBUTING.md        Contributor onboarding, Git/PR process
 ├── Dockerfile             Three-stage build (frontend → backend → runtime)
-├── docker-compose.yml     Single recipe: postgres + auth-service
+├── docker-compose.yml     Single recipe: postgres + auth-service, plus optional mail, redis and llm profiles
 └── .env.example           Documented environment template
 ```
 
@@ -205,7 +209,7 @@ port 3001 and set `BETTER_AUTH_URL` to the public URL. Pin a version tag
 | Tag            | Source                                     |
 | -------------- | ------------------------------------------ |
 | `:latest`      | Latest tagged release (recommended)        |
-| `:nightly`     | Built from `develop` on every nightly run  |
+| `:nightly`     | Built from `develop` by the manually triggered nightly workflow |
 | `:X.Y` / `:X.Y.Z` | Pinned releases                         |
 
 ## Documentation

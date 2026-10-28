@@ -56,6 +56,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         appName: applications.name,
         appSlug: applications.slug,
         appIcon: applications.icon,
+        appUrl: applications.url,
         userIsActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
       })
@@ -130,6 +131,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         applicationName: r.appName,
         applicationSlug: r.appSlug,
         applicationIcon: r.appIcon,
+        applicationUrl: r.appUrl,
         isActive: r.userIsActive,
         plan: current ? toPlanView(current) : null,
         availablePlans: plans

@@ -300,7 +300,14 @@ const createAppSchema = z.object({
   // Declares that the application requires `sid` in every logout token (the
   // provider always sends it) and ends only the session `sid` names (spec §2.8).
   backchannelLogoutSessionRequired: z.boolean().default(false),
-  url: z.string().url().optional().nullable(),
+  url: z
+    .string()
+    .url()
+    .refine((value) => /^https?:\/\//i.test(value), {
+      message: "Use an http(s) URL",
+    })
+    .optional()
+    .nullable(),
   // Protected resources (other applications' URLs, e.g. the LiteLLM gateway)
   // this application may request access tokens for (RFC 8707 `resource`).
   allowedResources: allowedResourcesSchema.default([]),
@@ -1055,6 +1062,17 @@ export async function applicationRoutes(
       );
     }
 
+    const [existingAccess] = await db
+      .select({ subscriptionPlanId: userApplications.subscriptionPlanId })
+      .from(userApplications)
+      .where(
+        and(
+          eq(userApplications.userId, parsed.data.userId),
+          eq(userApplications.applicationId, req.params.id),
+        ),
+      )
+      .limit(1);
+
     const [ua] = await db
       .insert(userApplications)
       .values({
@@ -1069,30 +1087,50 @@ export async function applicationRoutes(
       .returning();
 
     if (parsed.data.roleId && ua) {
-      // Explicit role provided — assign it directly after verifying it belongs
-      // to this application (prevents cross-app role injection).
+      // Explicit role provided — replace the user's current role after
+      // verifying the new one belongs to this application (prevents cross-app
+      // role injection). "Grant access" doubles as "change role" for a user who
+      // already has access; leaving the old row would silently ignore the edit.
       await assertRoleBelongsToApp(parsed.data.roleId, req.params.id);
-      await db
-        .insert(userAppRoles)
-        .values({
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(userAppRoles)
+          .where(
+            and(
+              eq(userAppRoles.userId, parsed.data.userId),
+              eq(userAppRoles.applicationId, req.params.id),
+            ),
+          );
+        await tx.insert(userAppRoles).values({
           userId: parsed.data.userId,
           applicationId: req.params.id,
-          roleId: parsed.data.roleId,
-        })
-        .onConflictDoNothing();
+          roleId: parsed.data.roleId!,
+        });
+      });
     } else {
       // No explicit role — auto-assign the default role if one is configured
       await assignDefaultRoleIfNeeded(parsed.data.userId, req.params.id);
     }
 
     // Assign the requested plan, else fall back to the app's default plan.
-    await assignRequestedOrDefaultPlan({
-      userId: parsed.data.userId,
-      applicationId: req.params.id,
-      planId: parsed.data.subscriptionPlanId,
-      actorUserId: await getActorUserId(req),
-      reason: parsed.data.reason ?? null,
-    });
+    // For a user who already has a plan, a role-only edit must not touch their
+    // subscription (and therefore must not write to Stripe): only an explicit
+    // change of plan is applied. A user with no plan still gets the default.
+    const planId = parsed.data.subscriptionPlanId;
+    const planNeedsAssignment =
+      !existingAccess ||
+      (planId !== undefined
+        ? planId !== existingAccess.subscriptionPlanId
+        : existingAccess.subscriptionPlanId === null);
+    if (planNeedsAssignment) {
+      await assignRequestedOrDefaultPlan({
+        userId: parsed.data.userId,
+        applicationId: req.params.id,
+        planId,
+        actorUserId: await getActorUserId(req),
+        reason: parsed.data.reason ?? null,
+      });
+    }
 
     await reply.status(201).send({ ok: true });
   });

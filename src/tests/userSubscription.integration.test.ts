@@ -76,10 +76,10 @@ function asUser(id = "user-1") {
   );
 }
 
-async function seedApp(slug = "test-app") {
+async function seedApp(slug = "test-app", url: string | null = null) {
   const [a] = await db
     .insert(applications)
-    .values({ name: "Test App", slug, isActive: true })
+    .values({ name: "Test App", slug, isActive: true, url })
     .returning();
   return a!;
 }
@@ -165,6 +165,21 @@ describe("userRoutes — GET /subscription", () => {
     expect(body.subscriptions).toHaveLength(1);
     expect(body.subscriptions[0]!.applicationSlug).toBe("test-app");
     expect(body.subscriptions[0]!.plan).toBeNull();
+  });
+
+  it("200 exposes the application URL for clickable profile rows", async () => {
+    await seedUser();
+    const a = await seedApp("clickable-app", "https://app.example.com");
+    await grantAccess("user-1", a.id, null);
+    asUser();
+    const res = await app.inject({ method: "GET", url: "/subscription" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{
+      subscriptions: Array<{ applicationUrl: string | null }>;
+    }>();
+    expect(body.subscriptions[0]!.applicationUrl).toBe(
+      "https://app.example.com",
+    );
   });
 
   it("200 hides the infrastructure (system) applications of the user", async () => {

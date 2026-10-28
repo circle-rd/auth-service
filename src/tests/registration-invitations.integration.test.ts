@@ -77,12 +77,12 @@ describe("Registration invitations (integration)", () => {
 
   let seq = 0;
   /** A fresh, uniquely-slugged closed application for one case. */
-  const makeClosedApp = async (): Promise<string> => {
+  const makeClosedApp = async (slug?: string): Promise<string> => {
     const [app] = await db
       .insert(applications)
       .values({
-        name: `Closed app ${seq}`,
-        slug: `closed-app-${seq++}`,
+        name: slug ?? `Closed app ${seq}`,
+        slug: slug ?? `closed-app-${seq++}`,
         allowRegister: false,
       })
       .returning({ id: applications.id });
@@ -108,6 +108,32 @@ describe("Registration invitations (integration)", () => {
     const url = extractUrl(msg.html, (u) => u.includes("/complete-registration"));
     return new URL(url).searchParams.get("token") ?? "";
   };
+
+  it("uses the application-specific email template when one exists", async () => {
+    const slug = `tenant-${seq++}`;
+    const appId = await makeClosedApp(slug);
+    mkdirSync(join(dir, slug, "emails"), { recursive: true });
+    writeFileSync(
+      join(dir, slug, "emails", "registration-invitation.eml"),
+      `---
+subject: Tenant invitation
+---
+<p>tenant-template-marker</p>
+===TEXT===
+tenant
+`,
+    );
+    try {
+      const email = freshEmail();
+      const res = await createInvitation(appId, email);
+      expect(res.statusCode).toBe(201);
+      expect(handle.capture.last(email)?.html).toContain(
+        "tenant-template-marker",
+      );
+    } finally {
+      rmSync(join(dir, slug), { recursive: true, force: true });
+    }
+  });
 
   it("creates an invitation and emails a one-shot link", async () => {
     const appId = await makeClosedApp();

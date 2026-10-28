@@ -294,13 +294,8 @@ function formatLastLogin(iso: string | null | undefined): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-/** The application's default plan id, used to preselect the selector. */
-function defaultPlanId(): string {
-  return plans.value.find((p) => p.isDefault)?.id ?? '';
-}
-
 function openGrantModal() {
-  userForm.value = { userId: '', roleId: '', subscriptionPlanId: defaultPlanId() };
+  userForm.value = { userId: '', roleId: '', subscriptionPlanId: '' };
   showUserModal.value = true;
 }
 
@@ -336,6 +331,18 @@ async function handleManagePlan() {
     managePlanLoading.value = false;
   }
 }
+
+// Selecting a user who already has access pre-fills their current role/plan so
+// the same dialog can be used to change the role instead of silently ignoring it.
+watch(
+  () => userForm.value.userId,
+  (userId) => {
+    const existing = appUsers.value.find((u) => u.userId === userId);
+    if (!existing) return;
+    userForm.value.roleId = existing.roleId ?? '';
+    userForm.value.subscriptionPlanId = existing.subscriptionPlanId ?? '';
+  },
+);
 
 async function handleGrantAccess() {
   if (!userForm.value.userId) return;

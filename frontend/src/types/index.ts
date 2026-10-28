@@ -180,6 +180,7 @@ export interface UserSubscriptionEntry {
   applicationName: string
   applicationSlug: string
   applicationIcon: string | null
+  applicationUrl?: string | null
   isActive: boolean
   plan: UserSubscriptionPlan | null
   availablePlans: UserSubscriptionPlan[]

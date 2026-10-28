@@ -185,6 +185,59 @@ subject: Tenant A magic link
     expect(out.text).toContain("https://x.test/verify");
   });
 
+  it("wraps built-in templates with the branded shell, preheader and CID logo", () => {
+    const out = renderEmail(
+      "verify-email",
+      {
+        appName: "Test",
+        email: "a@test.dev",
+        url: "https://x.test/verify",
+        expiresInHours: 1,
+        hasLogo: true,
+        logoCid: "app-logo",
+      },
+      null,
+      null,
+    );
+    expect(out.html).toContain("<!DOCTYPE html>");
+    expect(out.html).toContain(
+      "Confirm your email address to finish setting up your account.",
+    );
+    expect(out.html).toContain("cid:app-logo");
+    expect(out.html).toContain("background-color:#2563eb");
+    expect(out.html).not.toMatch(/<link\b/i);
+    expect(out.html).not.toMatch(/<img[^>]+src="https?:/i);
+  });
+
+  it.each([
+    ["verify-email", { expiresInHours: 1 }],
+    ["reset-password", { expiresInHours: 1 }],
+    ["magic-link", { expiresInMinutes: 15 }],
+    ["email-otp", { otp: "123456", type: "sign-in", expiresInMinutes: 5 }],
+    ["change-email", { newEmail: "new@example.com", expiresInHours: 1 }],
+    ["org-invitation", { inviterName: "Ada", orgName: "Acme", role: "admin" }],
+    ["registration-invitation", { inviterName: "Ada", expiresInHours: 72 }],
+  ] as const)("renders the built-in %s template", (name, vars) => {
+    const out = renderEmail(
+      name,
+      {
+        appName: "Test",
+        email: "a@test.dev",
+        url: "https://x.test/action",
+        authUrl: "https://x.test",
+        ...vars,
+      },
+      null,
+      null,
+    );
+    expect(out.subject.length).toBeGreaterThan(0);
+    expect(out.html).toContain("<!DOCTYPE html>");
+    if (name !== "email-otp") {
+      expect(out.html).toContain("https://x.test/action");
+      expect(out.text).toContain("https://x.test/action");
+    }
+  });
+
   it("throws when the template is missing required frontmatter", () => {
     writeTemplate(null, "broken", `Hello world`);
     expect(() => renderEmail("broken", {}, null, dir)).toThrow(

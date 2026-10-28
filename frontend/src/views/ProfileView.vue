@@ -24,10 +24,22 @@ import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
 import BillingPanel from '@/components/profile/BillingPanel.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard } from 'lucide-vue-next';
+import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard, ExternalLink } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
+
+/** Only http(s) application URLs are rendered as links (never javascript:). */
+function isHttpUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 const auth = useAuthStore();
 const toast = useToast();
 
@@ -478,7 +490,18 @@ async function handleChangePlan() {
           <div v-for="sub in subscriptions" :key="sub.applicationId" class="px-5 py-4">
             <div class="flex items-center gap-3 mb-2">
               <img v-if="sub.applicationIcon" :src="sub.applicationIcon" class="w-5 h-5 rounded shrink-0" />
-              <p class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
+              <a
+                v-if="isHttpUrl(sub.applicationUrl)"
+                :href="sub.applicationUrl || undefined"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="group inline-flex items-center gap-1.5 min-w-0 flex-1 text-sm font-medium text-surface-200 hover:text-primary-300 transition-colors"
+                :title="sub.applicationUrl || undefined"
+              >
+                <span class="truncate">{{ sub.applicationName }}</span>
+                <ExternalLink class="w-3.5 h-3.5 shrink-0 opacity-50 group-hover:opacity-100" />
+              </a>
+              <p v-else class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
               <BaseBadge :variant="sub.isActive ? 'success' : 'neutral'" size="sm" dot>{{ sub.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
               <BaseBadge v-if="sub.plan" variant="neutral" size="sm">{{ sub.plan.name }}</BaseBadge>
               <BaseButton

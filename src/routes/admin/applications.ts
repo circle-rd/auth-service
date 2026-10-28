@@ -65,7 +65,7 @@ import {
   requireAdmin,
 } from "../../middleware.js";
 import {
-  assertPublicBackchannelLogoutUri,
+  assertReachableBackchannelLogoutUri,
   backchannelLogoutUriSchema,
 } from "../../services/backchannel-logout-uri.js";
 import { publishEvent } from "../../services/event-bus.js";
@@ -426,7 +426,7 @@ export async function applicationRoutes(
 
     await assertAllowedResources(data.allowedResources, data.url ?? null);
     if (data.backchannelLogoutUri) {
-      await assertPublicBackchannelLogoutUri(data.backchannelLogoutUri);
+      await assertReachableBackchannelLogoutUri(data.backchannelLogoutUri);
     }
     // The plans do not exist yet (a new application is created with just its
     // default one), so the team ids are derived from the plan names here.
@@ -651,7 +651,9 @@ export async function applicationRoutes(
       throw ERR.APP_001("Invalid data", parsed.error.flatten());
     if (parsed.data.isSystem !== undefined) await assertMaySetSystemFlag(req);
     if (parsed.data.backchannelLogoutUri) {
-      await assertPublicBackchannelLogoutUri(parsed.data.backchannelLogoutUri);
+      await assertReachableBackchannelLogoutUri(
+        parsed.data.backchannelLogoutUri,
+      );
     }
 
     // Fetch the current URL before applying the update so we can diff it.

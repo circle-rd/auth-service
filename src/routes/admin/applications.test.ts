@@ -16,7 +16,7 @@ vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
 vi.mock("better-auth", () => ({ generateId: vi.fn(() => "mock-id") }));
 
 // Hoist mock helpers so vi.mock factories can reference them
-const { mockDb, mockGetSession, assertPublicHost } = vi.hoisted(() => {
+const { mockDb, mockGetSession, assertNonLocalHost } = vi.hoisted(() => {
   function makeChain(result: unknown[] = []): Record<string, unknown> {
     const p = Promise.resolve(result);
     const c: Record<string, unknown> = {
@@ -56,12 +56,12 @@ const { mockDb, mockGetSession, assertPublicHost } = vi.hoisted(() => {
     }),
   };
   const mockGetSession = vi.fn();
-  const assertPublicHost = vi.fn(async (_host: string): Promise<void> => {});
-  return { mockDb, mockGetSession, assertPublicHost };
+  const assertNonLocalHost = vi.fn(async (_host: string): Promise<void> => {});
+  return { mockDb, mockGetSession, assertNonLocalHost };
 });
 
 vi.mock("../../db/index.js", () => ({ db: mockDb }));
-vi.mock("../../services/outbound-guard.js", () => ({ assertPublicHost }));
+vi.mock("../../services/outbound-guard.js", () => ({ assertNonLocalHost }));
 vi.mock("../../auth.js", () => ({
   auth: { api: { getSession: mockGetSession } },
 }));
@@ -220,8 +220,8 @@ describe("Admin — applicationRoutes", () => {
       });
 
     beforeEach(() => {
-      assertPublicHost.mockReset();
-      assertPublicHost.mockResolvedValue(undefined);
+      assertNonLocalHost.mockReset();
+      assertNonLocalHost.mockResolvedValue(undefined);
     });
 
     it.each([
@@ -231,21 +231,23 @@ describe("Admin — applicationRoutes", () => {
     ])("PATCH /:id → 400 for %s", async (_label, uri) => {
       const res = await patch(uri);
       expect(res.statusCode).toBe(400);
-      expect(assertPublicHost).not.toHaveBeenCalled();
+      expect(assertNonLocalHost).not.toHaveBeenCalled();
     });
 
-    it("PATCH /:id → 400 when the host is not public", async () => {
-      assertPublicHost.mockRejectedValueOnce(new Error("blocked host: x"));
+    it("PATCH /:id → 400 when the host is local", async () => {
+      assertNonLocalHost.mockRejectedValueOnce(new Error("blocked host: x"));
       const res = await patch("https://internal.example.com/logout");
       expect(res.statusCode).toBe(400);
-      expect(res.body).toContain("must target a public host");
-      expect(assertPublicHost).toHaveBeenCalledWith("internal.example.com");
+      expect(res.body).toContain(
+        "must not target this host or a link-local address",
+      );
+      expect(assertNonLocalHost).toHaveBeenCalledWith("internal.example.com");
     });
 
-    it("PATCH /:id → accepts a public https URL", async () => {
+    it("PATCH /:id → accepts an https URL on another host", async () => {
       const res = await patch("https://rp.example.com/logout");
       expect(res.statusCode).not.toBe(400);
-      expect(assertPublicHost).toHaveBeenCalledWith("rp.example.com");
+      expect(assertNonLocalHost).toHaveBeenCalledWith("rp.example.com");
     });
   });
 });

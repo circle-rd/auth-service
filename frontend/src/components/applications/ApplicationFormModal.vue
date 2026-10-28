@@ -231,6 +231,13 @@ const tags = computed(() => {
   return out;
 });
 
+const details = computed(() => {
+  const out: Array<{ label: string; value: string }> = [];
+  if (form.value.description) out.push({ label: t('applications.description'), value: form.value.description });
+  if (form.value.url) out.push({ label: t('applications.url'), value: form.value.url });
+  return out;
+});
+
 const availableProviders = computed<ProviderKey[]>(() => {
   const providers = services.value?.providers;
   return providers ? ALL_PROVIDERS.filter((p) => providers[p]?.enabled) : [];
@@ -307,6 +314,7 @@ function onEnter() {
     :icon-url="form.icon || null"
     :icon-letter="form.name ? form.name[0].toUpperCase() : 'A'"
     :tags="tags"
+    :details="details"
     @close="emit('close')"
   >
     <!-- Stepper -->

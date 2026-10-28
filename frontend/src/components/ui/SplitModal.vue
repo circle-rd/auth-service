@@ -12,6 +12,7 @@ const props = defineProps<{
   name?: string;
   subtitle?: string;
   tags?: Array<{ label: string; variant: BadgeVariant }>;
+  details?: Array<{ label: string; value: string }>;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -66,15 +67,18 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
 
             <!-- Identity panel -->
             <aside
-              class="shrink-0 md:w-1/3 flex md:flex-col items-center md:items-start md:justify-center gap-4 px-5 sm:px-6 py-5 md:py-8 pr-14 md:pr-6 border-b md:border-b-0 md:border-r border-surface-800/60 bg-surface-950/40"
+              class="shrink-0 md:w-1/3 flex md:flex-col items-center md:items-stretch gap-4 px-5 sm:px-6 py-5 md:px-8 md:pt-14 md:pb-8 pr-14 md:pr-8 border-b md:border-b-0 md:border-r border-surface-800/60 bg-surface-950/40 md:overflow-y-auto"
             >
-              <EntityIcon
-                :icon-url="iconUrl"
-                :letter="iconLetter"
-                :name="name"
-                class="w-14 md:w-20 h-14 md:h-20"
-              />
-              <div class="min-w-0 w-full">
+              <div class="md:flex md:justify-center">
+                <EntityIcon
+                  :icon-url="iconUrl"
+                  :letter="iconLetter"
+                  :name="name"
+                  letter-class="text-xl md:text-5xl"
+                  class="w-14 md:w-28 h-14 md:h-28 md:rounded-2xl md:shadow-lg md:shadow-black/40"
+                />
+              </div>
+              <div class="min-w-0 w-full md:mt-3">
                 <h2 class="text-lg md:text-xl font-bold text-surface-50 leading-tight break-words">
                   {{ name && name.length ? name : 'New Entity' }}
                 </h2>
@@ -84,6 +88,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
                     {{ tag.label }}
                   </BaseBadge>
                 </div>
+                <dl v-if="details?.length" class="hidden md:block mt-6 pt-5 border-t border-surface-800/60 space-y-4">
+                  <div v-for="detail in details" :key="detail.label">
+                    <dt class="text-[11px] font-medium text-surface-500 uppercase tracking-wider">{{ detail.label }}</dt>
+                    <dd class="mt-1 text-sm text-surface-300 break-words line-clamp-4">{{ detail.value }}</dd>
+                  </div>
+                </dl>
               </div>
             </aside>
 

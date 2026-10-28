@@ -37,7 +37,14 @@ import { useDebounce } from '@/composables/useDebounce';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 import { SCOPE_CATALOGUE } from '@/components/applications/form/scopes';
-import { ioserverExample, pythonExample, typescriptExample } from '@/utils/integrationExamples';
+import {
+  ioserverExample,
+  litellmPythonExample,
+  litellmTypescriptExample,
+  pythonExample,
+  typescriptExample,
+  type LitellmEndpoints,
+} from '@/utils/integrationExamples';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -166,6 +173,7 @@ async function loadAll() {
     appUsers.value = usersRes.users;
     appUsersTotal.value = usersRes.total;
     plans.value = plansRes.plans;
+    await loadLitellmEndpoints();
   } finally {
     loading.value = false;
   }
@@ -512,7 +520,8 @@ const tabs = [
   { key: 'financial', label: t('appDetail.financial') },
 ] as const;
 
-const activeCodeTab = ref<'typescript' | 'python' | 'ioserver'>('typescript');
+type CodeTab = 'typescript' | 'python' | 'ioserver' | 'litellm-ts' | 'litellm-py';
+const activeCodeTab = ref<CodeTab>('typescript');
 
 // Auth-service URL = origin of this SPA (same server)
 const authServiceUrl = computed(() => window.location.origin);
@@ -527,15 +536,64 @@ const codeExampleIOServer = computed(() =>
   app.value ? ioserverExample(app.value, authServiceUrl.value) : '',
 );
 
+// The gateway and Auth Service resources of the LiteLLM support option: the
+// `url` of the `litellm` and `auth-service` system applications.
+const litellmEndpoints = ref<LitellmEndpoints | null>(null);
+async function loadLitellmEndpoints() {
+  const current = app.value;
+  try {
+    const { applications } = await appsApi.listApplications();
+    const gatewayUrl = applications.find((a) => a.slug === 'litellm')?.url;
+    const authServiceUrl = applications.find((a) => a.slug === 'auth-service')?.url;
+    litellmEndpoints.value =
+      current && gatewayUrl && authServiceUrl && current.allowedResources.includes(gatewayUrl)
+        ? { gatewayUrl, authServiceUrl }
+        : null;
+  } catch {
+    // The examples are an aid: without the system applications they are simply not offered.
+    litellmEndpoints.value = null;
+  }
+}
+
+const BASE_CODE_TABS: Array<{ key: CodeTab; label: string }> = [
+  { key: 'typescript', label: 'TypeScript' },
+  { key: 'python', label: 'Python' },
+  { key: 'ioserver', label: 'IOServer' },
+];
+const LITELLM_CODE_TABS: Array<{ key: CodeTab; label: string }> = [
+  { key: 'litellm-ts', label: 'LiteLLM · TypeScript' },
+  { key: 'litellm-py', label: 'LiteLLM · Python' },
+];
+const codeTabs = computed(() =>
+  litellmEndpoints.value ? [...BASE_CODE_TABS, ...LITELLM_CODE_TABS] : BASE_CODE_TABS,
+);
+const codeExampleLitellmTS = computed(() =>
+  app.value && litellmEndpoints.value
+    ? litellmTypescriptExample(app.value, authServiceUrl.value, litellmEndpoints.value)
+    : '',
+);
+const codeExampleLitellmPython = computed(() =>
+  app.value && litellmEndpoints.value
+    ? litellmPythonExample(app.value, authServiceUrl.value, litellmEndpoints.value)
+    : '',
+);
+
 const codeCopied = ref(false);
 let codeCopiedTimer: ReturnType<typeof setTimeout> | undefined;
-const activeCodeExample = computed(() =>
-  activeCodeTab.value === 'typescript'
-    ? codeExampleTS.value
-    : activeCodeTab.value === 'python'
-      ? codeExamplePython.value
-      : codeExampleIOServer.value,
-);
+const activeCodeExample = computed(() => {
+  switch (activeCodeTab.value) {
+    case 'typescript':
+      return codeExampleTS.value;
+    case 'python':
+      return codeExamplePython.value;
+    case 'ioserver':
+      return codeExampleIOServer.value;
+    case 'litellm-ts':
+      return codeExampleLitellmTS.value;
+    case 'litellm-py':
+      return codeExampleLitellmPython.value;
+  }
+});
 async function copyActiveCode(): Promise<void> {
   try {
     await navigator.clipboard.writeText(activeCodeExample.value);
@@ -875,15 +933,17 @@ const financialKpis = computed(() => {
             </div>
             <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
               <button
-                v-for="tab in [{ key: 'typescript', label: 'TypeScript' }, { key: 'python', label: 'Python' }, { key: 'ioserver', label: 'IOServer' }]"
+                v-for="tab in codeTabs"
                 :key="tab.key"
-                @click="activeCodeTab = tab.key as 'typescript' | 'python' | 'ioserver'"
+                @click="activeCodeTab = tab.key"
                 :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
               >{{ tab.label }}</button>
             </div>
             <pre class="flex-1 min-h-0 overflow-auto bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 border border-surface-800/50 leading-relaxed whitespace-pre">{{ activeCodeExample }}</pre>
             <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
             <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
+            <p v-else-if="activeCodeTab === 'litellm-ts'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> and <code class="font-mono">openai</code> — <code class="font-mono">npm i oauth4webapi openai</code></p>
+            <p v-else-if="activeCodeTab === 'litellm-py'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> and <code class="font-mono">openai</code> — <code class="font-mono">pip install authlib requests openai</code></p>
             <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
           </div>
 

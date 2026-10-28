@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import {
   ioserverExample,
+  litellmPythonExample,
+  litellmTypescriptExample,
   pythonExample,
   typescriptExample,
   type ExampleApplication,
@@ -134,5 +136,63 @@ describe('ioserverExample', () => {
     expect(ioserverExample(base, ISSUER)).toContain('AUTH_SERVICE_APP_SLUG=acme-app');
     expect(ioserverExample(base, ISSUER)).toContain('AUTH_SERVICE_AUDIENCE=https://app.acme.com');
     expect(ioserverExample({ ...base, url: null }, ISSUER)).not.toContain('AUTH_SERVICE_AUDIENCE');
+  });
+});
+
+describe('litellm examples', () => {
+  const gw = { gatewayUrl: 'https://llm.example.com', authServiceUrl: ISSUER };
+  const llmApp: ExampleApplication = {
+    ...base,
+    allowedScopes: ['openid', 'offline_access', 'wallet:self:read'],
+  };
+  const allResources = "'https://app.acme.com', 'https://llm.example.com', 'https://auth.example.com'";
+  const gatewayOnly = "'https://llm.example.com', 'https://auth.example.com'";
+  const between = (code: string, from: string, to: string): string =>
+    code.slice(code.indexOf(from), code.indexOf(to));
+
+  it('is valid TypeScript for public and confidential clients, with or without a url', () => {
+    for (const isPublic of [true, false]) {
+      for (const url of ['https://app.acme.com', null]) {
+        const code = litellmTypescriptExample({ ...llmApp, isPublic, url }, ISSUER, gw);
+        expect(syntaxErrors(code)).toEqual([]);
+      }
+    }
+  });
+
+  it('asks for every audience, exchanges the code without a resource and refreshes without a scope', () => {
+    const code = litellmTypescriptExample(llmApp, ISSUER, gw);
+    expect(code).toContain(`const resources = [${allResources}]`);
+    expect(code).toContain("url.searchParams.append('resource', resource)");
+    expect(between(code, 'export async function finishLogin', 'export async function tokenFor')).not.toContain(
+      'additionalParameters',
+    );
+    expect(between(code, 'export async function tokenFor', '// 4.')).not.toMatch(/additionalParameters: \{[^}]*scope/);
+  });
+
+  it('leaves the application out of the audiences when it has no url', () => {
+    const code = litellmTypescriptExample({ ...llmApp, url: null }, ISSUER, gw);
+    expect(code).toContain(`const resources = [${gatewayOnly}]`);
+  });
+
+  it('reads the wallet and calls the gateway with the minted tokens', () => {
+    const code = litellmTypescriptExample(llmApp, ISSUER, gw);
+    expect(code).toContain('/api/user/wallet');
+    expect(code).toContain('/v1`');
+    expect(code).toContain('error.status === 402');
+  });
+
+  it('repeats the resource parameter in Python instead of passing a list to Authlib', () => {
+    const code = litellmPythonExample(llmApp, ISSUER, gw);
+    expect(code).toContain(`RESOURCES = [${allResources}]`);
+    expect(code).toContain("&resource={quote(resource, safe='')}");
+    expect(between(code, 'def finish_login', 'def token_for')).not.toContain('resource');
+    expect(code).toContain('{WALLET_URL}/api/user/wallet');
+  });
+
+  it('authenticates a Python client by its type', () => {
+    expect(litellmPythonExample(llmApp, ISSUER, gw)).toContain("os.environ['CLIENT_SECRET']");
+    expect(litellmPythonExample({ ...llmApp, isPublic: true }, ISSUER, gw)).toContain(
+      "token_endpoint_auth_method='none'",
+    );
   });
 });

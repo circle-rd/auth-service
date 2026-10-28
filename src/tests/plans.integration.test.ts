@@ -281,4 +281,42 @@ describe("plansRoutes integration", () => {
     expect(res.statusCode).toBe(201);
     expect(res.json<{ plan: { features: unknown } }>().plan.features).toEqual(features);
   });
+
+  it("PATCH plan with only a name keeps features and the default flag", async () => {
+    const seeded = await seedApp();
+    const plan = await seedPlan(seeded.id, "pro", true);
+    await db
+      .update(subscriptionPlans)
+      .set({ features: { storage: 5 } })
+      .where(eq(subscriptionPlans.id, plan.id));
+    asAdmin();
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/applications/${seeded.id}/plans/${plan.id}`,
+      payload: { description: "Pro tier" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const patched = res.json<{
+      plan: { features: unknown; isDefault: boolean; description: string };
+    }>().plan;
+    expect(patched.description).toBe("Pro tier");
+    expect(patched.features).toEqual({ storage: 5 });
+    expect(patched.isDefault).toBe(true);
+  });
+
+  it("PATCH plan → 400 on an unknown field", async () => {
+    const seeded = await seedApp();
+    const plan = await seedPlan(seeded.id);
+    asAdmin();
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/applications/${seeded.id}/plans/${plan.id}`,
+      payload: { stripeProductId: "prod_foreign" },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
 });

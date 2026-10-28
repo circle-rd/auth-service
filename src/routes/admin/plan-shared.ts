@@ -34,14 +34,24 @@ export const featuresSchema = z
 // The Stripe ids are provisioned by auth-service and never supplied by a caller:
 // a plan pointed at someone else's Product would have that Product archived on
 // deletion. Unknown keys are refused rather than ignored.
+const planFields = {
+  name: z.string().min(1).max(64),
+  description: z.string().max(500).optional().nullable(),
+  features: featuresSchema,
+  isDefault: z.boolean(),
+};
+
 export const createPlanSchema = z
   .object({
-    name: z.string().min(1).max(64),
-    description: z.string().max(500).optional().nullable(),
-    features: featuresSchema.default({}),
-    isDefault: z.boolean().default(false),
+    ...planFields,
+    features: planFields.features.default({}),
+    isDefault: planFields.isDefault.default(false),
   })
   .strict();
+
+// Built from the bare fields: `.partial()` on the create schema would keep its
+// defaults, so renaming a plan would silently reset its features and default flag.
+export const updatePlanSchema = z.object(planFields).partial().strict();
 
 /**
  * A plan price is either `fixed` (a recurring or one-off amount) or `metered`

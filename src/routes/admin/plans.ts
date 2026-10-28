@@ -18,7 +18,11 @@ import {
 import { setUserSubscription } from "../../services/subscriptions.js";
 import { getActorUserId, requireAdmin } from "../../middleware.js";
 import { subscriptionReasonSchema } from "./subscription-request.js";
-import { createPlanSchema, ensureApp } from "./plan-shared.js";
+import {
+  createPlanSchema,
+  ensureApp,
+  updatePlanSchema,
+} from "./plan-shared.js";
 import {
   ensurePlanTeamBeforeSave,
   retirePlanTeam,
@@ -130,7 +134,7 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.patch<{ Params: { appId: string; planId: string } }>(
     "/applications/:appId/plans/:planId",
     async (req, reply) => {
-      const parsed = createPlanSchema.partial().safeParse(req.body);
+      const parsed = updatePlanSchema.safeParse(req.body);
       if (!parsed.success)
         throw ERR.APP_001("Invalid plan data", parsed.error.flatten());
 

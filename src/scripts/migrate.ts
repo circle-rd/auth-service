@@ -29,8 +29,9 @@ const USAGE = `Usage: pnpm migrate:<okta|auth0|keycloak> -- [options]
   --no-keep-ids           Do not keep the source id as the user id (and token sub)
   --report <path>         Where to write the JSON report
 
-Environment: AUTH_SERVICE_URL (or BETTER_AUTH_URL), ADMIN_EMAIL, ADMIN_PASSWORD
-(an administrator without a second factor); for Okta also OKTA_ORG_URL and
+Environment: BETTER_AUTH_URL (also the origin sent with the requests),
+AUTH_SERVICE_URL (optional: reach the service at another address), ADMIN_EMAIL,
+ADMIN_PASSWORD (a superadmin without a second factor); for Okta also OKTA_ORG_URL and
 OKTA_API_TOKEN.`;
 
 const out = (line: string): void => {

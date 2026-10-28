@@ -20,7 +20,7 @@ import {
 
 // The gateway calls once per LLM request from a single address: the global
 // 600/min per-IP bucket would throttle it under load. The routes stay protected
-// by a machine token with a dedicated scope.
+// by a machine token carrying the wallet scope they require.
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
 };

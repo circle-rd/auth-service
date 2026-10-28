@@ -28,7 +28,7 @@ from litellm.integrations.custom_logger import CustomLogger
 def _required_env(name: str) -> str:
     value = os.environ.get(name, "")
     if not value:
-        raise RuntimeError(f"{name} must be set (run `pnpm llm:setup`)")
+        raise RuntimeError(f"{name} must be set (provisioned by `pnpm llm:setup` or the litellm-setup service)")
     return value
 
 

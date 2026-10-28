@@ -6,7 +6,7 @@ import { userParamsSchema } from "./wallet-schemas.js";
 
 // The gateway asks once per request the user is not already cached for; the
 // global 600/min per-IP bucket would throttle it. The routes stay protected by a
-// machine token with a dedicated scope.
+// machine token carrying the wallet scope they require.
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
 };

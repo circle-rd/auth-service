@@ -151,9 +151,9 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
   // PATCH /api/user/subscription/:applicationId
   // Self-service plan change. Hidden and refused unless Stripe is configured:
-  // without a payment provider only administrators change a user's plan. Paid
-  // target plans are refused until the payment flow exists, so self-service
-  // cannot hand out a paid entitlement for free.
+  // without a payment provider only administrators change a user's plan. A paid
+  // target is never granted for free: an existing paid subscription is switched
+  // in place, otherwise the caller is sent to Stripe Checkout.
   fastify.patch<{ Params: { applicationId: string } }>(
     "/subscription/:applicationId",
     async (req, reply) => {
@@ -425,7 +425,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
 
       if (!target || target.userId !== ctx.userId) {
-        throw ERR.AUTH_001("Session not found");
+        throw ERR.AUTH_016();
       }
 
       // Route through BetterAuth so any plugin-managed session side effects

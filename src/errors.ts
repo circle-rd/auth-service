@@ -26,21 +26,13 @@ export class ApiError extends Error {
   }
 }
 
+// Codes are never renumbered or reused: a gap in a domain is a retired code.
+
 // ── AUTH ────────────────────────────────────────────────────────────────────
 export const ERR = {
   AUTH_001: (msg = "Missing or invalid authentication token") =>
     new ApiError(401, "AUTH_001", msg),
-  AUTH_003: (msg = "Invalid credentials") => new ApiError(401, "AUTH_003", msg),
-  AUTH_004: (msg = "MFA required") => new ApiError(401, "AUTH_004", msg),
-  AUTH_005: (msg = "Invalid MFA code") => new ApiError(401, "AUTH_005", msg),
-  AUTH_006: (msg = "Account disabled") => new ApiError(403, "AUTH_006", msg),
-  AUTH_007: (msg = "Too many login attempts") =>
-    new ApiError(429, "AUTH_007", msg),
-  AUTH_008: (msg = "Invalid or expired password reset token") =>
-    new ApiError(400, "AUTH_008", msg),
   AUTH_009: (msg = "Password too weak") => new ApiError(400, "AUTH_009", msg),
-  AUTH_010: (msg = "Email already registered") =>
-    new ApiError(409, "AUTH_010", msg),
   AUTH_011: (msg = "Insufficient permissions") =>
     new ApiError(403, "AUTH_011", msg),
   AUTH_012: (
@@ -54,6 +46,7 @@ export const ERR = {
   AUTH_015: (
     msg = "Verify your email address before accepting this invitation",
   ) => new ApiError(403, "AUTH_015", msg),
+  AUTH_016: (msg = "Session not found") => new ApiError(404, "AUTH_016", msg),
 
   // ── APP ───────────────────────────────────────────────────────────────────
   APP_001: (msg = "Invalid application data", details?: unknown) =>
@@ -61,8 +54,6 @@ export const ERR = {
   APP_002: (msg = "Application not found") => new ApiError(404, "APP_002", msg),
   APP_003: (msg = "Application slug already exists") =>
     new ApiError(409, "APP_003", msg),
-  APP_004: (msg = "Cannot delete application with active users") =>
-    new ApiError(400, "APP_004", msg),
   APP_005: (msg = "User does not have access to this application") =>
     new ApiError(403, "APP_005", msg),
   APP_006: (msg = "Social provider not enabled for this application") =>
@@ -80,7 +71,7 @@ export const ERR = {
     new ApiError(409, "PERM_004", msg),
   PERM_005: (msg = "Permission already defined") =>
     new ApiError(409, "PERM_005", msg),
-  PERM_006: (msg = "Cannot delete role assigned to active users") =>
+  PERM_006: (msg = "Cannot delete a role that is assigned to users") =>
     new ApiError(400, "PERM_006", msg),
 
   // ── SUB ───────────────────────────────────────────────────────────────────
@@ -90,7 +81,6 @@ export const ERR = {
     new ApiError(409, "SUB_002", msg),
   SUB_003: (msg = "Plan has active subscribers, cannot delete") =>
     new ApiError(400, "SUB_003", msg),
-  SUB_004: (msg = "Subscription expired") => new ApiError(400, "SUB_004", msg),
   SUB_005: (
     msg = "Self-service plan changes require Stripe to be configured",
   ) => new ApiError(403, "SUB_005", msg),
@@ -164,8 +154,6 @@ export const ERR = {
     new ApiError(502, "SRV_004", msg),
 
   // ── MAIL ──────────────────────────────────────────────────────────────────
-  MAIL_001: (msg = "Email template not found", details?: unknown) =>
-    new ApiError(500, "MAIL_001", msg, details),
   MAIL_002: (msg = "Mail transport failure", details?: unknown) =>
     new ApiError(502, "MAIL_002", msg, details),
   MAIL_003: (msg = "Too many email requests, please retry later") =>

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type Stripe from "stripe";
 import { stripe } from "../services/stripe.js";
 import { config } from "../config.js";
+import { ERR } from "../errors.js";
 import { db } from "../db/index.js";
 import { stripeEvents } from "../db/schema.js";
 import { eq, sql } from "drizzle-orm";
@@ -60,19 +61,12 @@ export async function stripeWebhookRoutes(
   fastify.post("/", async (req, reply) => {
     // Return 503 if Stripe is not configured
     if (!stripe || !config.stripe.webhookSecret) {
-      return reply.status(503).send({
-        error: { code: "SRV_002", message: "Stripe is not configured" },
-      });
+      throw ERR.SRV_002("Stripe is not configured");
     }
 
     const sig = req.headers["stripe-signature"];
     if (!sig || typeof sig !== "string") {
-      return reply.status(400).send({
-        error: {
-          code: "APP_001",
-          message: "Missing stripe-signature header",
-        },
-      });
+      throw ERR.APP_001("Missing stripe-signature header");
     }
 
     let event: Stripe.Event;
@@ -90,12 +84,7 @@ export async function stripeWebhookRoutes(
       );
       // Never echo the parser message: it is attacker-influenced and adds no
       // value to the caller, who only needs to know the signature was refused.
-      return reply.status(400).send({
-        error: {
-          code: "APP_001",
-          message: "Invalid Stripe signature",
-        },
-      });
+      throw ERR.APP_001("Invalid Stripe signature");
     }
 
     fastify.log.info({ type: event.type }, "stripe-webhook: received event");

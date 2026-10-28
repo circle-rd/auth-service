@@ -232,6 +232,10 @@ export interface UserApplicationDetail {
   roles: { id: string; name: string }[]
   /** Most recent login of the user to this application, or null when none. */
   lastLoginAt?: string | null
+  /** Whether a Stripe subscription is linked, and its state (administrators). */
+  stripeLinked?: boolean
+  stripeStatus?: string | null
+  cancelAtPeriodEnd?: boolean
 }
 
 export interface UserSubscription {
@@ -337,4 +341,48 @@ export interface PaginatedResponse<T> {
   total: number
   page: number
   limit: number
+}
+
+/** Result of a self-service plan change: applied, pending in Stripe, or a Checkout to open. */
+export interface ChangePlanResult {
+  ok: true
+  changed: boolean
+  pending: boolean
+  checkoutUrl: string | null
+}
+
+/** A Stripe invoice as the profile and the billing pages show it (minor units). */
+export interface BillingInvoice {
+  id: string
+  status: string
+  billingReason: string | null
+  currency: string
+  amountDue: number
+  amountPaid: number
+  amountRemaining: number
+  periodStart: string | null
+  periodEnd: string | null
+  createdAt: string
+  hostedInvoiceUrl: string | null
+  invoicePdf: string | null
+}
+
+export interface BillingInvoicePage {
+  items: BillingInvoice[]
+  nextCursor: string | null
+}
+
+export interface BillingUsageFeature {
+  featureKey: string
+  unit: string | null
+  /** The plan's hard cap for the period; -1 means unlimited. */
+  usageLimit: number
+  used: number
+  /** Units left before the cap; null when unlimited. */
+  remaining: number | null
+}
+
+export interface BillingUsage {
+  periodStart: string
+  features: BillingUsageFeature[]
 }

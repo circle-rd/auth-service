@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { getUser, sendVerificationEmail, markEmailVerified } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
+import { setSubscriptionCancellation } from '@/api/subscriptions';
 import { useToast } from '@/composables/useToast';
 import { useAppBranding } from '@/composables/useAppBranding';
 import { useAuthStore } from '@/stores/auth';
@@ -57,6 +58,23 @@ async function handleResendVerification(): Promise<void> {
     );
   } finally {
     actionLoading.value = false;
+  }
+}
+
+/** Stop or resume the user's Stripe subscription at period end. Reversible, so no confirmation. */
+const subscriptionBusy = ref<string | null>(null);
+
+async function toggleCancellation(app: UserApplicationDetail): Promise<void> {
+  const cancel = !app.cancelAtPeriodEnd;
+  subscriptionBusy.value = app.id;
+  try {
+    await setSubscriptionCancellation(app.id, userId, cancel);
+    await reloadUser();
+    toast.success(t(cancel ? 'users.subscriptionAdmin.stopped' : 'users.subscriptionAdmin.resumed'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
+  } finally {
+    subscriptionBusy.value = null;
   }
 }
 
@@ -288,7 +306,22 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
                 </div>
               </template>
               <template #cell-plan="{ row }">
-                <span class="text-xs text-surface-400">{{ (row as UserApplicationDetail).subscriptionPlanName ?? (row as UserApplicationDetail).subscriptionPlanId ?? '—' }}</span>
+                <div class="flex flex-col items-start gap-1.5">
+                  <span class="text-xs text-surface-400">{{ (row as UserApplicationDetail).subscriptionPlanName ?? (row as UserApplicationDetail).subscriptionPlanId ?? '—' }}</span>
+                  <div v-if="(row as UserApplicationDetail).stripeLinked" class="flex items-center gap-2">
+                    <BaseBadge :variant="(row as UserApplicationDetail).cancelAtPeriodEnd ? 'warning' : 'success'" size="sm">
+                      {{ (row as UserApplicationDetail).cancelAtPeriodEnd ? t('users.subscriptionAdmin.endsAtPeriodEnd') : t('users.subscriptionAdmin.renews') }}
+                    </BaseBadge>
+                    <BaseButton
+                      size="sm"
+                      variant="ghost"
+                      :loading="subscriptionBusy === (row as UserApplicationDetail).id"
+                      @click="toggleCancellation(row as UserApplicationDetail)"
+                    >
+                      {{ (row as UserApplicationDetail).cancelAtPeriodEnd ? t('users.subscriptionAdmin.resume') : t('users.subscriptionAdmin.stop') }}
+                    </BaseButton>
+                  </div>
+                </div>
               </template>
               <template #cell-status="{ row }">
                 <BaseBadge :variant="(row as UserApplicationDetail).isActive ? 'success' : 'neutral'" size="sm" dot>

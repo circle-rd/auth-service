@@ -1,12 +1,15 @@
 import type Stripe from "stripe";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
   subscriptionPlanPrices,
   subscriptionPlans,
   userSubscriptions,
 } from "../../db/schema.js";
+import { ERR } from "../../errors.js";
 import { setUserSubscription } from "../subscriptions.js";
+import { stripe } from "../stripe.js";
+import { planIsPaid } from "./subscriptions.js";
 
 /**
  * Stripe webhook handlers that maintain a user's subscription entitlement.
@@ -159,6 +162,43 @@ async function resolveSubscriptionTarget(
   return { userId, applicationId, planId };
 }
 
+/** The Stripe state a (user, application) row mirrors, read from a subscription. */
+export function stripeStateOf(subscription: Stripe.Subscription) {
+  const item = primaryItem(subscription);
+  return {
+    stripeSubscriptionId: subscription.id,
+    stripeStatus: subscription.status,
+    currentPeriodStart: toDate(item?.current_period_start),
+    currentPeriodEnd: toDate(item?.current_period_end),
+    cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
+    canceledAt: toDate(subscription.canceled_at),
+  };
+}
+
+/**
+ * Whether an event concerns a subscription other than the one the (user,
+ * application) row is linked to. A subscription that was replaced (a free one
+ * superseded by a paid checkout) keeps sending events until it ends; applying
+ * them would rewrite the entitlement of the subscription that replaced it. A row
+ * with no link yet accepts the first subscription that reports.
+ */
+async function isSuperseded(
+  target: SubscriptionTarget,
+  stripeSubscriptionId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ linked: userSubscriptions.stripeSubscriptionId })
+    .from(userSubscriptions)
+    .where(
+      and(
+        eq(userSubscriptions.userId, target.userId),
+        eq(userSubscriptions.applicationId, target.applicationId),
+      ),
+    )
+    .limit(1);
+  return row?.linked != null && row.linked !== stripeSubscriptionId;
+}
+
 /** Apply the full Stripe state of a subscription (created / updated). */
 export async function syncSubscription(
   subscription: Stripe.Subscription,
@@ -166,26 +206,23 @@ export async function syncSubscription(
 ): Promise<void> {
   const target = await resolveSubscriptionTarget(subscription, log);
   if (!target) return;
+  if (await isSuperseded(target, subscription.id)) {
+    log.debug(
+      { subscriptionId: subscription.id },
+      "billing: event for a superseded subscription; ignored",
+    );
+    return;
+  }
 
-  const item = primaryItem(subscription);
-  const currentPeriodStart = toDate(item?.current_period_start);
-  const currentPeriodEnd = toDate(item?.current_period_end);
-
+  const state = stripeStateOf(subscription);
   await setUserSubscription({
     userId: target.userId,
     applicationId: target.applicationId,
     planId: target.planId,
     source: "stripe",
     isActive: stripeStatusToActive(subscription.status),
-    expiresAt: currentPeriodEnd,
-    stripe: {
-      stripeSubscriptionId: subscription.id,
-      stripeStatus: subscription.status,
-      currentPeriodStart,
-      currentPeriodEnd,
-      cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
-      canceledAt: toDate(subscription.canceled_at),
-    },
+    expiresAt: state.currentPeriodEnd,
+    stripe: state,
   });
 }
 
@@ -200,24 +237,27 @@ export async function cancelSubscription(
 ): Promise<void> {
   const target = await resolveSubscriptionTarget(subscription, log);
   if (!target) return;
+  if (await isSuperseded(target, subscription.id)) {
+    log.debug(
+      { subscriptionId: subscription.id },
+      "billing: deletion of a superseded subscription; ignored",
+    );
+    return;
+  }
 
-  const item = primaryItem(subscription);
-  const currentPeriodEnd = toDate(item?.current_period_end);
-
+  const state = stripeStateOf(subscription);
   await setUserSubscription({
     userId: target.userId,
     applicationId: target.applicationId,
     planId: target.planId,
     source: "stripe",
     isActive: false,
-    expiresAt: currentPeriodEnd,
+    expiresAt: state.currentPeriodEnd,
     stripe: {
-      stripeSubscriptionId: subscription.id,
+      ...state,
       stripeStatus: subscription.status ?? "canceled",
-      currentPeriodStart: toDate(item?.current_period_start),
-      currentPeriodEnd,
       cancelAtPeriodEnd: false,
-      canceledAt: toDate(subscription.canceled_at) ?? new Date(),
+      canceledAt: state.canceledAt ?? new Date(),
     },
   });
 }
@@ -298,6 +338,16 @@ async function applyInvoicePayment(
   const resolved = await resolveInvoiceTarget(invoice, log);
   if (!resolved) return;
   const { target, stripeSubscriptionId } = resolved;
+  if (
+    stripeSubscriptionId &&
+    (await isSuperseded(target, stripeSubscriptionId))
+  ) {
+    log.debug(
+      { invoiceId: invoice.id },
+      "billing: invoice of a superseded subscription; ignored",
+    );
+    return;
+  }
 
   if (paid) {
     await setUserSubscription({
@@ -338,4 +388,101 @@ export async function applyInvoicePaymentFailed(
   log: WebhookLog,
 ): Promise<void> {
   await applyInvoicePayment(invoice, false, log);
+}
+
+/**
+ * A subscription Checkout completed. Its subscription replaces the one the user
+ * held for the application when that one is free; a paid subscription is never
+ * replaced by a checkout (its plan is changed in place). The new subscription is
+ * linked first and the superseded free one cancelled afterwards, so the
+ * cancellation's own events are recognised as superseded and cannot deactivate
+ * the entitlement that replaced it.
+ */
+export async function completeSubscriptionCheckout(
+  session: Stripe.Checkout.Session,
+  log: WebhookLog,
+): Promise<void> {
+  if (!stripe) throw ERR.BIL_001();
+  const meta = session.metadata ?? {};
+  const { userId, applicationId, planId } = meta;
+  const subscriptionId =
+    typeof session.subscription === "string"
+      ? session.subscription
+      : session.subscription?.id;
+  if (
+    meta.purpose !== "subscription" ||
+    !userId ||
+    !applicationId ||
+    !planId ||
+    !subscriptionId
+  ) {
+    log.warn(
+      { sessionId: session.id },
+      "billing: subscription checkout without its metadata; ignored",
+    );
+    return;
+  }
+
+  const [plan] = await db
+    .select({ applicationId: subscriptionPlans.applicationId })
+    .from(subscriptionPlans)
+    .where(eq(subscriptionPlans.id, planId))
+    .limit(1);
+  if (plan?.applicationId !== applicationId) {
+    log.warn(
+      { sessionId: session.id, planId },
+      "billing: checkout plan does not belong to its application; ignored",
+    );
+    return;
+  }
+
+  const [current] = await db
+    .select({
+      linked: userSubscriptions.stripeSubscriptionId,
+      planId: userSubscriptions.planId,
+      isActive: userSubscriptions.isActive,
+    })
+    .from(userSubscriptions)
+    .where(
+      and(
+        eq(userSubscriptions.userId, userId),
+        eq(userSubscriptions.applicationId, applicationId),
+      ),
+    )
+    .limit(1);
+  if (current?.linked && current.linked !== subscriptionId) {
+    if (current.isActive && (await planIsPaid(current.planId))) {
+      log.warn(
+        { userId, applicationId },
+        "billing: checkout over a paid subscription refused; the plan is changed in place",
+      );
+      return;
+    }
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  await setUserSubscription({
+    userId,
+    applicationId,
+    planId,
+    source: "stripe",
+    isActive: stripeStatusToActive(subscription.status),
+    expiresAt: stripeStateOf(subscription).currentPeriodEnd,
+    stripe: stripeStateOf(subscription),
+  });
+
+  // Only now: the superseded free subscription ends, its events are ignored above.
+  if (current?.linked && current.linked !== subscriptionId) {
+    try {
+      const previous = await stripe.subscriptions.retrieve(current.linked);
+      if (previous.status !== "canceled") {
+        await stripe.subscriptions.cancel(current.linked);
+      }
+    } catch (err) {
+      log.warn(
+        { err: String(err), subscriptionId: current.linked },
+        "billing: superseded subscription not cancelled; review it in Stripe",
+      );
+    }
+  }
 }

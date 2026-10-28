@@ -45,6 +45,7 @@ import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
 import { appBillingRoutes } from "./routes/app-billing.js";
 import { billingPageRoutes } from "./routes/billing-pages.js";
+import { subscriptionBillingRoutes } from "./routes/admin/subscription-billing.js";
 import { adminWalletRoutes } from "./routes/admin/wallets.js";
 import { accountingRoutes } from "./routes/admin/accounting.js";
 import { applicationMachineScopesRoutes } from "./routes/admin/application-machine-scopes.js";
@@ -134,7 +135,14 @@ function safeRelativePath(value: unknown, fallback = "/"): string {
   return value;
 }
 
-export async function buildServer(): Promise<FastifyInstance> {
+export interface BuildServerOptions {
+  /** Directory of the built SPA. Defaults to the one shipped next to the service. */
+  frontendDist?: string;
+}
+
+export async function buildServer(
+  options: BuildServerOptions = {},
+): Promise<FastifyInstance> {
   const aliasTable = buildAliasTable(config.compat.aliases);
   const fastify = Fastify({
     // Route aliases of another identity provider are resolved here, before
@@ -242,7 +250,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   // ── Static frontend (built Vue SPA) ─────────────────────────────
-  const frontendDist = join(__dirname, "..", "frontend-dist");
+  const frontendDist =
+    options.frontendDist ?? join(__dirname, "..", "frontend-dist");
 
   // Server-rendered auth pages fall back to the Vue SPA when a template cannot
   // be rendered. Surface the reason: otherwise a broken or missing override
@@ -658,6 +667,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   await fastify.register(applicationRoutes, {
     prefix: "/api/admin/applications",
   });
+  await fastify.register(subscriptionBillingRoutes, {
+    prefix: "/api/admin/applications",
+  });
   await fastify.register(applicationMachineScopesRoutes, {
     prefix: "/api/admin/applications",
   });
@@ -779,7 +791,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   }
 
   fastify.setNotFoundHandler(async (req, reply) => {
+    // The shell answers navigations only. An unknown POST, PUT or DELETE is an
+    // API miss: answering it with the HTML page would hide the error.
+    const navigation = req.method === "GET" || req.method === "HEAD";
     if (
+      navigation &&
       !req.url.startsWith("/api/") &&
       !req.url.startsWith("/api/auth/") &&
       existsSync(frontendDist) &&

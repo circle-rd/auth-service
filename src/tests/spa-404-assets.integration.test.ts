@@ -3,25 +3,20 @@
  * (file extension or /assets/) and the SPA shell for extensionless deep links.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeAuthServer, type AuthServerHandle } from "./helpers/server.js";
 
 describe("SPA not-found handler — asset paths vs deep links", () => {
   let handle: AuthServerHandle;
-  const frontendDist = join(process.cwd(), "frontend-dist");
+  // A private build directory: the real `frontend-dist` of the checkout is never
+  // written or removed, and parallel test files never see a stand-in shell.
+  const frontendDist = mkdtempSync(join(tmpdir(), "spa-dist-"));
 
   beforeAll(async () => {
-    // Create a fake frontend build with just index.html so the catch-all
-    // is active but no real assets exist.
-    if (!existsSync(frontendDist)) {
-      mkdirSync(frontendDist, { recursive: true });
-    }
-    writeFileSync(
-      join(frontendDist, "index.html"),
-      "<!doctype html><title>SPA</title>",
-    );
-    handle = await makeAuthServer();
+    writeFileSync(join(frontendDist, "index.html"), "<!doctype html><title>SPA</title>");
+    handle = await makeAuthServer({ frontendDist });
   });
 
   afterAll(async () => {
@@ -30,9 +25,10 @@ describe("SPA not-found handler — asset paths vs deep links", () => {
   });
 
   it("returns 404 for a missing asset path with file extension", async () => {
+    // A name the build never ships: a real favicon would be served, not missing.
     const res = await handle.app.inject({
       method: "GET",
-      url: "/favicon.ico",
+      url: "/no-such-asset-404.ico",
     });
     // Should be 404 with SRV_001 JSON envelope, not 200 with index.html
     expect(res.statusCode).toBe(404);

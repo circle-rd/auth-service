@@ -254,6 +254,11 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         isActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
         subscriptionPlanName: subscriptionPlans.name,
+        // The Stripe state of the subscription, when one is linked: administrators
+        // see whether it renews and can stop it at period end.
+        stripeSubscriptionId: userSubscriptions.stripeSubscriptionId,
+        stripeStatus: userSubscriptions.stripeStatus,
+        cancelAtPeriodEnd: userSubscriptions.cancelAtPeriodEnd,
       })
       .from(userApplications)
       .innerJoin(
@@ -263,6 +268,13 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       .leftJoin(
         subscriptionPlans,
         eq(userApplications.subscriptionPlanId, subscriptionPlans.id),
+      )
+      .leftJoin(
+        userSubscriptions,
+        and(
+          eq(userSubscriptions.userId, userApplications.userId),
+          eq(userSubscriptions.applicationId, userApplications.applicationId),
+        ),
       )
       .where(eq(userApplications.userId, req.params.id));
 
@@ -303,11 +315,14 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
-    const appsWithRoles = presentUserApplications(appAccess).map((app) => ({
-      ...app,
-      roles: rolesByApp.get(app.id) ?? [],
-      lastLoginAt: lastLoginByApp.get(app.id) ?? null,
-    }));
+    const appsWithRoles = presentUserApplications(appAccess).map(
+      ({ stripeSubscriptionId, ...app }) => ({
+        ...app,
+        stripeLinked: stripeSubscriptionId !== null,
+        roles: rolesByApp.get(app.id) ?? [],
+        lastLoginAt: lastLoginByApp.get(app.id) ?? null,
+      }),
+    );
 
     await reply.send({ user, applications: appsWithRoles });
   });

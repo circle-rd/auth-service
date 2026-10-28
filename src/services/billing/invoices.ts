@@ -192,8 +192,8 @@ function decodeCursor(cursor: string): z.infer<typeof cursorSchema> {
 
 export interface ListInvoicesInput {
   userId: string;
-  /** Always the caller's application: an invoice of another application is never listed. */
-  applicationId: string;
+  /** Set for an application's read API: an invoice of another application is never listed. */
+  applicationId?: string;
   limit?: number;
   cursor?: string;
 }
@@ -203,7 +203,8 @@ export interface InvoicePage {
   nextCursor: string | null;
 }
 
-export async function listApplicationInvoices(
+/** The invoices of a user, newest first: all of them, or those of one application. */
+export async function listInvoices(
   input: ListInvoicesInput,
 ): Promise<InvoicePage> {
   const limit = Math.min(
@@ -230,7 +231,9 @@ export async function listApplicationInvoices(
     .where(
       and(
         eq(stripeInvoices.userId, input.userId),
-        eq(stripeInvoices.applicationId, input.applicationId),
+        input.applicationId
+          ? eq(stripeInvoices.applicationId, input.applicationId)
+          : undefined,
         position
           ? sql`(${stripeInvoices.stripeCreatedAt}, ${stripeInvoices.stripeInvoiceId}) < (${position.t}::timestamptz, ${position.i})`
           : undefined,
@@ -267,4 +270,11 @@ export async function listApplicationInvoices(
           })
         : null,
   };
+}
+
+/** The invoices of one application, for its read API. */
+export function listApplicationInvoices(
+  input: ListInvoicesInput & { applicationId: string },
+): Promise<InvoicePage> {
+  return listInvoices(input);
 }

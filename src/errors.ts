@@ -94,9 +94,12 @@ export const ERR = {
   SUB_005: (
     msg = "Self-service plan changes require Stripe to be configured",
   ) => new ApiError(403, "SUB_005", msg),
-  SUB_006: (
-    msg = "Changing to a paid plan requires a payment, which is not available yet",
-  ) => new ApiError(403, "SUB_006", msg),
+  SUB_007: (
+    msg = "A paid subscription already exists for this application: change its plan instead",
+  ) => new ApiError(409, "SUB_007", msg),
+  SUB_008: (
+    msg = "This user has no Stripe subscription for this application",
+  ) => new ApiError(404, "SUB_008", msg),
 
   // ── CONS ──────────────────────────────────────────────────────────────────
   CONS_001: (msg = "Invalid key format") => new ApiError(400, "CONS_001", msg),
@@ -116,6 +119,8 @@ export const ERR = {
     new ApiError(400, "BIL_002", msg),
   BIL_003: (msg = "Metered usage limit reached") =>
     new ApiError(403, "BIL_003", msg),
+  BIL_004: (msg = "The payment provider rejected the request") =>
+    new ApiError(502, "BIL_004", msg),
 
   // ── WAL ───────────────────────────────────────────────────────────────────
   WAL_001: (msg = "Wallet account not found") =>

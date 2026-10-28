@@ -10,6 +10,7 @@ import {
   applyInvoicePaid,
   applyInvoicePaymentFailed,
   cancelSubscription,
+  completeSubscriptionCheckout,
   syncSubscription,
   type WebhookLog,
 } from "../services/billing/webhooks.js";
@@ -133,6 +134,16 @@ export async function stripeWebhookRoutes(
             log,
           );
           break;
+
+        case "checkout.session.completed": {
+          const session = event.data.object as Stripe.Checkout.Session;
+          if (session.mode === "subscription") {
+            await completeSubscriptionCheckout(session, log);
+          } else {
+            await handleWalletStripeEvent(event);
+          }
+          break;
+        }
 
         case "invoice.paid":
         case "invoice.payment_succeeded":

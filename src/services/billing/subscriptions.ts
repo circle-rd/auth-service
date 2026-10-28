@@ -8,7 +8,7 @@ import {
   subscriptionPlans,
   userSubscriptions,
 } from "../../db/schema.js";
-import { ERR } from "../../errors.js";
+import { ApiError, ERR } from "../../errors.js";
 import { logger } from "../../logger.js";
 import { stripe } from "../stripe.js";
 import { provisionPlanPrice, provisionPlanProduct } from "./catalog.js";
@@ -260,10 +260,26 @@ export async function createSubscriptionCheckout(input: {
     )
     .limit(1);
   if (!plan) throw ERR.APP_002();
+  const linked = await readLinkedSubscription(
+    input.userId,
+    input.applicationId,
+  );
+  // A paid subscription is changed in place: a second checkout would bill twice.
+  if (
+    linked?.isActive &&
+    linked.stripeSubscriptionId &&
+    (await planIsPaid(linked.planId))
+  ) {
+    throw ERR.SUB_007();
+  }
+  if (!(await planIsPaid(input.planId))) {
+    throw ERR.BIL_002("A free plan needs no checkout");
+  }
   const priceId = await recurringPriceId(input.planId);
   if (!priceId) throw ERR.BIL_002("This plan has no recurring price");
   const customer = await getOrCreateBillingCustomer("user", input.userId);
   const metadata = {
+    purpose: "subscription",
     userId: input.userId,
     applicationId: input.applicationId,
     planId: input.planId,
@@ -293,4 +309,126 @@ export async function createBillingPortalUrl(input: {
     return_url: `${config.betterAuth.url}/profile`,
   });
   return { url: session.url };
+}
+
+/** Whether a plan charges anything: a recurring fixed price above zero. */
+export async function planIsPaid(planId: string): Promise<boolean> {
+  const rows = await db
+    .select({
+      amount: subscriptionPlanPrices.amount,
+      interval: subscriptionPlanPrices.interval,
+    })
+    .from(subscriptionPlanPrices)
+    .where(
+      and(
+        eq(subscriptionPlanPrices.planId, planId),
+        eq(subscriptionPlanPrices.billingType, "fixed"),
+      ),
+    );
+  return rows.some((r) => r.interval !== "one_time" && Number(r.amount) > 0);
+}
+
+/** The Stripe linkage of a (user, application) subscription row, if any. */
+export async function readLinkedSubscription(
+  userId: string,
+  applicationId: string,
+) {
+  const [row] = await db
+    .select({
+      stripeSubscriptionId: userSubscriptions.stripeSubscriptionId,
+      planId: userSubscriptions.planId,
+      isActive: userSubscriptions.isActive,
+      cancelAtPeriodEnd: userSubscriptions.cancelAtPeriodEnd,
+    })
+    .from(userSubscriptions)
+    .where(
+      and(
+        eq(userSubscriptions.userId, userId),
+        eq(userSubscriptions.applicationId, applicationId),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Move a live Stripe subscription to another price, in place: Stripe prorates
+ * it. Unlike the background sync, a failure is raised, because a user or an
+ * administrator is waiting for the outcome. The local plan follows through the
+ * subscription's update event, so the entitlement never runs ahead of the charge.
+ */
+export async function switchSubscriptionPlan(input: {
+  userId: string;
+  applicationId: string;
+  planId: string;
+}): Promise<void> {
+  if (!stripe) throw ERR.BIL_001();
+  const linked = await readLinkedSubscription(
+    input.userId,
+    input.applicationId,
+  );
+  if (!linked?.stripeSubscriptionId) throw ERR.SUB_008();
+  const priceId = await recurringPriceId(input.planId);
+  if (!priceId) throw ERR.BIL_002("This plan has no recurring price");
+  try {
+    const subscription = await stripe.subscriptions.retrieve(
+      linked.stripeSubscriptionId,
+    );
+    const item = subscription.items.data[0];
+    if (!item) throw ERR.BIL_004();
+    await stripe.subscriptions.update(subscription.id, {
+      items: [{ id: item.id, price: priceId }],
+      metadata: {
+        userId: input.userId,
+        applicationId: input.applicationId,
+        planId: input.planId,
+      },
+      cancel_at_period_end: false,
+      proration_behavior: "create_prorations",
+    });
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    logger.warn(
+      { err: String(err), ...input },
+      "[billing] plan change refused by Stripe",
+    );
+    throw ERR.BIL_004();
+  }
+}
+
+/**
+ * Stop (or resume) a Stripe subscription at the end of its period. The local
+ * flag is written at once; the subscription's update event confirms it.
+ */
+export async function setCancelAtPeriodEnd(input: {
+  userId: string;
+  applicationId: string;
+  cancel: boolean;
+}): Promise<void> {
+  if (!stripe) throw ERR.BIL_001();
+  const linked = await readLinkedSubscription(
+    input.userId,
+    input.applicationId,
+  );
+  if (!linked?.stripeSubscriptionId) throw ERR.SUB_008();
+  try {
+    await stripe.subscriptions.update(linked.stripeSubscriptionId, {
+      cancel_at_period_end: input.cancel,
+    });
+  } catch (err) {
+    logger.warn(
+      { err: String(err), ...input },
+      "[billing] cancellation change refused by Stripe",
+    );
+    throw ERR.BIL_004();
+  }
+  await db
+    .update(userSubscriptions)
+    .set({ cancelAtPeriodEnd: input.cancel, updatedAt: new Date() })
+    .where(
+      and(
+        eq(userSubscriptions.userId, input.userId),
+        eq(userSubscriptions.applicationId, input.applicationId),
+      ),
+    );
 }

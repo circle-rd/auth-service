@@ -993,6 +993,8 @@ export default {
       openid: 'Vérifier votre identité',
       profile: 'Lire votre profil (nom, avatar)',
       email: 'Lire votre adresse e-mail',
+      phone: 'Lire votre numéro de téléphone',
+      org: 'Connaître l’organisation dans laquelle vous agissez',
       offlineAccess: 'Rester connecté (émettre un jeton de rafraîchissement)',
       role: 'Lire votre rôle',
       company: 'Lire vos appartenances aux organisations',

@@ -992,6 +992,8 @@ export default {
       openid: 'Verify your identity',
       profile: 'Read your profile (name, avatar)',
       email: 'Read your email address',
+      phone: 'Read your phone number',
+      org: 'Know which organization you act in',
       offlineAccess: 'Stay signed in (issue a refresh token)',
       role: 'Read your role',
       company: 'Read your organization memberships',

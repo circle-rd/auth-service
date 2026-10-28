@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { billingCustomers } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
+import { logger } from "../../logger.js";
 import { assertOwnerExists, type OwnerType } from "../owners.js";
 import { stripe } from "../stripe.js";
 import type { BillingCustomer } from "./types.js";
@@ -65,4 +66,24 @@ export async function getOrCreateBillingCustomer(
   const created = await findBillingCustomer(ownerType, ownerId);
   if (!created) throw ERR.SRV_003();
   return created;
+}
+
+/**
+ * Create the owner's Stripe Customer without ever failing the caller: user
+ * creation and access grants must not break when Stripe is down or not
+ * configured. The reconciliation pass creates what was missed.
+ */
+export async function ensureBillingCustomerBestEffort(
+  ownerType: OwnerType,
+  ownerId: string,
+): Promise<void> {
+  if (!stripe) return;
+  try {
+    await getOrCreateBillingCustomer(ownerType, ownerId);
+  } catch (err) {
+    logger.warn(
+      { err: String(err), ownerType, ownerId },
+      "[billing] customer creation failed; the reconciler will retry",
+    );
+  }
 }

@@ -19,9 +19,9 @@
  *   - Plain-text body (after `===TEXT===`): optional. Falls back to a naive
  *     HTML-stripped version of the HTML body when absent.
  *
- * Both the subject line and each body section are processed through Eta with
- * HTML auto-escaping disabled for the subject (it's a header, not HTML) and
- * enabled for the HTML section. The text section uses `<%= %>` for raw values.
+ * Both the subject line and each body section are processed through Eta:
+ * `<%= %>` escapes HTML in the HTML section only. The subject (a header) and the
+ * text section are not HTML, so their values are inserted as they are.
  *
  * Resolution order mirrors `templates.ts::resolveTemplate`:
  *   1. <TEMPLATES_DIR>/<appSlug>/emails/<name>.eml — per-app override
@@ -32,7 +32,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderTemplateString } from "./template-engine.js";
+import { renderPlainString, renderTemplateString } from "./template-engine.js";
+import { APP_SLUG_RE } from "./templates.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BUILTIN_EMAIL_TEMPLATES_DIR = join(
@@ -177,7 +178,9 @@ export function resolveEmailTemplate(
   const candidates: string[] = [];
 
   if (externalTemplatesDir) {
-    if (appSlug) {
+    // The slug can come from a caller-controlled `client_id`: an unsafe one
+    // never reaches the file system and falls through to the default templates.
+    if (appSlug && APP_SLUG_RE.test(appSlug)) {
       candidates.push(
         join(externalTemplatesDir, appSlug, "emails", `${name}.eml`),
       );
@@ -223,14 +226,14 @@ export function renderEmail(
 
   // Render via Eta. The body sections go through the file-aware renderer so
   // production caching applies; subject is small and rendered as a string.
-  const subject = renderTemplateString(fm.subject, vars).trim();
+  const subject = renderPlainString(fm.subject, vars).trim();
   // For the HTML section we re-render from the original file location so any
   // future include/partial resolves relative to the template dir if needed.
   // The file already contains the frontmatter, so we render a sliced string.
   const innerHtml = renderTemplateString(htmlPart ?? "", vars).trim();
   const text =
     textPart !== undefined
-      ? renderTemplateString(textPart, vars).trim()
+      ? renderPlainString(textPart, vars).trim()
       : htmlToText(innerHtml);
 
   // Bundled templates get the shared branded shell; external overrides are

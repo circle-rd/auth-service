@@ -13,6 +13,7 @@ import { db } from "../db/index.js";
 import { user } from "../db/auth-schema.js";
 import {
   applications,
+  subscriptionPlanPrices,
   subscriptionPlans,
   userSubscriptions,
 } from "../db/schema.js";
@@ -22,6 +23,12 @@ import { makeSuperadminSession } from "./helpers/auth.js";
 import { auth } from "../auth.js";
 import { plansRoutes } from "../routes/admin/plans.js";
 import { planPricesRoutes } from "../routes/admin/plan-prices.js";
+import {
+  archiveApplicationCatalogue,
+  loadApplicationCatalogue,
+  provisionPlanProductBestEffort,
+  updateApplicationProducts,
+} from "../services/billing/catalog.js";
 
 const { stripeHolder, calls } = vi.hoisted(() => {
   const calls = {
@@ -56,6 +63,7 @@ const { stripeHolder, calls } = vi.hoisted(() => {
         create: vi.fn(async (p: unknown) => ({
           id: `meter_${calls.metersCreate.push(p)}`,
         })),
+        retrieve: vi.fn(async (id: string) => ({ id, status: "active" })),
         deactivate: vi.fn(async (id: string) => {
           calls.metersDeactivate.push(id);
           return { id };
@@ -362,5 +370,156 @@ describe("plan deletion", () => {
       .from(subscriptionPlans)
       .where(eq(subscriptionPlans.id, plan.id));
     expect(still?.id).toBe(plan.id);
+  });
+});
+
+describe("application catalogue lifecycle", () => {
+  async function seedAppWithPlan(slug = "app") {
+    const [a] = await db
+      .insert(applications)
+      .values({ name: "App", slug, isActive: true })
+      .returning();
+    const [plan] = await db
+      .insert(subscriptionPlans)
+      .values({ applicationId: a!.id, name: "free", isDefault: true })
+      .returning();
+    return { app: a!, plan: plan! };
+  }
+
+  it("provisions the default plan's product and links it", async () => {
+    const { app: a, plan } = await seedAppWithPlan();
+    await provisionPlanProductBestEffort({
+      planId: plan.id,
+      applicationId: a.id,
+      appName: "App",
+      planName: "free",
+      description: null,
+    });
+    const [row] = await db
+      .select({ stripeProductId: subscriptionPlans.stripeProductId })
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.id, plan.id));
+    expect(row?.stripeProductId).toMatch(/^prod_/);
+    expect(calls.productsCreate).toHaveLength(1);
+  });
+
+  it("swallows a Stripe failure so it cannot break application creation", async () => {
+    const { app: a, plan } = await seedAppWithPlan();
+    stripeHolder.stripe.products.create.mockRejectedValueOnce(new Error("down"));
+    await expect(
+      provisionPlanProductBestEffort({
+        planId: plan.id,
+        applicationId: a.id,
+        appName: "App",
+        planName: "free",
+        description: null,
+      }),
+    ).resolves.toBeUndefined();
+    const [row] = await db
+      .select({ stripeProductId: subscriptionPlans.stripeProductId })
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.id, plan.id));
+    expect(row?.stripeProductId).toBeNull();
+  });
+
+  it("renames the products of an application's plans", async () => {
+    const { app: a } = await seedAppWithPlan();
+    await db
+      .update(subscriptionPlans)
+      .set({ stripeProductId: "prod_old" })
+      .where(eq(subscriptionPlans.applicationId, a.id));
+    await updateApplicationProducts({ applicationId: a.id, appName: "Renamed" });
+    expect(calls.productsUpdate).toEqual([
+      ["prod_old", expect.objectContaining({ name: "Renamed — free" })],
+    ]);
+  });
+
+  it("loads and archives an application's catalogue", async () => {
+    const { app: a, plan } = await seedAppWithPlan();
+    await db
+      .update(subscriptionPlans)
+      .set({ stripeProductId: "prod_a" })
+      .where(eq(subscriptionPlans.id, plan.id));
+    await db.insert(subscriptionPlanPrices).values([
+      { planId: plan.id, name: "Monthly", amount: "1500", stripePriceId: "price_a" },
+      {
+        planId: plan.id,
+        name: "Calls",
+        amount: "10",
+        billingType: "metered",
+        featureKey: "api.calls",
+        unit: "call",
+        usageLimit: 1000,
+        stripePriceId: "price_b",
+        stripeMeterId: "meter_a",
+      },
+    ]);
+
+    const catalogue = await loadApplicationCatalogue(a.id);
+    expect(catalogue).toHaveLength(1);
+    expect(catalogue[0]?.stripeProductId).toBe("prod_a");
+    expect(catalogue[0]?.prices.map((p) => p.stripePriceId).sort()).toEqual([
+      "price_a",
+      "price_b",
+    ]);
+
+    await archiveApplicationCatalogue(catalogue);
+    expect(calls.pricesUpdate.map((c) => c[0]).sort()).toEqual([
+      "price_a",
+      "price_b",
+    ]);
+    expect(calls.productsUpdate).toEqual([
+      ["prod_a", { active: false }],
+    ]);
+    expect(calls.metersDeactivate).toEqual(["meter_a"]);
+  });
+});
+
+describe("plan inputs are strict", () => {
+  it("refuses a Stripe Product id supplied by the caller", async () => {
+    const a = await seedApp("strict-product");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/admin/applications/${a.id}/plans`,
+      payload: { name: "pro", stripeProductId: "prod_someone_elses" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(calls.productsCreate).toHaveLength(0);
+  });
+
+  it("refuses a metered feature declared in the features JSON", async () => {
+    const a = await seedApp("strict-features");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/admin/applications/${a.id}/plans`,
+      payload: {
+        name: "pro",
+        features: { "api.calls": { usage: true, limit: 100, unit: "call", pricePerUnit: 2 } },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("metered price");
+  });
+
+  it("keeps plain included features", async () => {
+    const a = await seedApp("plain-features");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/admin/applications/${a.id}/plans`,
+      payload: { name: "pro", features: { seats: 5, sso: true, tier: "gold" } },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json<{ plan: { features: unknown } }>().plan.features).toEqual({
+      seats: 5,
+      sso: true,
+      tier: "gold",
+    });
+  });
+
+  it("refuses a Stripe Price id supplied by the caller on a price", async () => {
+    const a = await seedApp("strict-price");
+    const plan = await createPlan(a.id, "pro");
+    const res = await createPrice(a.id, plan.id, { ...fixed, stripePriceId: "price_x" });
+    expect(res.statusCode).toBe(400);
   });
 });

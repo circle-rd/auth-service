@@ -23,7 +23,8 @@ import MfaDisableModal from '@/components/profile/MfaDisableModal.vue';
 import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, Receipt, RefreshCw, Lock, CreditCard } from 'lucide-vue-next';
+import BillingPanel from '@/components/profile/BillingPanel.vue';
+import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
@@ -141,28 +142,6 @@ function formatPrice(amount: string, currency: string) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 2 }).format(Number(amount) / 100);
 }
 
-function isPlanFeatureMetered(v: unknown): v is { usage: true; limit: number; unit: string; pricePerUnit: number } {
-  if (!v || typeof v !== 'object') return false;
-  return (v as Record<string, unknown>).usage === true;
-}
-
-function getMyInvoice(sub: UserSubscriptionEntry): { baseAmount: number; usageLines: Array<{ key: string; unit: string; total: number; pricePerUnit: number; subtotal: number }>; total: number; currency: string } {
-  if (!sub.plan) return { baseAmount: 0, usageLines: [], total: 0, currency: 'eur' };
-  const monthlyPrice = (sub.plan.prices ?? []).find(p => p.interval === 'month');
-  const baseAmount = monthlyPrice ? Number(monthlyPrice.amount) : 0;
-  const currency = monthlyPrice?.currency ?? 'eur';
-  const usageLines = Object.entries(sub.plan.features)
-    .filter(([, v]) => isPlanFeatureMetered(v))
-    .map(([key, v]) => {
-      const feature = v as { usage: true; limit: number; unit: string; pricePerUnit: number };
-      const agg = (consumption.value[sub.applicationId] ?? []).find(c => c.key === key);
-      const total = agg ? Number(agg.total) : 0;
-      return { key, unit: feature.unit, total, pricePerUnit: feature.pricePerUnit, subtotal: total * feature.pricePerUnit };
-    });
-  const usageTotal = usageLines.reduce((sum, l) => sum + l.subtotal, 0);
-  return { baseAmount, usageLines, total: baseAmount + usageTotal, currency };
-}
-
 async function handleRevoke(session: Session) {
   try {
     await revokeSession(session.id);
@@ -187,23 +166,25 @@ const planTarget = ref<UserSubscriptionEntry | null>(null);
 const planForm = ref({ planId: '' });
 const planSaving = ref(false);
 
-/** Only plans that need no payment are self-selectable for now. */
-function isFreePlan(plan: UserSubscriptionPlan): boolean {
-  return plan.prices.every((price) => Number(price.amount) === 0);
+/** The plan's recurring price, for the picker: "Free" when nothing is charged. */
+function planPriceLabel(plan: UserSubscriptionPlan): string {
+  const recurring = plan.prices.find((p) => p.interval !== 'one_time');
+  if (!recurring || Number(recurring.amount) === 0) return t('profile.planFree');
+  return `${formatPrice(recurring.amount, recurring.currency)} / ${recurring.interval}`;
 }
 
 const planOptions = computed<SelectOption[]>(() =>
-  (planTarget.value?.availablePlans ?? [])
-    .filter(isFreePlan)
-    .map((p) => ({ value: p.id, label: p.name, description: p.description ?? undefined, icon: CreditCard })),
+  (planTarget.value?.availablePlans ?? []).map((p) => ({
+    value: p.id,
+    label: p.name,
+    description: planPriceLabel(p),
+    icon: CreditCard,
+  })),
 );
 
 function openPlanModal(sub: UserSubscriptionEntry) {
   planTarget.value = sub;
-  const freeOptions = sub.availablePlans.filter(isFreePlan);
-  const currentFree =
-    sub.plan && isFreePlan(sub.plan) ? sub.plan.id : undefined;
-  planForm.value = { planId: currentFree ?? freeOptions[0]?.id ?? '' };
+  planForm.value = { planId: sub.plan?.id ?? sub.availablePlans[0]?.id ?? '' };
   showPlanModal.value = true;
 }
 
@@ -211,11 +192,16 @@ async function handleChangePlan() {
   if (!planTarget.value || !planForm.value.planId || planSaving.value) return;
   planSaving.value = true;
   try {
-    await changeMyPlan(planTarget.value.applicationId, planForm.value.planId);
+    const result = await changeMyPlan(planTarget.value.applicationId, planForm.value.planId);
+    if (result.checkoutUrl) {
+      // A paid plan is bought on Stripe's page; the plan is granted when it completes.
+      window.location.assign(result.checkoutUrl);
+      return;
+    }
     const data = await getMySubscriptions();
     subscriptions.value = data.subscriptions;
     stripeConfigured.value = data.stripeConfigured;
-    toast.success(t('profile.planChangeSuccess'));
+    toast.success(t(result.pending ? 'profile.planChangePending' : 'profile.planChangeSuccess'));
     showPlanModal.value = false;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('common.error'));
@@ -466,60 +452,15 @@ async function handleChangePlan() {
         </div>
       </div>
 
-      <!-- Billing: per-app invoice estimates -->
-      <div v-if="appsLoading || subscriptions.some(s => s.plan)" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-        <div class="px-5 py-4 border-b border-surface-700/40 flex items-center gap-2">
-          <Receipt class="w-4 h-4 text-surface-400" />
-          <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.billing') }}</h3>
-        </div>
-        <div v-if="appsLoading" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.loading') }}</div>
-        <div v-else-if="!subscriptions.some(s => s.plan)" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('profile.noInvoices') }}</div>
-        <div v-else class="divide-y divide-surface-800/40">
-          <div v-for="sub in subscriptions.filter(s => s.plan)" :key="sub.applicationId">
-            <!-- App header -->
-            <div class="px-5 py-3 bg-surface-800/30 flex items-center gap-3">
-              <img v-if="sub.applicationIcon" :src="sub.applicationIcon" class="w-5 h-5 rounded shrink-0" />
-              <div class="flex-1 min-w-0">
-                <span class="text-sm font-medium text-surface-200">{{ sub.applicationName }}</span>
-                <span class="text-xs text-surface-500 ml-2">{{ sub.plan!.name }}</span>
-              </div>
-              <span class="text-sm font-semibold text-surface-100 tabular-nums">
-                {{ formatPrice(String(getMyInvoice(sub).total), getMyInvoice(sub).currency) }}
-              </span>
-            </div>
-            <!-- Line items -->
-            <div class="divide-y divide-surface-800/40 text-sm">
-              <div v-if="getMyInvoice(sub).baseAmount > 0" class="px-5 py-2.5 flex items-center justify-between">
-                <span class="text-surface-400">{{ t('profile.basePrice') }}</span>
-                <span class="text-surface-200 tabular-nums">{{ formatPrice(String(getMyInvoice(sub).baseAmount), getMyInvoice(sub).currency) }}</span>
-              </div>
-              <div v-for="line in getMyInvoice(sub).usageLines" :key="line.key" class="px-5 py-2.5 flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <code class="text-xs font-mono text-surface-500 bg-surface-800/50 px-1.5 py-0.5 rounded">{{ line.key }}</code>
-                  <span class="text-surface-500">{{ line.total.toLocaleString() }} {{ line.unit }} × {{ formatPrice(String(line.pricePerUnit), getMyInvoice(sub).currency) }}</span>
-                </div>
-                <span class="text-surface-200 tabular-nums">{{ formatPrice(String(line.subtotal), getMyInvoice(sub).currency) }}</span>
-              </div>
-              <div class="px-5 py-3 flex items-center justify-between bg-surface-800/20">
-                <span class="text-sm font-medium text-surface-200">{{ t('profile.totalEstimate') }}</span>
-                <span class="text-base font-bold text-surface-100 tabular-nums">{{ formatPrice(String(getMyInvoice(sub).total), getMyInvoice(sub).currency) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- History placeholder -->
-        <div class="border-t border-surface-700/40 p-6 text-center">
-          <Receipt class="w-7 h-7 text-surface-600 mx-auto mb-2" />
-          <p class="text-sm font-medium text-surface-500">{{ t('profile.invoiceHistoryPlaceholder') }}</p>
-          <p class="text-xs text-surface-600 mt-1">{{ t('profile.invoiceHistoryNote') }}</p>
-        </div>
-      </div>
+      <!-- Billing: metered usage and real invoices -->
+      <BillingPanel :subscriptions="subscriptions" :loading="appsLoading" />
     </div>
     <!-- Self-service plan change (only when Stripe is configured) -->
     <BaseModal :open="showPlanModal" :title="t('profile.changePlanTitle')" @close="showPlanModal = false">
       <div class="space-y-4">
         <p class="text-sm text-surface-400">{{ t('profile.changePlanHint', { app: planTarget?.applicationName ?? '' }) }}</p>
         <BaseSelect v-model="planForm.planId" :label="t('appDetail.subscriptionPlan')" :options="planOptions" />
+        <p class="text-xs text-surface-500">{{ t('profile.changePlanPaidNote') }}</p>
       </div>
       <template #footer>
         <BaseButton variant="ghost" @click="showPlanModal = false">{{ t('common.cancel') }}</BaseButton>

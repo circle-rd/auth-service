@@ -29,6 +29,10 @@ export const applications = pgTable(
     // Self-registration is opt-in per application: default false so a
     // misconfigured app cannot silently open public sign-up.
     allowRegister: boolean("allow_register").notNull().default(false),
+    // How the application presents billing. `none`: no billing pages (the
+    // default). `delegated`: the service serves the subscribe, invoices and
+    // billing-usage pages for it. The application keeps its own UI otherwise.
+    billingMode: text("billing_mode").notNull().default("none"),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()
@@ -58,7 +62,13 @@ export const applications = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (t) => [uniqueIndex("applications_slug_idx").on(t.slug)],
+  (t) => [
+    uniqueIndex("applications_slug_idx").on(t.slug),
+    check(
+      "applications_billing_mode_check",
+      sql`${t.billingMode} IN ('none', 'delegated')`,
+    ),
+  ],
 );
 
 // ── User Applications ─────────────────────────────────────────────────────────
@@ -459,6 +469,115 @@ export const billingCustomers = pgTable(
     check(
       "billing_customers_owner_type_check",
       sql`${t.ownerType} IN ('user', 'org')`,
+    ),
+  ],
+);
+
+// ── Billing usage (metered features) ─────────────────────────────────────────
+// Raw metered reports (append-only, idempotent per application) and the
+// per-period aggregate that enforces the hard cap. The aggregate is
+// authoritative for the cap; Stripe's meter is only billed at period end.
+export const billingUsageEvents = pgTable(
+  "billing_usage_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    featureKey: text("feature_key").notNull(),
+    quantity: numeric("quantity").notNull(),
+    billingPeriodStart: timestamp("billing_period_start", {
+      withTimezone: true,
+    }).notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    // Null until the Stripe meter event is accepted; the retry job pushes the
+    // pending ones (Stripe outage, missing subscription, …).
+    stripeMeterEventIdentifier: text("stripe_meter_event_identifier"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("billing_usage_events_idem_idx").on(
+      t.applicationId,
+      t.idempotencyKey,
+    ),
+    index("billing_usage_events_pending_idx").on(t.stripeMeterEventIdentifier),
+  ],
+);
+
+export const billingUsagePeriods = pgTable(
+  "billing_usage_periods",
+  {
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    featureKey: text("feature_key").notNull(),
+    billingPeriodStart: timestamp("billing_period_start", {
+      withTimezone: true,
+    }).notNull(),
+    quantity: numeric("quantity").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({
+      name: "billing_usage_periods_pk",
+      columns: [t.userId, t.applicationId, t.featureKey, t.billingPeriodStart],
+    }),
+  ],
+);
+
+// ── Stripe invoices (read cache) ──────────────────────────────────────────────
+// Filled by the invoice webhooks so the profile and the application read API
+// never call Stripe. A subscription invoice belongs to the application of its
+// subscription; a wallet top-up invoice has no application. The row keeps the
+// time of the last event applied: Stripe may deliver events out of order, and a
+// stale event must not overwrite a newer state.
+export const stripeInvoices = pgTable(
+  "stripe_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    stripeInvoiceId: text("stripe_invoice_id").notNull(),
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id").references(() => applications.id, {
+      onDelete: "set null",
+    }),
+    stripeSubscriptionId: text("stripe_subscription_id"),
+    status: text("status").notNull(),
+    billingReason: text("billing_reason"),
+    currency: text("currency").notNull(),
+    amountDue: bigint("amount_due", { mode: "number" }).notNull(),
+    amountPaid: bigint("amount_paid", { mode: "number" }).notNull(),
+    amountRemaining: bigint("amount_remaining", { mode: "number" }).notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    hostedInvoiceUrl: text("hosted_invoice_url"),
+    invoicePdf: text("invoice_pdf"),
+    stripeCreatedAt: timestamp("stripe_created_at", {
+      withTimezone: true,
+    }).notNull(),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("stripe_invoices_stripe_idx").on(t.stripeInvoiceId),
+    index("stripe_invoices_owner_idx").on(
+      t.userId,
+      t.applicationId,
+      t.stripeCreatedAt,
+    ),
+    check(
+      "stripe_invoices_status_check",
+      sql`${t.status} IN ('draft', 'open', 'paid', 'uncollectible', 'void')`,
     ),
   ],
 );

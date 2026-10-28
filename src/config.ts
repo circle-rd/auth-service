@@ -125,7 +125,7 @@ const envSchema = z
       ])
       .optional(),
     CAPTCHA_SECRET_KEY: z.string().optional(),
-    // Public site key, surfaced to clients via /api/app-config.
+    // Public site key. Not exposed to clients: no widget ships yet (see the roadmap).
     CAPTCHA_SITE_KEY: z.string().optional(),
     // Comma-separated override of the protected endpoint list (defaults to
     // sign-up, sign-in and password reset).
@@ -379,7 +379,7 @@ export const config = {
     url: parsed.data.LITELLM_URL?.replace(/\/+$/, ""),
     provisionerKeyFile: parsed.data.LITELLM_PROVISIONER_KEY_FILE,
   },
-  templatesDir: parsed.data.TEMPLATES_DIR ?? null,
+  templatesDir: parsed.data.TEMPLATES_DIR || null,
   providers: {
     google: {
       enabled: !!(

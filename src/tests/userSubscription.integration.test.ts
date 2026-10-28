@@ -11,9 +11,11 @@ import { userRoutes } from "../routes/user.js";
 import type * as StripeModule from "../services/stripe.js";
 import { createTestApp } from "./helpers/app.js";
 import { db } from "../db/index.js";
+import { eq } from "drizzle-orm";
 import {
   applications,
   userApplications,
+  userSubscriptions,
   subscriptionPlans,
   subscriptionPlanPrices,
 } from "../db/schema.js";
@@ -28,10 +30,22 @@ vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
 
 // Stripe configuration is process-wide; expose a mutable flag so the
 // self-service gate can be exercised in both states.
-const { stripeState } = vi.hoisted(() => ({ stripeState: { configured: false } }));
+// A paid plan is handed to Stripe Checkout: the client answers with a URL.
+const { stripeState } = vi.hoisted(() => ({
+  stripeState: {
+    configured: false,
+    client: null as unknown,
+  },
+}));
 vi.mock("../services/stripe.js", async (importOriginal) => {
   const actual = await importOriginal<typeof StripeModule>();
-  return { ...actual, isStripeConfigured: () => stripeState.configured };
+  return {
+    ...actual,
+    get stripe() {
+      return stripeState.client;
+    },
+    isStripeConfigured: () => stripeState.configured,
+  };
 });
 
 // ── App ────────────────────────────────────────────────────────────────────
@@ -47,6 +61,7 @@ afterAll(() => app.close());
 
 beforeEach(async () => {
   await cleanDb();
+  stripeState.client = null;
   vi.restoreAllMocks();
   stripeState.configured = false;
 });
@@ -97,10 +112,11 @@ async function seedPrice(
   amount = "999",
   currency = "usd",
   interval = "month",
+  stripePriceId: string | null = null,
 ) {
   const [price] = await db
     .insert(subscriptionPlanPrices)
-    .values({ planId, name: "monthly", amount, currency, interval })
+    .values({ planId, name: "monthly", amount, currency, interval, stripePriceId })
     .returning();
   return price!;
 }
@@ -286,22 +302,40 @@ describe("userRoutes — PATCH /subscription/:applicationId", () => {
     expect(res.json<{ error: { code: string } }>().error.code).toBe("SUB_005");
   });
 
-  it("403 SUB_006 for a paid plan when Stripe is configured", async () => {
+  it("200 hands a paid plan to Stripe Checkout and grants nothing locally", async () => {
     await seedUser();
     const a = await seedApp();
     const paid = await seedPlan(a.id, "pro");
-    await seedPrice(paid.id, "2900", "eur", "month");
+    await seedPrice(paid.id, "2900", "eur", "month", "price_pro_test");
     await grantAccess("user-1", a.id, null);
     asUser();
     stripeState.configured = true;
+    stripeState.client = {
+      customers: { create: async () => ({ id: "cus_test" }) },
+      checkout: {
+        sessions: {
+          create: async () => ({ id: "cs_test", url: "https://checkout.stripe.test/paid" }),
+        },
+      },
+    };
 
     const res = await app.inject({
       method: "PATCH",
       url: `/subscription/${a.id}`,
       payload: { planId: paid.id },
     });
-    expect(res.statusCode).toBe(403);
-    expect(res.json<{ error: { code: string } }>().error.code).toBe("SUB_006");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      changed: false,
+      checkoutUrl: "https://checkout.stripe.test/paid",
+    });
+    // No canonical subscription row: the plan is granted by the completion event.
+    const granted = await db
+      .select({ id: userSubscriptions.id })
+      .from(userSubscriptions)
+      .where(eq(userSubscriptions.userId, "user-1"));
+    expect(granted).toHaveLength(0);
   });
 
   it("200 switches to a free plan when Stripe is configured", async () => {

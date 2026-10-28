@@ -14,4 +14,9 @@ export function applyBaseEnv(): void {
   process.env.NODE_ENV ??= "test";
   process.env.WALLET_USD_TO_EUR_RATE ??= "0.90";
   process.env.WALLET_MARGIN_PERCENT ??= "10";
+  // Tests must never talk to Stripe. A real key in the developer's `.env` would
+  // otherwise reach the suite (dotenv does not override a set variable); the
+  // billing tests inject a Stripe mock instead.
+  process.env.STRIPE_SECRET_KEY = "";
+  process.env.STRIPE_WEBHOOK_SECRET = "";
 }

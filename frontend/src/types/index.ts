@@ -76,6 +76,8 @@ export interface Application {
   skipConsent: boolean
   isMfaRequired: boolean
   allowRegister: boolean
+  /** `delegated`: Auth Service serves the subscribe, invoices and usage pages of the app. */
+  billingMode: 'none' | 'delegated'
   allowedScopes: string[]
   redirectUris: string[]
   isPublic: boolean
@@ -123,19 +125,6 @@ export interface AppPermission {
   createdAt: string
 }
 
-export interface PlanFeatureFixed {
-  usage: false
-  value: string | number | boolean
-}
-
-export interface PlanFeatureMetered {
-  usage: true
-  limit: number // -1 = unlimited
-  unit: string
-  pricePerUnit: number // in smallest currency unit (cents)
-}
-
-export type PlanFeature = PlanFeatureFixed | PlanFeatureMetered
 
 export interface SubscriptionPlan {
   id: string
@@ -154,9 +143,17 @@ export interface SubscriptionPlanPrice {
   id: string
   planId: string
   name: string
+  /** Fixed: the charge. Metered: the price of one unit, in the smallest currency unit. */
   amount: string
   currency: string
   interval: 'month' | 'year' | 'one_time'
+  billingType: 'fixed' | 'metered'
+  /** The feature a metered price bills (null for a fixed price). */
+  featureKey: string | null
+  /** Display label of one unit (metered only). */
+  unit: string | null
+  /** Hard cap of the billing period, -1 for unlimited (metered only). */
+  usageLimit: number | null
   stripePriceId: string | null
   createdAt: string
 }
@@ -232,6 +229,10 @@ export interface UserApplicationDetail {
   roles: { id: string; name: string }[]
   /** Most recent login of the user to this application, or null when none. */
   lastLoginAt?: string | null
+  /** Whether a Stripe subscription is linked, and its state (administrators). */
+  stripeLinked?: boolean
+  stripeStatus?: string | null
+  cancelAtPeriodEnd?: boolean
 }
 
 export interface UserSubscription {
@@ -337,4 +338,48 @@ export interface PaginatedResponse<T> {
   total: number
   page: number
   limit: number
+}
+
+/** Result of a self-service plan change: applied, pending in Stripe, or a Checkout to open. */
+export interface ChangePlanResult {
+  ok: true
+  changed: boolean
+  pending: boolean
+  checkoutUrl: string | null
+}
+
+/** A Stripe invoice as the profile and the billing pages show it (minor units). */
+export interface BillingInvoice {
+  id: string
+  status: string
+  billingReason: string | null
+  currency: string
+  amountDue: number
+  amountPaid: number
+  amountRemaining: number
+  periodStart: string | null
+  periodEnd: string | null
+  createdAt: string
+  hostedInvoiceUrl: string | null
+  invoicePdf: string | null
+}
+
+export interface BillingInvoicePage {
+  items: BillingInvoice[]
+  nextCursor: string | null
+}
+
+export interface BillingUsageFeature {
+  featureKey: string
+  unit: string | null
+  /** The plan's hard cap for the period; -1 means unlimited. */
+  usageLimit: number
+  used: number
+  /** Units left before the cap; null when unlimited. */
+  remaining: number | null
+}
+
+export interface BillingUsage {
+  periodStart: string
+  features: BillingUsageFeature[]
 }

@@ -61,9 +61,47 @@ subject: x
 
     const out = renderEmail("esc", { payload: "<img onerror=x>" }, null, dir);
     expect(out.html).toContain("&lt;img onerror=x&gt;");
-    // Text section also escapes via <%= %>; consumers receive a safe string.
-    expect(out.text).toContain("&lt;img onerror=x&gt;");
+    // The text part is not HTML: values are inserted as they are.
+    expect(out.text).toContain("<img onerror=x>");
   });
+
+  it("does not HTML-escape the subject line or the text part", () => {
+    writeTemplate(
+      null,
+      "names",
+      `---
+subject: Hello <%= it.name %>
+---
+<p><%= it.name %></p>
+===TEXT===
+Hi <%= it.name %>
+`,
+    );
+
+    const out = renderEmail("names", { name: "AT&T O'Brien" }, null, dir);
+    expect(out.subject).toBe("Hello AT&T O'Brien");
+    expect(out.text).toBe("Hi AT&T O'Brien");
+    expect(out.html).toContain("AT&amp;T O&#39;Brien");
+  });
+
+  it.each(["../escape", "a/b", "UPPER", "tenant.a", ""])(
+    "never resolves an override for the unsafe slug %j",
+    (slug) => {
+      const outside = join(dir, "..", "escape", "emails");
+      mkdirSync(outside, { recursive: true });
+      writeFileSync(
+        join(outside, "verify-email.eml"),
+        "---\nsubject: Escaped\n---\n<p>escaped</p>\n",
+      );
+      try {
+        const resolved = resolveEmailTemplate("verify-email", slug, dir);
+        expect(resolved).not.toContain("escape");
+        expect(resolved).toContain("verify-email.eml");
+      } finally {
+        rmSync(join(dir, "..", "escape"), { recursive: true, force: true });
+      }
+    },
+  );
 
   it("falls back to a plain-text version of the HTML when text section is missing", () => {
     writeTemplate(

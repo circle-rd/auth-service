@@ -136,14 +136,23 @@ async function setMetadata(
   );
 }
 
-/** Every access group the gateway knows, by id and name. */
+/**
+ * Every access group the gateway knows, by id and name. LiteLLM answers with a
+ * bare array (older builds wrapped it in `access_groups`), so both are accepted.
+ */
 export async function listAccessGroups(): Promise<GatewayAccessGroup[]> {
   const json = await expectOk(
     "access group list",
     await call("GET", "/v1/access_group"),
   );
-  return z.object({ access_groups: z.array(accessGroupSchema) }).parse(json)
-    .access_groups;
+  return z
+    .union([
+      z.array(accessGroupSchema),
+      z
+        .object({ access_groups: z.array(accessGroupSchema) })
+        .transform((o) => o.access_groups),
+    ])
+    .parse(json);
 }
 
 /**

@@ -195,20 +195,21 @@ async function main(): Promise<void> {
       403,
       () => chat(privateToken),
     );
+    const accessGroupSchema = z.object({
+      access_group_id: z.string(),
+      access_group_name: z.string(),
+    });
+    const accessGroups = z.union([
+      z.array(accessGroupSchema),
+      z
+        .object({ access_groups: z.array(accessGroupSchema) })
+        .transform((o) => o.access_groups),
+    ]);
     for (const slug of [privateSlug, publicSlug]) {
       const teamId = planTeamId(slug);
-      const groups = z
-        .object({
-          access_groups: z.array(
-            z.object({
-              access_group_id: z.string(),
-              access_group_name: z.string(),
-            }),
-          ),
-        })
-        .parse(
-          (await litellm("/v1/access_group", masterKey)).json(),
-        ).access_groups;
+      const groups = accessGroups.parse(
+        (await litellm("/v1/access_group", masterKey)).json(),
+      );
       const group = groups.find((g) => g.access_group_name === teamId);
       if (!group) throw new Error(`access group ${teamId} not found`);
       const grant = await litellm(

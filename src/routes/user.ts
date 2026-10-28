@@ -22,6 +22,16 @@ import { requireSession, requireFullSession } from "../middleware.js";
 import { publishEvent } from "../services/event-bus.js";
 import { isStripeConfigured } from "../services/stripe.js";
 import { setUserSubscription } from "../services/subscriptions.js";
+import { listInvoices } from "../services/billing/invoices.js";
+import { getApplicationUsage } from "../services/billing/app-views.js";
+import {
+  createBillingPortalUrl,
+  createSubscriptionCheckout,
+  planIsPaid,
+  readLinkedSubscription,
+  switchSubscriptionPlan,
+  syncStripeSubscription,
+} from "../services/billing/subscriptions.js";
 
 const updateProfileSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -141,9 +151,9 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
   // PATCH /api/user/subscription/:applicationId
   // Self-service plan change. Hidden and refused unless Stripe is configured:
-  // without a payment provider only administrators change a user's plan. Paid
-  // target plans are refused until the payment flow exists, so self-service
-  // cannot hand out a paid entitlement for free.
+  // without a payment provider only administrators change a user's plan. A paid
+  // target is never granted for free: an existing paid subscription is switched
+  // in place, otherwise the caller is sent to Stripe Checkout.
   fastify.patch<{ Params: { applicationId: string } }>(
     "/subscription/:applicationId",
     async (req, reply) => {
@@ -172,12 +182,45 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
       if (!access) throw ERR.APP_005();
 
-      const prices = await db
-        .select({ amount: subscriptionPlanPrices.amount })
-        .from(subscriptionPlanPrices)
-        .where(eq(subscriptionPlanPrices.planId, parsed.data.planId));
-      if (prices.some((p) => Number(p.amount) > 0)) throw ERR.SUB_006();
+      if (await planIsPaid(parsed.data.planId)) {
+        // A paid plan is never granted locally before Stripe agrees. A live paid
+        // subscription changes in place (prorated by Stripe, the plan follows its
+        // update event); any other case goes through Checkout, and the plan is
+        // granted by the checkout's completion event.
+        const linked = await readLinkedSubscription(userId, applicationId);
+        if (
+          linked?.isActive &&
+          linked.stripeSubscriptionId &&
+          (await planIsPaid(linked.planId))
+        ) {
+          await switchSubscriptionPlan({
+            userId,
+            applicationId,
+            planId: parsed.data.planId,
+          });
+          await reply.send({
+            ok: true,
+            changed: false,
+            pending: true,
+            checkoutUrl: null,
+          });
+          return;
+        }
+        const checkout = await createSubscriptionCheckout({
+          userId,
+          applicationId,
+          planId: parsed.data.planId,
+        });
+        await reply.send({
+          ok: true,
+          changed: false,
+          pending: false,
+          checkoutUrl: checkout.url,
+        });
+        return;
+      }
 
+      // A free plan takes effect at once; its Stripe subscription follows.
       const change = await setUserSubscription({
         userId,
         applicationId,
@@ -185,10 +228,114 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         source: "self",
         actorUserId: userId,
       });
+      await syncStripeSubscription({
+        userId,
+        applicationId,
+        planId: parsed.data.planId,
+      });
 
-      await reply.send({ ok: true, changed: change.changed });
+      await reply.send({
+        ok: true,
+        changed: change.changed,
+        pending: false,
+        checkoutUrl: null,
+      });
     },
   );
+
+  const checkoutBodySchema = z.object({
+    applicationId: z.string().uuid(),
+    planId: z.string().uuid(),
+  });
+
+  // POST /api/user/billing/checkout — open a Stripe Checkout in subscription
+  // mode for a paid plan. The session needs the user's session (not a bearer
+  // token): the subscription is bound to their Stripe Customer.
+  fastify.post("/billing/checkout", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const parsed = checkoutBodySchema.safeParse(req.body);
+    if (!parsed.success)
+      throw ERR.APP_001("Invalid checkout request", parsed.error.flatten());
+    const [access] = await db
+      .select({ id: userApplications.id })
+      .from(userApplications)
+      .where(
+        and(
+          eq(userApplications.userId, userId),
+          eq(userApplications.applicationId, parsed.data.applicationId),
+          eq(userApplications.isActive, true),
+        ),
+      )
+      .limit(1);
+    if (!access) throw ERR.APP_005();
+    await reply.send(
+      await createSubscriptionCheckout({ userId, ...parsed.data }),
+    );
+  });
+
+  const invoicesQuerySchema = z.object({
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    cursor: z.string().min(1).max(512).optional(),
+  });
+
+  // GET /api/user/billing/invoices?limit=&cursor=
+  // The caller's Stripe invoices, every application and wallet top-ups alike,
+  // newest first. Their own invoices only: the caller is the owner.
+  fastify.get("/billing/invoices", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const query = invoicesQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      throw ERR.APP_001("Invalid query", query.error.flatten());
+    }
+    await reply.send(
+      await listInvoices({
+        userId,
+        limit: query.data.limit,
+        cursor: query.data.cursor,
+      }),
+    );
+  });
+
+  // GET /api/user/billing/usage?applicationId=
+  // Metered usage of the current period for one application the caller uses.
+  fastify.get("/billing/usage", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const query = z
+      .object({ applicationId: z.string().uuid() })
+      .safeParse(req.query);
+    if (!query.success) {
+      throw ERR.APP_001("Invalid query", query.error.flatten());
+    }
+    const [access] = await db
+      .select({ id: userApplications.id })
+      .from(userApplications)
+      .where(
+        and(
+          eq(userApplications.userId, userId),
+          eq(userApplications.applicationId, query.data.applicationId),
+          eq(userApplications.isActive, true),
+        ),
+      )
+      .limit(1);
+    if (!access) throw ERR.APP_005();
+    await reply.send(
+      await getApplicationUsage({
+        userId,
+        applicationId: query.data.applicationId,
+      }),
+    );
+  });
+
+  // POST /api/user/billing/portal — Stripe Billing Portal (payment methods,
+  // cancellation), on the user's Stripe Customer.
+  fastify.post("/billing/portal", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    await reply.send(await createBillingPortalUrl({ userId }));
+  });
 
   // GET /api/user/consumption/:appId
   // Returns the current user's consumption aggregates for a specific app.
@@ -278,7 +425,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
 
       if (!target || target.userId !== ctx.userId) {
-        throw ERR.AUTH_001("Session not found");
+        throw ERR.AUTH_016();
       }
 
       // Route through BetterAuth so any plugin-managed session side effects

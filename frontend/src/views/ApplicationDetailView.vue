@@ -10,12 +10,11 @@ import { listOrganizations } from '@/api/organizations';
 import { useToast } from '@/composables/useToast';
 import { useAdminEvents } from '@/composables/useAdminEvents';
 import { rotateSecret } from '@/api/applications';
-import type { Application, AppRole, AppPermission, SubscriptionPlan, UserApplication, ConsumptionAggregate } from '@/types';
+import type { Application, AppRole, AppPermission, SubscriptionPlan, SubscriptionPlanPrice, UserApplication, ConsumptionAggregate } from '@/types';
 import type { AppSubscriptionRow } from '@/api/applications';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
-import BaseToggle from '@/components/ui/BaseToggle.vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import SearchSelect from '@/components/ui/SearchSelect.vue';
@@ -26,16 +25,18 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
 import RolesPermissionsTab from '@/components/applications/RolesPermissionsTab.vue';
+import PlanEditorModal from '@/components/applications/PlanEditorModal.vue';
+import PlanPricesDialog from '@/components/applications/PlanPricesDialog.vue';
 import ApplicationInvitationsTab from '@/components/applications/ApplicationInvitationsTab.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
-import type { PlanFeature } from '@/types';
 import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useDebounce } from '@/composables/useDebounce';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, X, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Repeat, CalendarRange, Zap, Mail } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
+import { SCOPE_CATALOGUE } from '@/components/applications/form/scopes';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -63,8 +64,8 @@ const loading = ref(true);
 
 const showUserModal = ref(false);
 const showBulkUserModal = ref(false);
-const showPlanModal = ref(false);
-const showPriceModal = ref(false);
+const planEditor = ref<{ open: boolean; plan: SubscriptionPlan | null }>({ open: false, plan: null });
+const pricesPlan = ref<SubscriptionPlan | null>(null);
 const showDeletePlanConfirm = ref(false);
 const showRotateConfirm = ref(false);
 const showSecretModal = ref(false);
@@ -82,10 +83,6 @@ const selectedMetric = ref<{ userId: string; key: string } | null>(null);
 const userForm = ref({ userId: '', roleId: '', subscriptionPlanId: '' });
 const bulkForm = ref({ organizationId: '', roleId: '', subscriptionPlanId: '' });
 const managePlanForm = ref({ userId: '', planId: '', reason: '' });
-const planForm = ref({ name: '', description: '', isDefault: false });
-const priceForm = ref({ name: '', amount: '', currency: 'eur', interval: 'month' as 'month' | 'year' | 'one_time', planId: '' });
-const editingPlanId = ref<string | null>(null);
-const planFeatureEntries = ref<Array<{ key: string; usage: boolean; value: string; limit: string; unit: string; pricePerUnit: string }>>([]);;
 
 const planOptions = computed<SelectOption[]>(() =>
   plans.value.map((p) => ({ value: p.id, label: p.name, description: p.description ?? undefined, icon: CreditCard })),
@@ -392,107 +389,30 @@ async function handleRevokeAccess() {
   }
 }
 
-function parseFeature(v: unknown): PlanFeature {
-  if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-    const obj = v as Record<string, unknown>;
-    if (obj.usage === true) {
-      return {
-        usage: true,
-        limit: typeof obj.limit === 'number' ? obj.limit : -1,
-        unit: typeof obj.unit === 'string' ? obj.unit : '',
-        pricePerUnit: typeof obj.pricePerUnit === 'number' ? obj.pricePerUnit : 0,
-      };
-    }
-    // Legacy { value: X } format (from old JSON textarea)
-    if ('value' in obj) {
-      const raw = obj.value;
-      if (typeof raw === 'boolean') return { usage: false, value: raw };
-      if (typeof raw === 'number') return { usage: false, value: raw };
-      return { usage: false, value: String(raw ?? '') };
-    }
-  }
-  if (typeof v === 'boolean') return { usage: false, value: v };
-  if (typeof v === 'number') return { usage: false, value: v };
-  return { usage: false, value: String(v ?? '') };
+/** The metered price that bills a feature of a plan, or null. */
+function meteredPriceOf(plan: SubscriptionPlan | undefined, key: string): SubscriptionPlanPrice | null {
+  return plan?.prices.find((p) => p.billingType === 'metered' && p.featureKey === key) ?? null;
 }
 
-function isPlanFeatureMetered(v: unknown): v is { usage: true; limit: number; unit: string; pricePerUnit: number } {
-  return v !== null && typeof v === 'object' && !Array.isArray(v) && (v as Record<string, unknown>).usage === true;
+/** Share of a metered feature's cap already used, with its colour; null when uncapped. */
+function usageOf(plan: SubscriptionPlan | undefined, key: string, total: string): { ratio: number; cls: string; price: SubscriptionPlanPrice } | null {
+  const price = meteredPriceOf(plan, key);
+  if (!price || price.usageLimit === null || price.usageLimit < 0) return null;
+  const used = Number(total);
+  const ratio = price.usageLimit === 0 ? (used > 0 ? 1 : 0) : used / price.usageLimit;
+  const cls = ratio >= 1 ? 'bg-red-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-primary-500';
+  return { ratio, cls, price };
 }
 
-function planFeatureParsed(features: Record<string, unknown>): Array<{ key: string; feature: PlanFeature }> {
-  return Object.entries(features).map(([k, v]) => ({ key: k, feature: parseFeature(v) }));
+function openPlanEditor(plan: SubscriptionPlan | null): void {
+  planEditor.value = { open: true, plan };
 }
 
-function coerceFeatureValue(v: string): unknown {
-  if (v === 'true') return true;
-  if (v === 'false') return false;
-  const n = Number(v);
-  if (!isNaN(n) && v.trim() !== '') return n;
-  return v;
-}
-
-function openEditPlan(plan: SubscriptionPlan) {
-  editingPlanId.value = plan.id;
-  planForm.value = { name: plan.name, description: plan.description ?? '', isDefault: plan.isDefault };
-  planFeatureEntries.value = Object.entries(plan.features).map(([k, v]) => {
-    const parsed = parseFeature(v);
-    if (parsed.usage) {
-      return { key: k, usage: true, value: '', limit: String(parsed.limit), unit: parsed.unit, pricePerUnit: String(parsed.pricePerUnit) };
-    }
-    return { key: k, usage: false, value: String(parsed.value), limit: '-1', unit: '', pricePerUnit: '0' };
-  });
-  showPlanModal.value = true;
-}
-
-function closePlanModal() {
-  showPlanModal.value = false;
-  editingPlanId.value = null;
-  planFeatureEntries.value = [];
-  planForm.value = { name: '', description: '', isDefault: false };
-}
-
-async function handleSavePlan() {
-  formLoading.value = true;
-  try {
-    const features = Object.fromEntries(
-      planFeatureEntries.value
-        .filter(e => e.key.trim())
-        .map(e => {
-          if (e.usage) {
-            return [e.key.trim(), { usage: true, limit: Number(e.limit) || -1, unit: e.unit, pricePerUnit: Number(e.pricePerUnit) || 0 } as PlanFeature];
-          }
-          return [e.key.trim(), coerceFeatureValue(e.value)];
-        })
-    );
-    if (editingPlanId.value) {
-      await appsApi.updatePlan(appId, editingPlanId.value, { name: planForm.value.name, description: planForm.value.description, isDefault: planForm.value.isDefault, features });
-      toast.success('Plan updated');
-    } else {
-      await appsApi.createPlan(appId, { name: planForm.value.name, description: planForm.value.description, isDefault: planForm.value.isDefault, features });
-      toast.success('Plan created');
-    }
-    plans.value = (await appsApi.listPlans(appId)).plans;
-    closePlanModal();
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed');
-  } finally {
-    formLoading.value = false;
-  }
-}
-
-async function handleAddPrice() {
-  if (!priceForm.value.planId || priceForm.value.amount === '') return;
-  formLoading.value = true;
-  try {
-    await appsApi.createPrice(appId, priceForm.value.planId, { name: priceForm.value.name, amount: Number(priceForm.value.amount), currency: priceForm.value.currency, interval: priceForm.value.interval });
-    plans.value = (await appsApi.listPlans(appId)).plans;
-    toast.success('Price added');
-    showPriceModal.value = false;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed');
-  } finally {
-    formLoading.value = false;
+async function reloadPlans(): Promise<void> {
+  plans.value = (await appsApi.listPlans(appId)).plans;
+  if (pricesPlan.value) {
+    const current = pricesPlan.value.id;
+    pricesPlan.value = plans.value.find((p) => p.id === current) ?? null;
   }
 }
 
@@ -575,12 +495,6 @@ function loadRoleOptions(search: string): Promise<SelectOption[]> {
   const items = filtered.map(r => ({ value: r.id, label: r.name, description: r.description ?? undefined, icon: Shield }));
   return Promise.resolve([{ value: '', label: t('common.none'), icon: Ban }, ...items]);
 }
-const intervalOptions = computed<SelectOption[]>(() => [
-  { value: 'month', label: t('appDetail.month'), icon: Repeat },
-  { value: 'year', label: t('appDetail.year'), icon: CalendarRange },
-  { value: 'one_time', label: t('appDetail.one_time'), icon: Zap },
-]);
-
 async function openInviteFromUsers() {
   activeTab.value = 'invitations';
   await nextTick();
@@ -778,7 +692,7 @@ const financialKpis = computed(() => {
   for (const subscription of subscribedUsers) {
     const plan = plans.value.find(p => p.id === subscription.planId);
     if (!plan) continue;
-    const price = plan.prices.find(p => p.interval === 'month');
+    const price = plan.prices.find(p => p.billingType === 'fixed' && p.interval === 'month');
     const amount = price ? Number(price.amount) : 0;
     const currency = price?.currency ?? 'eur';
     mrr += amount;
@@ -788,22 +702,20 @@ const financialKpis = computed(() => {
     planRevenue[plan.id].monthly += amount;
   }
 
-  // Aggregate metered usage per feature key
+  // Metered usage per feature, priced by the metered price rows of each plan
   const meteredKeys = new Map<string, { unit: string; totalUsage: number; pricePerUnit: number; revenue: number; currency: string }>();
   for (const plan of plans.value) {
-    const currency = plan.prices.find(p => p.interval === 'month')?.currency ?? 'eur';
-    for (const [key, v] of Object.entries(plan.features)) {
-      if (!isPlanFeatureMetered(v)) continue;
-      const feature = v as { usage: true; limit: number; unit: string; pricePerUnit: number };
-      if (!meteredKeys.has(key)) meteredKeys.set(key, { unit: feature.unit, totalUsage: 0, pricePerUnit: feature.pricePerUnit, revenue: 0, currency });
-      // Sum consumption for users on this plan
+    for (const price of plan.prices) {
+      const key = price.featureKey;
+      if (price.billingType !== 'metered' || !key) continue;
+      const unitPrice = Number(price.amount);
+      if (!meteredKeys.has(key)) meteredKeys.set(key, { unit: price.unit ?? '', totalUsage: 0, pricePerUnit: unitPrice, revenue: 0, currency: price.currency });
       for (const subscription of subscribedUsers.filter((s) => s.planId === plan.id)) {
         const agg = consumption.value.find(c => c.userId === subscription.userId && c.key === key);
         if (!agg) continue;
-        const total = Number(agg.total);
         const entry = meteredKeys.get(key)!;
-        entry.totalUsage += total;
-        entry.revenue += total * feature.pricePerUnit;
+        entry.totalUsage += Number(agg.total);
+        entry.revenue += Number(agg.total) * unitPrice;
       }
     }
   }
@@ -969,7 +881,7 @@ const financialKpis = computed(() => {
 
         <div v-if="activeTab === 'plans'" class="space-y-4">
           <div class="flex justify-end">
-            <BaseButton size="sm" @click="showPlanModal = true"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createPlan') }}</BaseButton>
+            <BaseButton size="sm" @click="openPlanEditor(null)"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createPlan') }}</BaseButton>
           </div>
           <div v-if="!plans.length" class="text-center text-sm text-surface-500 py-8">No plans yet</div>
           <div v-else class="space-y-4">
@@ -984,42 +896,29 @@ const financialKpis = computed(() => {
                   <p class="text-xs text-surface-500 mt-1">{{ plan.description }}</p>
                 </div>
                 <div class="flex items-center gap-3">
-                  <button @click="openEditPlan(plan)" class="text-xs text-surface-400 hover:text-surface-200 transition-colors">{{ t('common.edit') }}</button>
-                  <button @click="priceForm.planId = plan.id; showPriceModal = true" class="text-xs text-primary-400 hover:text-primary-300 transition-colors">+ Price</button>
+                  <button @click="openPlanEditor(plan)" class="text-xs text-surface-400 hover:text-surface-200 transition-colors">{{ t('common.edit') }}</button>
+                  <button @click="pricesPlan = plan" class="text-xs text-primary-400 hover:text-primary-300 transition-colors">{{ t('plans.prices.manage') }}</button>
                 </div>
               </div>
 
               <div v-if="Object.keys(plan.features).length" class="mb-3 flex flex-wrap gap-2">
-                <div v-for="{ key, feature } in planFeatureParsed(plan.features)" :key="key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30 text-xs flex items-center gap-1.5">
+                <div v-for="(value, key) in plan.features" :key="key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30 text-xs flex items-center gap-1.5">
                   <span class="text-surface-500 font-mono">{{ key }}</span>
-                  <template v-if="feature.usage">
-                    <BaseBadge variant="warning" size="sm">{{ t('appDetail.metered') }}</BaseBadge>
-                    <span class="text-amber-300/80">{{ feature.limit === -1 ? '∞' : feature.limit.toLocaleString() }} {{ feature.unit }}</span>
-                    <span v-if="feature.pricePerUnit > 0" class="text-surface-500">· {{ formatPrice(String(feature.pricePerUnit), 'eur') }}/{{ t('appDetail.unit') }}</span>
-                  </template>
-                  <template v-else>
-                    <template v-if="typeof feature.value === 'boolean'">
-                      <BaseBadge :variant="feature.value ? 'success' : 'neutral'" size="sm">{{ feature.value ? t('common.enabled') : t('common.disabled') }}</BaseBadge>
-                    </template>
-                    <template v-else-if="typeof feature.value === 'number'">
-                      <span class="text-surface-100 font-semibold">{{ feature.value.toLocaleString() }}</span>
-                    </template>
-                    <template v-else>
-                      <span class="text-surface-300 font-semibold">{{ feature.value }}</span>
-                    </template>
-                  </template>
+                  <BaseBadge v-if="typeof value === 'boolean'" :variant="value ? 'success' : 'neutral'" size="sm">{{ value ? t('common.enabled') : t('common.disabled') }}</BaseBadge>
+                  <span v-else class="text-surface-100 font-semibold">{{ String(value) }}</span>
                 </div>
               </div>
 
               <div v-if="plan.prices.length" class="space-y-2 pt-3 border-t border-surface-800/40">
-                <div v-for="price in plan.prices" :key="price.id" class="flex items-center justify-between text-sm">
-                  <span class="text-surface-300">{{ price.name }}</span>
-                  <div class="flex items-center gap-3">
-                    <span class="font-semibold text-surface-100">{{ formatPrice(price.amount, price.currency) }} / {{ price.interval }}</span>
+                <div v-for="price in plan.prices" :key="price.id" class="flex items-center justify-between gap-3 text-sm">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="text-surface-300 truncate">{{ price.name }}</span>
+                    <BaseBadge v-if="price.billingType === 'metered'" variant="warning" size="sm">{{ t('appDetail.metered') }}</BaseBadge>
+                  </div>
+                  <div class="flex items-center gap-3 shrink-0">
+                    <span v-if="price.billingType === 'metered'" class="font-semibold text-surface-100">{{ formatPrice(price.amount, price.currency) }} / {{ price.unit }}</span>
+                    <span v-else class="font-semibold text-surface-100">{{ formatPrice(price.amount, price.currency) }} / {{ price.interval }}</span>
                     <BaseBadge v-if="price.stripePriceId" variant="success" size="sm">Stripe</BaseBadge>
-                    <button @click="appsApi.deletePrice(appId, plan.id, price.id).then(() => appsApi.listPlans(appId).then(r => plans = r.plans))" class="text-red-500 hover:text-red-400 transition-colors">
-                      <Trash2 class="w-3.5 h-3.5" />
-                    </button>
                   </div>
                 </div>
               </div>
@@ -1114,25 +1013,14 @@ const financialKpis = computed(() => {
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-surface-800/30">
-                  <tr v-for="row in [
-                    { scope: 'openid', type: 'Standard OIDC', claims: 'sub, iss, aud, exp, iat, jti', active: app.allowedScopes.includes('openid') },
-                    { scope: 'profile', type: 'Standard OIDC', claims: 'name, picture, company*, updated_at', active: app.allowedScopes.includes('profile') },
-                    { scope: 'email', type: 'Standard OIDC', claims: 'email, email_verified', active: app.allowedScopes.includes('email') },
-                    { scope: 'phone', type: 'Standard OIDC', claims: 'phone_number', active: app.allowedScopes.includes('phone') },
-                    { scope: 'offline_access', type: 'Standard OIDC', claims: '(enables refresh token)', active: app.allowedScopes.includes('offline_access') },
-                    { scope: 'roles', type: 'Custom', claims: 'roles[]', active: app.allowedScopes.includes('roles') },
-                    { scope: 'permissions', type: 'Custom', claims: 'permissions[]', active: app.allowedScopes.includes('permissions') },
-                    { scope: 'features', type: 'Custom', claims: 'features{}, plan', active: app.allowedScopes.includes('features') },
-                    { scope: 'wallet:self:read', type: 'Custom', claims: '(authorizes the user wallet API)', active: app.allowedScopes.includes('wallet:self:read') },
-                    { scope: 'org', type: 'Custom', claims: 'org_id', active: app.allowedScopes.includes('org') },
-                  ]" :key="row.scope">
+                  <tr v-for="info in SCOPE_CATALOGUE" :key="info.scope">
                     <td class="py-2 pr-4">
-                      <code :class="['font-mono px-1.5 py-0.5 rounded text-xs', row.active ? 'bg-primary-600/15 text-primary-300' : 'bg-surface-800/50 text-surface-500']">{{ row.scope }}</code>
+                      <code :class="['font-mono px-1.5 py-0.5 rounded text-xs', app.allowedScopes.includes(info.scope) ? 'bg-primary-600/15 text-primary-300' : 'bg-surface-800/50 text-surface-500']">{{ info.scope }}</code>
                     </td>
                     <td class="py-2 pr-4">
-                      <BaseBadge :variant="row.type === 'Standard OIDC' ? 'success' : 'neutral'" size="sm">{{ row.type }}</BaseBadge>
+                      <BaseBadge :variant="info.group === 'standard' ? 'success' : 'neutral'" size="sm">{{ info.group === 'standard' ? 'Standard OIDC' : 'Custom' }}</BaseBadge>
                     </td>
-                    <td class="py-2 text-surface-400 font-mono">{{ row.claims }}</td>
+                    <td class="py-2 text-surface-400 font-mono">{{ info.claims }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1182,11 +1070,11 @@ const financialKpis = computed(() => {
                   <div class="flex items-center justify-between mb-1.5">
                     <div class="flex items-center gap-2">
                       <code class="text-xs font-mono text-surface-400 bg-surface-800/50 px-1.5 py-0.5 rounded">{{ agg.key }}</code>
-                      <!-- Show unit if this key is a metered feature on user's plan -->
+                      <!-- Unit when this key is a metered price of the user's plan -->
                       <template v-if="ua.subscriptionPlanId">
                         <template v-for="plan in plans.filter(p => p.id === ua.subscriptionPlanId)" :key="plan.id">
-                          <template v-if="isPlanFeatureMetered(plan.features[agg.key])">
-                            <span class="text-xs text-surface-500">{{ (plan.features[agg.key] as any).unit }}</span>
+                          <template v-if="meteredPriceOf(plan, agg.key)">
+                            <span class="text-xs text-surface-500">{{ meteredPriceOf(plan, agg.key)?.unit }}</span>
                             <BaseBadge variant="warning" size="sm">{{ t('appDetail.metered') }}</BaseBadge>
                           </template>
                         </template>
@@ -1198,19 +1086,19 @@ const financialKpis = computed(() => {
                       <button @click="selectedMetric = { userId: agg.userId, key: agg.key }; showResetMetricConfirm = true" class="text-xs text-red-500 hover:text-red-400 transition-colors">{{ t('appDetail.resetMetric') }}</button>
                     </div>
                   </div>
-                  <!-- Progress bar if there's a limit -->
+                  <!-- Progress bar against the cap of the metered price -->
                   <template v-if="ua.subscriptionPlanId">
                     <template v-for="plan in plans.filter(p => p.id === ua.subscriptionPlanId)" :key="plan.id">
-                      <template v-if="isPlanFeatureMetered(plan.features[agg.key]) && (plan.features[agg.key] as any).limit !== -1">
+                      <template v-if="usageOf(plan, agg.key, agg.total)">
                         <div class="h-1.5 rounded-full bg-surface-800 overflow-hidden">
                           <div
-                            :class="['h-full rounded-full transition-all', Number(agg.total) / (plan.features[agg.key] as any).limit >= 1 ? 'bg-red-500' : Number(agg.total) / (plan.features[agg.key] as any).limit >= 0.8 ? 'bg-amber-500' : 'bg-primary-500']"
-                            :style="{ width: Math.min(100, (Number(agg.total) / (plan.features[agg.key] as any).limit) * 100) + '%' }"
+                            :class="['h-full rounded-full transition-all', usageOf(plan, agg.key, agg.total)?.cls]"
+                            :style="{ width: Math.min(100, (usageOf(plan, agg.key, agg.total)?.ratio ?? 0) * 100) + '%' }"
                           />
                         </div>
                         <div class="flex justify-between text-xs text-surface-500 mt-0.5">
-                          <span>{{ Number(agg.total).toLocaleString() }} / {{ (plan.features[agg.key] as any).limit.toLocaleString() }} {{ (plan.features[agg.key] as any).unit }}</span>
-                          <span>{{ Math.round((Number(agg.total) / (plan.features[agg.key] as any).limit) * 100) }}%</span>
+                          <span>{{ Number(agg.total).toLocaleString() }} / {{ usageOf(plan, agg.key, agg.total)?.price.usageLimit?.toLocaleString() }} {{ usageOf(plan, agg.key, agg.total)?.price.unit }}</span>
+                          <span>{{ Math.round((usageOf(plan, agg.key, agg.total)?.ratio ?? 0) * 100) }}%</span>
                         </div>
                       </template>
                     </template>
@@ -1331,63 +1219,22 @@ const financialKpis = computed(() => {
       </template>
     </BaseModal>
 
-    <BaseModal :open="showPlanModal" :title="editingPlanId ? t('appDetail.editPlan') : t('appDetail.createPlan')" @close="closePlanModal">
-      <div class="space-y-4">
-        <BaseInput v-model="planForm.name" label="Name" required />
-        <BaseInput v-model="planForm.description" label="Description" />
-        <BaseToggle v-model="planForm.isDefault" label="Default plan" />
-        <div>
-          <p class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-1.5">{{ t('appDetail.features') }}</p>
-          <div class="space-y-2">
-            <div v-for="(entry, i) in planFeatureEntries" :key="i" class="rounded-xl bg-surface-800/40 border border-surface-700/30 p-3 space-y-2.5">
-              <div class="flex items-center gap-2">
-                <BaseInput v-model="entry.key" placeholder="feature.key" class="flex-1 min-w-0" />
-                <div class="flex items-center gap-1.5 shrink-0">
-                  <span class="text-xs text-surface-400">{{ t('appDetail.metered') }}</span>
-                  <BaseToggle v-model="entry.usage" />
-                </div>
-                <button type="button" @click="planFeatureEntries.splice(i, 1)" class="p-1.5 rounded-lg text-surface-500 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0">
-                  <X class="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <template v-if="entry.usage">
-                <div class="grid grid-cols-3 gap-2">
-                  <BaseInput v-model="entry.limit" :label="t('appDetail.limit')" type="number" placeholder="-1" />
-                  <BaseInput v-model="entry.unit" :label="t('appDetail.unit')" placeholder="tokens" />
-                  <BaseInput v-model="entry.pricePerUnit" :label="t('appDetail.pricePerUnit')" type="number" placeholder="0" />
-                </div>
-                <p class="text-xs text-surface-500">{{ t('appDetail.limitHint') }}</p>
-              </template>
-              <template v-else>
-                <BaseInput v-model="entry.value" :label="t('common.value')" placeholder="true / 100 / text" />
-              </template>
-            </div>
-            <BaseButton variant="ghost" size="sm" @click="planFeatureEntries.push({ key: '', usage: false, value: '', limit: '-1', unit: '', pricePerUnit: '0' })">
-              <Plus class="w-3.5 h-3.5" /> {{ t('appDetail.addFeature') }}
-            </BaseButton>
-          </div>
-        </div>
-      </div>
-      <template #footer>
-        <BaseButton variant="ghost" @click="closePlanModal">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="formLoading" @click="handleSavePlan">{{ editingPlanId ? t('common.save') : t('common.create') }}</BaseButton>
-      </template>
-    </BaseModal>
+    <PlanEditorModal
+      :open="planEditor.open"
+      :app-id="appId"
+      :plan="planEditor.plan"
+      @close="planEditor.open = false"
+      @saved="reloadPlans"
+    />
 
-    <BaseModal :open="showPriceModal" :title="t('appDetail.addPrice')" @close="showPriceModal = false">
-      <div class="space-y-4">
-        <BaseInput v-model="priceForm.name" label="Name" required />
-        <div class="grid grid-cols-2 gap-3">
-          <BaseInput v-model="priceForm.amount" label="Amount (cents)" type="number" required />
-          <BaseInput v-model="priceForm.currency" label="Currency" placeholder="eur" />
-        </div>
-        <BaseSelect v-model="priceForm.interval" :label="t('appDetail.interval')" :options="intervalOptions" />
-      </div>
-      <template #footer>
-        <BaseButton variant="ghost" @click="showPriceModal = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="formLoading" @click="handleAddPrice">{{ t('appDetail.addPrice') }}</BaseButton>
-      </template>
-    </BaseModal>
+    <PlanPricesDialog
+      v-if="pricesPlan"
+      :open="true"
+      :app-id="appId"
+      :plan="pricesPlan"
+      @close="pricesPlan = null"
+      @changed="reloadPlans"
+    />
 
     <BaseModal :open="showSecretModal" title="New Client Secret" @close="showSecretModal = false">
       <div class="space-y-3">

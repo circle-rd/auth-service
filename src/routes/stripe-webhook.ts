@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type Stripe from "stripe";
 import { stripe } from "../services/stripe.js";
 import { config } from "../config.js";
+import { ERR } from "../errors.js";
 import { db } from "../db/index.js";
 import { stripeEvents } from "../db/schema.js";
 import { eq, sql } from "drizzle-orm";
@@ -10,9 +11,11 @@ import {
   applyInvoicePaid,
   applyInvoicePaymentFailed,
   cancelSubscription,
+  completeSubscriptionCheckout,
   syncSubscription,
   type WebhookLog,
 } from "../services/billing/webhooks.js";
+import { cacheStripeInvoice } from "../services/billing/invoices.js";
 
 export async function stripeWebhookRoutes(
   fastify: FastifyInstance,
@@ -58,19 +61,12 @@ export async function stripeWebhookRoutes(
   fastify.post("/", async (req, reply) => {
     // Return 503 if Stripe is not configured
     if (!stripe || !config.stripe.webhookSecret) {
-      return reply.status(503).send({
-        error: { code: "SRV_002", message: "Stripe is not configured" },
-      });
+      throw ERR.SRV_002("Stripe is not configured");
     }
 
     const sig = req.headers["stripe-signature"];
     if (!sig || typeof sig !== "string") {
-      return reply.status(400).send({
-        error: {
-          code: "APP_001",
-          message: "Missing stripe-signature header",
-        },
-      });
+      throw ERR.APP_001("Missing stripe-signature header");
     }
 
     let event: Stripe.Event;
@@ -82,13 +78,13 @@ export async function stripeWebhookRoutes(
         config.stripe.webhookSecret,
       );
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Signature verification failed";
       fastify.log.warn(
         { err },
         "stripe-webhook: signature verification failed",
       );
-      return reply.status(400).send({ error: { code: "APP_001", message } });
+      // Never echo the parser message: it is attacker-influenced and adds no
+      // value to the caller, who only needs to know the signature was refused.
+      throw ERR.APP_001("Invalid Stripe signature");
     }
 
     fastify.log.info({ type: event.type }, "stripe-webhook: received event");
@@ -110,6 +106,16 @@ export async function stripeWebhookRoutes(
     }
 
     try {
+      // Every invoice event refreshes the read cache, whatever it does to the
+      // entitlement below (a wallet top-up invoice has no subscription at all).
+      if (event.type.startsWith("invoice.")) {
+        await cacheStripeInvoice(
+          event.data.object as Stripe.Invoice,
+          event.created,
+          log,
+        );
+      }
+
       switch (event.type) {
         case "customer.subscription.created":
         case "customer.subscription.updated":
@@ -122,6 +128,16 @@ export async function stripeWebhookRoutes(
             log,
           );
           break;
+
+        case "checkout.session.completed": {
+          const session = event.data.object as Stripe.Checkout.Session;
+          if (session.mode === "subscription") {
+            await completeSubscriptionCheckout(session, log);
+          } else {
+            await handleWalletStripeEvent(event);
+          }
+          break;
+        }
 
         case "invoice.paid":
         case "invoice.payment_succeeded":

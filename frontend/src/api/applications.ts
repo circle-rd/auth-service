@@ -34,6 +34,7 @@ export interface CreateApplicationBody {
   skipConsent?: boolean
   isMfaRequired?: boolean
   allowRegister?: boolean
+  billingMode?: 'none' | 'delegated'
   allowedScopes?: string[]
   redirectUris?: string[]
   url?: string
@@ -73,6 +74,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       skipConsent: body.skipConsent ?? false,
       isMfaRequired: body.isMfaRequired ?? false,
       allowRegister: body.allowRegister ?? true,
+      billingMode: body.billingMode ?? 'none',
       allowedScopes: body.allowedScopes ?? ['openid'],
       redirectUris: body.redirectUris ?? [],
       isPublic: body.isPublic ?? false,
@@ -295,7 +297,10 @@ export async function listPlans(appId: string): Promise<{ plans: SubscriptionPla
   return apiFetch<{ plans: SubscriptionPlan[] }>(`/admin/applications/${appId}/plans`);
 }
 
-export async function createPlan(appId: string, body: { name: string; description?: string; features?: Record<string, unknown>; isDefault?: boolean }): Promise<{ plan: SubscriptionPlan }> {
+/** Included features are plain values; a metered feature is a metered price. */
+export type PlanFeatureValue = string | number | boolean;
+
+export async function createPlan(appId: string, body: { name: string; description?: string; features?: Record<string, PlanFeatureValue>; isDefault?: boolean }): Promise<{ plan: SubscriptionPlan }> {
   if (USE_MOCK) {
     const plan: SubscriptionPlan = { id: crypto.randomUUID(), applicationId: appId, name: body.name, description: body.description ?? null, stripeProductId: null, features: body.features ?? {}, isDefault: body.isDefault ?? false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), prices: [] };
     MOCK_PLANS.push(plan);
@@ -304,7 +309,7 @@ export async function createPlan(appId: string, body: { name: string; descriptio
   return apiFetch<{ plan: SubscriptionPlan }>(`/admin/applications/${appId}/plans`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function updatePlan(appId: string, planId: string, body: Partial<{ name: string; description: string; features: Record<string, unknown>; isDefault: boolean }>): Promise<{ plan: SubscriptionPlan }> {
+export async function updatePlan(appId: string, planId: string, body: Partial<{ name: string; description: string; features: Record<string, PlanFeatureValue>; isDefault: boolean }>): Promise<{ plan: SubscriptionPlan }> {
   if (USE_MOCK) {
     const idx = MOCK_PLANS.findIndex(p => p.id === planId);
     if (idx >= 0) Object.assign(MOCK_PLANS[idx], body, { updatedAt: new Date().toISOString() });
@@ -322,14 +327,54 @@ export async function deletePlan(appId: string, planId: string): Promise<void> {
   return apiFetch<void>(`/admin/applications/${appId}/plans/${planId}`, { method: 'DELETE' });
 }
 
-export async function createPrice(appId: string, planId: string, body: { name: string; amount: number; currency: string; interval: 'month' | 'year' | 'one_time' }): Promise<{ price: SubscriptionPlanPrice }> {
+export type CreatePriceBody =
+  | { name: string; amount: number; currency: string; interval: 'month' | 'year' | 'one_time'; billingType?: 'fixed' }
+  | {
+      name: string;
+      amount: number;
+      currency: string;
+      interval: 'month';
+      billingType: 'metered';
+      featureKey: string;
+      unit: string;
+      /** -1 = unlimited. */
+      usageLimit: number;
+    };
+
+export async function createPrice(appId: string, planId: string, body: CreatePriceBody): Promise<{ price: SubscriptionPlanPrice }> {
   if (USE_MOCK) {
-    const price: SubscriptionPlanPrice = { id: crypto.randomUUID(), planId, name: body.name, amount: String(body.amount), currency: body.currency, interval: body.interval, stripePriceId: null, createdAt: new Date().toISOString() };
+    const metered = body.billingType === 'metered';
+    const price: SubscriptionPlanPrice = {
+      id: crypto.randomUUID(), planId, name: body.name, amount: String(body.amount), currency: body.currency,
+      interval: body.interval, billingType: metered ? 'metered' : 'fixed',
+      featureKey: metered ? body.featureKey : null, unit: metered ? body.unit : null,
+      usageLimit: metered ? body.usageLimit : null, stripePriceId: null, createdAt: new Date().toISOString(),
+    };
     const plan = MOCK_PLANS.find(p => p.id === planId);
     if (plan) plan.prices.push(price);
     return { price };
   }
   return apiFetch<{ price: SubscriptionPlanPrice }>(`/admin/applications/${appId}/plans/${planId}/prices`, { method: 'POST', body: JSON.stringify(body) });
+}
+
+/** Rename a price, or change a metered price's unit label and cap. Amount and feature are immutable. */
+export async function updatePlanPrice(
+  appId: string,
+  planId: string,
+  priceId: string,
+  body: { name?: string; unit?: string; usageLimit?: number },
+): Promise<{ price: SubscriptionPlanPrice }> {
+  if (USE_MOCK) {
+    const plan = MOCK_PLANS.find(p => p.id === planId);
+    const price = plan?.prices.find(pr => pr.id === priceId);
+    if (price) Object.assign(price, {
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.unit !== undefined ? { unit: body.unit } : {}),
+      ...(body.usageLimit !== undefined ? { usageLimit: body.usageLimit } : {}),
+    });
+    return { price: price! };
+  }
+  return apiFetch<{ price: SubscriptionPlanPrice }>(`/admin/applications/${appId}/plans/${planId}/prices/${priceId}`, { method: 'PATCH', body: JSON.stringify(body) });
 }
 
 export async function deletePrice(appId: string, planId: string, priceId: string): Promise<void> {

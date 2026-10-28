@@ -3,6 +3,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { subscriptionPlanPrices, subscriptionPlans } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
+import { logger } from "../../logger.js";
 import { stripe } from "../stripe.js";
 
 /**
@@ -29,7 +30,7 @@ function assertMeterEventNameFits(eventName: string): void {
   }
 }
 
-function productName(appName: string, planName: string): string {
+export function productName(appName: string, planName: string): string {
   return `${appName} — ${planName}`;
 }
 
@@ -75,6 +76,153 @@ export async function archivePlanProduct(
   await stripe.products.update(stripeProductId, { active: false });
 }
 
+/**
+ * Create the Product of a plan created outside the plan route (an application's
+ * default plan) and link it. Best-effort: a Stripe outage must not fail the
+ * application creation; reconciliation fills the missing link later.
+ */
+export async function provisionPlanProductBestEffort(input: {
+  planId: string;
+  applicationId: string;
+  appName: string;
+  planName: string;
+  description: string | null;
+}): Promise<void> {
+  if (!stripe) return;
+  try {
+    const stripeProductId = await provisionPlanProduct(input);
+    if (!stripeProductId) return;
+    await db
+      .update(subscriptionPlans)
+      .set({ stripeProductId })
+      .where(eq(subscriptionPlans.id, input.planId));
+  } catch (err) {
+    logger.warn(
+      { err: String(err), planId: input.planId },
+      "[billing] plan product provisioning failed; the reconciler will retry",
+    );
+  }
+}
+
+/** Rename the plans' Products after the application was renamed. Best-effort. */
+export async function updateApplicationProducts(input: {
+  applicationId: string;
+  appName: string;
+}): Promise<void> {
+  if (!stripe) return;
+  const plans = await db
+    .select({
+      name: subscriptionPlans.name,
+      description: subscriptionPlans.description,
+      stripeProductId: subscriptionPlans.stripeProductId,
+    })
+    .from(subscriptionPlans)
+    .where(eq(subscriptionPlans.applicationId, input.applicationId));
+  for (const plan of plans) {
+    if (!plan.stripeProductId) continue;
+    try {
+      await updatePlanProduct({
+        stripeProductId: plan.stripeProductId,
+        applicationId: input.applicationId,
+        appName: input.appName,
+        planName: plan.name,
+        description: plan.description,
+      });
+    } catch (err) {
+      logger.warn(
+        { err: String(err), stripeProductId: plan.stripeProductId },
+        "[billing] plan product rename failed; the reconciler will retry",
+      );
+    }
+  }
+}
+
+export interface CataloguePlan {
+  stripeProductId: string | null;
+  prices: Array<{
+    stripePriceId: string | null;
+    stripeMeterId: string | null;
+  }>;
+}
+
+/** The Stripe objects of an application's plans, read before its rows cascade away. */
+export async function loadApplicationCatalogue(
+  applicationId: string,
+): Promise<CataloguePlan[]> {
+  const rows = await db
+    .select({
+      planId: subscriptionPlans.id,
+      stripeProductId: subscriptionPlans.stripeProductId,
+      stripePriceId: subscriptionPlanPrices.stripePriceId,
+      stripeMeterId: subscriptionPlanPrices.stripeMeterId,
+    })
+    .from(subscriptionPlans)
+    .leftJoin(
+      subscriptionPlanPrices,
+      eq(subscriptionPlanPrices.planId, subscriptionPlans.id),
+    )
+    .where(eq(subscriptionPlans.applicationId, applicationId));
+
+  const byPlan = new Map<string, CataloguePlan>();
+  for (const row of rows) {
+    const plan = byPlan.get(row.planId) ?? {
+      stripeProductId: row.stripeProductId,
+      prices: [],
+    };
+    if (row.stripePriceId || row.stripeMeterId) {
+      plan.prices.push({
+        stripePriceId: row.stripePriceId,
+        stripeMeterId: row.stripeMeterId,
+      });
+    }
+    byPlan.set(row.planId, plan);
+  }
+  return [...byPlan.values()];
+}
+
+/**
+ * Archive a deleted application's catalogue: its Prices, its Products, and
+ * deactivate every Meter it owned. Best-effort per object, so one failure does
+ * not leave the rest unarchived.
+ */
+export async function archiveApplicationCatalogue(
+  plans: CataloguePlan[],
+): Promise<void> {
+  if (!stripe) return;
+  const meters = new Set<string>();
+  for (const plan of plans) {
+    for (const price of plan.prices) {
+      if (price.stripeMeterId) meters.add(price.stripeMeterId);
+      try {
+        await archivePlanPrice(price.stripePriceId);
+      } catch (err) {
+        logger.warn(
+          { err: String(err), stripePriceId: price.stripePriceId },
+          "[billing] price archive failed",
+        );
+      }
+    }
+    try {
+      await archivePlanProduct(plan.stripeProductId);
+    } catch (err) {
+      logger.warn(
+        { err: String(err), stripeProductId: plan.stripeProductId },
+        "[billing] product archive failed",
+      );
+    }
+  }
+  for (const meterId of meters) {
+    try {
+      await stripe.billing.meters.deactivate(meterId);
+    } catch (err) {
+      logger.warn(
+        { err: String(err), meterId },
+        "[billing] meter deactivate failed",
+      );
+    }
+  }
+}
+
 // ── Meters ──────────────────────────────────────────────────────────────────
 
 /**
@@ -103,7 +251,12 @@ async function getOrCreateMeter(input: {
       ),
     )
     .limit(1);
-  if (existing?.meterId) return existing.meterId;
+  if (existing?.meterId) {
+    // A meter can have been deactivated when its last price was removed; it
+    // must not be reused, or the new price would bill nothing.
+    const current = await stripe!.billing.meters.retrieve(existing.meterId);
+    if (current.status === "active") return existing.meterId;
+  }
 
   const meter = await stripe!.billing.meters.create({
     display_name: `${input.appName} — ${input.featureKey}`,

@@ -143,6 +143,7 @@ export const MOCK_APPLICATIONS: Application[] = [
     skipConsent: true,
     isMfaRequired: true,
     allowRegister: false,
+    billingMode: 'none',
     allowedScopes: ['openid', 'profile', 'email'],
     redirectUris: ['https://dashboard.circle.internal/auth/callback'],
     isPublic: false,
@@ -168,6 +169,7 @@ export const MOCK_APPLICATIONS: Application[] = [
     skipConsent: false,
     isMfaRequired: false,
     allowRegister: true,
+    billingMode: 'none',
     allowedScopes: ['openid', 'profile', 'email', 'offline_access'],
     redirectUris: ['https://app.acme.com/callback', 'http://localhost:3000/callback'],
     isPublic: true,
@@ -193,6 +195,7 @@ export const MOCK_APPLICATIONS: Application[] = [
     skipConsent: true,
     isMfaRequired: false,
     allowRegister: false,
+    billingMode: 'none',
     allowedScopes: ['openid'],
     redirectUris: ['https://internal.circle.io/cb'],
     isPublic: false,
@@ -272,8 +275,8 @@ export const MOCK_PLANS: SubscriptionPlan[] = [
     createdAt: '2024-03-22T14:30:03.000Z',
     updatedAt: '2024-09-01T10:00:00.000Z',
     prices: [
-      { id: 'price-0001-0000-0000-000000000001', planId: 'plan-0001-0000-0000-000000000002', name: 'Pro Monthly', amount: '2900', currency: 'eur', interval: 'month', stripePriceId: 'price_HkMnO8pQrStUvWxY', createdAt: '2024-03-22T14:30:04.000Z' },
-      { id: 'price-0001-0000-0000-000000000002', planId: 'plan-0001-0000-0000-000000000002', name: 'Pro Annual', amount: '29000', currency: 'eur', interval: 'year', stripePriceId: 'price_AaBbCcDdEeFfGgHh', createdAt: '2024-03-22T14:30:04.000Z' },
+      { id: 'price-0001-0000-0000-000000000001', planId: 'plan-0001-0000-0000-000000000002', name: 'Pro Monthly', amount: '2900', currency: 'eur', interval: 'month', billingType: 'fixed', featureKey: null, unit: null, usageLimit: null, stripePriceId: 'price_HkMnO8pQrStUvWxY', createdAt: '2024-03-22T14:30:04.000Z' },
+      { id: 'price-0001-0000-0000-000000000002', planId: 'plan-0001-0000-0000-000000000002', name: 'Pro Annual', amount: '29000', currency: 'eur', interval: 'year', billingType: 'fixed', featureKey: null, unit: null, usageLimit: null, stripePriceId: 'price_AaBbCcDdEeFfGgHh', createdAt: '2024-03-22T14:30:04.000Z' },
     ],
   },
   {
@@ -287,7 +290,7 @@ export const MOCK_PLANS: SubscriptionPlan[] = [
     createdAt: '2024-05-01T00:00:00.000Z',
     updatedAt: '2024-05-01T00:00:00.000Z',
     prices: [
-      { id: 'price-0001-0000-0000-000000000003', planId: 'plan-0001-0000-0000-000000000003', name: 'Enterprise Annual', amount: '120000', currency: 'eur', interval: 'year', stripePriceId: null, createdAt: '2024-05-01T00:00:00.000Z' },
+      { id: 'price-0001-0000-0000-000000000003', planId: 'plan-0001-0000-0000-000000000003', name: 'Enterprise Annual', amount: '120000', currency: 'eur', interval: 'year', billingType: 'fixed', featureKey: null, unit: null, usageLimit: null, stripePriceId: null, createdAt: '2024-05-01T00:00:00.000Z' },
     ],
   },
 ];
@@ -377,6 +380,7 @@ function appRecord(over: Partial<Application> & Pick<Application, 'id' | 'name' 
     skipConsent: false,
     isMfaRequired: false,
     allowRegister: true,
+    billingMode: 'none',
     allowedScopes: ['openid', 'profile', 'email'],
     redirectUris: [`https://${over.slug}.example.com/callback`],
     isPublic: true,

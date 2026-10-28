@@ -3,9 +3,6 @@ import type { Application } from '@/types';
 export const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 export type ProviderKey = (typeof ALL_PROVIDERS)[number];
 
-// `wallet:self:read` is not listed: the LiteLLM option manages it.
-export const SCOPES = ['openid', 'profile', 'email', 'phone', 'offline_access', 'roles', 'permissions', 'features', 'org'];
-export const WALLET_SCOPE = 'wallet:self:read';
 const DEFAULT_SCOPES = ['openid', 'profile', 'email', 'roles', 'permissions', 'features'];
 
 // Server-enforced identifier shape of the metadata keys.
@@ -27,6 +24,7 @@ export interface ApplicationFormState {
   skipConsent: boolean;
   isMfaRequired: boolean;
   allowRegister: boolean;
+  billingDelegated: boolean;
   allowedScopes: string[];
   redirectUris: string[];
   allowedResources: string[];
@@ -35,7 +33,7 @@ export interface ApplicationFormState {
   // OIDC RP-Initiated Logout: off unless the application must end the central SSO session.
   enableEndSession: boolean;
   postLogoutRedirectUris: string[];
-  // OIDC Back-Channel Logout endpoint (https); empty = not supported.
+  // OIDC Back-Channel Logout endpoint (public https); empty = not supported.
   backchannelLogoutUri: string;
   backchannelLogoutSessionRequired: boolean;
   // Edited as ordered pairs, serialized to a plain Record<string, string> on submit.
@@ -54,6 +52,7 @@ export function emptyApplicationForm(): ApplicationFormState {
     skipConsent: false,
     isMfaRequired: false,
     allowRegister: true,
+    billingDelegated: false,
     allowedScopes: [...DEFAULT_SCOPES],
     redirectUris: [''],
     allowedResources: [],
@@ -78,6 +77,7 @@ export function formFromApplication(a: Application): ApplicationFormState {
     skipConsent: a.skipConsent,
     isMfaRequired: a.isMfaRequired,
     allowRegister: a.allowRegister,
+    billingDelegated: a.billingMode === 'delegated',
     allowedScopes: [...a.allowedScopes],
     redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
     allowedResources: [...(a.allowedResources ?? [])],

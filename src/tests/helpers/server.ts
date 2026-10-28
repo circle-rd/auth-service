@@ -7,7 +7,7 @@
  * `app.inject()` and assert on `capture.messages`.
  */
 import type { FastifyInstance } from "fastify";
-import { buildServer } from "../../server.js";
+import { buildServer, type BuildServerOptions } from "../../server.js";
 import {
   setMailTransport,
 } from "../../services/mail/index.js";
@@ -41,11 +41,13 @@ export interface AuthServerHandle {
   cleanup: () => Promise<void>;
 }
 
-export async function makeAuthServer(): Promise<AuthServerHandle> {
+export async function makeAuthServer(
+  options: BuildServerOptions = {},
+): Promise<AuthServerHandle> {
   const capture = new MailCaptureTransport();
   setMailTransport(capture);
 
-  const app = await buildServer();
+  const app = await buildServer(options);
   await app.ready();
 
   return {

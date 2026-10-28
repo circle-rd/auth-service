@@ -170,7 +170,7 @@ export async function bootstrap(): Promise<void> {
 
   // The seeded account is a full superadmin, so a known default/placeholder
   // password is a direct takeover. Refuse those in production. The minimum
-  // length policy is enforced by config.ts (min 8); we only block exact
+  // length policy is enforced by config.ts (min 12); we only block exact
   // known values here so legitimate passwords are never falsely rejected.
   const normalizedPassword = adminPassword.toLowerCase();
   if (

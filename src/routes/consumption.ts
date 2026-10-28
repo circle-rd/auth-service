@@ -11,6 +11,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { getRequestSession, requireAdmin } from "../middleware.js";
 import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
+import { recordMeteredUsage } from "../services/billing/usage.js";
 
 const CONSUMPTION_KEY_RE = /^[a-zA-Z0-9.]+$/;
 
@@ -23,6 +24,8 @@ const postConsumptionSchema = z.object({
     .max(64)
     .regex(CONSUMPTION_KEY_RE, "key must be alphanumeric with dots"),
   value: z.number().finite("value must be a finite number"),
+  // Optional retry key: the same key reported twice increments usage once.
+  idempotencyKey: z.string().trim().min(1).max(200).optional(),
 });
 
 const userAppParamsSchema = z.object({
@@ -122,51 +125,55 @@ export async function consumptionRoutes(
       .limit(1);
     if (!access) throw ERR.CONS_003();
 
-    // Insert raw entry
-    await db.insert(consumptionEntries).values({
+    // A key that prices a metered feature of the user's active plan is billed
+    // through Stripe meters (hard cap enforced) instead of the free counters.
+    const metered = await recordMeteredUsage({
       userId,
       applicationId,
       key,
-      value: String(value),
+      value,
+      idempotencyKey: parsed.data.idempotencyKey,
     });
+    if (metered) {
+      await reply.send({ success: true, metered: true, aggregate: metered });
+      return;
+    }
 
-    // Upsert aggregate (increment total by value, supporting negative credits)
-    await db
-      .insert(consumptionAggregates)
-      .values({
+    // The raw entry and the running total move together or not at all.
+    const [aggregate] = await db.transaction(async (tx) => {
+      await tx.insert(consumptionEntries).values({
         userId,
         applicationId,
         key,
-        total: String(value),
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [
-          consumptionAggregates.userId,
-          consumptionAggregates.applicationId,
-          consumptionAggregates.key,
-        ],
-        set: {
-          total: sql`${consumptionAggregates.total} + ${String(value)}`,
-          updatedAt: new Date(),
-        },
+        value: String(value),
       });
 
-    // Re-query aggregate for response
-    const [aggregate] = await db
-      .select({
-        key: consumptionAggregates.key,
-        total: consumptionAggregates.total,
-      })
-      .from(consumptionAggregates)
-      .where(
-        and(
-          eq(consumptionAggregates.userId, userId),
-          eq(consumptionAggregates.applicationId, applicationId),
-          eq(consumptionAggregates.key, key),
-        ),
-      )
-      .limit(1);
+      // Increment the total by value, supporting negative credits.
+      return tx
+        .insert(consumptionAggregates)
+        .values({
+          userId,
+          applicationId,
+          key,
+          total: String(value),
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [
+            consumptionAggregates.userId,
+            consumptionAggregates.applicationId,
+            consumptionAggregates.key,
+          ],
+          set: {
+            total: sql`${consumptionAggregates.total} + ${String(value)}`,
+            updatedAt: new Date(),
+          },
+        })
+        .returning({
+          key: consumptionAggregates.key,
+          total: consumptionAggregates.total,
+        });
+    });
 
     await reply.send({ success: true, aggregate });
   });
@@ -275,25 +282,30 @@ export async function consumptionRoutes(
           "Invalid consumption identifier",
           parsed.error.flatten(),
         );
-      await db
-        .delete(consumptionAggregates)
-        .where(
-          and(
-            eq(consumptionAggregates.userId, parsed.data.userId),
-            eq(consumptionAggregates.applicationId, parsed.data.applicationId),
-            eq(consumptionAggregates.key, parsed.data.key),
-          ),
-        );
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(consumptionAggregates)
+          .where(
+            and(
+              eq(consumptionAggregates.userId, parsed.data.userId),
+              eq(
+                consumptionAggregates.applicationId,
+                parsed.data.applicationId,
+              ),
+              eq(consumptionAggregates.key, parsed.data.key),
+            ),
+          );
 
-      await db
-        .delete(consumptionEntries)
-        .where(
-          and(
-            eq(consumptionEntries.userId, parsed.data.userId),
-            eq(consumptionEntries.applicationId, parsed.data.applicationId),
-            eq(consumptionEntries.key, parsed.data.key),
-          ),
-        );
+        await tx
+          .delete(consumptionEntries)
+          .where(
+            and(
+              eq(consumptionEntries.userId, parsed.data.userId),
+              eq(consumptionEntries.applicationId, parsed.data.applicationId),
+              eq(consumptionEntries.key, parsed.data.key),
+            ),
+          );
+      });
 
       await reply.status(204).send();
     },

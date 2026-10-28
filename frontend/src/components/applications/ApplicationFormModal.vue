@@ -11,9 +11,9 @@ import StepGeneral from './form/StepGeneral.vue';
 import StepOptions from './form/StepOptions.vue';
 import StepAuthorization from './form/StepAuthorization.vue';
 import StepAdvanced from './form/StepAdvanced.vue';
+import { WALLET_SCOPE } from './form/scopes';
 import {
   ALL_PROVIDERS,
-  WALLET_SCOPE,
   emptyApplicationForm,
   formFromApplication,
   metadataHasError,
@@ -231,6 +231,13 @@ const tags = computed(() => {
   return out;
 });
 
+const details = computed(() => {
+  const out: Array<{ label: string; value: string }> = [];
+  if (form.value.description) out.push({ label: t('applications.description'), value: form.value.description });
+  if (form.value.url) out.push({ label: t('applications.url'), value: form.value.url });
+  return out;
+});
+
 const availableProviders = computed<ProviderKey[]>(() => {
   const providers = services.value?.providers;
   return providers ? ALL_PROVIDERS.filter((p) => providers[p]?.enabled) : [];
@@ -263,6 +270,7 @@ async function submit() {
       skipConsent: form.value.skipConsent,
       isMfaRequired: form.value.isMfaRequired,
       allowRegister: form.value.allowRegister,
+      billingMode: form.value.billingDelegated ? ('delegated' as const) : ('none' as const),
       allowedScopes: form.value.allowedScopes,
       redirectUris: form.value.redirectUris.filter(Boolean),
       allowedResources: form.value.allowedResources.filter(Boolean),
@@ -307,6 +315,7 @@ function onEnter() {
     :icon-url="form.icon || null"
     :icon-letter="form.name ? form.name[0].toUpperCase() : 'A'"
     :tags="tags"
+    :details="details"
     @close="emit('close')"
   >
     <!-- Stepper -->

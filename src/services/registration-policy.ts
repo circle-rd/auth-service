@@ -17,6 +17,15 @@ export function clientIdOf(callbackURL: unknown): string | null {
   }
 }
 
+/** The `client_id` of the application a BetterAuth email link was issued for. */
+export function clientIdOfLink(link: string): string | null {
+  try {
+    return clientIdOf(new URL(link).searchParams.get("callbackURL"));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Whether a sign-up arriving with this `callbackURL` may create an account.
  *

@@ -7,8 +7,11 @@ const props = withDefaults(defineProps<{
   name?: string;
   color?: string;
   shape?: 'circle' | 'square';
+  // Sizing of the fallback letter, for icons larger than the default.
+  letterClass?: string;
 }>(), {
   shape: 'square',
+  letterClass: 'text-xl sm:text-2xl',
 });
 
 const letterDisplay = computed(() => {
@@ -41,6 +44,6 @@ const autoColor = computed(() => {
     ]"
   >
     <img v-if="iconUrl" :src="iconUrl" class="w-full h-full object-cover" :alt="name ?? ''" />
-    <span v-else class="text-xl sm:text-2xl font-bold select-none">{{ letterDisplay }}</span>
+    <span v-else :class="[letterClass, 'font-bold select-none']">{{ letterDisplay }}</span>
   </div>
 </template>

@@ -40,8 +40,11 @@ vi.mock("../stripe.js", () => ({
   },
 }));
 
-const { findBillingCustomer, getOrCreateBillingCustomer } =
-  await import("./customers.js");
+const {
+  ensureBillingCustomerBestEffort,
+  findBillingCustomer,
+  getOrCreateBillingCustomer,
+} = await import("./customers.js");
 
 const customer = {
   id: "bc1",
@@ -122,6 +125,30 @@ describe("getOrCreateBillingCustomer", () => {
     const err = await rejection(getOrCreateBillingCustomer("user", "u1"));
     expect(err.code).toBe("BIL_001");
     expect(err.statusCode).toBe(503);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("never fails its caller when the best-effort creation succeeds", async () => {
+    state.selects.push([], [{ id: "u1" }], [customer]);
+    await expect(
+      ensureBillingCustomerBestEffort("user", "u1"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("swallows a Stripe failure in the best-effort path", async () => {
+    state.selects.push([]);
+    mockCreate.mockRejectedValueOnce(new Error("stripe down"));
+    await expect(
+      ensureBillingCustomerBestEffort("user", "u1"),
+    ).resolves.toBeUndefined();
+    expect(state.inserts).toHaveLength(0);
+  });
+
+  it("does nothing in the best-effort path without Stripe", async () => {
+    holder.stripe = null;
+    await expect(
+      ensureBillingCustomerBestEffort("user", "u1"),
+    ).resolves.toBeUndefined();
     expect(mockCreate).not.toHaveBeenCalled();
   });
 

@@ -85,9 +85,10 @@ services:
       SMTP_FROM: ${SMTP_FROM:-auth-service <no-reply@localhost>}
       MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
 
-      # Phase 5b optional features (all off by default).
+      # Phase 5b optional features (off by default, except the last-login-method
+      # cookie, which is on like in the application's own defaults).
       HAVEIBEENPWNED_ENABLED: ${HAVEIBEENPWNED_ENABLED:-false}
-      LAST_LOGIN_METHOD_ENABLED: ${LAST_LOGIN_METHOD_ENABLED:-false}
+      LAST_LOGIN_METHOD_ENABLED: ${LAST_LOGIN_METHOD_ENABLED:-true}
       DEVICE_AUTHORIZATION_ENABLED: ${DEVICE_AUTHORIZATION_ENABLED:-false}
       CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
       CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-}
@@ -103,6 +104,9 @@ services:
       AUDIENCE_PARAM: ${AUDIENCE_PARAM:-}
       CLAIM_MAPPINGS: ${CLAIM_MAPPINGS:-}
       COMPAT_ALIASES: ${COMPAT_ALIASES:-}
+
+      # Per-application login pages and emails; set to /templates to use ./templates.
+      TEMPLATES_DIR: ${TEMPLATES_DIR:-}
 
       # Social providers (optional).
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -134,6 +138,7 @@ services:
       LITELLM_PROVISIONER_KEY_FILE: /run/litellm-provisioner/key
     volumes:
       - litellm_provisioner:/run/litellm-provisioner:ro
+      - ./templates:/templates:ro
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     depends_on:

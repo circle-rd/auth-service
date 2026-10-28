@@ -63,8 +63,9 @@ describe("Login page social providers (integration)", () => {
     for (const query of ["", "?redirectTo=/profile"]) {
       const res = await handle.app.inject({ method: "GET", url: `/login${query}` });
       // The SPA build is absent from the test environment (404); when present it
-      // is HTML. Either way it is not the rendered template.
-      expect(res.body).not.toContain("google");
+      // is HTML. Either way it is not the rendered template, which lists the
+      // providers as a JSON array (the shell may mention a provider's domain).
+      expect(res.body).not.toMatch(/\["(google|github)"/);
       expect(res.body.trim()).not.toBe("[]");
     }
   });

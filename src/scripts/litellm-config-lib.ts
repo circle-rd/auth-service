@@ -164,11 +164,18 @@ const modelInfoSchema = z.object({
   ),
 });
 
-const accessGroupsSchema = z.object({
-  access_groups: z.array(
-    gatewayAccessGroupSchema.extend({ access_group_id: z.string() }),
-  ),
+const accessGroupWithIdSchema = gatewayAccessGroupSchema.extend({
+  access_group_id: z.string(),
 });
+
+// LiteLLM answers `GET /v1/access_group` with a bare array (older builds wrapped
+// it in `access_groups`), so both are accepted.
+const accessGroupsListSchema = z.union([
+  z.array(accessGroupWithIdSchema),
+  z
+    .object({ access_groups: z.array(accessGroupWithIdSchema) })
+    .transform((o) => o.access_groups),
+]);
 
 /** Read the models and access groups off a running gateway. */
 export async function exportGatewayConfig(
@@ -177,14 +184,12 @@ export async function exportGatewayConfig(
   const models = modelInfoSchema.parse(
     await call(client, "GET", "/model/info"),
   );
-  const groups = accessGroupsSchema.parse(
+  const groups = accessGroupsListSchema.parse(
     await call(client, "GET", "/v1/access_group"),
   );
   return {
     models: models.data.map(toExportModel),
-    access_groups: groups.access_groups.map(
-      ({ access_group_id: _id, ...group }) => group,
-    ),
+    access_groups: groups.map(({ access_group_id: _id, ...group }) => group),
   };
 }
 
@@ -234,9 +239,9 @@ export async function importGatewayConfig(
 
   const existing = await call(client, "GET", "/v1/access_group");
   const byName = new Map(
-    accessGroupsSchema
+    accessGroupsListSchema
       .parse(existing)
-      .access_groups.map((g) => [g.access_group_name, g.access_group_id]),
+      .map((g) => [g.access_group_name, g.access_group_id]),
   );
   for (const group of config.access_groups) {
     const id = byName.get(group.access_group_name);

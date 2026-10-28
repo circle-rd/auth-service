@@ -7,13 +7,51 @@ import { ERR } from "../../errors.js";
 /** Metered feature keys use the same charset as consumption keys. */
 const FEATURE_KEY_RE = /^[a-zA-Z0-9.]+$/;
 
-export const createPlanSchema = z.object({
+/**
+ * Included features are plain values. A metered feature is a metered price
+ * (billed by usage, with its cap), never a feature: declaring one here would
+ * be a second source of truth beside the price row that bills it.
+ */
+export const featuresSchema = z
+  .record(z.string().min(1).max(64), z.unknown())
+  .superRefine((features, ctx) => {
+    for (const [key, value] of Object.entries(features)) {
+      const plain =
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean";
+      if (!plain) {
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message:
+            "A feature is a string, number or boolean. A metered feature is a metered price, not a feature",
+        });
+      }
+    }
+  });
+
+// The Stripe ids are provisioned by auth-service and never supplied by a caller:
+// a plan pointed at someone else's Product would have that Product archived on
+// deletion. Unknown keys are refused rather than ignored.
+const planFields = {
   name: z.string().min(1).max(64),
   description: z.string().max(500).optional().nullable(),
-  stripeProductId: z.string().optional().nullable(),
-  features: z.record(z.string(), z.unknown()).default({}),
-  isDefault: z.boolean().default(false),
-});
+  features: featuresSchema,
+  isDefault: z.boolean(),
+};
+
+export const createPlanSchema = z
+  .object({
+    ...planFields,
+    features: planFields.features.default({}),
+    isDefault: planFields.isDefault.default(false),
+  })
+  .strict();
+
+// Built from the bare fields: `.partial()` on the create schema would keep its
+// defaults, so renaming a plan would silently reset its features and default flag.
+export const updatePlanSchema = z.object(planFields).partial().strict();
 
 /**
  * A plan price is either `fixed` (a recurring or one-off amount) or `metered`
@@ -38,6 +76,7 @@ export const createPlanPriceSchema = z
     // -1 = unlimited; a metered price must always carry a cap.
     usageLimit: z.number().int().min(-1).optional().nullable(),
   })
+  .strict()
   .superRefine((v, ctx) => {
     if (v.billingType === "metered") {
       if (!v.featureKey) {
@@ -89,11 +128,13 @@ export const createPlanPriceSchema = z
  * feature key are immutable in Stripe (a change archives the price and creates
  * a new one), so they are not editable here.
  */
-export const updatePlanPriceSchema = z.object({
-  name: z.string().min(1).max(64).optional(),
-  unit: z.string().min(1).max(32).optional(),
-  usageLimit: z.number().int().min(-1).optional(),
-});
+export const updatePlanPriceSchema = z
+  .object({
+    name: z.string().min(1).max(64).optional(),
+    unit: z.string().min(1).max(32).optional(),
+    usageLimit: z.number().int().min(-1).optional(),
+  })
+  .strict();
 
 export interface AppRow {
   id: string;

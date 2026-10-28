@@ -1,7 +1,7 @@
 ---
 seo:
   title: Auth Service — Self-hosted OAuth 2.1 / OIDC identity provider
-  description: Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth. Multi-app RBAC, MFA (TOTP + passkeys), subscription plans with feature flags, consumption tracking, organizations, social login, login history, and MCP server integration.
+  description: Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth. Multi-app RBAC, MFA (TOTP + backup codes), subscription plans with feature flags, consumption tracking, organizations, social login, login history, and MCP server integration.
 ---
 
 :::u-page-hero
@@ -26,10 +26,10 @@ GitHub
 What it does
 
 #features
-::::u-page-feature{icon="i-lucide-shield-check" title="OAuth 2.1 / OIDC compliant" description="Full authorization code flow with PKCE, client credentials, token introspection, JWKS, and standard discovery endpoints — compatible with any conformant client library."}
+::::u-page-feature{icon="i-lucide-shield-check" title="OAuth 2.1 / OIDC compliant" description="Full authorization code flow with PKCE, client credentials, token introspection, JWKS, and standard discovery endpoints."}
 ::::
 
-::::u-page-feature{icon="i-lucide-layers" title="Multi-application RBAC" description="Each registered application gets its own isolated role and permission model. Users carry different roles across applications; claims are injected into JWT access tokens automatically."}
+::::u-page-feature{icon="i-lucide-layers" title="Multi-application RBAC" description="Each registered application gets its own isolated role and permission model. Users carry different roles across applications; claims are injected into JWT access tokens when the matching scope is requested."}
 ::::
 
 ::::u-page-feature{icon="i-lucide-fingerprint" title="MFA — TOTP and backup codes" description="Two-factor authentication via TOTP authenticator apps, with backup codes. Per-application MFA enforcement is configurable. Passkey (WebAuthn) endpoints are enabled server side."}
@@ -41,7 +41,7 @@ What it does
 ::::u-page-feature{icon="i-lucide-bar-chart-2" title="Consumption tracking" description="Record arbitrary numeric counters (API calls, storage used, credits spent) against any user/application pair. Raw entries and running aggregates are stored in PostgreSQL."}
 ::::
 
-::::u-page-feature{icon="i-lucide-building-2" title="Organization support" description="Multi-tenant organizations with owner / admin / member roles. The org_id claim is injected into access tokens for the org scope, enabling backend services to scope data by tenant."}
+::::u-page-feature{icon="i-lucide-building-2" title="Organization support" description="Multi-tenant organizations with owner / admin / member roles. The org_id claim is injected into access tokens when the org scope is requested, enabling backend services to scope data by tenant."}
 ::::
 ::::u-page-feature{icon="i-lucide-globe" title="Social login" description="Google and GitHub OAuth providers. Per-application allow-list gating controls which providers are available to each client."}
 ::::
@@ -53,6 +53,6 @@ What it does
 ::::
 ::::u-page-feature{icon="i-lucide-arrow-right-left" title="Integrate or migrate" description="Step-by-step guides to plug a third-party application into auth-service, give it LLM access with credit control, or move an existing Okta or Keycloak deployment over."}
 ::::
-::::u-page-feature{icon="i-lucide-palette" title="Custom templates & branding" description="Override login, register, verify-email pages and transactional emails per application via TEMPLATES_DIR. Dynamic APP_NAME and APP_LOGO_URL drive the entire UI."}
+::::u-page-feature{icon="i-lucide-palette" title="Custom templates & branding" description="Override the login, register and other server-rendered pages per application, and the transactional emails globally, via TEMPLATES_DIR. APP_NAME and APP_LOGO_URL drive the branding."}
 ::::
 :::

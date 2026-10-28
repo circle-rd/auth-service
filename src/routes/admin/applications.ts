@@ -21,6 +21,12 @@ import {
   setUserSubscription,
 } from "../../services/subscriptions.js";
 import {
+  archiveApplicationCatalogue,
+  loadApplicationCatalogue,
+  provisionPlanProductBestEffort,
+  updateApplicationProducts,
+} from "../../services/billing/catalog.js";
+import {
   assignRequestedOrDefaultPlan,
   planChangeReasonRequired,
   subscriptionReasonSchema,
@@ -58,6 +64,10 @@ import {
   getRequestSession,
   requireAdmin,
 } from "../../middleware.js";
+import {
+  assertPublicBackchannelLogoutUri,
+  backchannelLogoutUriSchema,
+} from "../../services/backchannel-logout-uri.js";
 import { publishEvent } from "../../services/event-bus.js";
 import {
   ensureTeamBeforeSave,
@@ -258,15 +268,6 @@ const allowedResourcesSchema = z
 // assigned; a button for an unwired provider would fail at sign-in.
 const socialProviderSchema = z.enum(["google", "github"]);
 
-// The OIDC Back-Channel Logout endpoint must be reachable over TLS: a logout
-// token is a credential and travelling over plaintext would leak it.
-const backchannelLogoutUriSchema = z
-  .string()
-  .url()
-  .refine((value) => value.startsWith("https://"), {
-    message: "must be an https URL",
-  });
-
 const createAppSchema = z.object({
   name: z.string().min(1).max(100),
   slug: z
@@ -281,11 +282,13 @@ const createAppSchema = z.object({
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(false),
+  billingMode: z.enum(["none", "delegated"]).default("none"),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client may call
   // /oauth2/end-session, which ends the SSO session for ALL apps (no per-app
-  // variant). Off by default: apps that only log out locally must not enable it.
+  // variant) and puts `sid` in the client's ID tokens. Off by default: apps that
+  // only log out locally leave it off.
   enableEndSession: z.boolean().default(false),
   // Whitelist of URLs that may be passed as `post_logout_redirect_uri` to
   // the end-session endpoint. Empty array = no post-logout redirect allowed.
@@ -294,8 +297,8 @@ const createAppSchema = z.object({
   // logout token to this endpoint so the application can drop its local
   // session. null = the application does not support back-channel logout.
   backchannelLogoutUri: backchannelLogoutUriSchema.nullable().optional(),
-  // When true, the logout token carries `sid` and the application must reject
-  // tokens whose `sid` does not match an active session (spec §2.8).
+  // Declares that the application requires `sid` in every logout token (the
+  // provider always sends it) and ends only the session `sid` names (spec §2.8).
   backchannelLogoutSessionRequired: z.boolean().default(false),
   url: z.string().url().optional().nullable(),
   // Protected resources (other applications' URLs, e.g. the LiteLLM gateway)
@@ -320,6 +323,7 @@ const updateAppSchema = createAppSchema
     skipConsent: z.boolean().optional(),
     isMfaRequired: z.boolean().optional(),
     allowRegister: z.boolean().optional(),
+    billingMode: z.enum(["none", "delegated"]).optional(),
     allowedScopes: z.array(z.string()).optional(),
     redirectUris: z.array(z.string().url()).optional(),
     enableEndSession: z.boolean().optional(),
@@ -421,6 +425,9 @@ export async function applicationRoutes(
     if (existing) throw ERR.APP_003();
 
     await assertAllowedResources(data.allowedResources, data.url ?? null);
+    if (data.backchannelLogoutUri) {
+      await assertPublicBackchannelLogoutUri(data.backchannelLogoutUri);
+    }
     // The plans do not exist yet (a new application is created with just its
     // default one), so the team ids are derived from the plan names here.
     await ensureTeamBeforeSave(data, [], [DEFAULT_PLAN_NAME]);
@@ -443,6 +450,7 @@ export async function applicationRoutes(
           skipConsent: data.skipConsent,
           isMfaRequired: data.isMfaRequired,
           allowRegister: data.allowRegister,
+          billingMode: data.billingMode,
           allowedScopes: data.allowedScopes,
           redirectUris: data.redirectUris,
           url: data.url,
@@ -524,6 +532,18 @@ export async function applicationRoutes(
         features: {},
       })
       .returning();
+
+    // b2) Give the default plan its Stripe Product too. Best-effort: a Stripe
+    // incident must not fail the application creation (reconciliation fills it).
+    if (freePlan) {
+      await provisionPlanProductBestEffort({
+        planId: freePlan.id,
+        applicationId: app!.id,
+        appName: app!.name,
+        planName: freePlan.name,
+        description: freePlan.description,
+      });
+    }
 
     // c) Assign every existing superadmin — and the caller who just created the
     // application — to the app with the "admin" role and the "free" plan.
@@ -630,6 +650,9 @@ export async function applicationRoutes(
     if (!parsed.success)
       throw ERR.APP_001("Invalid data", parsed.error.flatten());
     if (parsed.data.isSystem !== undefined) await assertMaySetSystemFlag(req);
+    if (parsed.data.backchannelLogoutUri) {
+      await assertPublicBackchannelLogoutUri(parsed.data.backchannelLogoutUri);
+    }
 
     // Fetch the current URL before applying the update so we can diff it.
     const [before] = await db
@@ -734,6 +757,14 @@ export async function applicationRoutes(
       allowedResources: app.allowedResources,
     });
 
+    // Keep the Stripe Products named after the (possibly renamed) application.
+    if (parsed.data.name !== undefined && parsed.data.name !== before.name) {
+      await updateApplicationProducts({
+        applicationId: app.id,
+        appName: app.name,
+      });
+    }
+
     await retireTeamAfterSave(
       app.slug,
       before.allowedResources,
@@ -759,6 +790,10 @@ export async function applicationRoutes(
     if (!existing) throw ERR.APP_002();
     if (existing.isSystem) throw ERR.APP_007();
 
+    // Read the catalogue before the application's rows cascade away, so its
+    // Stripe objects can be archived (never deleted) afterwards.
+    const catalogue = await loadApplicationCatalogue(req.params.id);
+
     const [deleted] = await db
       .delete(applications)
       .where(eq(applications.id, req.params.id))
@@ -781,6 +816,7 @@ export async function applicationRoutes(
     }
 
     await retireTeamAfterSave(deleted.slug, existing.allowedResources, null);
+    await archiveApplicationCatalogue(catalogue);
 
     publishEvent("application.changed");
 

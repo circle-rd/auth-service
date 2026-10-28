@@ -158,8 +158,8 @@ export function ssoGatewayEnv(urls: SsoGatewayUrls): Record<string, string> {
     GENERIC_SCOPE: "openid profile email roles",
     // auth-service requires PKCE (OAuth 2.1).
     GENERIC_CLIENT_USE_PKCE: "true",
-    // Straight to auth-service from the login page; the master key still signs in
-    // at /fallback/login.
+    // Straight to auth-service from the login page. Password sign-in is disabled
+    // while SSO is on (litellm/config.yaml): the master key is for the API only.
     AUTO_REDIRECT_UI_LOGIN_TO_SSO: "true",
     GENERIC_USER_ID_ATTRIBUTE: "sub",
     GENERIC_USER_EMAIL_ATTRIBUTE: "email",

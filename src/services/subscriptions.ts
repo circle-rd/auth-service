@@ -8,6 +8,7 @@ import {
 } from "../db/schema.js";
 import { ERR } from "../errors.js";
 import { publishEvent } from "./event-bus.js";
+import { syncStripeSubscription } from "./billing/subscriptions.js";
 
 /**
  * Single write path for a user's subscription.
@@ -304,6 +305,12 @@ export async function assignDefaultPlanIfNeeded(
     applicationId,
     planId: defaultPlan.id,
     source: "default",
+  });
+  // Every plan, the free one included, is backed by a Stripe subscription.
+  await syncStripeSubscription({
+    userId,
+    applicationId,
+    planId: defaultPlan.id,
   });
 }
 

@@ -45,6 +45,7 @@ import {
 import { userMustSetupMfa } from "./services/mfa.js";
 import {
   clientIdOf,
+  clientIdOfLink,
   registrationOpenFor,
 } from "./services/registration-policy.js";
 import {
@@ -63,6 +64,7 @@ import {
   resolveOrganization,
 } from "./services/organization-selection.js";
 import { publishEvent } from "./services/event-bus.js";
+import { ensureBillingCustomerBestEffort } from "./services/billing/index.js";
 import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
@@ -432,7 +434,11 @@ export const auth = betterAuth({
       user: { email: string };
       url: string;
     }) => {
-      await sendResetPasswordEmail(params.user.email, params.url);
+      await sendResetPasswordEmail(
+        params.user.email,
+        params.url,
+        clientIdOfLink(params.url),
+      );
     },
   },
   // BetterAuth wires the verification email sender at the top level under
@@ -462,6 +468,7 @@ export const auth = betterAuth({
           // activating a new account.
           marked === "pending" ? "updated" : "activated",
         ),
+        clientIdOfLink(params.url),
       );
     },
   },
@@ -487,6 +494,7 @@ export const auth = betterAuth({
           params.user.email,
           params.newEmail,
           withConfirmationCallback(params.url, () => "pending"),
+          clientIdOfLink(params.url),
         );
       },
     },
@@ -580,8 +588,11 @@ export const auth = betterAuth({
           const email = (userData as { email?: unknown }).email;
           await assertInvitationFlowEmail(flow, String(email ?? ""));
         },
-        after: async () => {
+        after: async (user) => {
           publishEvent("user.changed");
+          // Stripe needs a Customer before a subscription can exist; create it
+          // eagerly but best-effort, so a Stripe incident cannot block sign-up.
+          await ensureBillingCustomerBestEffort("user", user.id);
         },
       },
       update: {
@@ -863,7 +874,11 @@ export const auth = betterAuth({
             // database dump cannot be replayed to sign in.
             storeToken: "hashed",
             sendMagicLink: async (params: { email: string; url: string }) => {
-              await sendMagicLinkEmail(params.email, params.url);
+              await sendMagicLinkEmail(
+                params.email,
+                params.url,
+                clientIdOfLink(params.url),
+              );
             },
           }),
         ]

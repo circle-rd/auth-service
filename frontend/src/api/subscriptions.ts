@@ -1,5 +1,5 @@
 import { apiFetch, USE_MOCK } from './client';
-import type { UserSubscriptionsResponse } from '@/types';
+import type { ChangePlanResult, UserSubscriptionsResponse } from '@/types';
 import { MOCK_APPLICATIONS, MOCK_PLANS, MOCK_USER_APPLICATIONS, MOCK_SERVICES_CONFIG } from '@/mocks/data';
 
 /**
@@ -32,22 +32,38 @@ export async function getMySubscriptions(): Promise<UserSubscriptionsResponse> {
 
 /**
  * Self-service plan change. The server refuses unless Stripe is configured —
- * without a payment provider only administrators change a plan.
+ * without a payment provider only administrators change a plan. A free plan
+ * applies at once; a paid one either changes the live Stripe subscription
+ * (`pending`) or returns the Stripe Checkout to open (`checkoutUrl`).
  */
 export async function changeMyPlan(
   applicationId: string,
   planId: string,
-): Promise<{ ok: true; changed: boolean }> {
+): Promise<ChangePlanResult> {
   if (USE_MOCK) {
     const ua = MOCK_USER_APPLICATIONS.find((u) => u.applicationId === applicationId);
     if (ua) {
       ua.subscriptionPlanId = planId;
       ua.subscriptionPlanName = MOCK_PLANS.find((p) => p.id === planId)?.name ?? null;
     }
-    return { ok: true, changed: true };
+    return { ok: true, changed: true, pending: false, checkoutUrl: null };
   }
-  return apiFetch<{ ok: true; changed: boolean }>(
+  return apiFetch<ChangePlanResult>(
     `/user/subscription/${applicationId}`,
     { method: 'PATCH', body: JSON.stringify({ planId }) },
+  );
+}
+
+/** Administrator: stop (or resume) a user's Stripe subscription at period end. */
+export async function setSubscriptionCancellation(
+  applicationId: string,
+  userId: string,
+  cancel: boolean,
+): Promise<{ ok: true; cancelAtPeriodEnd: boolean }> {
+  if (USE_MOCK) return { ok: true, cancelAtPeriodEnd: cancel };
+  const action = cancel ? 'cancel' : 'resume';
+  return apiFetch<{ ok: true; cancelAtPeriodEnd: boolean }>(
+    `/admin/applications/${applicationId}/users/${encodeURIComponent(userId)}/subscription/${action}`,
+    { method: 'POST' },
   );
 }

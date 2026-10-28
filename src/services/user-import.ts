@@ -8,6 +8,7 @@ import { db } from "../db/index.js";
 import { logger } from "../logger.js";
 import { encodeLegacyHash, legacyHashSchema } from "./legacy-password.js";
 import { insertCredentialUser } from "./credential-user.js";
+import { ensureBillingCustomerBestEffort } from "./billing/customers.js";
 
 // Identifier of the account at the provider the user comes from, kept as the
 // token `sub` so applications keyed on it need no mapping (`00u…`,
@@ -79,7 +80,10 @@ const needsSuperadmin = (row: ImportRow) =>
  * hash. BetterAuth's createUser cannot set these, so the rows are written
  * directly, in one transaction.
  */
-async function createTrustedUser(row: ImportRow, email: string) {
+async function createTrustedUser(
+  row: ImportRow,
+  email: string,
+): Promise<{ temporaryPassword?: string; userId: string }> {
   let temporaryPassword: string | undefined;
   let stored: string;
   if (row.passwordHash) {
@@ -90,8 +94,8 @@ async function createTrustedUser(row: ImportRow, email: string) {
     temporaryPassword = generateTempPassword();
     stored = await hashPassword(temporaryPassword);
   }
-  await db.transaction(async (tx) => {
-    await insertCredentialUser(tx, {
+  const userId = await db.transaction(async (tx) => {
+    const { id } = await insertCredentialUser(tx, {
       id: row.id,
       name: row.name,
       email,
@@ -99,8 +103,9 @@ async function createTrustedUser(row: ImportRow, email: string) {
       role: row.role,
       storedPasswordHash: stored,
     });
+    return id;
   });
-  return temporaryPassword;
+  return { temporaryPassword, userId };
 }
 
 /**
@@ -137,7 +142,9 @@ export async function importUsers(opts: {
     try {
       let temporaryPassword: string | undefined;
       if (needsSuperadmin(row)) {
-        temporaryPassword = await createTrustedUser(row, email);
+        const trusted = await createTrustedUser(row, email);
+        temporaryPassword = trusted.temporaryPassword;
+        await ensureBillingCustomerBestEffort("user", trusted.userId);
       } else {
         const password = row.password ?? generateTempPassword();
         await auth.api.createUser({

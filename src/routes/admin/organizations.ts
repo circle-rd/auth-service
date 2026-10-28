@@ -13,6 +13,20 @@ import { count, ilike, or, eq, desc, asc, and } from "drizzle-orm";
 import { requireAdmin } from "../../middleware.js";
 import { publishEvent } from "../../services/event-bus.js";
 
+const domainSchema = z
+  .string()
+  .trim()
+  .max(253)
+  .transform((value) => value.toLowerCase())
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
+        "Use a bare hostname such as example.com",
+      ),
+  );
+
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
   slug: z
@@ -21,6 +35,7 @@ const createOrgSchema = z.object({
     .max(50)
     .regex(/^[a-z0-9-]+$/),
   logo: z.string().url().optional(),
+  domain: domainSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -33,7 +48,8 @@ const updateOrgSchema = z
       .max(50)
       .regex(/^[a-z0-9-]+$/)
       .optional(),
-    logo: z.string().url().optional(),
+    logo: z.string().url().nullable().optional(),
+    domain: domainSchema.nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
@@ -70,6 +86,7 @@ export async function organizationsRoutes(
       ? or(
           ilike(organization.name, `%${search}%`),
           ilike(organization.slug, `%${search}%`),
+          ilike(organization.domain, `%${search}%`),
         )
       : undefined;
 
@@ -88,6 +105,7 @@ export async function organizationsRoutes(
           name: organization.name,
           slug: organization.slug,
           logo: organization.logo,
+          domain: organization.domain,
           createdAt: organization.createdAt,
           metadata: organization.metadata,
           memberCount: count(member.id),
@@ -111,7 +129,7 @@ export async function organizationsRoutes(
     if (!parsed.success)
       throw ERR.ORG_003("Invalid organization data", parsed.error.flatten());
 
-    const { name, slug, logo, metadata } = parsed.data;
+    const { name, slug, logo, domain, metadata } = parsed.data;
 
     try {
       const org = await auth.api.createOrganization({
@@ -119,6 +137,7 @@ export async function organizationsRoutes(
           name,
           slug,
           ...(logo ? { logo } : {}),
+          ...(domain ? { domain } : {}),
           ...(metadata ? { metadata } : {}),
         },
         headers: fromNodeHeaders(req.headers),
@@ -191,6 +210,7 @@ export async function organizationsRoutes(
     if (data.name !== undefined) updates.name = data.name;
     if (data.slug !== undefined) updates.slug = data.slug;
     if (data.logo !== undefined) updates.logo = data.logo;
+    if (data.domain !== undefined) updates.domain = data.domain;
     if (data.metadata !== undefined)
       updates.metadata = JSON.stringify(data.metadata);
 

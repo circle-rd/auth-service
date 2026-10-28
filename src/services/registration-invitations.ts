@@ -25,6 +25,7 @@ import { assignDefaultRoleIfNeeded } from "./claims.js";
 import { insertCredentialUser, type DbExecutor } from "./credential-user.js";
 import { publishEvent } from "./event-bus.js";
 import { assignDefaultPlanIfNeeded } from "./subscriptions.js";
+import { ensureBillingCustomerBestEffort } from "./billing/customers.js";
 
 /** Invitation links are short-lived: long enough for an email, not a season. */
 export const INVITATION_TTL_HOURS = 72;
@@ -329,6 +330,7 @@ export async function completeRegistration(opts: {
     return id;
   });
   await applyDefaultApplicationAccess(userId, invitation.applicationId);
+  await ensureBillingCustomerBestEffort("user", userId);
   logger.info(
     {
       userId,

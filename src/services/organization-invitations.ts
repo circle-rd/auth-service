@@ -12,6 +12,7 @@ import { ERR } from "../errors.js";
 import { logger } from "../logger.js";
 import { insertCredentialUser } from "./credential-user.js";
 import { publishEvent } from "./event-bus.js";
+import { ensureBillingCustomerBestEffort } from "./billing/customers.js";
 
 export type OrganizationInvitationState = "pending" | "expired" | "invalid";
 
@@ -142,6 +143,7 @@ export async function completeOrganizationRegistration(opts: {
 
   publishEvent("organization.changed");
   publishEvent("user.changed");
+  await ensureBillingCustomerBestEffort("user", userId);
   logger.info(
     {
       userId,

@@ -5,6 +5,7 @@ import { subscriptionPlanPrices, subscriptionPlans } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
 import { logger } from "../../logger.js";
 import { stripe } from "../stripe.js";
+import { httpUrlOrNull } from "./urls.js";
 
 /**
  * Keeps the Stripe catalogue (Products, Prices, Meters) in sync with the plan
@@ -36,34 +37,53 @@ export function productName(appName: string, planName: string): string {
 
 // ── Products ────────────────────────────────────────────────────────────────
 
-/** Create the Stripe Product of a plan. Returns its id, or null without Stripe. */
-export async function provisionPlanProduct(input: {
+export interface PlanProductInput {
   applicationId: string;
   appName: string;
   planName: string;
   description: string | null;
-}): Promise<string | null> {
+  /** Application logo, exposed as the Product image when it is a web URL. */
+  appIcon?: string | null;
+  /** Application URL, exposed as the Product URL when it is a web URL. */
+  appUrl?: string | null;
+}
+
+export function productImages(icon: string | null | undefined): string[] {
+  const url = httpUrlOrNull(icon);
+  return url ? [url] : [];
+}
+
+export function productUrl(url: string | null | undefined): string {
+  return httpUrlOrNull(url) ?? "";
+}
+
+/** Create the Stripe Product of a plan. Returns its id, or null without Stripe. */
+export async function provisionPlanProduct(
+  input: PlanProductInput,
+): Promise<string | null> {
   if (!stripe) return null;
+  const images = productImages(input.appIcon);
+  const url = productUrl(input.appUrl);
   const product = await stripe.products.create({
     name: productName(input.appName, input.planName),
+    ...(images.length > 0 ? { images } : {}),
+    ...(url ? { url } : {}),
     ...(input.description ? { description: input.description } : {}),
     metadata: { applicationId: input.applicationId },
   });
   return product.id;
 }
 
-/** Rename / re-describe an existing Product so it matches the plan row. */
-export async function updatePlanProduct(input: {
-  stripeProductId: string;
-  applicationId: string;
-  appName: string;
-  planName: string;
-  description: string | null;
-}): Promise<void> {
+/** Rename / re-describe / re-brand an existing Product from the plan row. */
+export async function updatePlanProduct(
+  input: PlanProductInput & { stripeProductId: string },
+): Promise<void> {
   if (!stripe) return;
   await stripe.products.update(input.stripeProductId, {
     name: productName(input.appName, input.planName),
     description: input.description ?? "",
+    images: productImages(input.appIcon),
+    url: productUrl(input.appUrl),
     metadata: { applicationId: input.applicationId },
   });
 }
@@ -81,13 +101,9 @@ export async function archivePlanProduct(
  * default plan) and link it. Best-effort: a Stripe outage must not fail the
  * application creation; reconciliation fills the missing link later.
  */
-export async function provisionPlanProductBestEffort(input: {
-  planId: string;
-  applicationId: string;
-  appName: string;
-  planName: string;
-  description: string | null;
-}): Promise<void> {
+export async function provisionPlanProductBestEffort(
+  input: PlanProductInput & { planId: string },
+): Promise<void> {
   if (!stripe) return;
   try {
     const stripeProductId = await provisionPlanProduct(input);
@@ -104,10 +120,12 @@ export async function provisionPlanProductBestEffort(input: {
   }
 }
 
-/** Rename the plans' Products after the application was renamed. Best-effort. */
+/** Re-brand the plans' Products after the application name, logo or URL changed. */
 export async function updateApplicationProducts(input: {
   applicationId: string;
   appName: string;
+  appIcon?: string | null;
+  appUrl?: string | null;
 }): Promise<void> {
   if (!stripe) return;
   const plans = await db
@@ -127,11 +145,13 @@ export async function updateApplicationProducts(input: {
         appName: input.appName,
         planName: plan.name,
         description: plan.description,
+        appIcon: input.appIcon,
+        appUrl: input.appUrl,
       });
     } catch (err) {
       logger.warn(
         { err: String(err), stripeProductId: plan.stripeProductId },
-        "[billing] plan product rename failed; the reconciler will retry",
+        "[billing] plan product update failed; the reconciler will retry",
       );
     }
   }
@@ -330,7 +350,13 @@ export async function provisionPlanPrice(
     currency: input.currency,
     nickname: input.name,
     ...(recurring ? { recurring } : {}),
-    metadata: { planId: input.planId },
+    metadata: {
+      planId: input.planId,
+      applicationId: input.applicationId,
+      billingType: input.billingType,
+      ...(input.featureKey ? { featureKey: input.featureKey } : {}),
+      ...(input.interval ? { interval: input.interval } : {}),
+    },
   });
   return { stripePriceId: price.id, stripeMeterId };
 }

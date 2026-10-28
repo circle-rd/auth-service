@@ -103,6 +103,8 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
         appName: app.name,
         planName: parsed.data.name,
         description: parsed.data.description ?? null,
+        appIcon: app.icon,
+        appUrl: app.url,
       });
 
       const [plan] = await db.transaction(async (tx) => {
@@ -204,6 +206,8 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
           appName: app.name,
           planName: plan.name,
           description: plan.description,
+          appIcon: app.icon,
+          appUrl: app.url,
         });
       }
 

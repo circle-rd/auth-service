@@ -12,6 +12,7 @@ import {
   toAccountView,
 } from "../services/wallet/index.js";
 import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
+import { billingCustomerIdBestEffort } from "../services/billing/customers.js";
 import {
   listTransactionsQuerySchema,
   sessionUsageQuerySchema,
@@ -89,6 +90,7 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
       userId: session.user.id,
       email: session.user.email ?? null,
       amountCents: body.amountCents,
+      customerId: await billingCustomerIdBestEffort("user", session.user.id),
     });
     await reply.status(201).send(checkout);
   });

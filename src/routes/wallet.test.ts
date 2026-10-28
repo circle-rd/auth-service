@@ -205,6 +205,7 @@ describe("POST /checkout", () => {
       userId: "user-1",
       email: "u@example.com",
       amountCents: 1000,
+      customerId: null,
     });
   });
 

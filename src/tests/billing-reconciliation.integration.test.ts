@@ -33,6 +33,7 @@ const { holder, state } = vi.hoisted(() => {
         state.customers.add(id);
         return { id };
       },
+      update: async (id: string) => ({ id }),
       list: async () => ({
         data: [...state.customers].map((id) => ({ id })),
         has_more: false,
@@ -52,6 +53,8 @@ const { holder, state } = vi.hoisted(() => {
           active: true,
           name: params.name,
           description: params.description ?? null,
+          images: params.images ?? [],
+          url: params.url ?? "",
           metadata: params.metadata ?? {},
         });
         return state.products.get(id);

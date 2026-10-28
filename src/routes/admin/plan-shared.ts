@@ -140,6 +140,8 @@ export interface AppRow {
   id: string;
   name: string;
   slug: string;
+  icon: string | null;
+  url: string | null;
 }
 
 export async function ensureApp(appId: string): Promise<AppRow> {
@@ -148,6 +150,8 @@ export async function ensureApp(appId: string): Promise<AppRow> {
       id: applications.id,
       name: applications.name,
       slug: applications.slug,
+      icon: applications.icon,
+      url: applications.url,
     })
     .from(applications)
     .where(eq(applications.id, appId))

@@ -58,13 +58,20 @@ import {
 } from "./services/invitation-flows.js";
 import { addOAuthServerContext, getOAuthState } from "better-auth/api";
 import { isSocialProviderAllowed } from "./services/social-providers.js";
+import {
+  mapGitHubProfile,
+  mapGoogleProfile,
+} from "./services/social-profile.js";
 import { recordLogin } from "./services/login-history.js";
 import {
   listUserOrganizationIds,
   resolveOrganization,
 } from "./services/organization-selection.js";
 import { publishEvent } from "./services/event-bus.js";
-import { ensureBillingCustomerBestEffort } from "./services/billing/index.js";
+import {
+  ensureBillingCustomerBestEffort,
+  syncBillingCustomerBestEffort,
+} from "./services/billing/index.js";
 import { canManageRole } from "./services/roles.js";
 import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
@@ -410,6 +417,7 @@ export const auth = betterAuth({
             clientId: config.providers.google.clientId as string,
             clientSecret: config.providers.google.clientSecret as string,
             disableImplicitSignUp: true,
+            mapProfileToUser: mapGoogleProfile,
           },
         }
       : {}),
@@ -419,6 +427,7 @@ export const auth = betterAuth({
             clientId: config.providers.github.clientId as string,
             clientSecret: config.providers.github.clientSecret as string,
             disableImplicitSignUp: true,
+            mapProfileToUser: mapGitHubProfile,
           },
         }
       : {}),
@@ -509,9 +518,16 @@ export const auth = betterAuth({
         input: false,
       },
       phone: { type: "string", required: false },
+      firstName: { type: "string", required: false },
+      lastName: { type: "string", required: false },
+      username: { type: "string", required: false },
       company: { type: "string", required: false },
       position: { type: "string", required: false },
       address: { type: "string", required: false },
+      postalCode: { type: "string", required: false },
+      city: { type: "string", required: false },
+      region: { type: "string", required: false },
+      country: { type: "string", required: false },
       // Surfaced to admin listings as "last seen". Written by
       // services/login-history.ts; must not be user-writable.
       lastLoginAt: { type: "date", required: false, input: false },
@@ -596,8 +612,11 @@ export const auth = betterAuth({
         },
       },
       update: {
-        after: async () => {
+        after: async (user) => {
           publishEvent("user.changed");
+          // Keep the Stripe Customer's name, e-mail, phone and address in line
+          // with the profile the user just edited.
+          await syncBillingCustomerBestEffort("user", user.id);
         },
       },
       delete: {
@@ -774,6 +793,15 @@ export const auth = betterAuth({
         const role = (user as Record<string, unknown>).role as
           string | undefined;
         return role === "admin" || role === "superadmin";
+      },
+      // Optional bare hostname used to qualify the organization in billing
+      // metadata and to recognize its members by email domain.
+      schema: {
+        organization: {
+          additionalFields: {
+            domain: { type: "string", required: false },
+          },
+        },
       },
       // An invitation was sent to a mailbox, so the account accepting it must
       // have a verified address matching that mailbox.

@@ -13,9 +13,16 @@ export interface User {
   banExpires: string | null
   isMfaRequired: boolean | null
   phone: string | null
+  firstName?: string | null
+  lastName?: string | null
+  username?: string | null
   company: string | null
   position: string | null
   address: string | null
+  postalCode?: string | null
+  city?: string | null
+  region?: string | null
+  country?: string | null
   /** ISO timestamp of the most recent OAuth token issuance. Null when the user has never logged in. */
   lastLoginAt?: string | null
   /** Applications the user currently has active access to. Populated by /admin/users. */
@@ -262,6 +269,7 @@ export interface Organization {
   name: string
   slug: string
   logo: string | null
+  domain?: string | null
   createdAt: string
   metadata: string | null
   memberCount?: number

@@ -57,10 +57,17 @@ const appsLoading = ref(true);
 
 const form = ref({
   name: '',
+  firstName: '',
+  lastName: '',
+  username: '',
   phone: '',
   company: '',
   position: '',
   address: '',
+  postalCode: '',
+  city: '',
+  region: '',
+  country: '',
   image: '',
 });
 
@@ -68,10 +75,17 @@ const form = ref({
 if (auth.user) {
   form.value = {
     name: auth.user.name,
+    firstName: auth.user.firstName ?? '',
+    lastName: auth.user.lastName ?? '',
+    username: auth.user.username ?? '',
     phone: auth.user.phone ?? '',
     company: auth.user.company ?? '',
     position: auth.user.position ?? '',
     address: auth.user.address ?? '',
+    postalCode: auth.user.postalCode ?? '',
+    city: auth.user.city ?? '',
+    region: auth.user.region ?? '',
+    country: auth.user.country ?? '',
     image: auth.user.image ?? '',
   };
 }
@@ -115,16 +129,36 @@ async function handleSave() {
   try {
     await updateMyProfile({
       name: form.value.name,
+      firstName: form.value.firstName || null,
+      lastName: form.value.lastName || null,
+      username: form.value.username || null,
       phone: form.value.phone || null,
       company: form.value.company || null,
       position: form.value.position || null,
       address: form.value.address || null,
+      postalCode: form.value.postalCode || null,
+      city: form.value.city || null,
+      region: form.value.region || null,
+      country: form.value.country || null,
       image: form.value.image || null,
     });
     // Also update the in-memory store so the header/avatar reflects the new name immediately
     if (auth.user) {
-      auth.user.name = form.value.name;
-      auth.user.image = form.value.image || null;
+      Object.assign(auth.user, {
+        name: form.value.name,
+        firstName: form.value.firstName || null,
+        lastName: form.value.lastName || null,
+        username: form.value.username || null,
+        phone: form.value.phone || null,
+        company: form.value.company || null,
+        position: form.value.position || null,
+        address: form.value.address || null,
+        postalCode: form.value.postalCode || null,
+        city: form.value.city || null,
+        region: form.value.region || null,
+        country: form.value.country ? form.value.country.toUpperCase() : null,
+        image: form.value.image || null,
+      });
     }
     toast.success(t('profile.saved'));
   } catch (err) {
@@ -245,14 +279,29 @@ async function handleChangePlan() {
         <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-4">{{ t('profile.personalInfo') }}</h3>
         <form @submit.prevent="handleSave" class="space-y-4">
           <div class="grid grid-cols-2 gap-4">
-            <BaseInput v-model="form.name" :label="t('profile.name')" required />
-            <BaseInput v-model="form.phone" :label="t('profile.phone')" type="tel" />
+            <BaseInput v-model="form.firstName" :label="t('profile.firstName')" />
+            <BaseInput v-model="form.lastName" :label="t('profile.lastName')" />
           </div>
           <div class="grid grid-cols-2 gap-4">
-            <BaseInput v-model="form.company" :label="t('profile.company')" />
-            <BaseInput v-model="form.position" :label="t('profile.position')" />
+            <BaseInput v-model="form.name" :label="t('profile.name')" required />
+            <BaseInput v-model="form.username" :label="t('profile.username')" />
           </div>
-          <BaseInput v-model="form.address" :label="t('profile.address')" />
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.phone" :label="t('profile.phone')" type="tel" />
+            <BaseInput v-model="form.company" :label="t('profile.company')" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.position" :label="t('profile.position')" />
+            <BaseInput v-model="form.address" :label="t('profile.address')" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.postalCode" :label="t('profile.postalCode')" />
+            <BaseInput v-model="form.city" :label="t('profile.city')" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.region" :label="t('profile.region')" />
+            <BaseInput v-model="form.country" :label="t('profile.country')" :hint="t('profile.countryHint')" />
+          </div>
           <BaseInput v-model="form.image" :label="t('profile.avatar')" :hint="t('profile.emailChangeNote')" />
           <div class="flex justify-end">
             <BaseButton type="submit" :loading="saveLoading">{{ t('common.save') }}</BaseButton>

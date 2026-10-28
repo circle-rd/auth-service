@@ -542,6 +542,8 @@ export async function applicationRoutes(
         appName: app!.name,
         planName: freePlan.name,
         description: freePlan.description,
+        appIcon: app!.icon,
+        appUrl: app!.url,
       });
     }
 
@@ -662,6 +664,7 @@ export async function applicationRoutes(
         url: applications.url,
         slug: applications.slug,
         name: applications.name,
+        icon: applications.icon,
         allowedResources: applications.allowedResources,
       })
       .from(applications)
@@ -759,11 +762,17 @@ export async function applicationRoutes(
       allowedResources: app.allowedResources,
     });
 
-    // Keep the Stripe Products named after the (possibly renamed) application.
-    if (parsed.data.name !== undefined && parsed.data.name !== before.name) {
+    // Keep the Stripe Products branded after the application's name, logo or URL.
+    if (
+      (parsed.data.name !== undefined && parsed.data.name !== before.name) ||
+      (parsed.data.icon !== undefined && parsed.data.icon !== before.icon) ||
+      (parsed.data.url !== undefined && parsed.data.url !== before.url)
+    ) {
       await updateApplicationProducts({
         applicationId: app.id,
         appName: app.name,
+        appIcon: app.icon,
+        appUrl: app.url,
       });
     }
 

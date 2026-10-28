@@ -31,6 +31,8 @@ export async function createTopupCheckout(input: {
   userId: string;
   email: string | null;
   amountCents: number;
+  /** The user's linked Stripe Customer, when one could be resolved. */
+  customerId?: string | null;
 }): Promise<{ url: string }> {
   if (!stripe) throw ERR.WAL_006();
 
@@ -50,7 +52,11 @@ export async function createTopupCheckout(input: {
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     client_reference_id: input.userId,
-    ...(input.email ? { customer_email: input.email } : {}),
+    ...(input.customerId
+      ? { customer: input.customerId }
+      : input.email
+        ? { customer_email: input.email }
+        : {}),
     line_items: [
       {
         quantity: 1,
@@ -67,11 +73,15 @@ export async function createTopupCheckout(input: {
     invoice_creation: {
       enabled: true,
       invoice_data: {
+        description: "Wallet credit top-up",
         metadata: { purpose: "wallet_topup", userId: input.userId },
       },
     },
     metadata,
-    payment_intent_data: { metadata },
+    payment_intent_data: {
+      description: "Wallet credit top-up",
+      metadata,
+    },
     success_url: `${returnUrl}?topup=success`,
     cancel_url: `${returnUrl}?topup=cancelled`,
   });

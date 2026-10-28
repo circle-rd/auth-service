@@ -1,6 +1,7 @@
 /**
  * Integration test — SPA catch-all returns 404 for missing asset paths
- * (file extension or /assets/) and the SPA shell for extensionless deep links.
+ * (file extension or /assets/) and for unknown /.well-known/ documents, and the
+ * SPA shell for extensionless deep links.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -48,6 +49,15 @@ describe("SPA not-found handler — asset paths vs deep links", () => {
     const res = await handle.app.inject({
       method: "GET",
       url: "/does-not-exist.png",
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toContain("SRV_001");
+  });
+
+  it("returns 404 JSON for a well-known document that is not offered", async () => {
+    const res = await handle.app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-protected-resource",
     });
     expect(res.statusCode).toBe(404);
     expect(res.body).toContain("SRV_001");

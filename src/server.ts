@@ -271,7 +271,7 @@ export async function buildServer(
     if (existsSync(frontendDist)) {
       return reply.sendFile("index.html", frontendDist);
     }
-    return reply.status(404).send({ error: "Not found" });
+    return reply.callNotFound();
   }
 
   if (existsSync(frontendDist)) {
@@ -361,7 +361,7 @@ export async function buildServer(
         if (existsSync(frontendDist)) {
           return reply.sendFile("index.html", frontendDist);
         }
-        return reply.status(404).send({ error: "Not found" });
+        return reply.callNotFound();
       }
 
       const rawRedirect = query.redirectTo ?? query.next ?? "/";
@@ -439,7 +439,7 @@ export async function buildServer(
       if (existsSync(frontendDist)) {
         return reply.sendFile("index.html", frontendDist);
       }
-      return reply.status(404).send({ error: "Not found" });
+      return reply.callNotFound();
     }
 
     try {
@@ -475,7 +475,7 @@ export async function buildServer(
       if (existsSync(frontendDist)) {
         return reply.sendFile("index.html", frontendDist);
       }
-      return reply.status(404).send({ error: "Not found" });
+      return reply.callNotFound();
     }
 
     const session = await auth.api.getSession({
@@ -552,7 +552,7 @@ export async function buildServer(
       if (existsSync(frontendDist)) {
         return reply.sendFile("index.html", frontendDist);
       }
-      return reply.status(404).send({ error: "Not found" });
+      return reply.callNotFound();
     }
 
     try {
@@ -798,6 +798,9 @@ export async function buildServer(
       navigation &&
       !req.url.startsWith("/api/") &&
       !req.url.startsWith("/api/auth/") &&
+      // Discovery clients read these paths for a document: an HTML page would
+      // read as a malformed answer, a 404 as "not offered".
+      !req.url.startsWith("/.well-known/") &&
       existsSync(frontendDist) &&
       !isAssetPath(req.url)
     ) {

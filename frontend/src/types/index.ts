@@ -76,6 +76,8 @@ export interface Application {
   skipConsent: boolean
   isMfaRequired: boolean
   allowRegister: boolean
+  /** `delegated`: Auth Service serves the subscribe, invoices and usage pages of the app. */
+  billingMode: 'none' | 'delegated'
   allowedScopes: string[]
   redirectUris: string[]
   isPublic: boolean

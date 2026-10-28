@@ -65,6 +65,20 @@ const { t } = useI18n();
 
     <section>
       <h4 class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
+        {{ t('applications.optionsGroupBilling') }}
+      </h4>
+      <div class="rounded-lg border border-surface-700/50 divide-y divide-surface-800/60 bg-surface-800/20">
+        <BaseToggle
+          v-model="form.billingDelegated"
+          class="p-3.5"
+          :label="t('applications.billingDelegated')"
+          :description="t('applications.billingDelegatedHint')"
+        />
+      </div>
+    </section>
+
+    <section>
+      <h4 class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
         {{ t('applications.optionsGroupSessions') }}
       </h4>
       <div class="rounded-lg border border-surface-700/50 divide-y divide-surface-800/60 bg-surface-800/20">

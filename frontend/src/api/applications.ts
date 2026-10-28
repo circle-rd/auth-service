@@ -34,6 +34,7 @@ export interface CreateApplicationBody {
   skipConsent?: boolean
   isMfaRequired?: boolean
   allowRegister?: boolean
+  billingMode?: 'none' | 'delegated'
   allowedScopes?: string[]
   redirectUris?: string[]
   url?: string
@@ -73,6 +74,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       skipConsent: body.skipConsent ?? false,
       isMfaRequired: body.isMfaRequired ?? false,
       allowRegister: body.allowRegister ?? true,
+      billingMode: body.billingMode ?? 'none',
       allowedScopes: body.allowedScopes ?? ['openid'],
       redirectUris: body.redirectUris ?? [],
       isPublic: body.isPublic ?? false,

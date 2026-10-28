@@ -398,7 +398,10 @@ export default {
     stepAdvancedHint: 'Déconnexion, connexion sociale et claims personnalisés pour des intégrations précises.',
     optionsGroupAccess: 'Accès',
     optionsGroupSignIn: 'Connexion',
+    optionsGroupBilling: 'Facturation',
     optionsGroupSessions: 'Sessions et intégrations',
+    billingDelegated: 'Pages de facturation hébergées',
+    billingDelegatedHint: 'Auth Service sert les pages d\u2019abonnement, de factures et de consommation de cette application : ses utilisateurs g\u00e8rent leur plan sans que l\u2019application d\u00e9veloppe ses propres \u00e9crans.',
     isActiveHint: 'Une application inactive ne peut ni connecter d\u2019utilisateurs ni obtenir de tokens.',
     isPublicHint: 'Pour les applications web et mobiles qui ne peuvent pas garder de secret : elles se connectent avec PKCE seul. Un client confidentiel reçoit un secret, affiché une seule fois. Non modifiable après la création.',
     allowRegisterHint: 'Permet aux nouveaux utilisateurs de créer leur compte depuis la page de connexion de cette application. Désactivé, seuls les comptes existants peuvent se connecter.',
@@ -854,7 +857,7 @@ export default {
       example: 'Un appel qui coûte 1 USD au fournisseur est facturé {amount}.',
       source: { database: 'Défini par un administrateur', environment: 'Issu de la configuration du serveur' },
       lastChange: 'Modifié par {name} le {date}',
-      notSet: 'Aucun taux de change n’est défini : les appels de la passerelle sont refusés tant qu’un superadmin n’en définit pas.',
+      notSet: 'Aucun taux de change n’est défini : l’usage de la passerelle ne peut pas être valorisé, ses débits restent en file d’attente et sont réessayés tant qu’un superadmin n’en définit pas.',
       edit: 'Modifier la tarification',
       history: 'Historique',
       showHistory: 'Afficher l’historique',
@@ -1013,7 +1016,7 @@ export default {
     heroTitle: 'Un seul fournisseur d\'identité pour toutes vos applications.',
     heroSubtitle: 'Les utilisateurs, les clés et les données vous appartiennent.',
     heroLede:
-      '{appName} est un fournisseur OAuth 2.1 / OpenID Connect auto-hébergé, bâti sur BetterAuth. Enregistrez vos applications, donnez à chacune ses propres rôles, sécurisez la connexion avec des passkeys et du TOTP, et mesurez la consommation, y compris via votre passerelle LiteLLM — depuis une seule console d\'administration.',
+      '{appName} est un fournisseur OAuth 2.1 / OpenID Connect auto-hébergé, bâti sur BetterAuth. Enregistrez vos applications, donnez à chacune ses propres rôles, sécurisez la connexion avec du TOTP, et mesurez la consommation, y compris via votre passerelle LiteLLM — depuis une seule console d\'administration.',
     heroNote: 'Open source, GPL-3.0. À exécuter sur votre propre infrastructure.',
     screenshotAlt: 'Le tableau de bord d\'administration : utilisateurs, sessions, connexions et crédit consommé',
     screenshotCaption: 'Le tableau de bord d\'administration (données de démonstration).',
@@ -1033,9 +1036,9 @@ export default {
           'Chaque application est un client OAuth avec ses propres rôles, permissions et scopes, transmis en claims JWT.',
       },
       mfa: {
-        title: 'Passkeys et TOTP',
+        title: 'TOTP et codes de secours',
         description:
-          'Passkeys FIDO2, applications d\'authentification et codes de secours, avec double facteur imposable par application.',
+          'Applications d\'authentification et codes de secours, avec double facteur imposable par application.',
       },
       organizations: {
         title: 'Organisations',

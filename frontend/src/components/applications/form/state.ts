@@ -24,6 +24,7 @@ export interface ApplicationFormState {
   skipConsent: boolean;
   isMfaRequired: boolean;
   allowRegister: boolean;
+  billingDelegated: boolean;
   allowedScopes: string[];
   redirectUris: string[];
   allowedResources: string[];
@@ -51,6 +52,7 @@ export function emptyApplicationForm(): ApplicationFormState {
     skipConsent: false,
     isMfaRequired: false,
     allowRegister: true,
+    billingDelegated: false,
     allowedScopes: [...DEFAULT_SCOPES],
     redirectUris: [''],
     allowedResources: [],
@@ -75,6 +77,7 @@ export function formFromApplication(a: Application): ApplicationFormState {
     skipConsent: a.skipConsent,
     isMfaRequired: a.isMfaRequired,
     allowRegister: a.allowRegister,
+    billingDelegated: a.billingMode === 'delegated',
     allowedScopes: [...a.allowedScopes],
     redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
     allowedResources: [...(a.allowedResources ?? [])],

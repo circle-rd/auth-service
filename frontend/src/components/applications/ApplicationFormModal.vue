@@ -270,6 +270,7 @@ async function submit() {
       skipConsent: form.value.skipConsent,
       isMfaRequired: form.value.isMfaRequired,
       allowRegister: form.value.allowRegister,
+      billingMode: form.value.billingDelegated ? ('delegated' as const) : ('none' as const),
       allowedScopes: form.value.allowedScopes,
       redirectUris: form.value.redirectUris.filter(Boolean),
       allowedResources: form.value.allowedResources.filter(Boolean),

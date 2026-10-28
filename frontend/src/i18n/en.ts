@@ -398,7 +398,10 @@ export default {
     stepAdvancedHint: 'Logout, social sign-in and custom claims for specific integrations.',
     optionsGroupAccess: 'Access',
     optionsGroupSignIn: 'Sign-in',
+    optionsGroupBilling: 'Billing',
     optionsGroupSessions: 'Sessions and integrations',
+    billingDelegated: 'Hosted billing pages',
+    billingDelegatedHint: 'Auth Service serves the subscribe, invoices and usage pages for this application, so its users manage their plan without the application building its own screens.',
     isActiveHint: 'An inactive application cannot sign users in or obtain tokens.',
     isPublicHint: 'For browser and mobile apps that cannot keep a secret: they sign in with PKCE only. A confidential client gets a secret, shown once. Fixed once created.',
     allowRegisterHint: 'Let new users create their account from this application\u2019s sign-in page. When off, only existing accounts can sign in.',
@@ -854,7 +857,7 @@ export default {
       example: 'A call that costs 1 USD to the provider is charged {amount}.',
       source: { database: 'Set by an administrator', environment: 'From the server configuration' },
       lastChange: 'Changed by {name} on {date}',
-      notSet: 'No exchange rate is set: calls from the gateway are refused until a superadmin sets one.',
+      notSet: 'No exchange rate is set: gateway usage cannot be priced, so its debits stay queued and are retried until a superadmin sets one.',
       edit: 'Edit pricing',
       history: 'History',
       showHistory: 'Show history',
@@ -1012,7 +1015,7 @@ export default {
     heroTitle: 'One identity provider for every application.',
     heroSubtitle: 'You own the users, the keys and the data.',
     heroLede:
-      '{appName} is a self-hosted OAuth 2.1 / OpenID Connect provider built on BetterAuth. Register your applications, give each one its own roles, secure sign-in with passkeys and TOTP, and meter what people consume, including through your LiteLLM gateway — from a single admin console.',
+      '{appName} is a self-hosted OAuth 2.1 / OpenID Connect provider built on BetterAuth. Register your applications, give each one its own roles, secure sign-in with TOTP, and meter what people consume, including through your LiteLLM gateway — from a single admin console.',
     heroNote: 'Open source, GPL-3.0. Run it on your own infrastructure.',
     screenshotAlt: 'The administration dashboard: users, sessions, logins and credit usage',
     screenshotCaption: 'The administration dashboard (demo data).',
@@ -1032,9 +1035,9 @@ export default {
           'Every application is an OAuth client with its own roles, permissions and scopes, delivered as JWT claims.',
       },
       mfa: {
-        title: 'Passkeys and TOTP',
+        title: 'TOTP and backup codes',
         description:
-          'FIDO2 passkeys, authenticator apps and backup codes, with two-factor enforceable per application.',
+          'Authenticator apps and backup codes, with two-factor enforceable per application.',
       },
       organizations: {
         title: 'Organizations',

@@ -15,6 +15,7 @@ import { db } from "../db/index.js";
 import { user } from "../db/auth-schema.js";
 import {
   applications,
+  stripeEvents,
   stripeInvoices,
   subscriptionPlanPrices,
   subscriptionPlans,
@@ -259,6 +260,68 @@ describe("syncSubscription", () => {
     });
   });
 
+  it("follows a Stripe price change to the new plan of the same application", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const basic = await seedPlan(a.id, "basic");
+    const premium = await seedPlan(a.id, "premium");
+    await seedPrice(basic.id, "price_basic");
+    await seedPrice(premium.id, "price_premium");
+    await seedAccess("user-1", a.id);
+    await seedSubscription("user-1", a.id, basic.id);
+
+    await syncSubscription(
+      subscription({
+        items: {
+          data: [
+            {
+              price: { id: "price_premium", product: "prod_1" },
+              current_period_start: PERIOD_START,
+              current_period_end: PERIOD_END,
+            },
+          ],
+        },
+      }),
+      log,
+    );
+
+    expect((await readSubscription("user-1", a.id))?.planId).toBe(premium.id);
+  });
+
+  it("ignores a price that belongs to another application", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const other = await seedApp("other-app");
+    const plan = await seedPlan(a.id, "basic");
+    const foreign = await seedPlan(other.id, "foreign");
+    await seedPrice(plan.id, "price_basic");
+    await seedPrice(foreign.id, "price_foreign");
+    await seedAccess("user-1", a.id);
+    await seedSubscription("user-1", a.id, plan.id);
+    const warn = vi.fn();
+
+    await syncSubscription(
+      subscription({
+        items: {
+          data: [
+            {
+              price: { id: "price_foreign", product: "prod_1" },
+              current_period_start: PERIOD_START,
+              current_period_end: PERIOD_END,
+            },
+          ],
+        },
+      }),
+      { warn, debug: () => {} },
+    );
+
+    expect((await readSubscription("user-1", a.id))?.planId).toBe(plan.id);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ subscriptionId: "sub_1" }),
+      expect.stringContaining("another application"),
+    );
+  });
+
   it("falls back to the product when the price is unknown", async () => {
     await seedUser();
     const a = await seedApp();
@@ -460,6 +523,142 @@ describe("POST /api/webhooks/stripe", () => {
     // The duplicate is acknowledged without re-applying state.
     const after = await readSubscription("user-1", a.id);
     expect(after?.updatedAt).toEqual(created?.updatedAt);
+  });
+
+  it("refuses a call with no signature", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/webhooks/stripe/",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({}),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: { code: "APP_001", message: "Missing stripe-signature header" },
+    });
+    expect(constructEvent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invalid signature without echoing the parser error", async () => {
+    constructEvent.mockImplementationOnce(() => {
+      throw new Error("parser detail that must not reach the caller");
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/webhooks/stripe/",
+      headers: {
+        "stripe-signature": "t=1,v1=bad",
+        "content-type": "application/json",
+      },
+      payload: JSON.stringify({}),
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({
+      error: { code: "APP_001", message: "Invalid Stripe signature" },
+    });
+    const events = await db.select({ id: stripeEvents.id }).from(stripeEvents);
+    expect(events).toEqual([]);
+  });
+
+  it("answers 503 when Stripe is not configured", async () => {
+    const configured = stripeHolder.stripe;
+    stripeHolder.stripe = null;
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/webhooks/stripe/",
+        headers: {
+          "stripe-signature": "t=1,v1=test",
+          "content-type": "application/json",
+        },
+        payload: JSON.stringify({}),
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ error: { code: "SRV_002" } });
+    } finally {
+      stripeHolder.stripe = configured;
+    }
+  });
+
+  it("dispatches a subscription deletion", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const plan = await seedPlan(a.id);
+    await seedPrice(plan.id, "price_1");
+    await seedAccess("user-1", a.id);
+    await seedSubscription("user-1", a.id, plan.id);
+
+    const response = await post(
+      "evt_del",
+      "customer.subscription.deleted",
+      subscription({ status: "canceled", canceled_at: PERIOD_END }),
+    );
+    expect(response.statusCode).toBe(200);
+    expect((await readSubscription("user-1", a.id))?.isActive).toBe(false);
+  });
+
+  it("dispatches subscription invoices", async () => {
+    await seedUser();
+    const a = await seedApp();
+    const plan = await seedPlan(a.id);
+    await seedPrice(plan.id, "price_1");
+    await seedAccess("user-1", a.id);
+    await seedSubscription("user-1", a.id, plan.id, false);
+
+    const paid = await post(
+      "evt_inv_paid",
+      "invoice.paid",
+      invoice({
+        id: "in_paid",
+        status: "paid",
+        currency: "eur",
+        amount_due: 1000,
+        amount_paid: 1000,
+        amount_remaining: 0,
+        created: PERIOD_START,
+        customer: "cus_1",
+        metadata: { userId: "user-1" },
+      }),
+    );
+    expect(paid.statusCode).toBe(200);
+    expect((await readSubscription("user-1", a.id))?.isActive).toBe(true);
+
+    const failed = await post(
+      "evt_inv_failed",
+      "invoice.payment_failed",
+      invoice({
+        id: "in_failed",
+        status: "open",
+        currency: "eur",
+        amount_due: 1000,
+        amount_paid: 0,
+        amount_remaining: 1000,
+        created: PERIOD_START + 1,
+        customer: "cus_1",
+        metadata: { userId: "user-1" },
+      }),
+    );
+    expect(failed.statusCode).toBe(200);
+    expect((await readSubscription("user-1", a.id))?.isActive).toBe(false);
+  });
+
+  it("hands a wallet checkout to the wallet service", async () => {
+    const response = await post("evt_wallet", "checkout.session.completed", {
+      id: "cs_wallet",
+      object: "checkout.session",
+      mode: "payment",
+      metadata: {},
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("acknowledges an unhandled event type", async () => {
+    const response = await post("evt_unhandled", "customer.updated", {
+      id: "cus_1",
+      object: "customer",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ received: true });
   });
 
   it("caches an invoice event for the read API, whatever its entitlement effect", async () => {

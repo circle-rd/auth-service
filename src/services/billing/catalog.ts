@@ -30,7 +30,7 @@ function assertMeterEventNameFits(eventName: string): void {
   }
 }
 
-function productName(appName: string, planName: string): string {
+export function productName(appName: string, planName: string): string {
   return `${appName} — ${planName}`;
 }
 
@@ -251,7 +251,12 @@ async function getOrCreateMeter(input: {
       ),
     )
     .limit(1);
-  if (existing?.meterId) return existing.meterId;
+  if (existing?.meterId) {
+    // A meter can have been deactivated when its last price was removed; it
+    // must not be reused, or the new price would bill nothing.
+    const current = await stripe!.billing.meters.retrieve(existing.meterId);
+    if (current.status === "active") return existing.meterId;
+  }
 
   const meter = await stripe!.billing.meters.create({
     display_name: `${input.appName} — ${input.featureKey}`,

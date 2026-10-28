@@ -84,13 +84,18 @@ export async function stripeWebhookRoutes(
         config.stripe.webhookSecret,
       );
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Signature verification failed";
       fastify.log.warn(
         { err },
         "stripe-webhook: signature verification failed",
       );
-      return reply.status(400).send({ error: { code: "APP_001", message } });
+      // Never echo the parser message: it is attacker-influenced and adds no
+      // value to the caller, who only needs to know the signature was refused.
+      return reply.status(400).send({
+        error: {
+          code: "APP_001",
+          message: "Invalid Stripe signature",
+        },
+      });
     }
 
     fastify.log.info({ type: event.type }, "stripe-webhook: received event");

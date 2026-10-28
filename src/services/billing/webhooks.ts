@@ -78,7 +78,7 @@ async function applicationIdFromPlanId(planId: string): Promise<string | null> {
 }
 
 /** Resolve a plan from the subscription's price, falling back to its product. */
-async function planIdFromSubscription(
+export async function planIdFromSubscription(
   subscription: Stripe.Subscription,
 ): Promise<string | null> {
   const item = primaryItem(subscription);
@@ -118,17 +118,34 @@ async function findSubscriptionTarget(
 
 /**
  * Resolve the (user, application, plan) a Stripe subscription belongs to. The
- * stored `stripe_subscription_id` is authoritative; when the row is not known
- * yet (the very first event) we fall back to the plan resolved from the price
- * and the `userId` carried in the subscription metadata.
+ * stored `stripe_subscription_id` is authoritative for the owner; the plan
+ * follows the Stripe price, because an in-place plan change updates that price
+ * and the plan must follow its update event. A price that maps to another
+ * application's plan is refused rather than allowed to move the subscription
+ * across tenants.
  */
 async function resolveSubscriptionTarget(
   subscription: Stripe.Subscription,
   log: WebhookLog,
 ): Promise<SubscriptionTarget | null> {
   const existing = await findSubscriptionTarget(subscription.id);
-  const planId =
-    existing?.planId ?? (await planIdFromSubscription(subscription));
+  const stripePlanId = await planIdFromSubscription(subscription);
+  if (existing && stripePlanId) {
+    const stripeApplicationId = await applicationIdFromPlanId(stripePlanId);
+    if (stripeApplicationId !== existing.applicationId) {
+      log.warn(
+        {
+          subscriptionId: subscription.id,
+          planId: stripePlanId,
+          applicationId: existing.applicationId,
+        },
+        "billing: subscription price belongs to another application; ignored",
+      );
+      return null;
+    }
+  }
+
+  const planId = stripePlanId ?? existing?.planId ?? null;
   if (!planId) {
     log.warn(
       { subscriptionId: subscription.id },
@@ -203,15 +220,15 @@ async function isSuperseded(
 export async function syncSubscription(
   subscription: Stripe.Subscription,
   log: WebhookLog,
-): Promise<void> {
+): Promise<boolean> {
   const target = await resolveSubscriptionTarget(subscription, log);
-  if (!target) return;
+  if (!target) return false;
   if (await isSuperseded(target, subscription.id)) {
     log.debug(
       { subscriptionId: subscription.id },
       "billing: event for a superseded subscription; ignored",
     );
-    return;
+    return false;
   }
 
   const state = stripeStateOf(subscription);
@@ -224,6 +241,7 @@ export async function syncSubscription(
     expiresAt: state.currentPeriodEnd,
     stripe: state,
   });
+  return true;
 }
 
 /**

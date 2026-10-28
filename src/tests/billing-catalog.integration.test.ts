@@ -63,6 +63,7 @@ const { stripeHolder, calls } = vi.hoisted(() => {
         create: vi.fn(async (p: unknown) => ({
           id: `meter_${calls.metersCreate.push(p)}`,
         })),
+        retrieve: vi.fn(async (id: string) => ({ id, status: "active" })),
         deactivate: vi.fn(async (id: string) => {
           calls.metersDeactivate.push(id);
           return { id };

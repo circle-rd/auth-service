@@ -208,6 +208,15 @@ async function pushMeterEvent(input: {
   }
 }
 
+/** Meter events still waiting for Stripe, for a read-only reconciliation run. */
+export async function countPendingMeterEvents(): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(billingUsageEvents)
+    .where(isNull(billingUsageEvents.stripeMeterEventIdentifier));
+  return row?.count ?? 0;
+}
+
 /**
  * Push the meter events Stripe has not acknowledged yet. Stops at the first
  * failure (usually systemic) so a Stripe outage does not hammer the API.

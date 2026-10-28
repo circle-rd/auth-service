@@ -9,6 +9,7 @@ import {
 } from "../../db/schema.js";
 import { isStripeConfigured } from "../stripe.js";
 import { getApplicationUsage } from "./app-views.js";
+import { httpsOnly } from "./urls.js";
 import { listApplicationInvoices } from "./invoices.js";
 
 /**
@@ -87,14 +88,6 @@ function money(amount: number, currency: string, locale: string): string {
     style: "currency",
     currency: currency.toUpperCase(),
   }).format(amount / 100);
-}
-
-/**
- * A link taken from Stripe is only rendered when it is an https URL: a page must
- * never carry a `javascript:` or other scheme into an href.
- */
-function httpsOnly(url: string | null): string | null {
-  return url && url.startsWith("https://") ? url : null;
 }
 
 function date(value: string | null, locale: string): string | null {

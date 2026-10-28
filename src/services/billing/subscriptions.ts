@@ -13,6 +13,7 @@ import { logger } from "../../logger.js";
 import { stripe } from "../stripe.js";
 import { provisionPlanPrice, provisionPlanProduct } from "./catalog.js";
 import { getOrCreateBillingCustomer } from "./customers.js";
+import { isHttpsUrl } from "./urls.js";
 
 /**
  * Keeps the Stripe subscription of a (user, application) pair in line with the
@@ -160,8 +161,8 @@ export async function syncStripeSubscription(input: {
   userId: string;
   applicationId: string;
   planId: string;
-}): Promise<void> {
-  if (!stripe) return;
+}): Promise<boolean> {
+  if (!stripe) return false;
   try {
     const priceId = await ensureSubscriptionPrice(input.planId);
     if (!priceId) {
@@ -169,7 +170,7 @@ export async function syncStripeSubscription(input: {
         { planId: input.planId },
         "[billing] plan has no recurring Price; no Stripe subscription created",
       );
-      return;
+      return false;
     }
     const customer = await getOrCreateBillingCustomer("user", input.userId);
     const metadata = {
@@ -192,7 +193,7 @@ export async function syncStripeSubscription(input: {
         params.items = [{ id: item.id, price: priceId }];
       }
       await stripe.subscriptions.update(subscription.id, params);
-      return;
+      return true;
     }
 
     const created = await stripe.subscriptions.create(
@@ -214,11 +215,13 @@ export async function syncStripeSubscription(input: {
           eq(userSubscriptions.applicationId, input.applicationId),
         ),
       );
+    return true;
   } catch (err) {
     logger.warn(
       { err: String(err), ...input },
       "[billing] Stripe subscription sync failed; the reconciler will retry",
     );
+    return false;
   }
 }
 
@@ -285,16 +288,25 @@ export async function createSubscriptionCheckout(input: {
     planId: input.planId,
   };
   const returnUrl = `${config.betterAuth.url}/profile`;
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    customer: customer.stripeCustomerId,
-    line_items: [{ price: priceId, quantity: 1 }],
-    subscription_data: { metadata },
-    metadata,
-    success_url: `${returnUrl}?subscription=success`,
-    cancel_url: `${returnUrl}?subscription=cancelled`,
-  });
-  if (!session.url) throw ERR.SRV_001("Stripe returned no checkout URL");
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "subscription",
+      customer: customer.stripeCustomerId,
+      line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: { metadata },
+      metadata,
+      success_url: `${returnUrl}?subscription=success`,
+      cancel_url: `${returnUrl}?subscription=cancelled`,
+    },
+    {
+      // A double click must not open two subscriptions. The key is scoped to a
+      // short window so a retry after an expired session can still start over.
+      idempotencyKey: `billing:checkout:${input.userId}:${input.applicationId}:${input.planId}:${Math.floor(Date.now() / 600_000)}`,
+    },
+  );
+  if (!isHttpsUrl(session.url)) {
+    throw ERR.BIL_004("Stripe returned no secure checkout URL");
+  }
   return { url: session.url };
 }
 
@@ -308,6 +320,9 @@ export async function createBillingPortalUrl(input: {
     customer: customer.stripeCustomerId,
     return_url: `${config.betterAuth.url}/profile`,
   });
+  if (!isHttpsUrl(session.url)) {
+    throw ERR.BIL_004("Stripe returned no secure portal URL");
+  }
   return { url: session.url };
 }
 

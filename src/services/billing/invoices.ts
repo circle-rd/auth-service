@@ -11,6 +11,7 @@ import {
 import { ERR } from "../../errors.js";
 import type { WebhookLog } from "./webhooks.js";
 import { subscriptionIdFromInvoice } from "./webhooks.js";
+import { httpsOnly } from "./urls.js";
 
 /**
  * Read cache of Stripe invoices, filled by the invoice webhooks. Nothing here
@@ -135,8 +136,8 @@ export async function cacheStripeInvoice(
       ? new Date(invoice.period_start * 1000)
       : null,
     periodEnd: invoice.period_end ? new Date(invoice.period_end * 1000) : null,
-    hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
-    invoicePdf: invoice.invoice_pdf ?? null,
+    hostedInvoiceUrl: httpsOnly(invoice.hosted_invoice_url),
+    invoicePdf: httpsOnly(invoice.invoice_pdf),
     stripeCreatedAt: new Date(invoice.created * 1000),
     lastEventAt,
     updatedAt: new Date(),
@@ -259,8 +260,8 @@ export async function listInvoices(
       periodStart: r.periodStart?.toISOString() ?? null,
       periodEnd: r.periodEnd?.toISOString() ?? null,
       createdAt: r.stripeCreatedAt.toISOString(),
-      hostedInvoiceUrl: r.hostedInvoiceUrl,
-      invoicePdf: r.invoicePdf,
+      hostedInvoiceUrl: httpsOnly(r.hostedInvoiceUrl),
+      invoicePdf: httpsOnly(r.invoicePdf),
     })),
     nextCursor:
       rows.length > limit && last

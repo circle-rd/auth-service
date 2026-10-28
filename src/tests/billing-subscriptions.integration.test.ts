@@ -25,6 +25,7 @@ const { stripeHolder, calls } = vi.hoisted(() => {
     subsRetrieve: [] as string[],
     subsUpdate: [] as [string, Record<string, unknown>][],
     checkoutCreate: [] as Record<string, unknown>[],
+    checkoutOptions: [] as Record<string, unknown>[],
     portalCreate: [] as Record<string, unknown>[],
   };
   const stripe = {
@@ -61,8 +62,9 @@ const { stripeHolder, calls } = vi.hoisted(() => {
     },
     checkout: {
       sessions: {
-        create: vi.fn(async (p: Record<string, unknown>) => {
+        create: vi.fn(async (p: Record<string, unknown>, options: unknown) => {
           calls.checkoutCreate.push(p);
+          calls.checkoutOptions.push(options as Record<string, unknown>);
           return { id: "cs_1", url: "https://checkout.test" };
         }),
       },
@@ -101,6 +103,7 @@ beforeEach(async () => {
   calls.subsRetrieve.length = 0;
   calls.subsUpdate.length = 0;
   calls.checkoutCreate.length = 0;
+  calls.checkoutOptions.length = 0;
   calls.portalCreate.length = 0;
 });
 
@@ -218,6 +221,11 @@ describe("subscription checkout and portal", () => {
     expect(calls.checkoutCreate[0]).toMatchObject({
       mode: "subscription",
       line_items: [{ price: "price_month", quantity: 1 }],
+    });
+    expect(calls.checkoutOptions[0]).toMatchObject({
+      idempotencyKey: expect.stringMatching(
+        new RegExp(`^billing:checkout:u1:${app.id}:${plan.id}:\\d+$`),
+      ),
     });
   });
 

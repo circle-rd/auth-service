@@ -9,6 +9,7 @@ import {
   vi,
 } from "vitest";
 import type Stripe from "stripe";
+import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { user } from "../db/auth-schema.js";
 import {
@@ -217,6 +218,28 @@ describe("cacheStripeInvoice", () => {
     expect(row?.applicationId).toBe(appB.id);
   });
 
+  it("drops a non-https invoice link instead of serving it", async () => {
+    await seed();
+    const cached = await cacheStripeInvoice(
+      invoice({
+        id: "in_unsafe",
+        hosted_invoice_url: "javascript:alert(1)",
+        invoice_pdf: "http://insecure.example/invoice.pdf",
+      }),
+      T0,
+      silentLog,
+    );
+    expect(cached).toBe(true);
+    const [row] = await db
+      .select({
+        hostedInvoiceUrl: stripeInvoices.hostedInvoiceUrl,
+        invoicePdf: stripeInvoices.invoicePdf,
+      })
+      .from(stripeInvoices)
+      .where(eq(stripeInvoices.stripeInvoiceId, "in_unsafe"));
+    expect(row).toEqual({ hostedInvoiceUrl: null, invoicePdf: null });
+  });
+
   it("refuses to cache an invoice whose owner cannot be resolved", async () => {
     await seed();
     const cached = await cacheStripeInvoice(
@@ -326,6 +349,16 @@ describe("application read API", () => {
       features: [
         { featureKey: "api.calls", unit: "call", usageLimit: 100, used: 30, remaining: 70 },
       ],
+    });
+  });
+
+  it("reports no usage for an application the user does not use", async () => {
+    await seed();
+    authHolder.clientId = "app-b";
+    const res = await get("/api/app/billing/users/u1/usage");
+    expect(res.json()).toEqual({
+      periodStart: expect.any(String),
+      features: [],
     });
   });
 

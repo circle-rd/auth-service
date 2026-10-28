@@ -1,150 +1,116 @@
 import "dotenv/config";
-import { eq, isNull } from "drizzle-orm";
-import { db } from "../db/index.js";
-import {
-  applications,
-  billingCustomers,
-  subscriptionPlanPrices,
-  subscriptionPlans,
-  userSubscriptions,
-} from "../db/schema.js";
-import { user as userTable } from "../db/auth-schema.js";
 import { isStripeConfigured } from "../services/stripe.js";
-import { getOrCreateBillingCustomer } from "../services/billing/customers.js";
 import {
-  provisionPlanPrice,
-  provisionPlanProduct,
-} from "../services/billing/catalog.js";
-import { syncStripeSubscription } from "../services/billing/subscriptions.js";
-import { pushPendingMeterEvents } from "../services/billing/usage.js";
+  reconcileBilling,
+  type ReconciliationReport,
+} from "../services/billing/reconciliation.js";
 
 /**
- * Idempotent reconciliation of the Stripe objects the database expects: a
- * Customer for every user, a Product for every plan, a Price (and its Meter) for
- * every price row. It only creates what is missing — it never archives or
- * deletes anything, so it is safe to run against any environment with Stripe
- * configured. Run it after an outage, a restore, or an upgrade.
+ * Operator reconciliation between the billing rows and Stripe.
  *
- *   pnpm billing:reconcile
+ *   pnpm billing:reconcile                     create missing objects, report drift
+ *   pnpm billing:reconcile --check             read-only audit, exit 1 on drift
+ *   pnpm billing:reconcile --cancel-superseded  also cancel subscriptions a newer one replaced
+ *   pnpm billing:reconcile --json               machine-readable report
+ *
+ * `repair` is the default so the historical behaviour (fill what an outage
+ * missed) is unchanged. A drift that cannot be repaired safely is reported and
+ * leaves the process with exit code 1; nothing is ever deleted from Stripe.
  */
+
+const KNOWN_FLAGS = new Set([
+  "--check",
+  "--cancel-superseded",
+  "--recreate-missing",
+  "--json",
+  "--help",
+]);
+
+const USAGE = `Usage: pnpm billing:reconcile [options]
+
+  --check              Read-only audit; exit 1 when drift or pending meter events exist.
+  --cancel-superseded  Repair mode: also cancel active subscriptions a newer one replaced.
+  --recreate-missing   Repair mode: recreate a subscription Stripe confirms as deleted.
+  --json               Print the report as JSON.
+  --help               Show this help.
+`;
+
+function parseArgs(argv: string[]): {
+  mode: "check" | "repair";
+  cancelSuperseded: boolean;
+  recreateMissing: boolean;
+  json: boolean;
+} {
+  const unknown = argv.filter((arg) => !KNOWN_FLAGS.has(arg));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown argument(s): ${unknown.join(", ")}. Known: ${[...KNOWN_FLAGS].join(", ")}`,
+    );
+  }
+  const check = argv.includes("--check");
+  return {
+    mode: check ? "check" : "repair",
+    cancelSuperseded: !check && argv.includes("--cancel-superseded"),
+    recreateMissing: !check && argv.includes("--recreate-missing"),
+    json: argv.includes("--json"),
+  };
+}
+
+function printHuman(report: ReconciliationReport): void {
+  for (const issue of report.issues) {
+    process.stdout.write(
+      `${issue.action.toUpperCase().padEnd(8)} ${issue.kind.padEnd(24)} ${issue.detail}\n`,
+    );
+  }
+  const s = report.summary;
+  process.stdout.write(
+    `${report.mode === "check" ? "checked" : "reconciled"}: ` +
+      `${s.customersCreated} customer(s), ${s.productsCreated} product(s), ` +
+      `${s.pricesCreated} price(s) created, ${s.subscriptionsLinked} subscription(s) linked, ` +
+      `${s.statesSynced} state(s) synced, ${s.supersededCancelled} superseded subscription(s) cancelled\n`,
+  );
+  process.stdout.write(
+    `meter events: ${report.pendingMeterEvents} pending, ${report.pushedMeterEvents} pushed\n`,
+  );
+}
+
 async function main(): Promise<void> {
+  if (process.argv.includes("--help")) {
+    process.stdout.write(USAGE);
+    return;
+  }
+  const options = parseArgs(process.argv.slice(2));
   if (!isStripeConfigured()) {
     process.stdout.write("Stripe is not configured; nothing to reconcile.\n");
     return;
   }
 
-  const users = await db.select({ id: userTable.id }).from(userTable);
-  const withCustomer = new Set(
-    (
-      await db
-        .select({ ownerId: billingCustomers.ownerId })
-        .from(billingCustomers)
-        .where(eq(billingCustomers.ownerType, "user"))
-    ).map((r) => r.ownerId),
-  );
-  let customers = 0;
-  for (const user of users) {
-    if (withCustomer.has(user.id)) continue;
-    await getOrCreateBillingCustomer("user", user.id);
-    customers += 1;
+  const report = await reconcileBilling({
+    mode: options.mode,
+    cancelSuperseded: options.cancelSuperseded,
+    recreateMissing: options.recreateMissing,
+  });
+
+  if (options.json) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    printHuman(report);
   }
 
-  const plans = await db
-    .select({
-      id: subscriptionPlans.id,
-      applicationId: subscriptionPlans.applicationId,
-      name: subscriptionPlans.name,
-      description: subscriptionPlans.description,
-      stripeProductId: subscriptionPlans.stripeProductId,
-      appName: applications.name,
-      appSlug: applications.slug,
-    })
-    .from(subscriptionPlans)
-    .innerJoin(
-      applications,
-      eq(applications.id, subscriptionPlans.applicationId),
+  const remaining = report.issues.filter(
+    (issue) => issue.action === "reported",
+  );
+  if (
+    options.mode === "check" &&
+    (report.issues.length > 0 || report.pendingMeterEvents > 0)
+  ) {
+    process.exitCode = 1;
+  } else if (options.mode === "repair" && remaining.length > 0) {
+    process.stdout.write(
+      `${remaining.length} drift item(s) need an operator decision\n`,
     );
-
-  let products = 0;
-  let prices = 0;
-  for (const plan of plans) {
-    let stripeProductId = plan.stripeProductId;
-    if (!stripeProductId) {
-      stripeProductId = await provisionPlanProduct({
-        applicationId: plan.applicationId,
-        appName: plan.appName,
-        planName: plan.name,
-        description: plan.description,
-      });
-      if (stripeProductId) {
-        await db
-          .update(subscriptionPlans)
-          .set({ stripeProductId })
-          .where(eq(subscriptionPlans.id, plan.id));
-        products += 1;
-      }
-    }
-
-    const rows = await db
-      .select({
-        id: subscriptionPlanPrices.id,
-        name: subscriptionPlanPrices.name,
-        amount: subscriptionPlanPrices.amount,
-        currency: subscriptionPlanPrices.currency,
-        interval: subscriptionPlanPrices.interval,
-        billingType: subscriptionPlanPrices.billingType,
-        featureKey: subscriptionPlanPrices.featureKey,
-        stripePriceId: subscriptionPlanPrices.stripePriceId,
-      })
-      .from(subscriptionPlanPrices)
-      .where(eq(subscriptionPlanPrices.planId, plan.id));
-
-    for (const price of rows) {
-      if (price.stripePriceId) continue;
-      const provision = await provisionPlanPrice({
-        applicationId: plan.applicationId,
-        appSlug: plan.appSlug,
-        appName: plan.appName,
-        stripeProductId,
-        planId: plan.id,
-        name: price.name,
-        amount: Number(price.amount),
-        currency: price.currency,
-        interval: price.interval,
-        billingType: price.billingType as "fixed" | "metered",
-        featureKey: price.featureKey,
-      });
-      if (!provision.stripePriceId) continue;
-      await db
-        .update(subscriptionPlanPrices)
-        .set({
-          stripePriceId: provision.stripePriceId,
-          stripeMeterId: provision.stripeMeterId,
-        })
-        .where(eq(subscriptionPlanPrices.id, price.id));
-      prices += 1;
-    }
+    process.exitCode = 1;
   }
-
-  // Every assigned plan is backed by a Stripe subscription; create the missing
-  // ones (the local row already exists, sync links it).
-  const unlinked = await db
-    .select({
-      userId: userSubscriptions.userId,
-      applicationId: userSubscriptions.applicationId,
-      planId: userSubscriptions.planId,
-    })
-    .from(userSubscriptions)
-    .where(isNull(userSubscriptions.stripeSubscriptionId));
-  for (const row of unlinked) {
-    await syncStripeSubscription(row);
-  }
-
-  const meterEvents = await pushPendingMeterEvents();
-
-  process.stdout.write(
-    `✓ reconciled: ${customers} customer(s), ${products} product(s), ${prices} price(s) created, ${unlinked.length} subscription(s) linked, ${meterEvents} meter event(s) pushed\n`,
-  );
 }
 
 main().catch((err: unknown) => {

@@ -4,6 +4,8 @@ defineProps<{
   label?: string;
   description?: string;
   disabled?: boolean;
+  // For labels that are identifiers (scope names) rather than prose.
+  mono?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -34,7 +36,7 @@ const emit = defineEmits<{
       />
     </button>
     <div v-if="label || description">
-      <p v-if="label" class="text-sm font-medium text-surface-200">{{ label }}</p>
+      <p v-if="label" :class="['text-sm font-medium text-surface-200', mono && 'font-mono']">{{ label }}</p>
       <p v-if="description" class="text-xs text-surface-500 mt-0.5">{{ description }}</p>
     </div>
   </div>

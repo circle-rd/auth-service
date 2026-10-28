@@ -3,9 +3,6 @@ import type { Application } from '@/types';
 export const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 export type ProviderKey = (typeof ALL_PROVIDERS)[number];
 
-// `wallet:self:read` is not listed: the LiteLLM option manages it.
-export const SCOPES = ['openid', 'profile', 'email', 'phone', 'offline_access', 'roles', 'permissions', 'features', 'org'];
-export const WALLET_SCOPE = 'wallet:self:read';
 const DEFAULT_SCOPES = ['openid', 'profile', 'email', 'roles', 'permissions', 'features'];
 
 // Server-enforced identifier shape of the metadata keys.

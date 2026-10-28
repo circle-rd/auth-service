@@ -11,9 +11,9 @@ import StepGeneral from './form/StepGeneral.vue';
 import StepOptions from './form/StepOptions.vue';
 import StepAuthorization from './form/StepAuthorization.vue';
 import StepAdvanced from './form/StepAdvanced.vue';
+import { WALLET_SCOPE } from './form/scopes';
 import {
   ALL_PROVIDERS,
-  WALLET_SCOPE,
   emptyApplicationForm,
   formFromApplication,
   metadataHasError,

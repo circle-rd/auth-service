@@ -36,6 +36,7 @@ import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useDebounce } from '@/composables/useDebounce';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
+import { SCOPE_CATALOGUE } from '@/components/applications/form/scopes';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -1012,25 +1013,14 @@ const financialKpis = computed(() => {
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-surface-800/30">
-                  <tr v-for="row in [
-                    { scope: 'openid', type: 'Standard OIDC', claims: 'sub, iss, aud, exp, iat, jti', active: app.allowedScopes.includes('openid') },
-                    { scope: 'profile', type: 'Standard OIDC', claims: 'name, picture, company*, updated_at', active: app.allowedScopes.includes('profile') },
-                    { scope: 'email', type: 'Standard OIDC', claims: 'email, email_verified', active: app.allowedScopes.includes('email') },
-                    { scope: 'phone', type: 'Standard OIDC', claims: 'phone_number', active: app.allowedScopes.includes('phone') },
-                    { scope: 'offline_access', type: 'Standard OIDC', claims: '(enables refresh token)', active: app.allowedScopes.includes('offline_access') },
-                    { scope: 'roles', type: 'Custom', claims: 'roles[]', active: app.allowedScopes.includes('roles') },
-                    { scope: 'permissions', type: 'Custom', claims: 'permissions[]', active: app.allowedScopes.includes('permissions') },
-                    { scope: 'features', type: 'Custom', claims: 'features{}, plan', active: app.allowedScopes.includes('features') },
-                    { scope: 'wallet:self:read', type: 'Custom', claims: '(authorizes the user wallet API)', active: app.allowedScopes.includes('wallet:self:read') },
-                    { scope: 'org', type: 'Custom', claims: 'org_id', active: app.allowedScopes.includes('org') },
-                  ]" :key="row.scope">
+                  <tr v-for="info in SCOPE_CATALOGUE" :key="info.scope">
                     <td class="py-2 pr-4">
-                      <code :class="['font-mono px-1.5 py-0.5 rounded text-xs', row.active ? 'bg-primary-600/15 text-primary-300' : 'bg-surface-800/50 text-surface-500']">{{ row.scope }}</code>
+                      <code :class="['font-mono px-1.5 py-0.5 rounded text-xs', app.allowedScopes.includes(info.scope) ? 'bg-primary-600/15 text-primary-300' : 'bg-surface-800/50 text-surface-500']">{{ info.scope }}</code>
                     </td>
                     <td class="py-2 pr-4">
-                      <BaseBadge :variant="row.type === 'Standard OIDC' ? 'success' : 'neutral'" size="sm">{{ row.type }}</BaseBadge>
+                      <BaseBadge :variant="info.group === 'standard' ? 'success' : 'neutral'" size="sm">{{ info.group === 'standard' ? 'Standard OIDC' : 'Custom' }}</BaseBadge>
                     </td>
-                    <td class="py-2 text-surface-400 font-mono">{{ row.claims }}</td>
+                    <td class="py-2 text-surface-400 font-mono">{{ info.claims }}</td>
                   </tr>
                 </tbody>
               </table>

@@ -270,12 +270,24 @@ describe("Back-channel logout (integration)", () => {
     });
     expect(rejected.statusCode).toBe(400);
 
+    // The provider delivers from the auth-service host: a URI resolving to an
+    // internal address would reach the private network.
+    for (const internal of ["https://localhost/bc", "https://10.0.0.5/bc"]) {
+      const blocked = await handle.app.inject({
+        method: "PATCH",
+        url: `/api/admin/applications/${app!.id}`,
+        headers: { cookie: adminCookie, ...JSON_HEADERS },
+        payload: { backchannelLogoutUri: internal },
+      });
+      expect(blocked.statusCode).toBe(400);
+    }
+
     const accepted = await handle.app.inject({
       method: "PATCH",
       url: `/api/admin/applications/${app!.id}`,
       headers: { cookie: adminCookie, ...JSON_HEADERS },
       payload: {
-        backchannelLogoutUri: "https://app.example.com/bc",
+        backchannelLogoutUri: "https://203.0.113.10/bc",
         backchannelLogoutSessionRequired: true,
       },
     });
@@ -287,7 +299,7 @@ describe("Back-channel logout (integration)", () => {
       };
     }>();
     expect(body.application.backchannelLogoutUri).toBe(
-      "https://app.example.com/bc",
+      "https://203.0.113.10/bc",
     );
     expect(body.application.backchannelLogoutSessionRequired).toBe(true);
 
@@ -301,7 +313,7 @@ describe("Back-channel logout (integration)", () => {
         and(eq(oauthClient.clientId, APP_SLUG), eq(oauthClient.disabled, false)),
       )
       .limit(1);
-    expect(row?.uri).toBe("https://app.example.com/bc");
+    expect(row?.uri).toBe("https://203.0.113.10/bc");
     expect(row?.required).toBe(true);
   });
 

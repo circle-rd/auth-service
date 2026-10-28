@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import BaseToggle from '@/components/ui/BaseToggle.vue';
 import {
   isMetadataKeyValid,
   metadataDuplicateKeys,
@@ -61,13 +60,6 @@ function removeMetadataEntry(i: number) {
         :class="[inputClass, 'w-full border-surface-700/60']"
       />
       <p class="text-xs text-surface-500 mt-2">{{ t('applications.backchannelLogoutUriHint') }}</p>
-      <div v-if="form.backchannelLogoutUri" class="mt-2">
-        <BaseToggle
-          v-model="form.backchannelLogoutSessionRequired"
-          :label="t('applications.backchannelLogoutSessionRequired')"
-          :description="t('applications.backchannelLogoutSessionRequiredHint')"
-        />
-      </div>
     </div>
 
     <div v-if="availableProviders.length > 0">

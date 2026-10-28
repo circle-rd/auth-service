@@ -35,7 +35,6 @@ export interface ApplicationFormState {
   postLogoutRedirectUris: string[];
   // OIDC Back-Channel Logout endpoint (public https); empty = not supported.
   backchannelLogoutUri: string;
-  backchannelLogoutSessionRequired: boolean;
   // Edited as ordered pairs, serialized to a plain Record<string, string> on submit.
   metadata: MetadataEntry[];
 }
@@ -60,7 +59,6 @@ export function emptyApplicationForm(): ApplicationFormState {
     enableEndSession: false,
     postLogoutRedirectUris: [],
     backchannelLogoutUri: '',
-    backchannelLogoutSessionRequired: false,
     metadata: [],
   };
 }
@@ -85,7 +83,6 @@ export function formFromApplication(a: Application): ApplicationFormState {
     enableEndSession: a.enableEndSession ?? false,
     postLogoutRedirectUris: a.postLogoutRedirectUris ? [...a.postLogoutRedirectUris] : [],
     backchannelLogoutUri: a.backchannelLogoutUri ?? '',
-    backchannelLogoutSessionRequired: a.backchannelLogoutSessionRequired ?? false,
     metadata: Object.entries(a.metadata ?? {}).map(([key, value]) => ({ key, value: String(value) })),
   };
 }

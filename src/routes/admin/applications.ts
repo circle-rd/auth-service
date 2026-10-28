@@ -292,7 +292,8 @@ const createAppSchema = z.object({
   redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client may call
   // /oauth2/end-session, which ends the SSO session for ALL apps (no per-app
-  // variant). Off by default: apps that only log out locally must not enable it.
+  // variant) and puts `sid` in the client's ID tokens. Off by default: apps that
+  // only log out locally leave it off.
   enableEndSession: z.boolean().default(false),
   // Whitelist of URLs that may be passed as `post_logout_redirect_uri` to
   // the end-session endpoint. Empty array = no post-logout redirect allowed.
@@ -301,8 +302,8 @@ const createAppSchema = z.object({
   // logout token to this endpoint so the application can drop its local
   // session. null = the application does not support back-channel logout.
   backchannelLogoutUri: backchannelLogoutUriSchema.nullable().optional(),
-  // When true, the logout token carries `sid` and the application must reject
-  // tokens whose `sid` does not match an active session (spec §2.8).
+  // Declares that the application requires `sid` in every logout token (the
+  // provider always sends it) and ends only the session `sid` names (spec §2.8).
   backchannelLogoutSessionRequired: z.boolean().default(false),
   url: z.string().url().optional().nullable(),
   // Protected resources (other applications' URLs, e.g. the LiteLLM gateway)

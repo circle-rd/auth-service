@@ -268,6 +268,11 @@ class WalletLogger(CustomLogger):
 
     async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
         self._release_slot(kwargs)
+        # A stream can fail *after* the provider has already produced (and
+        # billed) tokens — LiteLLM records that cost in the failure's standard
+        # logging object. Mirror it instead of silently dropping the spend;
+        # `_bill` ignores zero-cost failures.
+        await self._bill(kwargs)
 
     async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):  # noqa: ANN001
         self._release_slot(kwargs)
@@ -318,7 +323,20 @@ class WalletLogger(CustomLogger):
         # The end-user chat session the client passed (LiteLLM `metadata.session_id`),
         # kept so an application can ask what a session cost. It is client-supplied,
         # so it is bounded here and never used for authorization.
+        #
+        # LiteLLM does not copy arbitrary client metadata to the top level of
+        # standard_logging_object.metadata: it keeps only its own known keys and
+        # nests the client's dict under `requester_metadata` (newer releases) or,
+        # when request correlation is enabled, exposes it as `session_id` there.
+        # Read every place the value can land so the documented
+        # `metadata: {session_id: ...}` contract holds across LiteLLM versions.
         session = meta.get("session_id")
+        if not session:
+            requester = meta.get("requester_metadata")
+            if isinstance(requester, dict):
+                session = requester.get("session_id")
+        if not session:
+            session = slo.get("session_id")
         session_id = (
             session[:200] if isinstance(session, str) and session else None
         )

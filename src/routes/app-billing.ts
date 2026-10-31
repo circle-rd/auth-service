@@ -1,10 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../db/index.js";
-import { applications } from "../db/schema.js";
 import { ERR } from "../errors.js";
-import { requireMachineScope } from "../services/machine-auth.js";
+import { requireMachineApplication } from "../services/machine-auth.js";
 import {
   getApplicationSubscription,
   getApplicationUsage,
@@ -24,23 +21,12 @@ const invoicesQuerySchema = z.object({
   cursor: z.string().min(1).max(512).optional(),
 });
 
-/**
- * The application behind the token. The client id of a client_credentials token
- * is the application slug, so the caller can only ever act for its own
- * application: no route accepts an application id from the request.
- */
 async function callerApplicationId(req: FastifyRequest): Promise<string> {
-  const { clientId } = await requireMachineScope(
+  const { applicationId } = await requireMachineApplication(
     req.headers.authorization,
     "billing:read",
   );
-  const [app] = await db
-    .select({ id: applications.id })
-    .from(applications)
-    .where(eq(applications.slug, clientId))
-    .limit(1);
-  if (!app) throw ERR.APP_002();
-  return app.id;
+  return applicationId;
 }
 
 /**

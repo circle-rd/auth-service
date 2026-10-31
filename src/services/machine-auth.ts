@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { oauthClient } from "../db/auth-schema.js";
+import { applications } from "../db/schema.js";
 import { ERR } from "../errors.js";
 import { verifyBearerAccessToken } from "./oauth-tokens.js";
 
@@ -9,6 +10,8 @@ export const MACHINE_SCOPES = [
   "wallet:debit",
   "wallet:read",
   "billing:read",
+  "consumption:read",
+  "consumption:write",
 ] as const;
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 
@@ -45,4 +48,24 @@ export async function requireMachineScope(
     throw ERR.AUTH_011(`Client is not authorized for scope: ${scope}`);
   }
   return { clientId: verified.clientId };
+}
+
+/**
+ * Authorize a machine call made on behalf of one application. The client id of
+ * a client_credentials token is the application slug, so the caller can only
+ * ever act for its own application: no route accepts an application id from
+ * the request.
+ */
+export async function requireMachineApplication(
+  authorization: string | undefined,
+  scope: MachineScope,
+): Promise<{ applicationId: string; clientId: string }> {
+  const { clientId } = await requireMachineScope(authorization, scope);
+  const [app] = await db
+    .select({ id: applications.id })
+    .from(applications)
+    .where(eq(applications.slug, clientId))
+    .limit(1);
+  if (!app) throw ERR.APP_002();
+  return { applicationId: app.id, clientId };
 }

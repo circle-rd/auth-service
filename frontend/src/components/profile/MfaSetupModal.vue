@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import QRCode from 'qrcode';
-import { ShieldCheck, Smartphone, Key as KeyIcon, CheckCircle, Download } from 'lucide-vue-next';
+import { ShieldCheck, Smartphone, Key as KeyIcon, CheckCircle, Download } from '@lucide/vue';
 import { enableTwoFactor, verifyTotp } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/useToast';

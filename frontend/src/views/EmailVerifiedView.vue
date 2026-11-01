@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { CircleCheckBig, MailCheck } from 'lucide-vue-next';
+import { CircleCheckBig, MailCheck } from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import { useAppBranding } from '@/composables/useAppBranding';

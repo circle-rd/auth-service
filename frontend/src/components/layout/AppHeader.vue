@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useTheme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/auth';
-import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen, LayoutDashboard } from 'lucide-vue-next';
+import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen, LayoutDashboard } from '@lucide/vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';
 import AppLogo from '@/components/branding/AppLogo.vue';

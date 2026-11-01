@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { Check, X } from 'lucide-vue-next';
+import { Check, X } from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 

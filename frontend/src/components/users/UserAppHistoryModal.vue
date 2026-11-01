@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
-import { Clock, Globe, Monitor } from 'lucide-vue-next';
+import { Clock, Globe, Monitor } from '@lucide/vue';
 import { getUserLoginHistory } from '@/api/applications';
 import { PAGE_SIZE_OPTIONS, usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { parseUserAgent } from '@/composables/useUserAgent';

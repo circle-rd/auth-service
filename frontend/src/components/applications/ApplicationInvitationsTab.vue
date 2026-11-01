@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Mail, Send, Trash2 } from 'lucide-vue-next';
+import { Mail, Send, Trash2 } from '@lucide/vue';
 import * as invitationsApi from '@/api/registration-invitations';
 import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useToast } from '@/composables/useToast';

@@ -18,7 +18,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User } from 'lucide-vue-next';
+import { Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();

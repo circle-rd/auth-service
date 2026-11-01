@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { ShieldOff } from 'lucide-vue-next';
+import { ShieldOff } from '@lucide/vue';
 
 const { t } = useI18n();
 const router = useRouter();

@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { ArrowLeft, MailCheck, Send } from 'lucide-vue-next';
+import { ArrowLeft, MailCheck, Send } from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';

@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   Sun,
   Wallet,
-} from 'lucide-vue-next';
+} from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import GithubIcon from '@/components/ui/GithubIcon.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { RefreshCw, AlertTriangle, Download } from 'lucide-vue-next';
+import { RefreshCw, AlertTriangle, Download } from '@lucide/vue';
 import { generateBackupCodes } from '@/api/auth';
 import { useToast } from '@/composables/useToast';
 import BaseModal from '@/components/ui/BaseModal.vue';

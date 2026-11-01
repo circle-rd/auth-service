@@ -154,11 +154,11 @@ export async function buildServer(
             resolveAlias(req.url, aliasTable) ?? req.url ?? "",
         }
       : {}),
-    // Trust the reverse-proxy chain so `req.ip` reflects the real
+    // Trust only the configured reverse proxies so `req.ip` reflects the real
     // client address from `X-Forwarded-For` instead of the proxy's address —
     // and, crucially, so a client-forged `X-Forwarded-For` cannot move the
-    // rate-limit bucket. The number of trusted hops is configurable.
-    trustProxy: config.trustProxyHops,
+    // rate-limit bucket.
+    trustProxy: config.trustProxy.length > 0 ? config.trustProxy : false,
     logger: {
       level: config.isDev ? "debug" : "info",
       transport: prettyTransport(),

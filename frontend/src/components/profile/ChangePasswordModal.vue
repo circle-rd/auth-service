@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { KeyRound } from 'lucide-vue-next';
+import { KeyRound } from '@lucide/vue';
 import { changePassword } from '@/api/auth';
 import { useToast } from '@/composables/useToast';
 import BaseModal from '@/components/ui/BaseModal.vue';

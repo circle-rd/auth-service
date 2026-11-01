@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { BarChart3 } from 'lucide-vue-next';
+import { BarChart3 } from '@lucide/vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import { useMoney } from '@/composables/useMoney';
 import { applicationColor } from '@/utils/chartPalette';

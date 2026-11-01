@@ -1,7 +1,7 @@
 # ── Stage 1: Build frontend ───────────────────────────────────────────────────
 FROM node:22-alpine AS frontend-builder
 
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
 
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/pnpm-lock.yaml* frontend/pnpm-workspace.yaml ./
@@ -15,7 +15,7 @@ RUN pnpm build
 # ── Stage 2: Build backend ─────────────────────────────────────────────────────
 FROM node:22-alpine AS backend-builder
 
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
 
 WORKDIR /app
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
@@ -29,7 +29,7 @@ RUN pnpm build:server
 # ── Stage 3: Runtime ──────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
 
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+RUN corepack enable && corepack prepare pnpm@12.16.1 --activate
 
 WORKDIR /app
 

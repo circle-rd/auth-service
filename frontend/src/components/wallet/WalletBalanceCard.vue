@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Wallet } from 'lucide-vue-next';
+import { Wallet } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import { useMoney } from '@/composables/useMoney';
 import type { WalletAccount } from '@/types/wallet';

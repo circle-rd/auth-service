@@ -8,7 +8,7 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Undo2,
-} from 'lucide-vue-next';
+} from '@lucide/vue';
 import type { Component } from 'vue';
 import type { JournalKind } from '@/types/accounting';
 

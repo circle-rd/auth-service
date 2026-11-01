@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 import "dotenv/config";
 import {
@@ -25,6 +26,19 @@ const optionalEnvBoolean = z
   .union([z.stringbool(), z.literal("")])
   .optional()
   .transform((v) => (v === "" ? undefined : v));
+
+const TRUST_PROXY_KEYWORDS = ["loopback", "linklocal", "uniquelocal"];
+
+function isTrustedProxyEntry(entry: string): boolean {
+  if (TRUST_PROXY_KEYWORDS.includes(entry)) return true;
+  const [address = "", prefix, ...extra] = entry.split("/");
+  const family = isIP(address);
+  if (family === 0 || extra.length > 0) return false;
+  if (prefix === undefined) return true;
+  return (
+    /^\d{1,3}$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128)
+  );
+}
 
 const envSchema = z
   .object({
@@ -66,14 +80,24 @@ const envSchema = z
     CORS_ORIGINS: z.string().default("http://localhost:5173"),
     SESSION_DOMAIN: z.string().optional(),
 
-    // Number of trusted reverse-proxy hops in front of the service. Passed to
-    // Fastify's `trustProxy` so `req.ip` is derived from the right entry in the
-    // `X-Forwarded-For` chain instead of the (spoofable) client-supplied value.
-    // Defaults to 0 (secure): set it explicitly to 1 (or the exact hop count)
-    // when running behind a reverse proxy, otherwise req.ip is the proxy address
-    // and per-IP rate limiting collapses into one bucket. Leaving it at 0 while
-    // a proxy is in front means a forged X-Forwarded-For is ignored.
-    TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
+    // Reverse proxies allowed to set `X-Forwarded-*`: comma-separated IPs, CIDR
+    // ranges or the keywords loopback / linklocal / uniquelocal. Passed to
+    // Fastify's `trustProxy` so `req.ip` is the client address the trusted proxy
+    // saw, never a client-supplied one. Empty (secure default) ignores the
+    // header; behind a proxy that leaves every client in one rate-limit bucket.
+    TRUST_PROXY: z
+      .string()
+      .optional()
+      .transform((value) =>
+        value === undefined ? [] : value.split(",").map((e) => e.trim()),
+      )
+      .refine((entries) => entries.every(isTrustedProxyEntry), {
+        message:
+          "must be comma-separated IPs, CIDR ranges or loopback/linklocal/uniquelocal",
+      }),
+    // A hop count cannot tell a trusted proxy from a direct client, so Fastify
+    // no longer accepts it; a leftover value must not silently stop applying.
+    TRUST_PROXY_HOPS: z.string().optional(),
 
     SMTP_HOST: z.string().optional(),
     SMTP_PORT: z.coerce.number().int().positive().default(587),
@@ -223,6 +247,14 @@ const envSchema = z
     APPLE_CLIENT_SECRET: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.TRUST_PROXY_HOPS !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["TRUST_PROXY_HOPS"],
+        message:
+          "was replaced by TRUST_PROXY (trusted proxy addresses or CIDRs)",
+      });
+    }
     if (data.WALLET_TOPUP_MIN_EUR > data.WALLET_TOPUP_MAX_EUR) {
       ctx.addIssue({
         code: "custom",
@@ -318,7 +350,7 @@ export const config = {
   session: {
     domain: parsed.data.SESSION_DOMAIN,
   },
-  trustProxyHops: parsed.data.TRUST_PROXY_HOPS,
+  trustProxy: parsed.data.TRUST_PROXY,
   smtp: {
     host: parsed.data.SMTP_HOST,
     port: parsed.data.SMTP_PORT,

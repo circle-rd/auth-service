@@ -59,7 +59,7 @@ services:
 
       # Networking / sessions.
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       SESSION_DOMAIN: ${SESSION_DOMAIN:-}
 
       # Auth flows. Email verification defaults to false here so the stack

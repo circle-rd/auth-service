@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { Coins, TrendingDown, Receipt, Wallet } from 'lucide-vue-next';
+import { Coins, TrendingDown, Receipt, Wallet } from '@lucide/vue';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import StatCard from '@/components/ui/StatCard.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';

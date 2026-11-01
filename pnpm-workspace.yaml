@@ -1,2 +1,12 @@
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  cpu-features: false
+  esbuild: true
+  protobufjs: false
+  ssh2: false
+overrides:
+  '@fastify/static>glob': ^14.0.2
+  '@esbuild-kit/core-utils>esbuild': ^0.25.12
+# TODO(release): drop once better-auth 1.7.15 is older than minimumReleaseAge (24 h, 2026-11-02); it is pinned on purpose.
+minimumReleaseAgeExclude:
+  - better-auth
+  - '@better-auth/*'

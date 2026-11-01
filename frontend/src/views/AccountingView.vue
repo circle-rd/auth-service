@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { AppWindow, ArrowRight, Layers, RefreshCw } from 'lucide-vue-next';
+import { AppWindow, ArrowRight, Layers, RefreshCw } from '@lucide/vue';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';

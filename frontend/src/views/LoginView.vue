@@ -3,7 +3,7 @@ import { ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
-import { LogIn } from 'lucide-vue-next';
+import { LogIn } from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';

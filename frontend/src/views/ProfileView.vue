@@ -24,7 +24,7 @@ import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
 import BillingPanel from '@/components/profile/BillingPanel.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard, ExternalLink } from 'lucide-vue-next';
+import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard, ExternalLink } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();

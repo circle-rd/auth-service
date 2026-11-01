@@ -19,7 +19,7 @@ import {
   userAppRoles,
   userSubscriptions,
 } from "../db/schema.js";
-import { user as userTable } from "../db/auth-schema.js";
+import { oauthClient, user as userTable } from "../db/auth-schema.js";
 import { and, eq } from "drizzle-orm";
 import { cleanDb } from "./helpers/db.js";
 import { makeAdminSession, makeSuperadminSession } from "./helpers/auth.js";
@@ -151,6 +151,35 @@ describe("applicationRoutes integration", () => {
     expect(plans).toHaveLength(1);
     expect(plans[0]!.name).toBe("free");
     expect(plans[0]!.isDefault).toBe(true);
+  });
+
+  it("POST / → a confidential app may request its own billing and consumption scopes, never the wallet's", async () => {
+    const res = await createApp("scoped-app");
+    expect(res.statusCode).toBe(201);
+    const [client] = await db
+      .select({ scopes: oauthClient.clientCredentialsScopes })
+      .from(oauthClient)
+      .where(eq(oauthClient.clientId, "scoped-app"));
+    expect([...(client?.scopes ?? [])].sort()).toEqual([
+      "billing:read",
+      "consumption:read",
+      "consumption:write",
+      "m2m",
+    ]);
+  });
+
+  it("POST / → a public app has no machine scope", async () => {
+    asAdmin();
+    await app.inject({
+      method: "POST",
+      url: "/",
+      payload: { name: "Public Scopes", slug: "pub-scopes", isPublic: true },
+    });
+    const [client] = await db
+      .select({ scopes: oauthClient.clientCredentialsScopes })
+      .from(oauthClient)
+      .where(eq(oauthClient.clientId, "pub-scopes"));
+    expect(client?.scopes).toEqual([]);
   });
 
   it("POST / → 409 on duplicate slug", async () => {

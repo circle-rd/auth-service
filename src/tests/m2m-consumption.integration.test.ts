@@ -356,7 +356,7 @@ describe("client_credentials → /api/app/consumption end to end", () => {
     expect(JSON.parse(other.body)).toEqual({ aggregates: [] });
   });
 
-  it("requires the dedicated scope: a plain m2m token is refused", async () => {
+  it("requires the dedicated scope: a token narrowed to m2m is refused", async () => {
     const cookie = await signInAdmin();
     const app1 = await createConfidentialApp(cookie, {
       slug: "m2m-app",
@@ -364,9 +364,12 @@ describe("client_credentials → /api/app/consumption end to end", () => {
     });
     await insertUserWithAccess("u-1", [app1.id]);
 
+    // A client may narrow its token: one asking for m2m alone gets no consumption access.
     const token = await requestClientCredentialsToken(
       app1.slug,
       app1.secret,
+      undefined,
+      "m2m",
     );
     expect(token.statusCode).toBe(200);
     const report = await handle.app.inject({

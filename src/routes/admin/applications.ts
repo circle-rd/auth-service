@@ -74,6 +74,7 @@ import {
   retireTeamAfterSave,
 } from "../../services/litellm-sync.js";
 import { DEFAULT_PLAN_NAME } from "../../services/litellm-plan.js";
+import { DEFAULT_MACHINE_SCOPES } from "../../services/machine-auth.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -503,10 +504,13 @@ export async function applicationRoutes(
           : ["authorization_code", "refresh_token", "client_credentials"],
         responseTypes: ["code"],
         requirePKCE: true,
-        // Machine-to-machine scope. Deliberately separate from the app's OIDC
+        // Machine-to-machine scopes. Deliberately separate from the app's OIDC
         // `allowedScopes` (openid/profile/email are user-delegated and rejected
-        // by the client_credentials grant). Public clients cannot use M2M.
-        clientCredentialsScopes: data.isPublic ? [] : ["m2m"],
+        // by the client_credentials grant). Public clients cannot use M2M. The
+        // wallet scopes stay superadmin-only (see application-machine-scopes).
+        clientCredentialsScopes: data.isPublic
+          ? []
+          : [...DEFAULT_MACHINE_SCOPES],
         metadata: { clientId: data.slug, applicationId: app.id },
       });
 

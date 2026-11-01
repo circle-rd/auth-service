@@ -16,6 +16,23 @@ export const MACHINE_SCOPES = [
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 
 /**
+ * Scopes that only reach the calling application's own data: the routes take
+ * the application from the token, never from the request. They are safe to
+ * grant by default, unlike the wallet scopes, which reach any user's wallet.
+ */
+export const APPLICATION_MACHINE_SCOPES = [
+  "billing:read",
+  "consumption:read",
+  "consumption:write",
+] as const satisfies readonly MachineScope[];
+
+/** What a new confidential application may request through client_credentials. */
+export const DEFAULT_MACHINE_SCOPES: readonly MachineScope[] = [
+  "m2m",
+  ...APPLICATION_MACHINE_SCOPES,
+];
+
+/**
  * Authorize a machine-to-machine call: a valid `client_credentials` token
  * carrying `scope`. The client's current configuration is checked as well as
  * the token, so disabling a client or removing a scope takes effect at once

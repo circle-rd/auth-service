@@ -1,4 +1,3 @@
-import type * as MachineAuthModule from "../services/machine-auth.js";
 import {
   afterAll,
   beforeAll,
@@ -11,7 +10,7 @@ import {
 import type Stripe from "stripe";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { user } from "../db/auth-schema.js";
+import { oauthClient, user } from "../db/auth-schema.js";
 import {
   applications,
   billingCustomers,
@@ -31,18 +30,20 @@ const { authHolder } = vi.hoisted(() => ({
   authHolder: { clientId: null as string | null },
 }));
 
-// The real check needs a signed client_credentials token; these tests drive the
-// application the token names and keep the real rejection for anonymous calls.
-vi.mock("../services/machine-auth.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof MachineAuthModule>();
-  return {
-    ...actual,
-    requireMachineScope: vi.fn(async (authorization, scope) => {
-      if (authHolder.clientId) return { clientId: authHolder.clientId };
-      return actual.requireMachineScope(authorization, scope);
-    }),
-  };
-});
+// Signed client_credentials tokens need the live JWKS; the real machine-auth
+// checks (scope, client row, application lookup) run on a token naming authHolder.
+vi.mock("../services/oauth-tokens.js", () => ({
+  verifyBearerAccessToken: vi.fn(async () =>
+    authHolder.clientId
+      ? {
+          clientId: authHolder.clientId,
+          userId: null,
+          audiences: [],
+          scopes: ["billing:read"],
+        }
+      : null,
+  ),
+}));
 
 const silentLog = { warn: vi.fn(), debug: vi.fn() };
 
@@ -103,6 +104,15 @@ async function seed() {
       updatedAt: new Date(),
     });
   }
+  // The unknown slug has a client but no application: the 404 path.
+  await db.insert(oauthClient).values(
+    ["app-a", "app-b", "no-such-app"].map((clientId) => ({
+      id: clientId,
+      clientId,
+      redirectUris: [],
+      clientCredentialsScopes: ["billing:read"],
+    })),
+  );
   await db.insert(billingCustomers).values({
     ownerType: "user",
     ownerId: "u1",
@@ -255,7 +265,11 @@ describe("cacheStripeInvoice", () => {
 
 describe("application read API", () => {
   async function get(url: string) {
-    return app.inject({ method: "GET", url });
+    return app.inject({
+      method: "GET",
+      url,
+      headers: authHolder.clientId ? { authorization: "Bearer token" } : {},
+    });
   }
 
   it("lists only the calling application's invoices", async () => {

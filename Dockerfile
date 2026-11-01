@@ -50,6 +50,8 @@ COPY --from=backend-builder /app/drizzle ./drizzle
 # copies it into a shared volume, so a deployment needs no file next to the
 # compose file and the gateway always matches this auth-service version.
 COPY litellm ./litellm
+# Bytecode caches of a local checkout are not part of the config the setup copies.
+RUN find ./litellm -name __pycache__ -type d -prune -exec rm -rf {} +
 
 # Built-in page + email templates. The resolvers fall back to this directory
 # (/app/templates/default, relative to dist/services) when no override exists in

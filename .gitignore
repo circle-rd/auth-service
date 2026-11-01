@@ -6,6 +6,8 @@ frontend-dist/
 *.js.map
 *.tsbuildinfo
 *.py
+__pycache__/
+*.pyc
 !litellm/*.py
 !tests/litellm/*.py
 

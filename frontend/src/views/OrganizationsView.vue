@@ -41,8 +41,8 @@ const formLoading = ref(false);
 const deleteLoading = ref(false);
 const selectedOrg = ref<Organization | null>(null);
 
-const createForm = ref({ name: '', slug: '', logo: '', metadata: '' });
-const editForm = ref({ name: '', slug: '', logo: '', metadata: '' });
+const createForm = ref({ name: '', slug: '', logo: '', domain: '', metadata: '' });
+const editForm = ref({ name: '', slug: '', logo: '', domain: '', metadata: '' });
 const addMemberForm = ref({ userId: '', role: 'member' as 'owner' | 'admin' | 'member' });
 const inviteForm = ref({ email: '', role: 'member' as 'owner' | 'admin' | 'member' });
 
@@ -98,11 +98,11 @@ function loadMoreMembers(orgId: string) {
 async function handleCreate() {
   formLoading.value = true;
   try {
-    await createOrganization({ name: createForm.value.name, slug: createForm.value.slug, logo: createForm.value.logo || undefined, metadata: createForm.value.metadata || undefined });
+    await createOrganization({ name: createForm.value.name, slug: createForm.value.slug, logo: createForm.value.logo || undefined, domain: createForm.value.domain || undefined, metadata: createForm.value.metadata || undefined });
     await store.fetchOrganizations({ page: 1 });
     toast.success('Organization created');
     showCreateModal.value = false;
-    createForm.value = { name: '', slug: '', logo: '', metadata: '' };
+    createForm.value = { name: '', slug: '', logo: '', domain: '', metadata: '' };
   } catch (err) {
     toast.error(err instanceof Error ? err.message : 'Failed to create');
   } finally {
@@ -114,7 +114,7 @@ async function handleEdit() {
   if (!selectedOrg.value) return;
   formLoading.value = true;
   try {
-    await updateOrganization(selectedOrg.value.id, { name: editForm.value.name, slug: editForm.value.slug, logo: editForm.value.logo || undefined, metadata: editForm.value.metadata || undefined });
+    await updateOrganization(selectedOrg.value.id, { name: editForm.value.name, slug: editForm.value.slug, logo: editForm.value.logo || null, domain: editForm.value.domain || null, metadata: editForm.value.metadata || undefined });
     await store.fetchOrganizations();
     toast.success('Organization updated');
     showEditModal.value = false;
@@ -185,7 +185,7 @@ async function handleInvite() {
 
 function openEdit(org: Organization) {
   selectedOrg.value = org;
-  editForm.value = { name: org.name, slug: org.slug, logo: org.logo ?? '', metadata: org.metadata ?? '' };
+  editForm.value = { name: org.name, slug: org.slug, logo: org.logo ?? '', domain: org.domain ?? '', metadata: org.metadata ?? '' };
   showEditModal.value = true;
 }
 
@@ -262,7 +262,7 @@ void cancelInvitation;
             </div>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-semibold text-surface-200">{{ org.name }}</p>
-              <p class="text-xs text-surface-500 font-mono">{{ org.slug }}</p>
+              <p class="text-xs text-surface-500 font-mono">{{ org.domain ?? org.slug }}</p>
             </div>
             <div class="flex items-center gap-4 shrink-0">
               <div class="flex items-center gap-1.5 text-xs text-surface-500">
@@ -392,6 +392,7 @@ void cancelInvitation;
       <form @submit.prevent="handleCreate" class="space-y-4">
         <BaseInput v-model="createForm.name" :label="t('organizations.name')" required />
         <BaseInput v-model="createForm.slug" :label="t('organizations.slug')" required />
+        <BaseInput v-model="createForm.domain" :label="t('organizations.domain')" :hint="t('organizations.domainHint')" />
         <BaseInput v-model="createForm.logo" :label="t('organizations.logo')" />
         <BaseInput v-model="createForm.metadata" :label="t('organizations.metadata')" />
       </form>
@@ -414,6 +415,7 @@ void cancelInvitation;
       <form @submit.prevent="handleEdit" class="space-y-4">
         <BaseInput v-model="editForm.name" :label="t('organizations.name')" required />
         <BaseInput v-model="editForm.slug" :label="t('organizations.slug')" required />
+        <BaseInput v-model="editForm.domain" :label="t('organizations.domain')" :hint="t('organizations.domainHint')" />
         <BaseInput v-model="editForm.logo" :label="t('organizations.logo')" />
       </form>
       <template #footer>

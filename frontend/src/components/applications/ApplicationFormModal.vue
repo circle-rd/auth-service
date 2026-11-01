@@ -278,7 +278,8 @@ async function submit() {
       enableEndSession: form.value.enableEndSession,
       postLogoutRedirectUris: form.value.postLogoutRedirectUris.filter(Boolean),
       backchannelLogoutUri: form.value.backchannelLogoutUri || null,
-      backchannelLogoutSessionRequired: form.value.backchannelLogoutSessionRequired,
+      // Every logout token carries `sid`, so an endpoint can always rely on it.
+      backchannelLogoutSessionRequired: Boolean(form.value.backchannelLogoutUri),
       metadata,
     };
     if (isEdit.value && props.application) {

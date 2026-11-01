@@ -102,7 +102,7 @@ function invoice(overrides: Record<string, unknown> = {}) {
       data: [
         {
           pricing: { price_details: { price: "price_1" } },
-          period: { end: PERIOD_END },
+          period: { start: PERIOD_START, end: PERIOD_END },
         },
       ],
     },
@@ -640,6 +640,81 @@ describe("POST /api/webhooks/stripe", () => {
     );
     expect(failed.statusCode).toBe(200);
     expect((await readSubscription("user-1", a.id))?.isActive).toBe(false);
+  });
+
+  describe("period of a paid invoice", () => {
+    const CREATED = 1_793_000_000;
+    const MONTH = 2_592_000;
+
+    async function pay(
+      lines: { period: { start: number; end: number }; parent?: unknown }[],
+      overrides: Record<string, unknown> = {},
+    ) {
+      await seedUser();
+      const a = await seedApp();
+      const plan = await seedPlan(a.id);
+      await seedPrice(plan.id, "price_1");
+      await seedAccess("user-1", a.id);
+      await seedSubscription("user-1", a.id, plan.id, false);
+      const response = await post(
+        "evt_paid_period",
+        "invoice.paid",
+        invoice({
+          id: "in_period",
+          status: "paid",
+          currency: "eur",
+          amount_due: 1000,
+          amount_paid: 1000,
+          amount_remaining: 0,
+          created: CREATED,
+          customer: "cus_1",
+          metadata: { userId: "user-1" },
+          lines: {
+            data: lines.map((line) => ({
+              pricing: { price_details: { price: "price_1" } },
+              ...line,
+            })),
+          },
+          ...overrides,
+        }),
+      );
+      expect(response.statusCode).toBe(200);
+      return readSubscription("user-1", a.id);
+    }
+
+    it("reads the coming period from the lines, not from the usage window of the first invoice", async () => {
+      const row = await pay(
+        [
+          // Paid in advance: covers the month that starts now.
+          { period: { start: CREATED, end: CREATED + MONTH } },
+          // Metered, paid in arrears: nothing used yet.
+          { period: { start: CREATED, end: CREATED } },
+        ],
+        { billing_reason: "subscription_create", period_start: CREATED, period_end: CREATED },
+      );
+      expect(row?.isActive).toBe(true);
+      expect(row?.expiresAt?.getTime()).toBe((CREATED + MONTH) * 1000);
+      expect(row?.currentPeriodStart?.getTime()).toBe(CREATED * 1000);
+      expect(row?.currentPeriodEnd?.getTime()).toBe((CREATED + MONTH) * 1000);
+    });
+
+    it("leaves the stored period alone when no line covers a coming period", async () => {
+      const row = await pay([
+        // Metered only: the period that just ended.
+        { period: { start: CREATED - MONTH, end: CREATED } },
+      ]);
+      expect(row?.isActive).toBe(true);
+      expect(row?.expiresAt).toBeNull();
+      expect(row?.currentPeriodEnd).toBeNull();
+    });
+
+    it("ignores a one-off invoice item", async () => {
+      const row = await pay([
+        { period: { start: CREATED, end: CREATED + 10 * MONTH }, parent: { type: "invoice_item_details" } },
+        { period: { start: CREATED, end: CREATED + MONTH } },
+      ]);
+      expect(row?.expiresAt?.getTime()).toBe((CREATED + MONTH) * 1000);
+    });
   });
 
   it("hands a wallet checkout to the wallet service", async () => {

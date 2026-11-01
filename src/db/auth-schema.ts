@@ -28,9 +28,16 @@ export const user = pgTable("user", {
   banExpires: timestamp("ban_expires"),
   isMfaRequired: boolean("is_mfa_required").default(false),
   phone: text("phone"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  username: text("username"),
   company: text("company"),
   position: text("position"),
   address: text("address"),
+  postalCode: text("postal_code"),
+  city: text("city"),
+  region: text("region"),
+  country: text("country"),
   // Denormalised timestamp of the user's most recent successful login,
   // updated by recordLogin() in src/services/login-history.ts. Allows the
   // admin users listing to render a "last seen" column without joining the
@@ -90,6 +97,9 @@ export const organization = pgTable("organization", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   logo: text("logo"),
+  // Bare hostname (example.com), used to qualify the organization in Stripe and
+  // for domain-based membership discovery. Never includes a scheme or path.
+  domain: text("domain"),
   createdAt: timestamp("created_at").notNull(),
   metadata: text("metadata"),
 });

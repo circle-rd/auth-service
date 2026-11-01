@@ -19,8 +19,8 @@ import {
   userAppRoles,
   userSubscriptions,
 } from "../db/schema.js";
-import { user as userTable } from "../db/auth-schema.js";
-import { eq } from "drizzle-orm";
+import { oauthClient, user as userTable } from "../db/auth-schema.js";
+import { and, eq } from "drizzle-orm";
 import { cleanDb } from "./helpers/db.js";
 import { makeAdminSession, makeSuperadminSession } from "./helpers/auth.js";
 import { auth } from "../auth.js";
@@ -151,6 +151,35 @@ describe("applicationRoutes integration", () => {
     expect(plans).toHaveLength(1);
     expect(plans[0]!.name).toBe("free");
     expect(plans[0]!.isDefault).toBe(true);
+  });
+
+  it("POST / → a confidential app may request its own billing and consumption scopes, never the wallet's", async () => {
+    const res = await createApp("scoped-app");
+    expect(res.statusCode).toBe(201);
+    const [client] = await db
+      .select({ scopes: oauthClient.clientCredentialsScopes })
+      .from(oauthClient)
+      .where(eq(oauthClient.clientId, "scoped-app"));
+    expect([...(client?.scopes ?? [])].sort()).toEqual([
+      "billing:read",
+      "consumption:read",
+      "consumption:write",
+      "m2m",
+    ]);
+  });
+
+  it("POST / → a public app has no machine scope", async () => {
+    asAdmin();
+    await app.inject({
+      method: "POST",
+      url: "/",
+      payload: { name: "Public Scopes", slug: "pub-scopes", isPublic: true },
+    });
+    const [client] = await db
+      .select({ scopes: oauthClient.clientCredentialsScopes })
+      .from(oauthClient)
+      .where(eq(oauthClient.clientId, "pub-scopes"));
+    expect(client?.scopes).toEqual([]);
   });
 
   it("POST / → 409 on duplicate slug", async () => {
@@ -296,6 +325,68 @@ describe("applicationRoutes integration", () => {
     expect(accessRows).toHaveLength(1);
     expect(accessRows[0]!.applicationId).toBe(ownAppId);
     expect(otherAppId).not.toBe(ownAppId);
+  });
+
+  it("POST /:id/users → replaces the role of a user who already has access", async () => {
+    await seedUser("sa-1", "superadmin", "sa@example.com");
+    await seedUser("target-1", "user", "target@example.com");
+    const appId = await createAppAs(
+      asSession(makeSuperadminSession("sa-1")),
+      "role-update-app",
+    );
+
+    const roles = await db
+      .select({ id: appRoles.id, name: appRoles.name })
+      .from(appRoles)
+      .where(eq(appRoles.applicationId, appId));
+    const userRole = roles.find((role) => role.name === "user")!;
+    const adminRole = roles.find((role) => role.name === "admin")!;
+
+    asSession(makeSuperadminSession("sa-1"));
+    const first = await app.inject({
+      method: "POST",
+      url: `/${appId}/users`,
+      payload: { userId: "target-1", roleId: userRole.id },
+    });
+    expect(first.statusCode).toBe(201);
+    const [planBefore] = await db
+      .select({ planId: userSubscriptions.planId })
+      .from(userSubscriptions)
+      .where(
+        and(
+          eq(userSubscriptions.userId, "target-1"),
+          eq(userSubscriptions.applicationId, appId),
+        ),
+      );
+
+    const second = await app.inject({
+      method: "POST",
+      url: `/${appId}/users`,
+      payload: { userId: "target-1", roleId: adminRole.id },
+    });
+    expect(second.statusCode).toBe(201);
+
+    const assigned = await db
+      .select({ roleId: userAppRoles.roleId })
+      .from(userAppRoles)
+      .where(
+        and(
+          eq(userAppRoles.userId, "target-1"),
+          eq(userAppRoles.applicationId, appId),
+        ),
+      );
+    expect(assigned).toEqual([{ roleId: adminRole.id }]);
+
+    const [planAfter] = await db
+      .select({ planId: userSubscriptions.planId })
+      .from(userSubscriptions)
+      .where(
+        and(
+          eq(userSubscriptions.userId, "target-1"),
+          eq(userSubscriptions.applicationId, appId),
+        ),
+      );
+    expect(planAfter?.planId).toBe(planBefore?.planId);
   });
 
   it("DELETE /:id → removes the application", async () => {

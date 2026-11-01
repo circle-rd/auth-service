@@ -24,6 +24,8 @@ import { isStripeConfigured } from "../services/stripe.js";
 import { setUserSubscription } from "../services/subscriptions.js";
 import { listInvoices } from "../services/billing/invoices.js";
 import { getApplicationUsage } from "../services/billing/app-views.js";
+import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
+import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
 import {
   createBillingPortalUrl,
   createSubscriptionCheckout,
@@ -33,14 +35,7 @@ import {
   syncStripeSubscription,
 } from "../services/billing/subscriptions.js";
 
-const updateProfileSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  phone: z.string().max(30).nullable().optional(),
-  company: z.string().max(100).nullable().optional(),
-  position: z.string().max(100).nullable().optional(),
-  address: z.string().max(200).nullable().optional(),
-  image: z.string().url().nullable().optional(),
-});
+const updateProfileSchema = profileFieldsSchema;
 
 const changePlanSchema = z.object({
   planId: z.string().uuid(),
@@ -61,6 +56,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         appName: applications.name,
         appSlug: applications.slug,
         appIcon: applications.icon,
+        appUrl: applications.url,
         userIsActive: userApplications.isActive,
         subscriptionPlanId: userApplications.subscriptionPlanId,
       })
@@ -135,6 +131,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         applicationName: r.appName,
         applicationSlug: r.appSlug,
         applicationIcon: r.appIcon,
+        applicationUrl: r.appUrl,
         isActive: r.userIsActive,
         plan: current ? toPlanView(current) : null,
         availablePlans: plans
@@ -476,17 +473,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       throw ERR.USR_003("Invalid profile data", parsed.error.flatten());
     }
 
-    const { name, phone, company, position, address, image } = parsed.data;
-
     await db
       .update(userTable)
       .set({
-        ...(name !== undefined ? { name } : {}),
-        ...(phone !== undefined ? { phone } : {}),
-        ...(company !== undefined ? { company } : {}),
-        ...(position !== undefined ? { position } : {}),
-        ...(address !== undefined ? { address } : {}),
-        ...(image !== undefined ? { image } : {}),
+        ...profileUpdateSet(parsed.data),
         updatedAt: new Date(),
       })
       .where(eq(userTable.id, userId));
@@ -494,6 +484,8 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     // A self-service profile edit is a user write like any other: the admin user
     // list renders these fields, so it must refresh too.
     publishEvent("user.changed");
+    // The Stripe Customer must carry the same identity as the local profile.
+    await syncBillingCustomerBestEffort("user", userId);
 
     await reply.send({ ok: true });
   });

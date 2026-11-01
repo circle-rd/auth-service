@@ -70,6 +70,7 @@ describe("createTopupCheckout", () => {
       invoice_creation: {
         enabled: true,
         invoice_data: {
+          description: "Wallet credit top-up",
           metadata: { purpose: "wallet_topup", userId: "u1" },
         },
       },
@@ -99,6 +100,18 @@ describe("createTopupCheckout", () => {
   it("omits the customer email when the user has none", async () => {
     await createTopupCheckout({ userId: "u1", email: null, amountCents: 1000 });
     expect(mockCreate.mock.calls[0]![0]).not.toHaveProperty("customer_email");
+  });
+
+  it("charges the linked Stripe Customer instead of creating a guest one", async () => {
+    await createTopupCheckout({
+      userId: "u1",
+      email: "u1@example.com",
+      amountCents: 1000,
+      customerId: "cus_1",
+    });
+    const params = mockCreate.mock.calls[0]![0];
+    expect(params.customer).toBe("cus_1");
+    expect(params).not.toHaveProperty("customer_email");
   });
 
   it("answers 503 when Stripe is not configured and calls nothing", async () => {

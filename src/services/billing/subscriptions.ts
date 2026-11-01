@@ -11,8 +11,15 @@ import {
 import { ApiError, ERR } from "../../errors.js";
 import { logger } from "../../logger.js";
 import { stripe } from "../stripe.js";
-import { provisionPlanPrice, provisionPlanProduct } from "./catalog.js";
-import { getOrCreateBillingCustomer } from "./customers.js";
+import {
+  provisionPlanPrice,
+  provisionPlanProduct,
+  productName,
+} from "./catalog.js";
+import {
+  getOrCreateBillingCustomer,
+  syncBillingCustomer,
+} from "./customers.js";
 import { isHttpsUrl } from "./urls.js";
 
 /**
@@ -65,6 +72,28 @@ async function recurringPriceId(planId: string): Promise<string | null> {
   );
 }
 
+/** Human-readable plan/product label used on Stripe subscriptions and Checkout. */
+async function subscriptionLabel(
+  planId: string,
+  applicationId: string,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select({ appName: applications.name, planName: subscriptionPlans.name })
+    .from(subscriptionPlans)
+    .innerJoin(
+      applications,
+      eq(applications.id, subscriptionPlans.applicationId),
+    )
+    .where(
+      and(
+        eq(subscriptionPlans.id, planId),
+        eq(subscriptionPlans.applicationId, applicationId),
+      ),
+    )
+    .limit(1);
+  return row ? productName(row.appName, row.planName) : undefined;
+}
+
 /**
  * The Price a Stripe subscription bills for a plan. A plan with no price at all
  * (the default `free` plan of a new application) gets a 0 EUR monthly Price,
@@ -96,7 +125,12 @@ async function ensureSubscriptionPrice(planId: string): Promise<string | null> {
   if (!plan.isDefault || rows.length > 0) return null;
 
   const [app] = await db
-    .select({ name: applications.name, slug: applications.slug })
+    .select({
+      name: applications.name,
+      slug: applications.slug,
+      icon: applications.icon,
+      url: applications.url,
+    })
     .from(applications)
     .where(eq(applications.id, plan.applicationId))
     .limit(1);
@@ -121,6 +155,8 @@ async function ensureSubscriptionPrice(planId: string): Promise<string | null> {
       appName: app.name,
       planName: "Free",
       description: null,
+      appIcon: app.icon,
+      appUrl: app.url,
     });
     if (stripeProductId) {
       await db
@@ -172,12 +208,16 @@ export async function syncStripeSubscription(input: {
       );
       return false;
     }
-    const customer = await getOrCreateBillingCustomer("user", input.userId);
+    const customer = await syncBillingCustomer("user", input.userId);
     const metadata = {
       userId: input.userId,
       applicationId: input.applicationId,
       planId: input.planId,
     };
+    const description = await subscriptionLabel(
+      input.planId,
+      input.applicationId,
+    );
     const existing = await readSubscription(input.userId, input.applicationId);
 
     if (existing?.stripeSubscriptionId) {
@@ -188,6 +228,7 @@ export async function syncStripeSubscription(input: {
       const params: Stripe.SubscriptionUpdateParams = {
         metadata,
         cancel_at_period_end: false,
+        ...(description ? { description } : {}),
       };
       if (item && item.price.id !== priceId) {
         params.items = [{ id: item.id, price: priceId }];
@@ -201,6 +242,7 @@ export async function syncStripeSubscription(input: {
         customer: customer.stripeCustomerId,
         items: [{ price: priceId }],
         metadata,
+        ...(description ? { description } : {}),
       },
       {
         idempotencyKey: `billing:subscription:${input.userId}:${input.applicationId}`,
@@ -223,6 +265,35 @@ export async function syncStripeSubscription(input: {
     );
     return false;
   }
+}
+
+/**
+ * Refresh the human-readable presentation of an existing Stripe subscription
+ * (description and the ids in metadata) without touching its price or renewal
+ * state. Used by reconciliation to backfill subscriptions created before these
+ * fields were populated.
+ */
+export async function refreshSubscriptionPresentation(input: {
+  stripeSubscriptionId: string;
+  userId: string;
+  applicationId: string;
+  planId: string;
+  description?: string | null;
+}): Promise<boolean> {
+  if (!stripe) return false;
+  const description =
+    input.description !== undefined
+      ? input.description
+      : await subscriptionLabel(input.planId, input.applicationId);
+  await stripe.subscriptions.update(input.stripeSubscriptionId, {
+    metadata: {
+      userId: input.userId,
+      applicationId: input.applicationId,
+      planId: input.planId,
+    },
+    ...(description ? { description } : {}),
+  });
+  return true;
 }
 
 /** Cancel the Stripe subscription of a (user, application) pair, at period end. */
@@ -281,6 +352,10 @@ export async function createSubscriptionCheckout(input: {
   const priceId = await recurringPriceId(input.planId);
   if (!priceId) throw ERR.BIL_002("This plan has no recurring price");
   const customer = await getOrCreateBillingCustomer("user", input.userId);
+  const description = await subscriptionLabel(
+    input.planId,
+    input.applicationId,
+  );
   const metadata = {
     purpose: "subscription",
     userId: input.userId,
@@ -292,8 +367,12 @@ export async function createSubscriptionCheckout(input: {
     {
       mode: "subscription",
       customer: customer.stripeCustomerId,
+      client_reference_id: input.userId,
       line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: { metadata },
+      subscription_data: {
+        metadata,
+        ...(description ? { description } : {}),
+      },
       metadata,
       success_url: `${returnUrl}?subscription=success`,
       cancel_url: `${returnUrl}?subscription=cancelled`,
@@ -385,6 +464,10 @@ export async function switchSubscriptionPlan(input: {
   if (!linked?.stripeSubscriptionId) throw ERR.SUB_008();
   const priceId = await recurringPriceId(input.planId);
   if (!priceId) throw ERR.BIL_002("This plan has no recurring price");
+  const description = await subscriptionLabel(
+    input.planId,
+    input.applicationId,
+  );
   try {
     const subscription = await stripe.subscriptions.retrieve(
       linked.stripeSubscriptionId,
@@ -398,6 +481,7 @@ export async function switchSubscriptionPlan(input: {
         applicationId: input.applicationId,
         planId: input.planId,
       },
+      ...(description ? { description } : {}),
       cancel_at_period_end: false,
       proration_behavior: "create_prorations",
     });

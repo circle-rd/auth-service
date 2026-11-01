@@ -37,6 +37,14 @@ import { useDebounce } from '@/composables/useDebounce';
 import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 import { SCOPE_CATALOGUE } from '@/components/applications/form/scopes';
+import {
+  ioserverExample,
+  litellmPythonExample,
+  litellmTypescriptExample,
+  pythonExample,
+  typescriptExample,
+  type LitellmEndpoints,
+} from '@/utils/integrationExamples';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -165,6 +173,7 @@ async function loadAll() {
     appUsers.value = usersRes.users;
     appUsersTotal.value = usersRes.total;
     plans.value = plansRes.plans;
+    await loadLitellmEndpoints();
   } finally {
     loading.value = false;
   }
@@ -285,13 +294,8 @@ function formatLastLogin(iso: string | null | undefined): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-/** The application's default plan id, used to preselect the selector. */
-function defaultPlanId(): string {
-  return plans.value.find((p) => p.isDefault)?.id ?? '';
-}
-
 function openGrantModal() {
-  userForm.value = { userId: '', roleId: '', subscriptionPlanId: defaultPlanId() };
+  userForm.value = { userId: '', roleId: '', subscriptionPlanId: '' };
   showUserModal.value = true;
 }
 
@@ -327,6 +331,18 @@ async function handleManagePlan() {
     managePlanLoading.value = false;
   }
 }
+
+// Selecting a user who already has access pre-fills their current role/plan so
+// the same dialog can be used to change the role instead of silently ignoring it.
+watch(
+  () => userForm.value.userId,
+  (userId) => {
+    const existing = appUsers.value.find((u) => u.userId === userId);
+    if (!existing) return;
+    userForm.value.roleId = existing.roleId ?? '';
+    userForm.value.subscriptionPlanId = existing.subscriptionPlanId ?? '';
+  },
+);
 
 async function handleGrantAccess() {
   if (!userForm.value.userId) return;
@@ -511,144 +527,80 @@ const tabs = [
   { key: 'financial', label: t('appDetail.financial') },
 ] as const;
 
-const activeCodeTab = ref<'typescript' | 'python' | 'ioserver'>('typescript');
+type CodeTab = 'typescript' | 'python' | 'ioserver' | 'litellm-ts' | 'litellm-py';
+const activeCodeTab = ref<CodeTab>('typescript');
 
 // Auth-service URL = origin of this SPA (same server)
 const authServiceUrl = computed(() => window.location.origin);
 
-const codeExampleTS = computed(() => {
-  if (!app.value) return '';
-  const redirectUri = app.value.redirectUris[0] ?? 'https://your-app.com/callback';
-  const audience = app.value.url ?? 'https://your-app.com';
-  const scope = app.value.allowedScopes.join(' ');
-  return `import * as oauth from 'oauth4webapi';
-
-const issuer = new URL('${authServiceUrl.value}');
-const as = await oauth.discoveryRequest(issuer).then(r => oauth.processDiscoveryResponse(issuer, r));
-
-const client: oauth.Client = { client_id: '${app.value.slug}' };
-
-// 1. Build authorization URL (PKCE + RFC 8707 resource)
-const codeVerifier = oauth.generateRandomCodeVerifier();
-const codeChallenge = await oauth.calculatePKCECodeChallenge(codeVerifier);
-
-const authUrl = new URL(as.authorization_endpoint!);
-authUrl.searchParams.set('client_id', '${app.value.slug}');
-authUrl.searchParams.set('response_type', 'code');
-authUrl.searchParams.set('redirect_uri', '${redirectUri}');
-authUrl.searchParams.set('scope', '${scope}');
-authUrl.searchParams.set('resource', '${audience}');  // RFC 8707
-authUrl.searchParams.set('code_challenge', codeChallenge);
-authUrl.searchParams.set('code_challenge_method', 'S256');
-authUrl.searchParams.set('state', oauth.generateRandomState());
-
-window.location.href = authUrl.toString();
-
-// 2. Exchange code for tokens (in your /callback handler)
-const currentUrl = new URL(window.location.href);
-const params = oauth.validateAuthResponse(as, client, currentUrl, expectedState);
-const response = await oauth.authorizationCodeGrantRequest(
-  as, client, oauth.None(), params,
-  '${redirectUri}', codeVerifier,
-  { additionalParameters: new URLSearchParams({ resource: '${audience}' }) },
+const codeExampleTS = computed(() =>
+  app.value ? typescriptExample(app.value, authServiceUrl.value) : '',
 );
-const tokens = await oauth.processAuthorizationCodeResponse(as, client, response);
-console.log(tokens.access_token);`;
-});
+const codeExamplePython = computed(() =>
+  app.value ? pythonExample(app.value, authServiceUrl.value) : '',
+);
+const codeExampleIOServer = computed(() =>
+  app.value ? ioserverExample(app.value, authServiceUrl.value) : '',
+);
 
-const codeExamplePython = computed(() => {
-  if (!app.value) return '';
-  const redirectUri = app.value.redirectUris[0] ?? 'https://your-app.com/callback';
-  const audience = app.value.url ?? 'https://your-app.com';
-  const scope = app.value.allowedScopes.join(' ');
-  return `from authlib.integrations.requests_client import OAuth2Session
-import secrets, hashlib, base64
+// The gateway and Auth Service resources of the LiteLLM support option: the
+// `url` of the `litellm` and `auth-service` system applications.
+const litellmEndpoints = ref<LitellmEndpoints | null>(null);
+async function loadLitellmEndpoints() {
+  const current = app.value;
+  try {
+    const { applications } = await appsApi.listApplications();
+    const gatewayUrl = applications.find((a) => a.slug === 'litellm')?.url;
+    const authServiceUrl = applications.find((a) => a.slug === 'auth-service')?.url;
+    litellmEndpoints.value =
+      current && gatewayUrl && authServiceUrl && current.allowedResources.includes(gatewayUrl)
+        ? { gatewayUrl, authServiceUrl }
+        : null;
+  } catch {
+    // The examples are an aid: without the system applications they are simply not offered.
+    litellmEndpoints.value = null;
+  }
+}
 
-client_id = '${app.value.slug}'
-redirect_uri = '${redirectUri}'
-scope = '${scope}'
-resource = '${audience}'  # RFC 8707
-
-# PKCE helpers
-verifier = secrets.token_urlsafe(64)
-challenge = base64.urlsafe_b64encode(
-    hashlib.sha256(verifier.encode()).digest()
-).rstrip(b'=').decode()
-
-client = OAuth2Session(
-    client_id, scope=scope, redirect_uri=redirect_uri,
-    code_challenge_method='S256',
-)
-
-# 1. Redirect user to authorization URL
-authorization_endpoint = '${authServiceUrl.value}/api/auth/oauth2/authorize'
-uri, state = client.create_authorization_url(
-    authorization_endpoint,
-    code_verifier=verifier,
-    resource=resource,
-)
-print('Redirect to:', uri)
-
-# 2. Exchange code for tokens (after callback)
-token_endpoint = '${authServiceUrl.value}/api/auth/oauth2/token'
-tokens = client.fetch_token(
-    token_endpoint,
-    authorization_response=callback_url,
-    code_verifier=verifier,
-    resource=resource,
-)
-print(tokens['access_token'])`;
-});
-
-const codeExampleIOServer = computed(() => {
-  if (!app.value) return '';
-  const audience = app.value.url ?? 'https://your-app.com';
-  return `# .env
-AUTH_SERVICE_URL=${authServiceUrl.value}
-AUTH_SERVICE_APP_SLUG=${app.value.slug}
-AUTH_SERVICE_AUDIENCE=${audience}  # JWT aud claim = resource URL
-
-# --- src/index.ts ---
-import {
-  OidcConfigManager,
-  OidcHttpMiddleware,
-  OidcSocketMiddleware,
-} from 'ioserver-oidc';
-
-// Register the OIDC config manager (reads env vars above)
-server.addManager({ name: 'oidcConfig', manager: OidcConfigManager });
-
-// Protect HTTP routes
-server.addController({
-  name: 'api',
-  controller: ApiController,
-  middlewares: [OidcHttpMiddleware],
-  prefix: '/api',
-});
-
-// Protect Socket.IO namespaces
-server.addService({
-  name: 'events',
-  service: EventService,
-  middlewares: [OidcSocketMiddleware],
-});
-
-// Inside a controller/service handler:
-// request.sub         → OIDC subject (stable user ID)
-// request.roles       → string[]  (from \'roles\' scope)
-// request.permissions → string[]  (from \'permissions\' scope)
-// request.features    → object    (from 'features' scope)`;
-});
+const BASE_CODE_TABS: Array<{ key: CodeTab; label: string }> = [
+  { key: 'typescript', label: 'TypeScript' },
+  { key: 'python', label: 'Python' },
+  { key: 'ioserver', label: 'IOServer' },
+];
+const LITELLM_CODE_TABS: Array<{ key: CodeTab; label: string }> = [
+  { key: 'litellm-ts', label: 'LiteLLM · TypeScript' },
+  { key: 'litellm-py', label: 'LiteLLM · Python' },
+];
+const codeTabs = computed(() =>
+  litellmEndpoints.value ? [...BASE_CODE_TABS, ...LITELLM_CODE_TABS] : BASE_CODE_TABS,
+);
+const codeExampleLitellmTS = computed(() =>
+  app.value && litellmEndpoints.value
+    ? litellmTypescriptExample(app.value, authServiceUrl.value, litellmEndpoints.value)
+    : '',
+);
+const codeExampleLitellmPython = computed(() =>
+  app.value && litellmEndpoints.value
+    ? litellmPythonExample(app.value, authServiceUrl.value, litellmEndpoints.value)
+    : '',
+);
 
 const codeCopied = ref(false);
 let codeCopiedTimer: ReturnType<typeof setTimeout> | undefined;
-const activeCodeExample = computed(() =>
-  activeCodeTab.value === 'typescript'
-    ? codeExampleTS.value
-    : activeCodeTab.value === 'python'
-      ? codeExamplePython.value
-      : codeExampleIOServer.value,
-);
+const activeCodeExample = computed(() => {
+  switch (activeCodeTab.value) {
+    case 'typescript':
+      return codeExampleTS.value;
+    case 'python':
+      return codeExamplePython.value;
+    case 'ioserver':
+      return codeExampleIOServer.value;
+    case 'litellm-ts':
+      return codeExampleLitellmTS.value;
+    case 'litellm-py':
+      return codeExampleLitellmPython.value;
+  }
+});
 async function copyActiveCode(): Promise<void> {
   try {
     await navigator.clipboard.writeText(activeCodeExample.value);
@@ -988,15 +940,17 @@ const financialKpis = computed(() => {
             </div>
             <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
               <button
-                v-for="tab in [{ key: 'typescript', label: 'TypeScript' }, { key: 'python', label: 'Python' }, { key: 'ioserver', label: 'IOServer' }]"
+                v-for="tab in codeTabs"
                 :key="tab.key"
-                @click="activeCodeTab = tab.key as 'typescript' | 'python' | 'ioserver'"
+                @click="activeCodeTab = tab.key"
                 :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
               >{{ tab.label }}</button>
             </div>
             <pre class="flex-1 min-h-0 overflow-auto bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 border border-surface-800/50 leading-relaxed whitespace-pre">{{ activeCodeExample }}</pre>
             <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
             <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
+            <p v-else-if="activeCodeTab === 'litellm-ts'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> and <code class="font-mono">openai</code> — <code class="font-mono">npm i oauth4webapi openai</code></p>
+            <p v-else-if="activeCodeTab === 'litellm-py'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> and <code class="font-mono">openai</code> — <code class="font-mono">pip install authlib requests openai</code></p>
             <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
           </div>
 

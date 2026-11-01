@@ -13,3 +13,21 @@ export function httpsOnly(url: string | null | undefined): string | null {
 export function isHttpsUrl(url: string | null | undefined): url is string {
   return typeof url === "string" && url.startsWith("https://");
 }
+
+/**
+ * Keep an absolute http(s) URL for a public asset (a logo, a product page).
+ * Not security-sensitive, but an invalid or non-web value must never reach
+ * Stripe as an image or URL.
+ */
+export function httpUrlOrNull(url: string | null | undefined): string | null {
+  if (typeof url !== "string") return null;
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? trimmed
+      : null;
+  } catch {
+    return null;
+  }
+}

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../errors.js";
 
-const { mockCreate, holder, mockDb, state } = vi.hoisted(() => {
+const { mockCreate, mockUpdate, holder, mockDb, state } = vi.hoisted(() => {
   const state = {
     selects: [] as unknown[][],
     inserts: [] as Record<string, unknown>[],
@@ -23,12 +23,16 @@ const { mockCreate, holder, mockDb, state } = vi.hoisted(() => {
     }),
   };
   const mockCreate = vi.fn();
+  const mockUpdate = vi.fn();
   return {
     mockCreate,
+    mockUpdate,
     mockDb,
     state,
     holder: {
-      stripe: { customers: { create: mockCreate } } as unknown,
+      stripe: {
+        customers: { create: mockCreate, update: mockUpdate },
+      } as unknown,
     },
   };
 });
@@ -40,10 +44,14 @@ vi.mock("../stripe.js", () => ({
   },
 }));
 
+const { customerMatchesProfile } = await import("./customer-profile.js");
 const {
+  billingCustomerIdBestEffort,
   ensureBillingCustomerBestEffort,
   findBillingCustomer,
   getOrCreateBillingCustomer,
+  syncBillingCustomer,
+  syncBillingCustomerBestEffort,
 } = await import("./customers.js");
 
 const customer = {
@@ -69,6 +77,7 @@ async function rejection(promise: Promise<unknown>): Promise<ApiError> {
 beforeEach(() => {
   holder.stripe = stripeClient;
   mockCreate.mockReset().mockResolvedValue({ id: "cus_123" });
+  mockUpdate.mockReset().mockResolvedValue({ id: "cus_123" });
   state.selects = [];
   state.inserts = [];
 });
@@ -100,6 +109,179 @@ describe("getOrCreateBillingCustomer", () => {
     expect(state.inserts).toEqual([
       { ownerType: "user", ownerId: "u1", stripeCustomerId: "cus_123" },
     ]);
+  });
+
+  it("creates the Stripe customer with the full local profile", async () => {
+    state.selects.push(
+      [],
+      [
+        {
+          id: "u1",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          phone: "+33123456789",
+          firstName: "Ada",
+          lastName: "Lovelace",
+          username: "ada",
+          company: "Analytical Engines",
+          position: "Engineer",
+          address: "12 rue de la Paix",
+          postalCode: "75002",
+          city: "Paris",
+          region: "Ile-de-France",
+          country: "fr",
+        },
+      ],
+      [customer],
+    );
+    await getOrCreateBillingCustomer("user", "u1");
+    expect(mockCreate).toHaveBeenCalledWith(
+      {
+        metadata: {
+          ownerType: "user",
+          ownerId: "u1",
+          username: "ada",
+          company: "Analytical Engines",
+          position: "Engineer",
+          country: "FR",
+        },
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        phone: "+33123456789",
+        description: "Engineer at Analytical Engines",
+        address: {
+          line1: "12 rue de la Paix",
+          city: "Paris",
+          state: "Ile-de-France",
+          postal_code: "75002",
+          country: "FR",
+        },
+      },
+      { idempotencyKey: "billing:customer:user:u1" },
+    );
+  });
+
+  it("pushes a profile change onto the existing Stripe customer", async () => {
+    state.selects.push(
+      [customer],
+      [
+        {
+          id: "u1",
+          name: "Ada Lovelace",
+          email: "ada@example.com",
+          phone: null,
+          firstName: "Ada",
+          lastName: "Lovelace",
+          username: "ada",
+          company: "Analytical Engines",
+          position: "Engineer",
+          address: null,
+          postalCode: null,
+          city: null,
+          region: null,
+          country: null,
+        },
+      ],
+    );
+    await syncBillingCustomer("user", "u1");
+    expect(mockUpdate).toHaveBeenCalledWith("cus_123", {
+      metadata: {
+        ownerType: "user",
+        ownerId: "u1",
+        username: "ada",
+        company: "Analytical Engines",
+        position: "Engineer",
+        country: "",
+      },
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: "",
+      description: "Engineer at Analytical Engines",
+      address: "",
+    });
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("creates an organization customer with its domain metadata", async () => {
+    state.selects.push(
+      [],
+      [{ name: "Acme", slug: "acme", domain: "acme.com" }],
+      [{ ...customer, ownerType: "org", ownerId: "o1" }],
+    );
+    await getOrCreateBillingCustomer("org", "o1");
+    expect(mockCreate).toHaveBeenCalledWith(
+      {
+        metadata: {
+          ownerType: "org",
+          ownerId: "o1",
+          organizationSlug: "acme",
+          domain: "acme.com",
+        },
+        name: "Acme",
+        description: "acme.com",
+      },
+      { idempotencyKey: "billing:customer:org:o1" },
+    );
+  });
+
+  it("updates an organization customer with its org metadata", async () => {
+    state.selects.push(
+      [{ ...customer, ownerType: "org", ownerId: "o1" }],
+      [{ name: "Acme", slug: "acme", domain: "acme.com" }],
+    );
+    await syncBillingCustomer("org", "o1");
+    expect(mockUpdate).toHaveBeenCalledWith("cus_123", {
+      metadata: {
+        ownerType: "org",
+        ownerId: "o1",
+        organizationSlug: "acme",
+        domain: "acme.com",
+      },
+      name: "Acme",
+      email: "",
+      phone: "",
+      description: "acme.com",
+      address: "",
+    });
+  });
+
+  it("detects whether a Stripe customer already matches a profile", () => {
+    const profile = {
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: null,
+      description: "Engineer at Acme",
+      address: {
+        line1: "12 rue de la Paix",
+        city: "Paris",
+        state: "Ile-de-France",
+        postal_code: "75002",
+        country: "FR",
+      },
+      metadata: {
+        ownerType: "user",
+        ownerId: "u1",
+        username: "ada",
+        company: "Acme",
+        position: "Engineer",
+        country: "FR",
+      },
+    };
+    const matching = {
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      phone: null,
+      description: "Engineer at Acme",
+      address: profile.address,
+      metadata: profile.metadata,
+    };
+    expect(customerMatchesProfile(matching as never, profile)).toBe(true);
+    expect(
+      customerMatchesProfile(
+        { ...matching, phone: "+33123456789" } as never,
+        profile,
+      ),
+    ).toBe(false);
   });
 
   it("rejects an unknown user without creating anything", async () => {
@@ -150,6 +332,22 @@ describe("getOrCreateBillingCustomer", () => {
       ensureBillingCustomerBestEffort("user", "u1"),
     ).resolves.toBeUndefined();
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns the customer id, or null when Stripe is unavailable", async () => {
+    state.selects.push([customer]);
+    expect(await billingCustomerIdBestEffort("user", "u1")).toBe("cus_123");
+    expect(mockUpdate).not.toHaveBeenCalled();
+    holder.stripe = null;
+    expect(await billingCustomerIdBestEffort("user", "u1")).toBeNull();
+  });
+
+  it("swallows a failure in the profile sync best-effort path", async () => {
+    state.selects.push([customer], []);
+    await expect(
+      syncBillingCustomerBestEffort("user", "u1"),
+    ).resolves.toBeUndefined();
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("fails loudly when the customer is still missing after creation", async () => {

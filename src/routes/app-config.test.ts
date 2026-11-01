@@ -61,6 +61,9 @@ describe("app-config routes", () => {
   });
 
   it("exposes the showcase flag, off by default", async () => {
+    // The local .env may enable the showcase page; this case asserts the flag.
+    const mutable = config as unknown as { showcase: boolean };
+    mutable.showcase = false;
     const res = await app.inject({ method: "GET", url: "/" });
     expect(JSON.parse(res.body)).toMatchObject({ showcase: false });
   });

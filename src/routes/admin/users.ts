@@ -28,10 +28,15 @@ import { importUsers, importUsersSchema } from "../../services/user-import.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
 import { publishEvent } from "../../services/event-bus.js";
 import { presentUserApplications } from "../../services/system-apps.js";
+import { syncBillingCustomerBestEffort } from "../../services/billing/customers.js";
+import {
+  hasProfileChanges,
+  profileFieldsSchema,
+  profileUpdateSet,
+} from "../profile-fields.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
-const updateUserSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
+const updateUserSchema = profileFieldsSchema.extend({
   role: z.enum(["user", "admin"]).optional(),
   isMfaRequired: z.boolean().optional(),
 });
@@ -333,7 +338,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     if (!parsed.success)
       throw ERR.USR_003("Invalid user data", parsed.error.flatten());
 
-    const { role, isMfaRequired, name } = parsed.data;
+    const { role, isMfaRequired } = parsed.data;
 
     // Fetch target to enforce hierarchy checks
     const [targetRow] = await db
@@ -381,12 +386,15 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
-    if (name !== undefined || isMfaRequired !== undefined) {
+    const profileChanged = hasProfileChanges(parsed.data);
+
+    if (profileChanged || isMfaRequired !== undefined) {
       await db
         .update(userTable)
         .set({
-          ...(name !== undefined ? { name } : {}),
+          ...profileUpdateSet(parsed.data),
           ...(isMfaRequired !== undefined ? { isMfaRequired } : {}),
+          updatedAt: new Date(),
         })
         .where(eq(userTable.id, req.params.id));
     }
@@ -395,12 +403,11 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // actually written: an empty PATCH is not a change. The role change and the
     // profile change above are one edit of one user as far as the admin screen
     // is concerned.
-    if (
-      role !== undefined ||
-      name !== undefined ||
-      isMfaRequired !== undefined
-    ) {
+    if (role !== undefined || profileChanged || isMfaRequired !== undefined) {
       publishEvent("user.changed");
+    }
+    if (profileChanged) {
+      await syncBillingCustomerBestEffort("user", req.params.id);
     }
 
     await reply.send({ ok: true });

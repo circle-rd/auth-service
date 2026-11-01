@@ -45,6 +45,7 @@ const { stripeHolder, calls } = vi.hoisted(() => {
       create: vi.fn(async (p: unknown) => ({
         id: `cus_${calls.customersCreate.push(p)}`,
       })),
+      update: vi.fn(async (id: string) => ({ id })),
     },
     subscriptions: {
       create: vi.fn(async (params: unknown, options: unknown) => {
@@ -170,6 +171,9 @@ describe("syncStripeSubscription", () => {
       applicationId: app.id,
       planId: plan.id,
     });
+    expect((created as { description?: string }).description).toBe(
+      "App — free",
+    );
   });
 
   it("updates the subscription item when the plan's price changes", async () => {

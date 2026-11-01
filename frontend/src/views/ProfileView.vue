@@ -24,10 +24,22 @@ import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
 import BillingPanel from '@/components/profile/BillingPanel.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard } from 'lucide-vue-next';
+import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard, ExternalLink } from 'lucide-vue-next';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
+
+/** Only http(s) application URLs are rendered as links (never javascript:). */
+function isHttpUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 const auth = useAuthStore();
 const toast = useToast();
 
@@ -57,10 +69,17 @@ const appsLoading = ref(true);
 
 const form = ref({
   name: '',
+  firstName: '',
+  lastName: '',
+  username: '',
   phone: '',
   company: '',
   position: '',
   address: '',
+  postalCode: '',
+  city: '',
+  region: '',
+  country: '',
   image: '',
 });
 
@@ -68,10 +87,17 @@ const form = ref({
 if (auth.user) {
   form.value = {
     name: auth.user.name,
+    firstName: auth.user.firstName ?? '',
+    lastName: auth.user.lastName ?? '',
+    username: auth.user.username ?? '',
     phone: auth.user.phone ?? '',
     company: auth.user.company ?? '',
     position: auth.user.position ?? '',
     address: auth.user.address ?? '',
+    postalCode: auth.user.postalCode ?? '',
+    city: auth.user.city ?? '',
+    region: auth.user.region ?? '',
+    country: auth.user.country ?? '',
     image: auth.user.image ?? '',
   };
 }
@@ -115,16 +141,36 @@ async function handleSave() {
   try {
     await updateMyProfile({
       name: form.value.name,
+      firstName: form.value.firstName || null,
+      lastName: form.value.lastName || null,
+      username: form.value.username || null,
       phone: form.value.phone || null,
       company: form.value.company || null,
       position: form.value.position || null,
       address: form.value.address || null,
+      postalCode: form.value.postalCode || null,
+      city: form.value.city || null,
+      region: form.value.region || null,
+      country: form.value.country || null,
       image: form.value.image || null,
     });
     // Also update the in-memory store so the header/avatar reflects the new name immediately
     if (auth.user) {
-      auth.user.name = form.value.name;
-      auth.user.image = form.value.image || null;
+      Object.assign(auth.user, {
+        name: form.value.name,
+        firstName: form.value.firstName || null,
+        lastName: form.value.lastName || null,
+        username: form.value.username || null,
+        phone: form.value.phone || null,
+        company: form.value.company || null,
+        position: form.value.position || null,
+        address: form.value.address || null,
+        postalCode: form.value.postalCode || null,
+        city: form.value.city || null,
+        region: form.value.region || null,
+        country: form.value.country ? form.value.country.toUpperCase() : null,
+        image: form.value.image || null,
+      });
     }
     toast.success(t('profile.saved'));
   } catch (err) {
@@ -245,14 +291,29 @@ async function handleChangePlan() {
         <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-4">{{ t('profile.personalInfo') }}</h3>
         <form @submit.prevent="handleSave" class="space-y-4">
           <div class="grid grid-cols-2 gap-4">
-            <BaseInput v-model="form.name" :label="t('profile.name')" required />
-            <BaseInput v-model="form.phone" :label="t('profile.phone')" type="tel" />
+            <BaseInput v-model="form.firstName" :label="t('profile.firstName')" />
+            <BaseInput v-model="form.lastName" :label="t('profile.lastName')" />
           </div>
           <div class="grid grid-cols-2 gap-4">
-            <BaseInput v-model="form.company" :label="t('profile.company')" />
-            <BaseInput v-model="form.position" :label="t('profile.position')" />
+            <BaseInput v-model="form.name" :label="t('profile.name')" required />
+            <BaseInput v-model="form.username" :label="t('profile.username')" />
           </div>
-          <BaseInput v-model="form.address" :label="t('profile.address')" />
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.phone" :label="t('profile.phone')" type="tel" />
+            <BaseInput v-model="form.company" :label="t('profile.company')" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.position" :label="t('profile.position')" />
+            <BaseInput v-model="form.address" :label="t('profile.address')" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.postalCode" :label="t('profile.postalCode')" />
+            <BaseInput v-model="form.city" :label="t('profile.city')" />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <BaseInput v-model="form.region" :label="t('profile.region')" />
+            <BaseInput v-model="form.country" :label="t('profile.country')" :hint="t('profile.countryHint')" />
+          </div>
           <BaseInput v-model="form.image" :label="t('profile.avatar')" :hint="t('profile.emailChangeNote')" />
           <div class="flex justify-end">
             <BaseButton type="submit" :loading="saveLoading">{{ t('common.save') }}</BaseButton>
@@ -429,7 +490,18 @@ async function handleChangePlan() {
           <div v-for="sub in subscriptions" :key="sub.applicationId" class="px-5 py-4">
             <div class="flex items-center gap-3 mb-2">
               <img v-if="sub.applicationIcon" :src="sub.applicationIcon" class="w-5 h-5 rounded shrink-0" />
-              <p class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
+              <a
+                v-if="isHttpUrl(sub.applicationUrl)"
+                :href="sub.applicationUrl || undefined"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="group inline-flex items-center gap-1.5 min-w-0 flex-1 text-sm font-medium text-surface-200 hover:text-primary-300 transition-colors"
+                :title="sub.applicationUrl || undefined"
+              >
+                <span class="truncate">{{ sub.applicationName }}</span>
+                <ExternalLink class="w-3.5 h-3.5 shrink-0 opacity-50 group-hover:opacity-100" />
+              </a>
+              <p v-else class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
               <BaseBadge :variant="sub.isActive ? 'success' : 'neutral'" size="sm" dot>{{ sub.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
               <BaseBadge v-if="sub.plan" variant="neutral" size="sm">{{ sub.plan.name }}</BaseBadge>
               <BaseButton

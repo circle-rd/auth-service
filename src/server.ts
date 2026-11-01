@@ -44,6 +44,7 @@ import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
 import { appBillingRoutes } from "./routes/app-billing.js";
+import { appConsumptionRoutes } from "./routes/app-consumption.js";
 import { billingPageRoutes } from "./routes/billing-pages.js";
 import { subscriptionBillingRoutes } from "./routes/admin/subscription-billing.js";
 import { adminWalletRoutes } from "./routes/admin/wallets.js";
@@ -703,6 +704,9 @@ export async function buildServer(
     prefix: "/api/internal/gateway",
   });
   await fastify.register(appBillingRoutes, { prefix: "/api/app/billing" });
+  await fastify.register(appConsumptionRoutes, {
+    prefix: "/api/app/consumption",
+  });
   await fastify.register(billingPageRoutes);
   await fastify.register(adminWalletRoutes, { prefix: "/api/admin/wallets" });
   await fastify.register(accountingRoutes, {

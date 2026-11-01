@@ -193,6 +193,32 @@ export function stripeStateOf(subscription: Stripe.Subscription) {
 }
 
 /**
+ * The period a paid invoice buys, from its subscription lines. The invoice's own
+ * `period_start` / `period_end` is the usage window: on the first invoice of a
+ * subscription both are the creation instant, which would read as a
+ * subscription ending the moment it starts. The coming period is the one of the
+ * lines that end after the invoice was created; a line paid in arrears (metered
+ * usage) covers the period that just ended and says nothing about the next one.
+ * Null when no line covers a coming period: the stored period is then left as
+ * the subscription events set it.
+ */
+export function paidPeriodOf(
+  invoice: Stripe.Invoice,
+): { start: Date; end: Date } | null {
+  let coming: { start: number; end: number } | null = null;
+  for (const line of invoice.lines?.data ?? []) {
+    if (line.parent?.type === "invoice_item_details") continue;
+    const { start, end } = line.period ?? {};
+    if (typeof start !== "number" || typeof end !== "number") continue;
+    if (end <= (invoice.created ?? 0)) continue;
+    if (!coming || end > coming.end) coming = { start, end };
+  }
+  return coming
+    ? { start: new Date(coming.start * 1000), end: new Date(coming.end * 1000) }
+    : null;
+}
+
+/**
  * Whether an event concerns a subscription other than the one the (user,
  * application) row is linked to. A subscription that was replaced (a free one
  * superseded by a paid checkout) keeps sending events until it ends; applying
@@ -368,17 +394,19 @@ async function applyInvoicePayment(
   }
 
   if (paid) {
+    const period = paidPeriodOf(invoice);
     await setUserSubscription({
       userId: target.userId,
       applicationId: target.applicationId,
       planId: target.planId,
       source: "stripe",
       isActive: true,
-      expiresAt: toDate(invoice.period_end),
+      ...(period ? { expiresAt: period.end } : {}),
       stripe: {
         ...(stripeSubscriptionId ? { stripeSubscriptionId } : {}),
-        currentPeriodStart: toDate(invoice.period_start),
-        currentPeriodEnd: toDate(invoice.period_end),
+        ...(period
+          ? { currentPeriodStart: period.start, currentPeriodEnd: period.end }
+          : {}),
       },
     });
     return;

@@ -15,12 +15,24 @@ import {
   productName,
   provisionPlanPrice,
   provisionPlanProduct,
+  productImages,
+  productUrl,
   updatePlanPriceNickname,
   updatePlanProduct,
 } from "./catalog.js";
-import { getOrCreateBillingCustomer } from "./customers.js";
+import {
+  customerMatchesProfile,
+  loadCustomerProfile,
+} from "./customer-profile.js";
+import {
+  getOrCreateBillingCustomer,
+  updateBillingCustomer,
+} from "./customers.js";
 import { pushPendingMeterEvents, countPendingMeterEvents } from "./usage.js";
-import { syncStripeSubscription } from "./subscriptions.js";
+import {
+  refreshSubscriptionPresentation,
+  syncStripeSubscription,
+} from "./subscriptions.js";
 import {
   planIdFromSubscription,
   stripeStateOf,
@@ -48,6 +60,7 @@ export type ReconciliationMode = "check" | "repair";
 export type DriftKind =
   | "customer_missing"
   | "customer_deleted"
+  | "customer_profile"
   | "product_missing"
   | "product_unusable"
   | "product_metadata"
@@ -158,6 +171,8 @@ interface PlanRow {
   stripeProductId: string | null;
   appName: string;
   appSlug: string;
+  appIcon: string | null;
+  appUrl: string | null;
 }
 
 interface SubscriptionRow {
@@ -237,7 +252,7 @@ export async function reconcileBilling(
   // A user whose Customer was deleted cannot be repaired automatically: a new
   // subscription would target a dead customer. Skip its rows and report it.
   const blockedUsers = new Set<string>();
-  const existingCustomerIds = await listAllCustomerIds();
+  const stripeCustomers = await listAllCustomers();
 
   for (const user of users) {
     const stripeCustomerId = customerByUser.get(user.id);
@@ -248,32 +263,57 @@ export async function reconcileBilling(
         "reported",
       );
       if (!apply) continue;
-      await getOrCreateBillingCustomer("user", user.id);
-      summary.customersCreated += 1;
-      const created = await db
-        .select({ stripeCustomerId: billingCustomers.stripeCustomerId })
-        .from(billingCustomers)
-        .where(
-          and(
-            eq(billingCustomers.ownerType, "user"),
-            eq(billingCustomers.ownerId, user.id),
-          ),
-        )
-        .limit(1);
-      if (created[0]) {
-        customerByUser.set(user.id, created[0].stripeCustomerId);
-        existingCustomerIds.add(created[0].stripeCustomerId);
+      try {
+        await getOrCreateBillingCustomer("user", user.id);
+      } catch (err) {
+        logger.warn(
+          { err: String(err), userId: user.id },
+          "[billing] customer creation failed during reconciliation",
+        );
+        continue;
       }
+      summary.customersCreated += 1;
       issues[issues.length - 1]!.action = "created";
       continue;
     }
 
-    if (!existingCustomerIds.has(stripeCustomerId)) {
+    const stripeCustomer = stripeCustomers.get(stripeCustomerId);
+    if (!stripeCustomer) {
       blockedUsers.add(user.id);
       report(
         "customer_deleted",
         `user ${user.id} points to a deleted Stripe customer ${stripeCustomerId}; manual review required`,
         "reported",
+      );
+      continue;
+    }
+
+    // Refresh the Customer's identity fields when the local profile drifted,
+    // so an edit made while Stripe was unreachable is applied by repair mode.
+    try {
+      const profile = await loadCustomerProfile("user", user.id);
+      if (!customerMatchesProfile(stripeCustomer, profile)) {
+        report(
+          "customer_profile",
+          `customer ${stripeCustomerId} does not match user ${user.id}`,
+          "reported",
+        );
+        if (apply) {
+          try {
+            await updateBillingCustomer(stripeCustomerId, profile);
+            issues[issues.length - 1]!.action = "updated";
+          } catch (err) {
+            logger.warn(
+              { err: String(err), stripeCustomerId },
+              "[billing] customer profile update failed during reconciliation",
+            );
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { err: String(err), userId: user.id },
+        "[billing] customer profile check failed during reconciliation",
       );
     }
   }
@@ -288,12 +328,16 @@ export async function reconcileBilling(
       stripeProductId: subscriptionPlans.stripeProductId,
       appName: applications.name,
       appSlug: applications.slug,
+      appIcon: applications.icon,
+      appUrl: applications.url,
     })
     .from(subscriptionPlans)
     .innerJoin(
       applications,
       eq(applications.id, subscriptionPlans.applicationId),
     );
+
+  const planById = new Map(plans.map((plan) => [plan.id, plan]));
 
   const priceRows: PriceRow[] = await db
     .select({
@@ -333,6 +377,8 @@ export async function reconcileBilling(
           appName: plan.appName,
           planName: plan.name,
           description: plan.description,
+          appIcon: plan.appIcon,
+          appUrl: plan.appUrl,
         });
         if (stripeProductId) {
           await db
@@ -360,6 +406,8 @@ export async function reconcileBilling(
             appName: plan.appName,
             planName: plan.name,
             description: plan.description,
+            appIcon: plan.appIcon,
+            appUrl: plan.appUrl,
           });
           if (replacement) {
             stripeProductId = replacement;
@@ -377,7 +425,18 @@ export async function reconcileBilling(
           product.metadata?.applicationId === plan.applicationId;
         const descriptionOk =
           (product.description ?? null) === (plan.description ?? null);
-        if (product.name !== expectedName || !metadataOk || !descriptionOk) {
+        const expectedImages = productImages(plan.appIcon);
+        const imagesOk =
+          JSON.stringify(product.images ?? []) ===
+          JSON.stringify(expectedImages);
+        const urlOk = (product.url ?? "") === productUrl(plan.appUrl);
+        if (
+          product.name !== expectedName ||
+          !metadataOk ||
+          !descriptionOk ||
+          !imagesOk ||
+          !urlOk
+        ) {
           report(
             "product_metadata",
             `product ${stripeProductId} does not match plan ${plan.id}`,
@@ -390,6 +449,8 @@ export async function reconcileBilling(
               appName: plan.appName,
               planName: plan.name,
               description: plan.description,
+              appIcon: plan.appIcon,
+              appUrl: plan.appUrl,
             });
             issues[issues.length - 1]!.action = "updated";
           }
@@ -658,6 +719,36 @@ export async function reconcileBilling(
       continue;
     }
 
+    const planRow = planById.get(row.planId);
+    const expectedDescription = planRow
+      ? productName(planRow.appName, planRow.name)
+      : undefined;
+    const presentationOk =
+      subscription.metadata?.userId === row.userId &&
+      subscription.metadata?.applicationId === row.applicationId &&
+      subscription.metadata?.planId === row.planId &&
+      (expectedDescription === undefined ||
+        subscription.description === expectedDescription);
+    const presentationRelevant =
+      subscription.status !== "canceled" &&
+      subscription.status !== "incomplete_expired";
+    if (apply && presentationRelevant && !presentationOk) {
+      try {
+        await refreshSubscriptionPresentation({
+          stripeSubscriptionId: subscription.id,
+          userId: row.userId,
+          applicationId: row.applicationId,
+          planId: row.planId,
+          description: expectedDescription,
+        });
+      } catch (err) {
+        logger.warn(
+          { err: String(err), stripeSubscriptionId: subscription.id },
+          "[billing] subscription presentation update failed during reconciliation",
+        );
+      }
+    }
+
     const state = stripeStateOf(subscription);
     if (
       row.stripeStatus !== subscription.status ||
@@ -737,17 +828,17 @@ function subscriptionPriceId(subscription: Stripe.Subscription): string | null {
 }
 
 /** Every Customer id in the account, paginated once instead of per user. */
-async function listAllCustomerIds(): Promise<Set<string>> {
-  if (!stripe) return new Set();
-  const ids = new Set<string>();
+async function listAllCustomers(): Promise<Map<string, Stripe.Customer>> {
+  if (!stripe) return new Map();
+  const customers = new Map<string, Stripe.Customer>();
   let startingAfter: string | undefined;
   for (;;) {
     const page = await stripe.customers.list({
       limit: 100,
       ...(startingAfter ? { starting_after: startingAfter } : {}),
     });
-    for (const customer of page.data) ids.add(customer.id);
-    if (!page.has_more || page.data.length === 0) return ids;
+    for (const customer of page.data) customers.set(customer.id, customer);
+    if (!page.has_more || page.data.length === 0) return customers;
     startingAfter = page.data[page.data.length - 1]!.id;
   }
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ERR } from "../errors.js";
-import { assertPublicHost } from "./outbound-guard.js";
+import { assertNonLocalHost } from "./outbound-guard.js";
 
 // The provider plugin applies these syntactic rules to the clients it registers
 // itself; the admin routes write the client directly, so they are repeated here.
@@ -24,18 +24,21 @@ export const backchannelLogoutUriSchema = z
 
 /**
  * The provider POSTs the logout token from the auth-service host: a URI that
- * resolves to a loopback or private address would turn that delivery into a
- * request to the internal network. Checked when the URI is saved; the provider
- * does not follow redirects.
+ * points at this machine or its link-local network (loopback, cloud metadata)
+ * would turn that delivery into a request to services never meant to be
+ * reachable. Internal addresses stay allowed: an internal DNS legitimately
+ * answers a private address for a public name. Checked when the URI is saved;
+ * the provider does not follow redirects.
  */
-export async function assertPublicBackchannelLogoutUri(
+export async function assertReachableBackchannelLogoutUri(
   uri: string,
 ): Promise<void> {
   try {
-    await assertPublicHost(new URL(uri).hostname);
+    await assertNonLocalHost(new URL(uri).hostname);
   } catch (err) {
-    throw ERR.APP_001("backchannelLogoutUri must target a public host", {
-      reason: err instanceof Error ? err.message : String(err),
-    });
+    throw ERR.APP_001(
+      "backchannelLogoutUri must not target this host or a link-local address",
+      { reason: err instanceof Error ? err.message : String(err) },
+    );
   }
 }

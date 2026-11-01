@@ -35,6 +35,12 @@ const { holder, calls } = vi.hoisted(() => {
     stripe: null as unknown,
   };
   const stripe = {
+    customers: {
+      update: async (id: string, params: unknown) => {
+        record("customer.update", id, params);
+        return { id };
+      },
+    },
     subscriptions: {
       retrieve: async (id: string) => {
         record("retrieve", id);

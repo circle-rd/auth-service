@@ -202,7 +202,7 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
           </div>
 
           <div class="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-4 pt-5 border-t border-surface-700/40">
-            <div v-for="[key, val] in [['phone', user.phone], ['company', user.company], ['position', user.position], ['address', user.address]]" :key="(key as string)">
+            <div v-for="[key, val] in [['firstName', user.firstName], ['lastName', user.lastName], ['username', user.username], ['phone', user.phone], ['company', user.company], ['position', user.position], ['address', user.address], ['postalCode', user.postalCode], ['city', user.city], ['region', user.region], ['country', user.country]]" :key="(key as string)">
               <p class="text-xs font-medium text-surface-500 uppercase tracking-wide mb-1">{{ t(`profile.${key}`) }}</p>
               <p class="text-sm text-surface-300">{{ val ?? '—' }}</p>
             </div>

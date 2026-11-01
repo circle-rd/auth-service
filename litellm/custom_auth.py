@@ -63,7 +63,16 @@ PLAN_TTL_S = float(os.environ.get("GATEWAY_PLAN_TTL_S", "30"))
 HTTP_TIMEOUT_S = 5.0
 
 # Per-server MCP routes (/{server}/mcp) are not part of LiteLLM's LLM route list.
-MCP_SERVER_ROUTE_RE = re.compile(r"^/[^/]+/mcp(/.*)?$")
+# `v1` is no server name: without the lookahead, the management routes
+# /v1/mcp/server and /v1/mcp/sessions would read as the routes of a server "v1".
+MCP_SERVER_ROUTE_RE = re.compile(r"^/(?!(?i:v1)/)[^/]+/mcp(/.*)?$")
+
+# Read-only discovery of what the caller's plan reaches. LiteLLM treats both as
+# management routes, yet serves them to non-admins: the agent list is limited to
+# the caller's grants, and the MCP server list to the accessible servers with
+# their url, headers, env and credentials stripped. Exact paths, GET only: the
+# same paths accept writes for administrators.
+DISCOVERY_ROUTES = frozenset({"/v1/agents", "/v1/mcp/server"})
 
 _keys: dict[str, jwt.PyJWK] = {}
 _last_fetch = 0.0
@@ -84,7 +93,9 @@ def _unavailable(message: str) -> ProxyException:
     )
 
 
-def _is_client_route(path: str) -> bool:
+def _is_client_route(path: str, method: str) -> bool:
+    if method == "GET" and path in DISCOVERY_ROUTES:
+        return True
     return RouteChecks.is_llm_api_route(route=path) or bool(
         MCP_SERVER_ROUTE_RE.match(path)
     )
@@ -229,7 +240,7 @@ async def user_api_key_auth(
     # Users only reach the LLM and MCP routes: without this, a valid token could
     # mint LiteLLM virtual keys (/key/generate) that outlive auth-service access,
     # or create users and teams. Administration stays on the master key.
-    if not _is_client_route(request.url.path):
+    if not _is_client_route(request.url.path, request.method):
         raise ProxyException(
             message="This endpoint is not available to users",
             type="auth_error",

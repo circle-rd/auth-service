@@ -465,6 +465,7 @@ CREATE TABLE "organization" (
 	"name" text NOT NULL,
 	"slug" text NOT NULL,
 	"logo" text,
+	"domain" text,
 	"created_at" timestamp NOT NULL,
 	"metadata" text,
 	CONSTRAINT "organization_slug_unique" UNIQUE("slug")
@@ -523,9 +524,16 @@ CREATE TABLE "user" (
 	"ban_expires" timestamp,
 	"is_mfa_required" boolean DEFAULT false,
 	"phone" text,
+	"first_name" text,
+	"last_name" text,
+	"username" text,
 	"company" text,
 	"position" text,
 	"address" text,
+	"postal_code" text,
+	"city" text,
+	"region" text,
+	"country" text,
 	"last_login_at" timestamp,
 	CONSTRAINT "user_email_unique" UNIQUE("email")
 );

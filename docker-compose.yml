@@ -198,7 +198,7 @@ services:
     entrypoint:
       - sh
       - -c
-      - cp -f /app/litellm/* /config/ && node dist/scripts/litellm-setup.js
+      - cp -f /app/litellm/*.py /app/litellm/*.yaml /config/ && node dist/scripts/litellm-setup.js
     environment:
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3001}
       AUTH_SERVICE_URL: http://auth-service:${PORT:-3001}

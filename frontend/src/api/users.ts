@@ -29,9 +29,16 @@ export interface UpdateUserBody {
   banReason?: string | null
   banExpires?: string | null
   phone?: string | null
+  firstName?: string | null
+  lastName?: string | null
+  username?: string | null
   company?: string | null
   position?: string | null
   address?: string | null
+  postalCode?: string | null
+  city?: string | null
+  region?: string | null
+  country?: string | null
   image?: string | null
 }
 
@@ -68,7 +75,7 @@ export async function getUser(id: string): Promise<UserDetailResponse> {
 
 export async function createUser(body: CreateUserBody): Promise<{ user: User }> {
   if (USE_MOCK) {
-    const user: User = { ...body, id: `usr_${Math.random().toString(36).slice(2)}`, emailVerified: false, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), twoFactorEnabled: null, banned: null, banReason: null, banExpires: null, isMfaRequired: null, phone: null, company: null, position: null, address: null };
+    const user: User = { ...body, id: `usr_${Math.random().toString(36).slice(2)}`, emailVerified: false, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), twoFactorEnabled: null, banned: null, banReason: null, banExpires: null, isMfaRequired: null, phone: null, firstName: null, lastName: null, username: null, company: null, position: null, address: null, postalCode: null, city: null, region: null, country: null };
     MOCK_USERS.push(user);
     return { user };
   }
@@ -86,10 +93,17 @@ export async function updateUser(id: string, body: UpdateUserBody): Promise<{ ok
 
 export interface UpdateMyProfileBody {
   name?: string
+  firstName?: string | null
+  lastName?: string | null
+  username?: string | null
   phone?: string | null
   company?: string | null
   position?: string | null
   address?: string | null
+  postalCode?: string | null
+  city?: string | null
+  region?: string | null
+  country?: string | null
   image?: string | null
 }
 

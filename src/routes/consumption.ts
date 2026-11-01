@@ -4,28 +4,25 @@ import { db } from "../db/index.js";
 import {
   consumptionEntries,
   consumptionAggregates,
-  userApplications,
   applications,
 } from "../db/schema.js";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { getRequestSession, requireAdmin } from "../middleware.js";
 import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
-import { recordMeteredUsage } from "../services/billing/usage.js";
+import {
+  consumptionKeySchema,
+  consumptionReportSchema,
+  getConsumption,
+  listConsumption,
+  parseConsumptionReport,
+  recordConsumption,
+  toReportResponse,
+} from "../services/consumption.js";
 
-const CONSUMPTION_KEY_RE = /^[a-zA-Z0-9.]+$/;
-
-const postConsumptionSchema = z.object({
+const postConsumptionSchema = consumptionReportSchema.extend({
   applicationId: z.string().uuid(),
   userId: z.string().min(1),
-  key: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(CONSUMPTION_KEY_RE, "key must be alphanumeric with dots"),
-  value: z.number().finite("value must be a finite number"),
-  // Optional retry key: the same key reported twice increments usage once.
-  idempotencyKey: z.string().trim().min(1).max(200).optional(),
 });
 
 const userAppParamsSchema = z.object({
@@ -34,7 +31,7 @@ const userAppParamsSchema = z.object({
 });
 
 const userAppKeyParamsSchema = userAppParamsSchema.extend({
-  key: z.string().min(1).max(64).regex(CONSUMPTION_KEY_RE),
+  key: consumptionKeySchema,
 });
 
 /**
@@ -87,17 +84,8 @@ export async function consumptionRoutes(
   fastify.post("/", {}, async (req, reply) => {
     const caller = await requireConsumptionAuth(req);
 
-    const parsed = postConsumptionSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues;
-      const keyIssue = issues.find((i) => i.path.includes("key"));
-      const valueIssue = issues.find((i) => i.path.includes("value"));
-      if (keyIssue) throw ERR.CONS_001(keyIssue.message);
-      if (valueIssue) throw ERR.CONS_002(valueIssue.message);
-      throw ERR.APP_001("Invalid consumption data", parsed.error.flatten());
-    }
-
-    const { userId, applicationId, key, value } = parsed.data;
+    const { userId, applicationId, key, value, idempotencyKey } =
+      parseConsumptionReport(postConsumptionSchema, req.body);
 
     // When authenticated via Bearer token, verify the token belongs to this application.
     // This prevents a client from reporting consumption for a different application.
@@ -112,70 +100,17 @@ export async function consumptionRoutes(
       }
     }
 
-    // Verify user ↔ app relationship exists
-    const [access] = await db
-      .select({ id: userApplications.id })
-      .from(userApplications)
-      .where(
-        and(
-          eq(userApplications.userId, userId),
-          eq(userApplications.applicationId, applicationId),
-        ),
-      )
-      .limit(1);
-    if (!access) throw ERR.CONS_003();
-
-    // A key that prices a metered feature of the user's active plan is billed
-    // through Stripe meters (hard cap enforced) instead of the free counters.
-    const metered = await recordMeteredUsage({
-      userId,
-      applicationId,
-      key,
-      value,
-      idempotencyKey: parsed.data.idempotencyKey,
-    });
-    if (metered) {
-      await reply.send({ success: true, metered: true, aggregate: metered });
-      return;
-    }
-
-    // The raw entry and the running total move together or not at all.
-    const [aggregate] = await db.transaction(async (tx) => {
-      await tx.insert(consumptionEntries).values({
-        userId,
-        applicationId,
-        key,
-        value: String(value),
-      });
-
-      // Increment the total by value, supporting negative credits.
-      return tx
-        .insert(consumptionAggregates)
-        .values({
+    await reply.send(
+      toReportResponse(
+        await recordConsumption({
           userId,
           applicationId,
           key,
-          total: String(value),
-          updatedAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [
-            consumptionAggregates.userId,
-            consumptionAggregates.applicationId,
-            consumptionAggregates.key,
-          ],
-          set: {
-            total: sql`${consumptionAggregates.total} + ${String(value)}`,
-            updatedAt: new Date(),
-          },
-        })
-        .returning({
-          key: consumptionAggregates.key,
-          total: consumptionAggregates.total,
-        });
-    });
-
-    await reply.send({ success: true, aggregate });
+          value,
+          idempotencyKey,
+        }),
+      ),
+    );
   });
 
   // GET /api/consumption/:userId/:applicationId
@@ -204,19 +139,10 @@ export async function consumptionRoutes(
         }
       }
 
-      const rows = await db
-        .select({
-          key: consumptionAggregates.key,
-          total: consumptionAggregates.total,
-          updatedAt: consumptionAggregates.updatedAt,
-        })
-        .from(consumptionAggregates)
-        .where(
-          and(
-            eq(consumptionAggregates.userId, parsed.data.userId),
-            eq(consumptionAggregates.applicationId, parsed.data.applicationId),
-          ),
-        );
+      const rows = await listConsumption(
+        parsed.data.userId,
+        parsed.data.applicationId,
+      );
 
       await reply.send({ aggregates: rows });
     },
@@ -247,23 +173,11 @@ export async function consumptionRoutes(
       }
     }
 
-    const [row] = await db
-      .select({
-        key: consumptionAggregates.key,
-        total: consumptionAggregates.total,
-        updatedAt: consumptionAggregates.updatedAt,
-      })
-      .from(consumptionAggregates)
-      .where(
-        and(
-          eq(consumptionAggregates.userId, parsed.data.userId),
-          eq(consumptionAggregates.applicationId, parsed.data.applicationId),
-          eq(consumptionAggregates.key, parsed.data.key),
-        ),
-      )
-      .limit(1);
-
-    if (!row) throw ERR.CONS_003("Consumption record not found");
+    const row = await getConsumption(
+      parsed.data.userId,
+      parsed.data.applicationId,
+      parsed.data.key,
+    );
     await reply.send({ aggregate: row });
   });
 

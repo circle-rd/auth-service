@@ -270,17 +270,31 @@ describe("Back-channel logout (integration)", () => {
     });
     expect(rejected.statusCode).toBe(400);
 
-    // The provider delivers from the auth-service host: a URI resolving to an
-    // internal address would reach the private network.
-    for (const internal of ["https://localhost/bc", "https://10.0.0.5/bc"]) {
+    // The provider delivers from the auth-service host: a URI pointing at this
+    // machine or at link-local services (cloud metadata) is refused.
+    for (const local of [
+      "https://localhost/bc",
+      "https://127.0.0.1/bc",
+      "https://169.254.169.254/bc",
+    ]) {
       const blocked = await handle.app.inject({
         method: "PATCH",
         url: `/api/admin/applications/${app!.id}`,
         headers: { cookie: adminCookie, ...JSON_HEADERS },
-        payload: { backchannelLogoutUri: internal },
+        payload: { backchannelLogoutUri: local },
       });
       expect(blocked.statusCode).toBe(400);
     }
+
+    // An internal address is legitimate: split-horizon DNS answers a private
+    // IP for the application's public name.
+    const internal = await handle.app.inject({
+      method: "PATCH",
+      url: `/api/admin/applications/${app!.id}`,
+      headers: { cookie: adminCookie, ...JSON_HEADERS },
+      payload: { backchannelLogoutUri: "https://10.0.0.5/bc" },
+    });
+    expect(internal.statusCode).toBe(200);
 
     const accepted = await handle.app.inject({
       method: "PATCH",

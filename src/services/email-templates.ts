@@ -55,6 +55,7 @@ export interface RenderedEmail {
 
 export interface EmailFrontmatter {
   subject: string;
+  preheader?: string;
   from?: string;
   replyTo?: string;
 }
@@ -119,51 +120,74 @@ function escapeHtml(value: string): string {
 
 /**
  * Wrap the inner content of a built-in template in a shared, email-client-safe
- * shell (table layout, inline styles, embedded CID logo, footer). Applied only
- * to bundled templates: external/tenant overrides stay in full control of
- * their markup.
+ * shell. Table layout, inline styles, a CID logo and a compact footer keep the
+ * message readable even when a client blocks remote assets or strips classes.
+ * External/tenant overrides stay in full control of their markup.
  */
-function wrapEmailLayout(inner: string, vars: Record<string, unknown>): string {
+function wrapEmailLayout(
+  inner: string,
+  vars: Record<string, unknown>,
+  preheader?: string,
+): string {
   const appName = escapeHtml(String(vars.appName ?? "Auth"));
   const authUrl = String(vars.authUrl ?? "");
   const supportEmail = String(vars.supportEmail ?? "");
   const logoCid = String(vars.logoCid ?? "");
   const hasLogo = Boolean(vars.hasLogo) && logoCid !== "";
   const year = new Date().getFullYear();
+  const font =
+    "'Inter','Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif";
+  const initial = escapeHtml(appName.trim().charAt(0).toUpperCase() || "A");
 
   const brand = hasLogo
-    ? `<img src="cid:${escapeHtml(logoCid)}" alt="${appName}" width="48" height="48" style="display:block;width:48px;height:48px;border:0;outline:none;text-decoration:none;" />`
-    : `<div style="font-size:18px;font-weight:700;color:#09090b;letter-spacing:-0.01em;">${appName}</div>`;
+    ? `<img src="cid:${escapeHtml(logoCid)}" alt="${appName}" width="44" height="44" style="display:block;width:44px;height:44px;border:0;outline:none;text-decoration:none;border-radius:12px;" />`
+    : `<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td width="44" height="44" align="center" valign="middle" bgcolor="#2563eb" style="width:44px;height:44px;background-color:#2563eb;border-radius:12px;color:#ffffff;font-family:${font};font-size:19px;font-weight:700;line-height:44px;">${initial}</td></tr></table>`;
 
-  const footerContact = supportEmail
-    ? ` &middot; <a href="mailto:${escapeHtml(supportEmail)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(supportEmail)}</a>`
+  const support = supportEmail
+    ? `<p style="margin:0 0 6px;">Questions? <a href="mailto:${escapeHtml(supportEmail)}" style="color:#2563eb;text-decoration:none;">${escapeHtml(supportEmail)}</a></p>`
     : "";
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="color-scheme" content="light dark" />
+<meta name="x-apple-disable-message-reformatting" />
+<meta name="color-scheme" content="light" />
+<meta name="supported-color-schemes" content="light" />
 <title>${appName}</title>
+<style>
+@media only screen and (max-width:600px){
+  .email-shell{width:100%!important;border-radius:0!important;}
+  .email-pad{padding-left:22px!important;padding-right:22px!important;}
+  .email-btn{display:block!important;}
+}
+</style>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f4f5;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f5;padding:32px 12px;">
-<tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:12px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-<tr><td align="center" style="padding:28px 32px 4px;">${brand}</td></tr>
-<tr><td style="padding:12px 32px 28px;color:#18181b;font-size:15px;line-height:1.6;">${inner}</td></tr>
-<tr><td style="padding:20px 32px 28px;border-top:1px solid #e4e4e7;color:#71717a;font-size:12px;line-height:1.6;">
-<p style="margin:0 0 6px;">${appName}${footerContact}</p>
+<body style="margin:0;padding:0;width:100%;background-color:#f4f4f7;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f4f7;opacity:0;">${escapeHtml(preheader ?? `A message from ${appName}.`)}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#f4f4f7;">
+<tr><td align="center" style="padding:40px 16px;">
+<table role="presentation" class="email-shell" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:16px;overflow:hidden;font-family:${font};">
+<tr><td height="3" bgcolor="#2563eb" style="height:3px;background-color:#2563eb;line-height:3px;font-size:0;">&nbsp;</td></tr>
+<tr><td class="email-pad" style="padding:28px 36px 0;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+<td width="44" valign="middle" style="width:44px;vertical-align:middle;">${brand}</td>
+<td valign="middle" style="padding-left:12px;vertical-align:middle;">
+<div style="font-size:16px;font-weight:700;line-height:1.3;color:#18181b;letter-spacing:-0.02em;">${appName}</div>
+<div style="margin-top:2px;font-size:10px;font-weight:600;line-height:1.3;letter-spacing:0.14em;text-transform:uppercase;color:#a1a1aa;">Account notification</div>
+</td>
+</tr></table>
+</td></tr>
+<tr><td class="email-pad" style="padding:24px 36px 34px;color:#3f3f46;font-size:15px;line-height:1.65;">${inner}</td></tr>
+<tr><td class="email-pad" style="padding:22px 36px 28px;border-top:1px solid #e4e4e7;background-color:#fafafa;color:#71717a;font-size:12px;line-height:1.65;">
+<p style="margin:0 0 6px;font-weight:600;color:#52525b;">${appName}</p>
+${support}
+${authUrl ? `<p style="margin:0 0 6px;"><a href="${escapeHtml(authUrl)}" style="color:#2563eb;text-decoration:none;word-break:break-all;">${escapeHtml(authUrl)}</a></p>` : ""}
 <p style="margin:0;">This is an automated message &mdash; please do not reply.</p>
-<p style="margin:6px 0 0;">&copy; ${year} ${appName}</p>
+<p style="margin:6px 0 0;color:#a1a1aa;">&copy; ${year} ${appName}. All rights reserved.</p>
 </td></tr>
 </table>
-${
-  authUrl
-    ? `<p style="max-width:560px;margin:14px auto 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:11px;color:#a1a1aa;text-align:center;">${escapeHtml(authUrl)}</p>`
-    : ""
-}
 </td></tr>
 </table>
 </body>
@@ -238,8 +262,11 @@ export function renderEmail(
 
   // Bundled templates get the shared branded shell; external overrides are
   // rendered verbatim so tenants keep full control.
+  const preheader = fm.preheader
+    ? renderPlainString(fm.preheader, vars).trim()
+    : undefined;
   const html = path.startsWith(BUILTIN_EMAIL_TEMPLATES_DIR)
-    ? wrapEmailLayout(innerHtml, vars)
+    ? wrapEmailLayout(innerHtml, vars, preheader)
     : innerHtml;
 
   return {

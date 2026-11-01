@@ -52,16 +52,16 @@ export async function listOrganizationMembers(orgId: string, params: { limit?: n
   return apiFetch<{ members: OrganizationMember[]; total: number }>(`/admin/organizations/${orgId}/members${query ? `?${query}` : ''}`);
 }
 
-export async function createOrganization(body: { name: string; slug: string; logo?: string; metadata?: string }): Promise<{ organization: Organization }> {
+export async function createOrganization(body: { name: string; slug: string; logo?: string; domain?: string; metadata?: string }): Promise<{ organization: Organization }> {
   if (USE_MOCK) {
-    const org: Organization = { id: `org_${Math.random().toString(36).slice(2)}`, name: body.name, slug: body.slug, logo: body.logo ?? null, createdAt: new Date().toISOString(), metadata: body.metadata ?? null, members: [] };
+    const org: Organization = { id: `org_${Math.random().toString(36).slice(2)}`, name: body.name, slug: body.slug, logo: body.logo ?? null, domain: body.domain ?? null, createdAt: new Date().toISOString(), metadata: body.metadata ?? null, members: [] };
     MOCK_ORGANIZATIONS.push(org);
     return { organization: org };
   }
   return apiFetch<{ organization: Organization }>('/admin/organizations', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function updateOrganization(id: string, body: Partial<{ name: string; slug: string; logo: string; metadata: string }>): Promise<{ organization: Organization }> {
+export async function updateOrganization(id: string, body: Partial<{ name: string; slug: string; logo: string | null; domain: string | null; metadata: string }>): Promise<{ organization: Organization }> {
   if (USE_MOCK) {
     const idx = MOCK_ORGANIZATIONS.findIndex(o => o.id === id);
     if (idx >= 0) Object.assign(MOCK_ORGANIZATIONS[idx], body);

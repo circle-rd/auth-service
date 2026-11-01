@@ -109,10 +109,13 @@ beforeEach(async () => {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-async function seedApp(slug = "app") {
+async function seedApp(
+  slug = "app",
+  overrides: Partial<typeof applications.$inferInsert> = {},
+) {
   const [a] = await db
     .insert(applications)
-    .values({ name: "App", slug, isActive: true })
+    .values({ name: "App", slug, isActive: true, ...overrides })
     .returning();
   return a!;
 }
@@ -165,6 +168,32 @@ describe("plan product provisioning", () => {
     expect(calls.productsCreate[0]).toMatchObject({
       metadata: { applicationId: a.id },
     });
+  });
+
+  it("sends the application logo and URL to the Stripe product", async () => {
+    const a = await seedApp("branded", {
+      icon: "https://cdn.example.com/logo.png",
+      url: "https://app.example.com",
+    });
+    await createPlan(a.id, "pro");
+    expect(calls.productsCreate[0]).toMatchObject({
+      images: ["https://cdn.example.com/logo.png"],
+      url: "https://app.example.com",
+    });
+  });
+
+  it("re-brands the products when the application logo changes", async () => {
+    const a = await seedApp();
+    await createPlan(a.id, "pro");
+    await updateApplicationProducts({
+      applicationId: a.id,
+      appName: a.name,
+      appIcon: "https://cdn.example.com/new.png",
+    });
+    expect(calls.productsUpdate).toContainEqual([
+      "prod_1",
+      expect.objectContaining({ images: ["https://cdn.example.com/new.png"] }),
+    ]);
   });
 
   it("renames the Stripe product when the plan is renamed", async () => {

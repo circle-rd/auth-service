@@ -30,6 +30,18 @@ TOTP, and meter what people consume — including through a
 centralizes authentication across your own applications, with per-app roles,
 organizations, MFA, subscription billing and a prepaid credit wallet.
 
+> **Looking for the client SDKs?** Building an application that signs its users
+> in through CIRCLE Authentication? Skip the OAuth plumbing: the official SDKs
+> handle sign-in, sessions, entitlements, billing and the LLM credit wallet.
+>
+> [![SDK TypeScript](https://img.shields.io/badge/SDK%20TypeScript-%40circle--rd%2Fauth--ai-3178C6?logo=typescript&logoColor=white)](https://github.com/circle-rd/auth-ai-ts)
+> [![SDK Python](https://img.shields.io/badge/SDK%20Python-auth--ai-3776AB?logo=python&logoColor=white)](https://github.com/circle-rd/auth-ai-py)
+>
+> The TypeScript SDK also ships
+> [React](https://docs.circle-cyber.com/auth-ai/docs/guides/frontend/react) and
+> [Vue](https://docs.circle-cyber.com/auth-ai/docs/guides/frontend/vue) bindings;
+> the Python SDK plugs into FastAPI and Starlette.
+
 Full documentation: **https://docs.circle-cyber.com/auth-service**
 
 ## Principles

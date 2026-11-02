@@ -38,8 +38,8 @@ organizations, MFA, subscription billing and a prepaid credit wallet.
 > [![SDK Python](https://img.shields.io/badge/SDK%20Python-auth--ai-3776AB?logo=python&logoColor=white)](https://github.com/circle-rd/auth-ai-py)
 >
 > The TypeScript SDK also ships
-> [React](https://docs.circle-cyber.com/auth-ai/docs/guides/frontend/react) and
-> [Vue](https://docs.circle-cyber.com/auth-ai/docs/guides/frontend/vue) bindings;
+> [React](https://docs.circle-cyber.com/auth-ai/typescript/docs/guides/frontend/react) and
+> [Vue](https://docs.circle-cyber.com/auth-ai/typescript/docs/guides/frontend/vue) bindings;
 > the Python SDK plugs into FastAPI and Starlette.
 
 Full documentation: **https://docs.circle-cyber.com/auth-service**

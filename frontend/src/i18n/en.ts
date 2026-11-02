@@ -1016,6 +1016,7 @@ export default {
   landing: {
     navFeatures: 'Features',
     navStandards: 'Standards',
+    navSdks: 'SDKs',
     navSecurity: 'Security',
     signIn: 'Sign in',
     docs: 'Read the docs',
@@ -1108,6 +1109,23 @@ export default {
           'Access tokens carry roles, permissions and plan features.',
           'Optional LiteLLM gateway that bills against the user wallet.',
         ],
+      },
+    },
+    sdksKicker: 'Client SDKs',
+    sdksTitle: 'Skip the OAuth plumbing.',
+    sdksLede:
+      'Official SDKs run the sign-in on your backend and handle sessions, entitlements, billing and the LLM credit wallet.',
+    sdksDocs: 'Read the documentation',
+    sdks: {
+      typescript: {
+        title: 'SDK TypeScript',
+        description:
+          'Node.js backends with Fastify or any Web-standard framework, plus React and Vue bindings for the browser.',
+      },
+      python: {
+        title: 'SDK Python',
+        description:
+          'Async Python backends with FastAPI or Starlette: same behaviours, same wire contract, fully typed.',
       },
     },
     securityTitle: 'Secure by default',

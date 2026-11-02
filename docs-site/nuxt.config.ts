@@ -26,7 +26,27 @@ export default defineNuxtConfig({
     full: {
       title: "Auth Service — Complete Documentation",
       description:
-        "Complete documentation for auth-service, a self-hosted OAuth 2.1 / OIDC identity provider. Covers deployment, configuration, application management, RBAC, subscription plans, organization support, consumption tracking, and the full REST API reference.",
+        "Complete documentation for auth-service, a self-hosted OAuth 2.1 / OIDC identity provider. Covers deployment, configuration, application management, RBAC, subscription plans, the credit wallet and LiteLLM gateway, integration guides, and the client SDKs.",
     },
+    sections: [
+      {
+        title: "Client SDKs",
+        description: "Official SDKs for applications that sign users in through auth-service.",
+        links: [
+          {
+            title: "CIRCLE auth-ai (TypeScript) documentation",
+            description:
+              "@circle-rd/auth-ai: Fastify and Web-standard handlers, React and Vue bindings, wallet, gateway, billing and consumption.",
+            href: "https://docs.circle-cyber.com/auth-ai/typescript/",
+          },
+          {
+            title: "CIRCLE auth-ai (Python) documentation",
+            description:
+              "auth-ai on PyPI: FastAPI and Starlette adapters, same behaviours and wire contract as the TypeScript SDK.",
+            href: "https://docs.circle-cyber.com/auth-ai/python/",
+          },
+        ],
+      },
+    ],
   },
 });

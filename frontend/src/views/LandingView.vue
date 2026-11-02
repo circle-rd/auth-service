@@ -3,6 +3,7 @@ import { RouterLink } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import {
   ArrowRight,
+  Braces,
   Building2,
   Clock,
   CloudCog,
@@ -15,6 +16,7 @@ import {
   Palette,
   ShieldCheck,
   Sun,
+  Terminal,
   Wallet,
 } from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
@@ -47,6 +49,21 @@ const features = [
 
 const standards = ['web', 'machines', 'agents'] as const;
 
+const sdks = [
+  {
+    id: 'typescript',
+    icon: Braces,
+    install: 'pnpm add @circle-rd/auth-ai',
+    docsUrl: 'https://docs.circle-cyber.com/auth-ai/typescript/',
+  },
+  {
+    id: 'python',
+    icon: Terminal,
+    install: 'pip install auth-ai',
+    docsUrl: 'https://docs.circle-cyber.com/auth-ai/python/',
+  },
+] as const;
+
 function messages(key: string): string[] {
   return (tm(key) as Parameters<typeof rt>[0][]).map((m) => rt(m));
 }
@@ -64,6 +81,7 @@ function messages(key: string): string[] {
         <div class="flex items-center gap-4 text-xs text-surface-400">
           <a href="#features" class="hidden md:inline hover:text-surface-100 transition-colors">{{ t('landing.navFeatures') }}</a>
           <a href="#standards" class="hidden md:inline hover:text-surface-100 transition-colors">{{ t('landing.navStandards') }}</a>
+          <a href="#sdks" class="hidden md:inline hover:text-surface-100 transition-colors">{{ t('landing.navSdks') }}</a>
           <a href="#security" class="hidden md:inline hover:text-surface-100 transition-colors">{{ t('landing.navSecurity') }}</a>
           <a
             :href="GITHUB_URL"
@@ -224,6 +242,46 @@ function messages(key: string): string[] {
                   {{ item }}
                 </li>
               </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Client SDKs -->
+      <section id="sdks" class="px-6 pb-20 scroll-mt-8">
+        <div class="max-w-7xl mx-auto">
+          <div class="mb-8 max-w-3xl">
+            <div class="flex items-center gap-2 text-[11px] uppercase tracking-widest font-medium text-surface-500 mb-3">
+              <span class="text-primary-400"><Braces class="w-[18px] h-[18px]" /></span>
+              {{ t('landing.sdksKicker') }}
+            </div>
+            <h2 class="text-2xl md:text-3xl font-medium tracking-tight mb-3">
+              {{ t('landing.sdksTitle') }}
+            </h2>
+            <p class="text-sm text-surface-400 leading-relaxed">{{ t('landing.sdksLede') }}</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 2xl:gap-6">
+            <div v-for="sdk in sdks" :key="sdk.id" class="bg-surface-900 border border-surface-800 rounded-xl p-5 flex flex-col">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="text-primary-400"><component :is="sdk.icon" class="w-[18px] h-[18px]" /></span>
+                <h3 class="text-sm font-medium">{{ t(`landing.sdks.${sdk.id}.title`) }}</h3>
+              </div>
+              <p class="text-xs text-surface-400 leading-relaxed mb-4">
+                {{ t(`landing.sdks.${sdk.id}.description`) }}
+              </p>
+              <code class="block px-3 py-2 mb-4 text-xs font-mono text-surface-300 bg-surface-950 border border-surface-800 rounded-lg">
+                {{ sdk.install }}
+              </code>
+              <a
+                :href="sdk.docsUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-auto inline-flex items-center gap-1.5 text-xs font-medium text-primary-400 hover:text-primary-300 transition-colors"
+              >
+                {{ t('landing.sdksDocs') }}
+                <ArrowRight class="w-[13px] h-[13px]" />
+              </a>
             </div>
           </div>
         </div>

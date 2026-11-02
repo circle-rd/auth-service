@@ -323,7 +323,7 @@ export interface CompatMapping {
 export interface CompatConfig {
   profile: 'default' | 'okta' | 'auth0' | 'keycloak' | 'custom'
   tokenAuthMethod: 'basic' | 'post'
-  signingAlg: 'EdDSA' | 'RS256'
+  signingAlg: 'ES256' | 'RS256'
   defaultAudience: boolean
   audienceParam: boolean
   claimMappings: CompatMapping[]

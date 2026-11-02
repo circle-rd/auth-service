@@ -1017,6 +1017,7 @@ export default {
   landing: {
     navFeatures: 'Fonctionnalités',
     navStandards: 'Standards',
+    navSdks: 'SDK',
     navSecurity: 'Sécurité',
     signIn: 'Se connecter',
     docs: 'Lire la documentation',
@@ -1109,6 +1110,23 @@ export default {
           'Les jetons d\'accès portent rôles, permissions et fonctionnalités du plan.',
           'Passerelle LiteLLM optionnelle, facturée sur le portefeuille de l\'utilisateur.',
         ],
+      },
+    },
+    sdksKicker: 'SDK clients',
+    sdksTitle: 'Oubliez la plomberie OAuth.',
+    sdksLede:
+      'Les SDK officiels exécutent la connexion sur votre backend et gèrent sessions, droits, facturation et portefeuille de crédit LLM.',
+    sdksDocs: 'Lire la documentation',
+    sdks: {
+      typescript: {
+        title: 'SDK TypeScript',
+        description:
+          'Backends Node.js avec Fastify ou tout framework standard Web, plus des bindings React et Vue pour le navigateur.',
+      },
+      python: {
+        title: 'SDK Python',
+        description:
+          'Backends Python asynchrones avec FastAPI ou Starlette : mêmes comportements, même contrat réseau, entièrement typé.',
       },
     },
     securityTitle: 'Sécurisé par défaut',

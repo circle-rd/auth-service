@@ -11,7 +11,7 @@ describe("resolveCompat", () => {
     expect(resolveCompat({ profile: "default" })).toEqual({
       profile: "default",
       tokenAuthMethod: "basic",
-      signingAlg: "EdDSA",
+      signingAlg: "ES256",
       defaultAudience: false,
       audienceParam: false,
       claimMappings: [],
@@ -46,13 +46,13 @@ describe("resolveCompat", () => {
     const settings = resolveCompat({
       profile: "okta",
       tokenAuthMethod: "post",
-      signingAlg: "EdDSA",
+      signingAlg: "ES256",
       defaultAudience: false,
       claimMappings: [],
     });
     expect(settings).toMatchObject({
       tokenAuthMethod: "post",
-      signingAlg: "EdDSA",
+      signingAlg: "ES256",
       defaultAudience: false,
       claimMappings: [],
     });
@@ -62,7 +62,7 @@ describe("resolveCompat", () => {
     expect(resolveCompat({ profile: "custom", audienceParam: true })).toEqual({
       profile: "custom",
       tokenAuthMethod: "basic",
-      signingAlg: "EdDSA",
+      signingAlg: "ES256",
       defaultAudience: false,
       audienceParam: true,
       claimMappings: [],

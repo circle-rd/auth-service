@@ -56,3 +56,18 @@ What it does
 ::::u-page-feature{icon="i-lucide-palette" title="Custom templates & branding" description="Override the login, register and other server-rendered pages per application, and the transactional emails globally, via TEMPLATES_DIR. APP_NAME and APP_LOGO_URL drive the branding."}
 ::::
 :::
+
+:::u-page-section
+#title
+Client SDKs
+
+#description
+Skip the OAuth plumbing: official SDKs run the sign-in on your backend and handle sessions, entitlements, billing and the LLM credit wallet.
+
+#features
+::::u-page-feature{icon="i-simple-icons-typescript" title="SDK TypeScript" description="@circle-rd/auth-ai — Fastify and Web-standard handlers, plus React and Vue bindings." to="https://docs.circle-cyber.com/auth-ai/typescript/"}
+::::
+
+::::u-page-feature{icon="i-simple-icons-python" title="SDK Python" description="auth-ai — async FastAPI and Starlette adapters, same behaviours and wire contract." to="https://docs.circle-cyber.com/auth-ai/python/"}
+::::
+:::

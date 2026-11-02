@@ -43,10 +43,11 @@ ISSUER = _required_env("JWT_ISSUER")
 AUDIENCE = _required_env("JWT_AUDIENCE")
 MASTER_KEY = _required_env("LITELLM_MASTER_KEY")
 _required_env("LITELLM_SALT_KEY")
-# auth-service signs with EdDSA by default, or RS256 (JWT_PRIMARY_ALG). The key
+# auth-service signs with ES256 by default, or RS256 (JWT_PRIMARY_ALG). The key
 # type comes from the JWKS entry, so the two asymmetric algorithms cannot be
-# confused with each other or with a shared-secret one.
-ALGORITHMS = ["EdDSA", "RS256"]
+# confused with each other or with a shared-secret one. EdDSA is not accepted:
+# RFC 9864 deprecates that name.
+ALGORITHMS = ["ES256", "RS256"]
 REFRESH_COOLDOWN_S = 30
 
 # Resolving a user's plan/team. The machine client is the same one the wallet

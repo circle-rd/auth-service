@@ -117,7 +117,7 @@ describe("config compatibility profile", () => {
     expect(config.compat).toMatchObject({
       profile: "default",
       tokenAuthMethod: "basic",
-      signingAlg: "EdDSA",
+      signingAlg: "ES256",
       defaultAudience: false,
     });
   });
@@ -153,6 +153,7 @@ describe("config compatibility profile", () => {
   it.each([
     ["COMPAT_PROFILE", "azure"],
     ["JWT_PRIMARY_ALG", "HS256"],
+    ["JWT_PRIMARY_ALG", "EdDSA"],
     ["TOKEN_ENDPOINT_AUTH_METHOD", "none"],
     ["CLAIM_MAPPINGS", "not json"],
     ["CLAIM_MAPPINGS", '[{"claim":"sub","source":"roles"}]'],

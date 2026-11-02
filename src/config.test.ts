@@ -161,6 +161,10 @@ describe("config compatibility profile", () => {
     ["TRUST_PROXY", "not-an-address"],
     ["TRUST_PROXY", "10.0.0.0/33"],
     ["TRUST_PROXY", "10.0.0.1,,10.0.0.2"],
+    ["TRUST_PROXY", "0.0.0.0/0"],
+    ["TRUST_PROXY", "::/0"],
+    ["TRUST_PROXY", "10.0.0.0/00"],
+    ["TRUST_PROXY", "  "],
     ["TRUST_PROXY_HOPS", "1"],
   ])("rejects an invalid %s", async (key, value) => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -176,6 +180,11 @@ describe("config compatibility profile", () => {
 describe("config TRUST_PROXY", () => {
   it("trusts no proxy by default", async () => {
     const config = await loadConfig({ NODE_ENV: "test" });
+    expect(config.trustProxy).toEqual([]);
+  });
+
+  it("treats an empty value as unset", async () => {
+    const config = await loadConfig({ NODE_ENV: "test", TRUST_PROXY: "" });
     expect(config.trustProxy).toEqual([]);
   });
 

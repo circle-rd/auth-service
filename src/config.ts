@@ -35,8 +35,11 @@ function isTrustedProxyEntry(entry: string): boolean {
   const family = isIP(address);
   if (family === 0 || extra.length > 0) return false;
   if (prefix === undefined) return true;
+  const prefixLength = Number(prefix);
   return (
-    /^\d{1,3}$/.test(prefix) && Number(prefix) <= (family === 4 ? 32 : 128)
+    /^\d{1,3}$/.test(prefix) &&
+    prefixLength >= 1 &&
+    prefixLength <= (family === 4 ? 32 : 128)
   );
 }
 
@@ -89,7 +92,9 @@ const envSchema = z
       .string()
       .optional()
       .transform((value) =>
-        value === undefined ? [] : value.split(",").map((e) => e.trim()),
+        value === undefined || value === ""
+          ? []
+          : value.split(",").map((e) => e.trim()),
       )
       .refine((entries) => entries.every(isTrustedProxyEntry), {
         message:

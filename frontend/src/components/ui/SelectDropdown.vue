@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, ref, useId, watch } from 'vue';
 import type { CSSProperties } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Check } from 'lucide-vue-next';
+import { Check } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import SelectOptionContent from './SelectOptionContent.vue';
 

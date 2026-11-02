@@ -26,7 +26,7 @@ import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import {
   Users, MonitorSmartphone, AppWindow, Building2, Activity,
   AlertTriangle, Info, UserPlus, Plus, Settings, Clock, Layers,
-} from 'lucide-vue-next';
+} from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import { Line } from 'vue-chartjs';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from 'chart.js';

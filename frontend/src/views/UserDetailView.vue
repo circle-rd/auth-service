@@ -17,7 +17,7 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck, KeyRound } from 'lucide-vue-next';
+import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck, KeyRound } from '@lucide/vue';
 import SetPasswordModal from '@/components/users/SetPasswordModal.vue';
 import UserWalletSection from '@/components/wallet/UserWalletSection.vue';
 

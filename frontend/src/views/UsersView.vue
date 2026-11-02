@@ -23,7 +23,7 @@ import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import AppIconStack from '@/components/ui/AppIconStack.vue';
-import { UserPlus, Users, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail, Upload } from 'lucide-vue-next';
+import { UserPlus, Users, Search, CheckCircle, XCircle, Shield, ShieldAlert, User as UserIcon, MoreHorizontal, Eye, Pencil, Trash2, Ban, CheckCircle2, Mail, Upload } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import { useAuthStore } from '@/stores/auth';

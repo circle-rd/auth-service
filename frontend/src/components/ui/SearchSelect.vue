@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T extends SelectOption">
 import { computed, ref, shallowRef, watch, onMounted, onBeforeUnmount, useId } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Search, X, ChevronDown } from 'lucide-vue-next';
+import { Search, X, ChevronDown } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import SelectDropdown from './SelectDropdown.vue';
 import SelectOptionContent from './SelectOptionContent.vue';

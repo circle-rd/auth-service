@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Receipt } from 'lucide-vue-next';
+import { Receipt } from '@lucide/vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
 import WalletBalanceCard from '@/components/wallet/WalletBalanceCard.vue';

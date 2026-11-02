@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { AlertTriangle } from 'lucide-vue-next';
+import { AlertTriangle } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import PricingModal from '@/components/wallet/PricingModal.vue';

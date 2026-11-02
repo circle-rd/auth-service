@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue';
-import { ChevronDown } from 'lucide-vue-next';
+import { ChevronDown } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import SelectDropdown from './SelectDropdown.vue';
 import SelectOptionContent from './SelectOptionContent.vue';

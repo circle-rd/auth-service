@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
 import {
   LayoutDashboard, Users, Building2, AppWindow, Wallet, ReceiptText, Settings, ChevronRight, X,
-} from 'lucide-vue-next';
+} from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
 import { useMobileNav } from '@/composables/useMobileNav';

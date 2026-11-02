@@ -13,7 +13,7 @@
 ### Prerequisites
 
 - Node.js 22+
-- pnpm 10+
+- pnpm 12+
 - Docker + Docker Compose (for the database)
 - A `.env` file populated according to the variables declared in
   `src/config.ts`

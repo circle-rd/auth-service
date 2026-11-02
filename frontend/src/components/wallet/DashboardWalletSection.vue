@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Coins, TrendingDown, Wallet } from 'lucide-vue-next';
+import { Coins, TrendingDown, Wallet } from '@lucide/vue';
 import StatCard from '@/components/ui/StatCard.vue';
 import SpendChart from '@/components/wallet/SpendChart.vue';
 import { getWalletStats } from '@/api/wallet';

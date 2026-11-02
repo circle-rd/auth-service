@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ShieldCheck, Key as KeyIcon, ArrowLeft } from 'lucide-vue-next';
+import { ShieldCheck, Key as KeyIcon, ArrowLeft } from '@lucide/vue';
 import { useAuthStore } from '@/stores/auth';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import OtpInput from '@/components/ui/OtpInput.vue';

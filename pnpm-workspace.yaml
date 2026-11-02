@@ -1,2 +1,8 @@
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  cpu-features: false
+  esbuild: true
+  protobufjs: false
+  ssh2: false
+overrides:
+  '@fastify/static>glob': ^14.0.2
+  '@esbuild-kit/core-utils>esbuild': ^0.25.12

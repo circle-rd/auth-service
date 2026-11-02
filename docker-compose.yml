@@ -59,7 +59,9 @@ services:
 
       # Networking / sessions.
       CORS_ORIGINS: ${CORS_ORIGINS:-}
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      # Forwarded only so the config rejects a stale pre-migration setting.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-}
       SESSION_DOMAIN: ${SESSION_DOMAIN:-}
 
       # Auth flows. Email verification defaults to false here so the stack

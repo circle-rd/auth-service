@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ShieldOff, AlertTriangle } from 'lucide-vue-next';
+import { ShieldOff, AlertTriangle } from '@lucide/vue';
 import { disableTwoFactor } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/useToast';

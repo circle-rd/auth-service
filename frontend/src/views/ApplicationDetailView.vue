@@ -34,7 +34,7 @@ import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api
 import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useDebounce } from '@/composables/useDebounce';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from 'lucide-vue-next';
+import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import { SCOPE_CATALOGUE } from '@/components/applications/form/scopes';
 import {

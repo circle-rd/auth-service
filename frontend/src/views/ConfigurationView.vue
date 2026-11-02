@@ -8,7 +8,7 @@ import { listOrganizations } from '@/api/organizations';
 import type { User } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
-import { CheckCircle, XCircle, CreditCard, ShieldCheck, Lock, Users, AppWindow, Building2, ArrowRightLeft } from 'lucide-vue-next';
+import { CheckCircle, XCircle, CreditCard, ShieldCheck, Lock, Users, AppWindow, Building2, ArrowRightLeft } from '@lucide/vue';
 
 const { t } = useI18n();
 const services = useServicesStore();

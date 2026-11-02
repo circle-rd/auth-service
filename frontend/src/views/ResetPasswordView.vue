@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { CircleCheckBig, KeyRound, TriangleAlert } from 'lucide-vue-next';
+import { CircleCheckBig, KeyRound, TriangleAlert } from '@lucide/vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';

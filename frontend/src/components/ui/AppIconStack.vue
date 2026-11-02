@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { AppWindow } from 'lucide-vue-next';
+import { AppWindow } from '@lucide/vue';
 import type { UserAppSummary } from '@/types';
 
 const props = withDefaults(defineProps<{

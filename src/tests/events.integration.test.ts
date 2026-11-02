@@ -64,8 +64,8 @@ beforeEach(async () => {
  * endpoints per client address (`AUTH_RATE_MAX` hits per minute), and every
  * address here is a test fixture rather than a client, so sharing one address
  * would make this suite fail on its own volume rather than on the code.
- * `trustProxy` is 0 in the test environment, so the injected socket address is
- * what `req.ip` resolves to.
+ * `trustProxy` is empty in the test environment, so the injected socket
+ * address is what `req.ip` resolves to.
  */
 let nextAddress = 1;
 function freshAddress(): string {

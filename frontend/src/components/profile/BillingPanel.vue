@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Receipt, Gauge } from 'lucide-vue-next';
+import { Receipt, Gauge } from '@lucide/vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import { getMyInvoices, getMyUsage } from '@/api/billing';

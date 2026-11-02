@@ -12,7 +12,7 @@ export type CompatProfile = (typeof COMPAT_PROFILES)[number];
 export const TOKEN_AUTH_METHODS = ["basic", "post"] as const;
 export type TokenAuthMethod = (typeof TOKEN_AUTH_METHODS)[number];
 
-export const SIGNING_ALGS = ["EdDSA", "RS256"] as const;
+export const SIGNING_ALGS = ["ES256", "RS256"] as const;
 export type SigningAlg = (typeof SIGNING_ALGS)[number];
 
 export const ALIAS_SETS = ["okta", "auth0"] as const;
@@ -79,7 +79,7 @@ type Preset = Omit<CompatSettings, "profile">;
 
 const NO_PRESET: Preset = {
   tokenAuthMethod: "basic",
-  signingAlg: "EdDSA",
+  signingAlg: "ES256",
   defaultAudience: false,
   audienceParam: false,
   claimMappings: [],

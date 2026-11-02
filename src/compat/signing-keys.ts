@@ -1,5 +1,5 @@
 import { createJwk } from "better-auth/plugins";
-import { count, eq, isNull, or } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { auth } from "../auth.js";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
@@ -23,15 +23,12 @@ export async function ensureSigningKey(): Promise<void> {
   const [{ total }] = await db.select({ total: count() }).from(jwks);
   if (total === 0) return;
 
-  // A key row without `alg` predates the column and is an EdDSA key.
+  // A key row without `alg` predates the column and is a legacy EdDSA key: it
+  // never matches, so the first start after the switch mints a key.
   const [{ matching }] = await db
     .select({ matching: count() })
     .from(jwks)
-    .where(
-      alg === "EdDSA"
-        ? or(eq(jwks.alg, alg), isNull(jwks.alg))
-        : eq(jwks.alg, alg),
-    );
+    .where(eq(jwks.alg, alg));
   if (matching > 0) return;
 
   const context = await auth.$context;

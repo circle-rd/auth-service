@@ -11,6 +11,7 @@
  */
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { buildAliasTable, resolveAlias } from "./compat/aliases.js";
+import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
@@ -229,6 +230,12 @@ export async function buildServer(
       return RATE_LIMIT_EXEMPT_PATHS.some((p) => url.startsWith(p));
     },
   });
+
+  // ── Response compression ────────────────────────────────────────
+  // zstd, brotli, then gzip by the client's preference; payloads under 1 KiB are
+  // sent as they are. Registered before the static frontend, which the plugin
+  // requires. The admin event stream is hijacked and bypasses this hook.
+  await fastify.register(compress);
 
   // ── Strict rate buckets for sensitive auth + email endpoints ────
   // Backed by an in-process counter by default; when REDIS_URL is set the

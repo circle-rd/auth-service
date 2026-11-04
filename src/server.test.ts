@@ -25,6 +25,7 @@
  * the CORS/CORP behaviour configured in `server.ts` are under test here.
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import type * as OauthProviderModule from "@better-auth/oauth-provider";
 
 function notFoundRoutes(): Record<string, unknown> {
@@ -126,7 +127,10 @@ vi.mock("./auth.js", () => ({
 vi.mock("@better-auth/oauth-provider", async (importOriginal) => {
   const actual = await importOriginal<typeof OauthProviderModule>();
   const metadataHandler = async () =>
-    Response.json({ issuer: "http://localhost:3001" });
+    Response.json({
+      issuer: "http://localhost:3001",
+      scopes_supported: Array.from({ length: 200 }, (_, i) => `scope-${i}`),
+    });
   return {
     ...actual,
     oauthProviderOpenIdConfigMetadata: () => metadataHandler,
@@ -209,5 +213,59 @@ describe("OIDC discovery CORS", () => {
     // The application origin is not a dashboard origin (CORS_ORIGINS), so the
     // CORS plugin must not echo it — and must not fall back to `*` either.
     expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+});
+
+describe("response compression", () => {
+  let app: Awaited<ReturnType<typeof buildServer>>;
+  const DOCUMENT_PATH = "/.well-known/openid-configuration";
+
+  beforeAll(async () => {
+    app = await buildServer();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it("answers brotli to a client that accepts it, with a vary header", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: DOCUMENT_PATH,
+      headers: { "accept-encoding": "gzip, br" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-encoding"]).toBe("br");
+    expect(res.headers["vary"]).toMatch(/accept-encoding/i);
+    expect(
+      JSON.parse(brotliDecompressSync(res.rawPayload).toString("utf8")),
+    ).toMatchObject({
+      issuer: expect.any(String),
+    });
+  });
+
+  it("answers gzip when brotli is not accepted", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: DOCUMENT_PATH,
+      headers: { "accept-encoding": "gzip" },
+    });
+
+    expect(res.headers["content-encoding"]).toBe("gzip");
+    expect(
+      JSON.parse(gunzipSync(res.rawPayload).toString("utf8")),
+    ).toMatchObject({
+      issuer: expect.any(String),
+    });
+  });
+
+  it("answers the identity encoding when the client accepts no compression", async () => {
+    const res = await app.inject({ method: "GET", url: DOCUMENT_PATH });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-encoding"]).toBeUndefined();
+    expect(res.json()).toMatchObject({ issuer: expect.any(String) });
   });
 });

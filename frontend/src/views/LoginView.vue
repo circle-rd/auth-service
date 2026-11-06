@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
@@ -25,6 +25,16 @@ const error = ref('');
 const needsVerification = ref(false);
 const resending = ref(false);
 const resendStatus = ref('');
+const checkingMfa = ref(route.query.mfa === 'pending' && !auth.user);
+
+onMounted(async () => {
+  if (!checkingMfa.value) return;
+  try {
+    await auth.resumeMfaChallenge();
+  } finally {
+    checkingMfa.value = false;
+  }
+});
 
 function nextRoute(): string {
   // Preserve a `redirectTo` query param so OAuth flows (which carry signed
@@ -118,12 +128,15 @@ if (import.meta.env.VITE_USE_MOCK === 'true') {
           </div>
         <h1 class="text-xl font-semibold text-surface-100">{{ t('auth.loginTitle') }}</h1>
         <p class="text-sm text-surface-500 mt-1">
-          {{ auth.mfaPending ? t('mfa.challenge.subtitle') : t('auth.loginSubtitle') }}
+          {{ auth.mfaPending || checkingMfa ? t('mfa.challenge.subtitle') : t('auth.loginSubtitle') }}
         </p>
       </div>
 
       <div class="bg-surface-900/60 backdrop-blur-sm border border-surface-700/40 rounded-2xl p-6 shadow-xl">
-        <MfaChallengeForm v-if="auth.mfaPending" @verified="handleMfaVerified" />
+        <div v-if="checkingMfa" class="py-8 text-center text-sm text-surface-500">
+          {{ t('common.loading') }}
+        </div>
+        <MfaChallengeForm v-else-if="auth.mfaPending" @verified="handleMfaVerified" />
 
         <form v-else @submit.prevent="handleLogin" class="space-y-4">
           <BaseInput

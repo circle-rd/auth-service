@@ -26,6 +26,7 @@ import { listInvoices } from "../services/billing/invoices.js";
 import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
+import { getMfaState } from "../services/mfa.js";
 import {
   createBillingPortalUrl,
   createSubscriptionCheckout,
@@ -488,5 +489,20 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     await syncBillingCustomerBestEffort("user", userId);
 
     await reply.send({ ok: true });
+  });
+
+  // GET /api/user/mfa — factors are the source of truth; the cached flag is not.
+  fastify.get("/mfa", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+
+    const state = await getMfaState(userId);
+    await reply.send({
+      mfaEnabled: state.mfaEnabled,
+      methods: state.methods,
+      totpRegistered: state.totpRegistered,
+      passkeyCount: state.passkeyCount,
+      backupCodesAvailable: state.totpRegistered,
+    });
   });
 }

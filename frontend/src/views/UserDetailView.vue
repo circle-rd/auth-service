@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { getUser, sendVerificationEmail, markEmailVerified } from '@/api/users';
+import { getUser, sendVerificationEmail, markEmailVerified, resetUserMfa } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
 import { setSubscriptionCancellation } from '@/api/subscriptions';
 import { useToast } from '@/composables/useToast';
@@ -17,8 +17,9 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck, KeyRound } from '@lucide/vue';
+import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, ShieldOff, Mail, MailCheck, KeyRound } from '@lucide/vue';
 import SetPasswordModal from '@/components/users/SetPasswordModal.vue';
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import UserWalletSection from '@/components/wallet/UserWalletSection.vue';
 
 const { t } = useI18n();
@@ -36,6 +37,7 @@ const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const loading = ref(true);
 const actionLoading = ref(false);
 const showSetPassword = ref(false);
+const showResetMfa = ref(false);
 
 const userId = route.params.id as string;
 
@@ -75,6 +77,20 @@ async function toggleCancellation(app: UserApplicationDetail): Promise<void> {
     toast.error(err instanceof Error ? err.message : t('common.error'));
   } finally {
     subscriptionBusy.value = null;
+  }
+}
+
+async function handleResetMfa(): Promise<void> {
+  actionLoading.value = true;
+  try {
+    await resetUserMfa(userId);
+    await reloadUser();
+    toast.success(t('users.mfaReset'));
+    showResetMfa.value = false;
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
+  } finally {
+    actionLoading.value = false;
   }
 }
 
@@ -255,6 +271,15 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
               <KeyRound class="w-4 h-4" />
               {{ t('users.setPassword') }}
             </BaseButton>
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :disabled="actionLoading"
+              @click="showResetMfa = true"
+            >
+              <ShieldOff class="w-4 h-4" />
+              {{ t('users.resetMfa') }}
+            </BaseButton>
           </div>
 
           <div v-if="user.banned" class="mt-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
@@ -344,6 +369,15 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
       :user-id="userId"
       @close="showSetPassword = false"
       @success="reloadUser"
+    />
+    <ConfirmDialog
+      :open="showResetMfa"
+      :title="t('users.resetMfa')"
+      :message="t('users.resetMfaConfirm')"
+      :confirm-label="t('users.resetMfa')"
+      :loading="actionLoading"
+      @confirm="handleResetMfa"
+      @cancel="showResetMfa = false"
     />
   </AppLayout>
 </template>

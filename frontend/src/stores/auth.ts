@@ -8,6 +8,7 @@ import {
   verifyTotp as apiVerifyTotp,
   verifyBackupCode as apiVerifyBackupCode,
 } from '@/api/auth';
+import { authenticateWithPasskey, getMfaMethods } from '@/api/passkeys';
 import {
   canAdminTargetUser,
   canManageRole as canManageRoleByRank,
@@ -24,6 +25,7 @@ export const useAuthStore = defineStore('auth', () => {
   // should swap to the MFA challenge form until the user verifies a code.
   const mfaPending = ref(false);
   const mfaMethods = ref<MfaMethod[]>([]);
+  const mfaBackupCodesAvailable = ref(false);
 
   // Indicates the signed-in user must enable a second factor before being
   // allowed to use any downstream application. The auth-service UI itself
@@ -56,8 +58,23 @@ export const useAuthStore = defineStore('auth', () => {
   async function signInEmail(email: string, password: string): Promise<void> {
     const result = await apiSignInEmail(email, password);
     if (result.twoFactorRedirect) {
+      let methods = result.twoFactorMethods ?? [];
+      if (methods.length === 0) {
+        // BetterAuth only knows TOTP/OTP, so it returns [] for a passkey-only
+        // account. Offer both fallbacks rather than claiming no method exists.
+        methods = ['totp', 'passkey'];
+      }
+      let backupCodesAvailable = methods.includes('totp');
+      try {
+        const state = await getMfaMethods();
+        methods = state.methods;
+        backupCodesAvailable = state.backupCodesAvailable;
+      } catch {
+        // Keep the fallback; the challenge screen will surface the real error.
+      }
+      mfaMethods.value = methods;
+      mfaBackupCodesAvailable.value = backupCodesAvailable;
       mfaPending.value = true;
-      mfaMethods.value = result.twoFactorMethods ?? ['totp'];
       return;
     }
     await fetchSession();
@@ -84,14 +101,43 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function verifyMfaPasskey(): Promise<void> {
+    await authenticateWithPasskey();
+    await fetchSession();
+    if (!user.value) {
+      throw new Error('Session was not established. Please try signing in again.');
+    }
+  }
+
+  /**
+   * Resume a pending second factor after the server-rendered login form handed
+   * the user to the SPA. The `two_factor` cookie already proves the password.
+   */
+  async function resumeMfaChallenge(): Promise<boolean> {
+    try {
+      const methods = await getMfaMethods();
+      mfaMethods.value = methods.methods;
+      mfaBackupCodesAvailable.value = methods.backupCodesAvailable;
+      mfaPending.value = true;
+      return true;
+    } catch {
+      mfaPending.value = false;
+      mfaMethods.value = [];
+      mfaBackupCodesAvailable.value = false;
+      return false;
+    }
+  }
+
   function clearMfaPending(): void {
     mfaPending.value = false;
     mfaMethods.value = [];
+    mfaBackupCodesAvailable.value = false;
   }
 
   function cancelMfa(): void {
     mfaPending.value = false;
     mfaMethods.value = [];
+    mfaBackupCodesAvailable.value = false;
   }
 
   async function logout() {
@@ -104,6 +150,7 @@ export const useAuthStore = defineStore('auth', () => {
     session.value = null;
     mfaPending.value = false;
     mfaMethods.value = [];
+    mfaBackupCodesAvailable.value = false;
   }
 
   function isAdmin(): boolean {
@@ -142,11 +189,14 @@ export const useAuthStore = defineStore('auth', () => {
     initialized,
     mfaPending,
     mfaMethods,
+    mfaBackupCodesAvailable,
     mfaSetupRequired,
     fetchSession,
     signInEmail,
     verifyMfaTotp,
     verifyMfaBackupCode,
+    verifyMfaPasskey,
+    resumeMfaChallenge,
     clearMfaPending,
     cancelMfa,
     logout,

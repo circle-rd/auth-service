@@ -9,6 +9,7 @@ import { logger } from "./logger.js";
 import { publishEvent } from "./services/event-bus.js";
 import { replaceClientResource } from "./services/oauth-resources.js";
 import { AUTH_SERVICE_SLUG } from "./services/system-apps.js";
+import { backfillMfaFlags } from "./services/mfa.js";
 
 // Known default/placeholder bootstrap passwords that must never be accepted in
 // production. Matching is exact so a legitimate password that merely contains a
@@ -158,6 +159,18 @@ async function ensureAuthServiceApplication(): Promise<boolean> {
  */
 export async function bootstrap(): Promise<void> {
   const authServiceAppChanged = await ensureAuthServiceApplication();
+
+  if (config.features.mfaBackfill) {
+    const mfaBackfilled = await backfillMfaFlags();
+    if (mfaBackfilled > 0) {
+      publishEvent("user.changed");
+      logger.info(
+        { count: mfaBackfilled },
+        "[bootstrap] Reconciled MFA flag for existing factors",
+      );
+    }
+  }
+
   const { adminEmail, adminPassword } = config.bootstrap;
 
   if (!adminEmail || !adminPassword) {

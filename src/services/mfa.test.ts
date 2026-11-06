@@ -1,7 +1,54 @@
 import { describe, it, expect } from "vitest";
-import { readMfaState, userMustSetupMfa } from "./mfa.js";
+import { deriveMfaState, readMfaState, userMustSetupMfa } from "./mfa.js";
 
 describe("services/mfa", () => {
+  describe("deriveMfaState", () => {
+    it("reports no methods when neither factor exists", () => {
+      expect(deriveMfaState(false, 0)).toEqual({
+        totpRegistered: false,
+        passkeyCount: 0,
+        methods: [],
+        mfaEnabled: false,
+      });
+    });
+
+    it("treats TOTP as an MFA method", () => {
+      expect(deriveMfaState(true, 0)).toEqual({
+        totpRegistered: true,
+        passkeyCount: 0,
+        methods: ["totp"],
+        mfaEnabled: true,
+      });
+    });
+
+    it("treats passkeys as an MFA method when a password exists", () => {
+      expect(deriveMfaState(false, 2)).toEqual({
+        totpRegistered: false,
+        passkeyCount: 2,
+        methods: ["passkey"],
+        mfaEnabled: true,
+      });
+    });
+
+    it("keeps passkeys as primary-only without a password", () => {
+      expect(deriveMfaState(false, 2, false)).toEqual({
+        totpRegistered: false,
+        passkeyCount: 2,
+        methods: ["passkey"],
+        mfaEnabled: false,
+      });
+    });
+
+    it("reports both methods in a stable order", () => {
+      expect(deriveMfaState(true, 1)).toEqual({
+        totpRegistered: true,
+        passkeyCount: 1,
+        methods: ["totp", "passkey"],
+        mfaEnabled: true,
+      });
+    });
+  });
+
   describe("readMfaState", () => {
     it("coerces undefined fields to false", () => {
       expect(readMfaState({})).toEqual({

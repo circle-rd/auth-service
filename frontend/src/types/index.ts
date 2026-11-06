@@ -62,11 +62,24 @@ export interface MfaBackupCodesResult {
   backupCodes: string[]
 }
 
-export type MfaMethod = 'totp' | 'otp'
+export type MfaMethod = 'totp' | 'otp' | 'passkey'
 
-export interface MfaChallengeState {
-  pending: boolean
+export interface MfaState {
+  mfaEnabled: boolean
   methods: MfaMethod[]
+  totpRegistered: boolean
+  passkeyCount: number
+  backupCodesAvailable: boolean
+}
+
+export interface PasskeySummary {
+  id: string
+  name: string | null
+  createdAt: string | null
+  deviceType: string
+  backedUp: boolean
+  transports: string | null
+  aaguid: string | null
 }
 
 export interface SignInResult {

@@ -142,6 +142,14 @@ export async function sendVerificationEmail(id: string): Promise<{ ok: true }> {
   });
 }
 
+/** Remove every MFA factor and revoke the user's sessions and tokens. */
+export async function resetUserMfa(id: string): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/users/${id}/mfa/reset`, {
+    method: 'POST',
+  });
+}
+
 /** Mark a user's email as verified without them clicking the link. */
 export async function markEmailVerified(id: string): Promise<{ ok: true }> {
   if (USE_MOCK) return { ok: true };

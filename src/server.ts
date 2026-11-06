@@ -93,6 +93,13 @@ const AUTH_RATE_PATHS = [
   "/api/auth/sign-up/email",
   "/api/auth/two-factor/verify-totp",
   "/api/auth/two-factor/verify-backup-code",
+  "/api/auth/mfa/methods",
+  "/api/auth/mfa/passkey/options",
+  "/api/auth/mfa/passkey/verify-authentication",
+  "/api/auth/passkey/generate-register-options",
+  "/api/auth/passkey/verify-registration",
+  "/api/auth/passkey/generate-authenticate-options",
+  "/api/auth/passkey/verify-authentication",
 ];
 const AUTH_RATE_MAX = 10;
 const AUTH_RATE_WINDOW = 60_000;

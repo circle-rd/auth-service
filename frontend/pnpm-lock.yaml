@@ -194,6 +194,9 @@ importers:
       '@lucide/vue':
         specifier: ^1.66.0
         version: 1.66.0(vue@3.5.44(typescript@6.0.3))
+      '@simplewebauthn/browser':
+        specifier: ^13.3.0
+        version: 13.3.0
       chart.js:
         specifier: ^4.6.1
         version: 4.6.1
@@ -415,6 +418,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
+
+  '@simplewebauthn/browser@13.3.0':
+    resolution: {integrity: sha512-BE/UWv6FOToAdVk0EokzkqQQDOWtNydYlY6+OrmiZ5SCNmb41VehttboTetUM3T/fr6EAFYVXjz4My2wg230rQ==}
 
   '@tailwindcss/node@4.3.3':
     resolution: {integrity: sha512-/T8IKEsf9VTU6tLjgC7+sv2mOPtQxzE2jMw7u4Tt40Tx+QSZxpzh95/H6cMKoja9XuW7iMdLJYBB0o9G1CaAgg==}
@@ -1290,6 +1296,8 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.1': {}
+
+  '@simplewebauthn/browser@13.3.0': {}
 
   '@tailwindcss/node@4.3.3':
     dependencies:

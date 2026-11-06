@@ -43,6 +43,7 @@ import {
   sendOrganizationInvitationEmail,
 } from "./services/email.js";
 import { userMustSetupMfa } from "./services/mfa.js";
+import { passkeySecondFactor } from "./auth/mfa-passkey.js";
 import {
   clientIdOf,
   clientIdOfLink,
@@ -763,6 +764,7 @@ export const auth = betterAuth({
     }),
     twoFactor({ issuer: config.appName }),
     passkey(),
+    passkeySecondFactor(),
     // ── Optional Phase 5b plugins (opt-in via env) ──────────────────────────
     // Every entry below is gated so the default deployment stays identical.
     ...(config.features.haveIBeenPwned ? [haveIBeenPwned()] : []),

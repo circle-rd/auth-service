@@ -316,6 +316,26 @@
   <script type="module">
     const AUTH_URL = '<%= it.AUTH_URL %>';
 
+    async function redirectToPasskeyChallenge() {
+      try {
+        const res = await fetch(AUTH_URL + '/api/auth/mfa/methods', { credentials: 'include' });
+        if (!res.ok) return false;
+        const data = await res.json().catch(() => null);
+        if (!data || !Array.isArray(data.methods) || !data.methods.includes('passkey')) return false;
+        const form = document.getElementById('login-form');
+        const oauthQuery = form ? form.oauthQuery.value : (document.getElementById('oauthQuery')?.value || '');
+        const redirectTo = form ? (form.redirectTo.value || '/') : (document.getElementById('redirectTo')?.value || '/');
+        const params = new URLSearchParams();
+        params.set('redirectTo', oauthQuery ? '/api/auth/oauth2/authorize?' + oauthQuery : redirectTo);
+        params.set('mfa', 'pending');
+        window.location.href = '/auth?' + params.toString();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+
     const slider      = document.getElementById('slider');
     const errorBox    = document.getElementById('error-box');
     const title       = document.getElementById('title');
@@ -362,6 +382,7 @@
         }
         // MFA required → slide to step 2 instead of navigating away.
         if (data?.twoFactorRedirect) {
+          if (await redirectToPasskeyChallenge()) return;
           showMfaStep();
           return;
         }

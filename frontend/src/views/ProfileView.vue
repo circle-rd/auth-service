@@ -8,7 +8,8 @@ import { listMySessions, revokeSession } from '@/api/sessions';
 import { getMyConsumption } from '@/api/consumption';
 import { getMyOrganizations } from '@/api/organizations';
 import { getMySubscriptions, changeMyPlan } from '@/api/subscriptions';
-import type { Session, ConsumptionAggregate, UserSubscriptionEntry, UserSubscriptionPlan } from '@/types';
+import { getMyMfaState } from '@/api/passkeys';
+import type { Session, ConsumptionAggregate, UserSubscriptionEntry, UserSubscriptionPlan, MfaState } from '@/types';
 import { useToast } from '@/composables/useToast';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import ProfileLayout from '@/components/layout/ProfileLayout.vue';
@@ -22,9 +23,10 @@ import MfaSetupModal from '@/components/profile/MfaSetupModal.vue';
 import MfaDisableModal from '@/components/profile/MfaDisableModal.vue';
 import MfaBackupCodesModal from '@/components/profile/MfaBackupCodesModal.vue';
 import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
+import PasskeySettings from '@/components/profile/PasskeySettings.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
 import BillingPanel from '@/components/profile/BillingPanel.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Key, Building2, RefreshCw, Lock, CreditCard, ExternalLink } from '@lucide/vue';
+import { Monitor, ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, ExternalLink } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
@@ -104,6 +106,10 @@ if (auth.user) {
 
 onMounted(async () => {
   if (!auth.user) return;
+
+  // MFA state is derived from the actual factors, not from the cached
+  // `twoFactorEnabled` flag (which is also true for passkey-only accounts).
+  loadMfaState();
 
   // Sessions — independent fetch, user-facing (no admin required)
   listMySessions()
@@ -202,6 +208,32 @@ async function handleRevoke(session: Session) {
 const showSetupMfa = ref(false);
 const showDisableMfa = ref(false);
 const showRegenerateBackup = ref(false);
+const myMfa = ref<MfaState>({
+  mfaEnabled: false,
+  methods: [],
+  totpRegistered: false,
+  passkeyCount: 0,
+  backupCodesAvailable: false,
+});
+
+async function loadMfaState(): Promise<void> {
+  try {
+    myMfa.value = await getMyMfaState();
+  } catch {
+    // The security panel keeps its last known state; the TOTP row must never
+    // infer TOTP from `twoFactorEnabled`, which can also mean passkey-only.
+  }
+}
+
+async function handleMfaChanged(): Promise<void> {
+  showSetupMfa.value = false;
+  showDisableMfa.value = false;
+  await Promise.all([loadMfaState(), auth.fetchSession()]);
+}
+
+async function handlePasskeyChanged(): Promise<void> {
+  await Promise.all([loadMfaState(), auth.fetchSession()]);
+}
 
 // ── Password modal state ───────────────────────────────────────────────────
 const showChangePassword = ref(false);
@@ -366,12 +398,12 @@ async function handleChangePlan() {
               <div class="min-w-0">
                 <p class="text-sm font-medium text-surface-200">{{ t('mfa.totp.title') }}</p>
                 <p class="text-xs text-surface-500 mt-0.5">
-                  {{ auth.user?.twoFactorEnabled ? t('mfa.totp.enabledDesc') : t('mfa.totp.disabledDesc') }}
+                  {{ myMfa.totpRegistered ? t('mfa.totp.enabledDesc') : t('mfa.totp.disabledDesc') }}
                 </p>
               </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <template v-if="auth.user?.twoFactorEnabled">
+              <template v-if="myMfa.totpRegistered">
                 <BaseBadge variant="success" size="sm" dot>{{ t('common.enabled') }}</BaseBadge>
                 <BaseButton variant="outline" size="sm" @click="showDisableMfa = true">
                   {{ t('mfa.totp.disable') }}
@@ -387,7 +419,7 @@ async function handleChangePlan() {
           </div>
 
           <!-- Backup codes — visible only when TOTP is enabled -->
-          <div v-if="auth.user?.twoFactorEnabled" class="flex items-center justify-between gap-4 py-3 border-b border-surface-800/40">
+          <div v-if="myMfa.totpRegistered" class="flex items-center justify-between gap-4 py-3 border-b border-surface-800/40">
             <div class="flex items-center gap-3 min-w-0">
               <div class="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center shrink-0">
                 <RefreshCw class="w-4 h-4 text-surface-400" />
@@ -402,25 +434,16 @@ async function handleChangePlan() {
             </BaseButton>
           </div>
 
-          <!-- Passkeys — Phase 2 -->
-          <div class="flex items-center justify-between gap-4 py-3">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center shrink-0">
-                <Key class="w-4 h-4 text-surface-400" />
-              </div>
-              <div class="min-w-0">
-                <p class="text-sm font-medium text-surface-200">{{ t('profile.passkeys') }}</p>
-                <p class="text-xs text-surface-500 mt-0.5">{{ t('mfa.passkeys.comingSoonDesc') }}</p>
-              </div>
-            </div>
-            <BaseBadge variant="neutral" size="sm">{{ t('mfa.passkeys.comingSoon') }}</BaseBadge>
+          <!-- Passkeys are an independent MFA method -->
+          <div class="pt-3 border-t border-surface-800/40">
+            <PasskeySettings @changed="handlePasskeyChanged" />
           </div>
         </div>
       </div>
 
       <!-- MFA modals -->
-      <MfaSetupModal :open="showSetupMfa" @close="showSetupMfa = false" @success="showSetupMfa = false" />
-      <MfaDisableModal :open="showDisableMfa" @close="showDisableMfa = false" @success="showDisableMfa = false" />
+      <MfaSetupModal :open="showSetupMfa" @close="showSetupMfa = false" @success="handleMfaChanged" />
+      <MfaDisableModal :open="showDisableMfa" @close="showDisableMfa = false" @success="handleMfaChanged" />
       <MfaBackupCodesModal :open="showRegenerateBackup" @close="showRegenerateBackup = false" />
       <ChangePasswordModal :open="showChangePassword" @close="showChangePassword = false" @success="showChangePassword = false" />
 

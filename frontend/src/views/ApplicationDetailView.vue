@@ -21,6 +21,7 @@ import SearchSelect from '@/components/ui/SearchSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
+import CodeBlock from '@/components/ui/CodeBlock.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
@@ -601,6 +602,11 @@ const activeCodeExample = computed(() => {
       return codeExampleLitellmPython.value;
   }
 });
+const activeCodeLanguage = computed<'typescript' | 'python'>(() =>
+  activeCodeTab.value === 'python' || activeCodeTab.value === 'litellm-py'
+    ? 'python'
+    : 'typescript',
+);
 async function copyActiveCode(): Promise<void> {
   try {
     await navigator.clipboard.writeText(activeCodeExample.value);
@@ -878,7 +884,7 @@ const financialKpis = computed(() => {
           </div>
         </div>
 
-        <div v-if="activeTab === 'integration' && app" class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div v-if="activeTab === 'integration' && app" class="grid grid-cols-1 xl:grid-cols-2 gap-5 xl:min-h-[420px]">
 
           <!-- ── Credentials ────────────────────────────────────────────── -->
           <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 space-y-4">
@@ -924,34 +930,36 @@ const financialKpis = computed(() => {
           </div>
 
           <!-- ── Code Examples ──────────────────────────────────────────── -->
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 flex flex-col">
-            <div class="flex items-center gap-2 mb-4">
-              <Code class="w-4 h-4 text-primary-400" />
-              <p class="text-sm font-semibold text-surface-200">{{ t('appDetail.codeSnippet') }}</p>
-              <button
-                type="button"
-                class="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-surface-400 hover:text-surface-100 hover:bg-surface-800/60 transition-colors"
-                :title="t('common.copy')"
-                @click="copyActiveCode"
-              >
-                <component :is="codeCopied ? Check : Copy" class="w-3.5 h-3.5" />
-                {{ codeCopied ? t('common.copied') : t('common.copy') }}
-              </button>
+          <div class="relative">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 flex flex-col xl:absolute xl:inset-0">
+              <div class="flex items-center gap-2 mb-4">
+                <Code class="w-4 h-4 text-primary-400" />
+                <p class="text-sm font-semibold text-surface-200">{{ t('appDetail.codeSnippet') }}</p>
+                <button
+                  type="button"
+                  class="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-surface-400 hover:text-surface-100 hover:bg-surface-800/60 transition-colors"
+                  :title="t('common.copy')"
+                  @click="copyActiveCode"
+                >
+                  <component :is="codeCopied ? Check : Copy" class="w-3.5 h-3.5" />
+                  {{ codeCopied ? t('common.copied') : t('common.copy') }}
+                </button>
+              </div>
+              <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
+                <button
+                  v-for="tab in codeTabs"
+                  :key="tab.key"
+                  @click="activeCodeTab = tab.key"
+                  :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
+                >{{ tab.label }}</button>
+              </div>
+              <CodeBlock :code="activeCodeExample" :language="activeCodeLanguage" class="flex-1 min-h-0 max-h-[60vh] xl:max-h-none" />
+              <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
+              <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
+              <p v-else-if="activeCodeTab === 'litellm-ts'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> and <code class="font-mono">openai</code> — <code class="font-mono">npm i oauth4webapi openai</code></p>
+              <p v-else-if="activeCodeTab === 'litellm-py'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> and <code class="font-mono">openai</code> — <code class="font-mono">pip install authlib requests openai</code></p>
+              <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
             </div>
-            <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
-              <button
-                v-for="tab in codeTabs"
-                :key="tab.key"
-                @click="activeCodeTab = tab.key"
-                :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
-              >{{ tab.label }}</button>
-            </div>
-            <pre class="flex-1 min-h-0 overflow-auto bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 border border-surface-800/50 leading-relaxed whitespace-pre">{{ activeCodeExample }}</pre>
-            <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
-            <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
-            <p v-else-if="activeCodeTab === 'litellm-ts'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> and <code class="font-mono">openai</code> — <code class="font-mono">npm i oauth4webapi openai</code></p>
-            <p v-else-if="activeCodeTab === 'litellm-py'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> and <code class="font-mono">openai</code> — <code class="font-mono">pip install authlib requests openai</code></p>
-            <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
           </div>
 
           <!-- ── Scopes & Claims ────────────────────────────────────────── -->

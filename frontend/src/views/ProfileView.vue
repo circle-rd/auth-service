@@ -405,7 +405,7 @@ async function handleChangePlan() {
             <div class="flex items-center gap-2 shrink-0">
               <template v-if="myMfa.totpRegistered">
                 <BaseBadge variant="success" size="sm" dot>{{ t('common.enabled') }}</BaseBadge>
-                <BaseButton variant="outline" size="sm" @click="showDisableMfa = true">
+                <BaseButton variant="danger-outline" size="sm" @click="showDisableMfa = true">
                   {{ t('mfa.totp.disable') }}
                 </BaseButton>
               </template>

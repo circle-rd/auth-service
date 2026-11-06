@@ -6,6 +6,8 @@ import { applications, loginHistory } from "../../db/schema.js";
 import { and, countDistinct, eq, gt, gte, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { requireAdmin } from "../../middleware.js";
+import { denseDailySeries, rangeToDays } from "../../services/daily-series.js";
+import { getBillingStats } from "../../services/billing/stats.js";
 
 const rangeSchema = z.enum(["7d", "30d"]).default("7d");
 const loginsQuerySchema = z.object({
@@ -14,31 +16,6 @@ const loginsQuerySchema = z.object({
 });
 // Registrations are platform-wide: there is no per-application dimension.
 const rangeQuerySchema = z.object({ range: rangeSchema.optional() });
-
-function rangeToDays(range: "7d" | "30d"): number {
-  return range === "30d" ? 30 : 7;
-}
-
-/**
- * Build a dense [{ date, count }] series for the given range, filling missing
- * days with zero so chart libraries do not need to interpolate.
- */
-function denseSeries(
-  raw: { day: string; count: number }[],
-  days: number,
-): { date: string; count: number }[] {
-  const byDay = new Map(raw.map((r) => [r.day, r.count]));
-  const out: { date: string; count: number }[] = [];
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setUTCDate(today.getUTCDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    out.push({ date: key, count: byDay.get(key) ?? 0 });
-  }
-  return out;
-}
 
 export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook("preHandler", requireAdmin);
@@ -84,7 +61,11 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
           ORDER BY day ASC`,
     )) as { day: string; count: number }[];
 
-    const series = denseSeries(rows, days);
+    const series = denseDailySeries(
+      rows.map((r) => ({ day: r.day, value: r.count })),
+      days,
+      0,
+    ).map((p) => ({ date: p.date, count: p.value }));
     const total = series.reduce((acc, r) => acc + r.count, 0);
     await reply.send({ range, series, total });
   });
@@ -116,9 +97,24 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
           ORDER BY day ASC`,
     )) as { day: string; count: number }[];
 
-    const series = denseSeries(rows, days);
+    const series = denseDailySeries(
+      rows.map((r) => ({ day: r.day, value: r.count })),
+      days,
+      0,
+    ).map((p) => ({ date: p.date, count: p.value }));
     const total = series.reduce((acc, r) => acc + r.count, 0);
     await reply.send({ range, series, total });
+  });
+
+  // GET /api/admin/stats/billing?range=7d|30d
+  // Stripe-derived KPIs read from the local billing cache; never calls Stripe
+  // from the request path.
+  fastify.get("/billing", async (req, reply) => {
+    const parsed = rangeQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw ERR.APP_001("Invalid stats query", parsed.error.flatten());
+    }
+    await reply.send(await getBillingStats(parsed.data.range ?? "7d"));
   });
 
   // GET /api/admin/stats/applications-activity
@@ -170,7 +166,11 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
     }
 
     const result = apps.map((a) => {
-      const series = denseSeries(byApp.get(a.id) ?? [], 7);
+      const series = denseDailySeries(
+        (byApp.get(a.id) ?? []).map((r) => ({ day: r.day, value: r.count })),
+        7,
+        0,
+      ).map((p) => ({ date: p.date, count: p.value }));
       const last7dLogins = series.reduce((acc, p) => acc + p.count, 0);
       return {
         appId: a.id,

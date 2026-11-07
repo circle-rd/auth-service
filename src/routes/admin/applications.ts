@@ -861,7 +861,9 @@ export async function applicationRoutes(
     }
     if (parsed.data.isSystem === true) {
       // System clients are script-provisioned and always use HTTP Basic.
-      oauthUpdate.tokenEndpointAuthMethod = "client_secret_basic";
+      oauthUpdate.tokenEndpointAuthMethod = app.isPublic
+        ? "none"
+        : "client_secret_basic";
     }
 
     if (Object.keys(oauthUpdate).length > 0) {

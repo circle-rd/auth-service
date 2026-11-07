@@ -24,6 +24,7 @@ import { and, eq } from "drizzle-orm";
 import { cleanDb } from "./helpers/db.js";
 import { makeAdminSession, makeSuperadminSession } from "./helpers/auth.js";
 import { auth } from "../auth.js";
+import { reconcileTokenAuthMethod } from "../compat/token-auth.js";
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -204,6 +205,161 @@ describe("applicationRoutes integration", () => {
     expect(res.statusCode).toBe(201);
     const body = res.json<{ clientSecret?: string }>();
     expect(body.clientSecret).toBeUndefined();
+  });
+
+  it("POST / → stores PKCE and token endpoint authentication settings", async () => {
+    asAdmin();
+    const res = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: {
+        name: "Conformance App",
+        slug: "conformance-app",
+        requirePKCE: false,
+        tokenEndpointAuthMethod: "client_secret_post",
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json<{
+      application: {
+        requirePKCE: boolean;
+        tokenEndpointAuthMethod: string;
+      };
+    }>();
+    expect(body.application.requirePKCE).toBe(false);
+    expect(body.application.tokenEndpointAuthMethod).toBe(
+      "client_secret_post",
+    );
+
+    const [client] = await db
+      .select({
+        requirePKCE: oauthClient.requirePKCE,
+        method: oauthClient.tokenEndpointAuthMethod,
+        metadata: oauthClient.metadata,
+      })
+      .from(oauthClient)
+      .where(eq(oauthClient.clientId, "conformance-app"));
+    expect(client?.requirePKCE).toBe(false);
+    expect(client?.method).toBe("client_secret_post");
+    expect(
+      (client?.metadata as Record<string, string>)
+        .tokenEndpointAuthMethodExplicit,
+    ).toBe("true");
+  });
+
+  it("POST / → public clients cannot disable PKCE or choose a secret auth method", async () => {
+    asAdmin();
+    const noPkce = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: {
+        name: "Public No PKCE",
+        slug: "public-no-pkce",
+        isPublic: true,
+        requirePKCE: false,
+      },
+    });
+    expect(noPkce.statusCode).toBe(400);
+
+    const method = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: {
+        name: "Public Method",
+        slug: "public-method",
+        isPublic: true,
+        tokenEndpointAuthMethod: "client_secret_post",
+      },
+    });
+    expect(method.statusCode).toBe(400);
+  });
+
+  it("PATCH /:id → updates PKCE and token endpoint authentication settings", async () => {
+    const created = await createApp("patch-oauth-settings");
+    const appId = created.json<{ application: { id: string } }>().application.id;
+
+    asAdmin();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/${appId}`,
+      payload: {
+        requirePKCE: false,
+        tokenEndpointAuthMethod: "client_secret_post",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{
+      application: {
+        requirePKCE: boolean;
+        tokenEndpointAuthMethod: string;
+      };
+    }>();
+    expect(body.application.requirePKCE).toBe(false);
+    expect(body.application.tokenEndpointAuthMethod).toBe(
+      "client_secret_post",
+    );
+
+    const [client] = await db
+      .select({
+        requirePKCE: oauthClient.requirePKCE,
+        method: oauthClient.tokenEndpointAuthMethod,
+      })
+      .from(oauthClient)
+      .where(eq(oauthClient.clientId, "patch-oauth-settings"));
+    expect(client?.requirePKCE).toBe(false);
+    expect(client?.method).toBe("client_secret_post");
+  });
+
+  it("PATCH /:id → an explicit token auth choice survives reconciliation", async () => {
+    asAdmin();
+    const created = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: {
+        name: "Explicit Auth",
+        slug: "explicit-auth",
+      },
+    });
+    const appId = created.json<{ application: { id: string } }>().application.id;
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/${appId}`,
+      payload: { tokenEndpointAuthMethod: "client_secret_post" },
+    });
+    expect(patched.statusCode).toBe(200);
+
+    await reconcileTokenAuthMethod();
+
+    const [client] = await db
+      .select({
+        method: oauthClient.tokenEndpointAuthMethod,
+        metadata: oauthClient.metadata,
+      })
+      .from(oauthClient)
+      .where(eq(oauthClient.clientId, "explicit-auth"));
+    expect(client?.method).toBe("client_secret_post");
+    expect(
+      (client?.metadata as Record<string, string>)
+        .tokenEndpointAuthMethodExplicit,
+    ).toBe("true");
+  });
+
+  it("PATCH /:id → public clients cannot disable PKCE", async () => {
+    asAdmin();
+    const created = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: { name: "Public Patch", slug: "public-patch", isPublic: true },
+    });
+    const appId = created.json<{ application: { id: string } }>().application.id;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/${appId}`,
+      payload: { requirePKCE: false },
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it("POST / auto-assigns superadmins to new app", async () => {

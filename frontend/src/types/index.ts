@@ -23,6 +23,13 @@ export interface User {
   city?: string | null
   region?: string | null
   country?: string | null
+  middleName?: string | null
+  profileUrl?: string | null
+  website?: string | null
+  gender?: 'female' | 'male' | 'other' | null
+  birthdate?: string | null
+  zoneinfo?: string | null
+  locale?: string | null
   /** ISO timestamp of the most recent OAuth token issuance. Null when the user has never logged in. */
   lastLoginAt?: string | null
   /** Applications the user currently has active access to. Populated by /admin/users. */
@@ -62,16 +69,31 @@ export interface MfaBackupCodesResult {
   backupCodes: string[]
 }
 
-export type MfaMethod = 'totp' | 'otp'
+export type MfaMethod = 'totp' | 'otp' | 'passkey'
 
-export interface MfaChallengeState {
-  pending: boolean
+export interface MfaState {
+  mfaEnabled: boolean
   methods: MfaMethod[]
+  totpRegistered: boolean
+  passkeyCount: number
+  backupCodesAvailable: boolean
+}
+
+export interface PasskeySummary {
+  id: string
+  name: string | null
+  createdAt: string | null
+  deviceType: string
+  backedUp: boolean
+  transports: string | null
+  aaguid: string | null
 }
 
 export interface SignInResult {
   twoFactorRedirect?: boolean
   twoFactorMethods?: MfaMethod[]
+  /** OAuth redirect returned when a signed `oauth_query` was resumed. */
+  url?: string
 }
 
 export interface Application {
@@ -104,6 +126,16 @@ export interface Application {
   backchannelLogoutUri: string | null
   /** Require the logout token to carry `sid` (spec §2.8). */
   backchannelLogoutSessionRequired: boolean
+  /** Whether the authorization-code flow requires a PKCE code verifier. */
+  requirePKCE: boolean
+  /** Token endpoint authentication method (`none` for public clients). */
+  tokenEndpointAuthMethod:
+    | 'client_secret_basic'
+    | 'client_secret_post'
+    | 'none'
+    | null
+  /** True when the method was chosen explicitly instead of inherited from config. */
+  tokenEndpointAuthMethodExplicit?: boolean
   createdAt: string
   updatedAt: string
 }

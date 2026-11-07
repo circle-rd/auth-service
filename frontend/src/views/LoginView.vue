@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '@/stores/auth';
@@ -10,6 +10,7 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import MfaChallengeForm from '@/components/auth/MfaChallengeForm.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
 import { ApiError, apiFetch } from '@/api/client';
+import { appendSessionState } from '@/api/auth';
 import { authPagePath } from '@/utils/authRedirect';
 
 const { t } = useI18n();
@@ -25,6 +26,27 @@ const error = ref('');
 const needsVerification = ref(false);
 const resending = ref(false);
 const resendStatus = ref('');
+const checkingMfa = ref(route.query.mfa === 'pending' && !auth.user);
+
+// `redirectTo` points at the signed authorize request when the server-side
+// login handed the MFA challenge to the SPA. Keeping the query lets every
+// verification resume the request and clear `prompt=login`.
+const oauthQuery = computed<string>(() => {
+  const redirect = route.query.redirectTo;
+  if (typeof redirect !== 'string') return '';
+  const marker = '/api/auth/oauth2/authorize?';
+  const index = redirect.indexOf(marker);
+  return index >= 0 ? redirect.slice(index + marker.length) : '';
+});
+
+onMounted(async () => {
+  if (!checkingMfa.value) return;
+  try {
+    await auth.resumeMfaChallenge(oauthQuery.value || undefined);
+  } finally {
+    checkingMfa.value = false;
+  }
+});
 
 function nextRoute(): string {
   // Preserve a `redirectTo` query param so OAuth flows (which carry signed
@@ -32,6 +54,22 @@ function nextRoute(): string {
   const redirect = route.query.redirectTo;
   if (typeof redirect === 'string' && redirect.startsWith('/')) return redirect;
   return '/profile';
+}
+
+async function navigateTo(target: string): Promise<void> {
+  // `/api/...` is an OAuth endpoint, not an SPA route: full-page navigation
+  // lets the server answer it instead of the SPA catch-all.
+  if (target.startsWith('/api/')) {
+    window.location.assign(target);
+    return;
+  }
+  if (/^https?:\/\//.test(target)) {
+    // A resumed OAuth flow returns the client redirect directly; the authorize
+    // route that normally adds `session_state` was bypassed.
+    window.location.assign(await appendSessionState(target, oauthQuery.value));
+    return;
+  }
+  await router.push(target);
 }
 
 // The reset screens are a detour, not a destination: they must carry the same
@@ -64,13 +102,17 @@ async function handleLogin() {
   needsVerification.value = false;
   resendStatus.value = '';
   try {
-    await auth.signInEmail(email.value, password.value);
+    await auth.signInEmail(
+      email.value,
+      password.value,
+      oauthQuery.value || undefined,
+    );
     if (auth.mfaPending) {
       // The MfaChallengeForm component now drives the second step.
       return;
     }
     if (auth.user) {
-      await router.push(nextRoute());
+      await navigateTo(auth.mfaResumeUrl ?? nextRoute());
     } else {
       error.value = t('auth.invalidCredentials');
     }
@@ -91,7 +133,7 @@ async function handleMfaVerified() {
     // Navigate FIRST, then clear the MFA-pending flag. Clearing it before
     // navigation would unmount the challenge form before the router push
     // completes, briefly re-rendering the email/password form.
-    await router.push(nextRoute());
+    await navigateTo(auth.mfaResumeUrl ?? nextRoute());
     auth.clearMfaPending();
   }
 }
@@ -118,12 +160,15 @@ if (import.meta.env.VITE_USE_MOCK === 'true') {
           </div>
         <h1 class="text-xl font-semibold text-surface-100">{{ t('auth.loginTitle') }}</h1>
         <p class="text-sm text-surface-500 mt-1">
-          {{ auth.mfaPending ? t('mfa.challenge.subtitle') : t('auth.loginSubtitle') }}
+          {{ auth.mfaPending || checkingMfa ? t('mfa.challenge.subtitle') : t('auth.loginSubtitle') }}
         </p>
       </div>
 
       <div class="bg-surface-900/60 backdrop-blur-sm border border-surface-700/40 rounded-2xl p-6 shadow-xl">
-        <MfaChallengeForm v-if="auth.mfaPending" @verified="handleMfaVerified" />
+        <div v-if="checkingMfa" class="py-8 text-center text-sm text-surface-500">
+          {{ t('common.loading') }}
+        </div>
+        <MfaChallengeForm v-else-if="auth.mfaPending" @verified="handleMfaVerified" />
 
         <form v-else @submit.prevent="handleLogin" class="space-y-4">
           <BaseInput

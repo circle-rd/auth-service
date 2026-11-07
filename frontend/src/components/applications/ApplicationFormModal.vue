@@ -38,7 +38,23 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
-const form = ref<ApplicationFormState>(emptyApplicationForm());
+const effectiveTokenAuthMethod = computed<
+  ApplicationFormState['tokenEndpointAuthMethod']
+>(() =>
+  services.value?.compat.tokenAuthMethod === 'post'
+    ? 'client_secret_post'
+    : 'client_secret_basic',
+);
+
+const form = ref<ApplicationFormState>(
+  emptyApplicationForm(effectiveTokenAuthMethod.value),
+);
+
+// PKCE and token endpoint authentication are confidential-client settings;
+// public clients always use PKCE and `none`, and system clients stay on Basic.
+const showOauthClientSettings = computed(
+  () => !form.value.isPublic && !(props.application?.isSystem ?? false),
+);
 
 // ── Steps ────────────────────────────────────────────────────────────────
 // Authorization and Advanced are optional: the application can be saved from
@@ -211,7 +227,9 @@ watch(
     litellmEnabled.value =
       !!a && litellmAvailable.value && (a.allowedResources ?? []).includes(litellmUrls.value[0]!);
     lastAutoRedirectUri.value = '';
-    form.value = a ? formFromApplication(a) : emptyApplicationForm();
+    form.value = a
+      ? formFromApplication(a)
+      : emptyApplicationForm(effectiveTokenAuthMethod.value);
   },
   { immediate: true },
 );
@@ -281,6 +299,20 @@ async function submit() {
       // Every logout token carries `sid`, so an endpoint can always rely on it.
       backchannelLogoutSessionRequired: Boolean(form.value.backchannelLogoutUri),
       metadata,
+      ...(showOauthClientSettings.value
+        ? {
+            requirePKCE: form.value.requirePKCE,
+            // Omit an unchanged inherited value so routine edits do not pin the
+            // client to the current instance default.
+            ...(form.value.tokenEndpointAuthMethod !==
+            (isEdit.value
+              ? (props.application?.tokenEndpointAuthMethod ??
+                effectiveTokenAuthMethod.value)
+              : effectiveTokenAuthMethod.value)
+              ? { tokenEndpointAuthMethod: form.value.tokenEndpointAuthMethod }
+              : {}),
+          }
+        : {}),
     };
     if (isEdit.value && props.application) {
       const res = await updateApplication(props.application.id, body);
@@ -387,6 +419,7 @@ function onEnter() {
         v-else-if="step === STEP_AUTHORIZATION"
         :form="form"
         :hidden-resources="hiddenResources"
+        :is-system="props.application?.isSystem ?? false"
       />
       <StepAdvanced v-else :form="form" :available-providers="availableProviders" />
     </form>

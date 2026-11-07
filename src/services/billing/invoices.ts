@@ -139,6 +139,9 @@ export async function cacheStripeInvoice(
     hostedInvoiceUrl: httpsOnly(invoice.hosted_invoice_url),
     invoicePdf: httpsOnly(invoice.invoice_pdf),
     stripeCreatedAt: new Date(invoice.created * 1000),
+    paidAt: invoice.status_transitions?.paid_at
+      ? new Date(invoice.status_transitions.paid_at * 1000)
+      : null,
     lastEventAt,
     updatedAt: new Date(),
   };

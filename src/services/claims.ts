@@ -16,15 +16,27 @@ interface UserClaims {
   permissions?: string[];
   features?: Record<string, unknown>;
   // Standard OIDC profile scope claims
-  name?: string;
-  picture?: string;
-  updated_at?: number;
+  name?: string | null;
+  given_name?: string | null;
+  family_name?: string | null;
+  middle_name?: string | null;
+  nickname?: string | null;
+  preferred_username?: string | null;
+  profile?: string | null;
+  picture?: string | null;
+  website?: string | null;
+  gender?: string | null;
+  birthdate?: string | null;
+  zoneinfo?: string | null;
+  locale?: string | null;
+  updated_at?: number | null;
   company?: string; // Proprietary claim within profile scope
   // Standard OIDC email scope claims
-  email?: string;
-  email_verified?: boolean;
-  // Standard OIDC phone scope claim
-  phone_number?: string;
+  email?: string | null;
+  email_verified?: boolean | null;
+  // Standard OIDC phone scope claims
+  phone_number?: string | null;
+  phone_number_verified?: boolean | null;
   // features scope extras
   plan?: string; // Human-readable plan name
 }
@@ -41,10 +53,20 @@ export async function getUserClaims(
     email?: string | null;
     emailVerified?: boolean | null;
     name?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    username?: string | null;
     company?: string | null;
     image?: string | null;
     phone?: string | null;
     updatedAt?: Date | null;
+    middleName?: string | null;
+    profileUrl?: string | null;
+    website?: string | null;
+    gender?: string | null;
+    birthdate?: string | null;
+    zoneinfo?: string | null;
+    locale?: string | null;
   },
 ): Promise<UserClaims> {
   const claims: UserClaims = {};
@@ -57,14 +79,39 @@ export async function getUserClaims(
         claims.email_verified = profile.emailVerified;
     }
     if (scopes.includes("profile")) {
-      if (profile.name) claims.name = profile.name;
+      const name = profile.name?.trim() || null;
+      const [derivedFirst, ...rest] = name ? name.split(/\s+/) : [];
+      const givenName = profile.firstName?.trim() || derivedFirst || null;
+      const familyName =
+        profile.lastName?.trim() || (rest.length > 0 ? rest.join(" ") : null);
+
+      if (name) claims.name = name;
+      if (givenName) claims.given_name = givenName;
+      if (familyName) claims.family_name = familyName;
+      if (profile.username) claims.nickname = profile.username;
+      else if (givenName) claims.nickname = givenName;
+      if (profile.username) {
+        claims.preferred_username = profile.username;
+      } else if (profile.email) {
+        claims.preferred_username = profile.email.split("@")[0];
+      } else if (givenName) {
+        claims.preferred_username = givenName.toLowerCase();
+      }
       if (profile.company) claims.company = profile.company;
       if (profile.image) claims.picture = profile.image;
+      if (profile.middleName) claims.middle_name = profile.middleName;
+      if (profile.profileUrl) claims.profile = profile.profileUrl;
+      if (profile.website) claims.website = profile.website;
+      if (profile.gender) claims.gender = profile.gender;
+      if (profile.birthdate) claims.birthdate = profile.birthdate;
+      if (profile.zoneinfo) claims.zoneinfo = profile.zoneinfo;
+      if (profile.locale) claims.locale = profile.locale;
       if (profile.updatedAt)
         claims.updated_at = Math.floor(profile.updatedAt.getTime() / 1000);
     }
     if (scopes.includes("phone") && profile.phone) {
       claims.phone_number = profile.phone;
+      claims.phone_number_verified = false;
     }
   }
 

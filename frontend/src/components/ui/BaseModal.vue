@@ -38,7 +38,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
     >
       <div
         v-if="open"
-        class="fixed inset-0 z-50 flex items-center justify-center p-4"
+        class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
         @click.self="emit('close')"
       >
         <div class="absolute inset-0 bg-surface-950/80 backdrop-blur-sm" />
@@ -53,7 +53,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
         >
           <div
             v-if="open"
-            :class="['relative w-full mx-4 sm:mx-6 md:mx-auto rounded-xl bg-surface-900 border border-surface-700/50 shadow-2xl shadow-black/50 max-h-[90vh] overflow-y-auto flex flex-col', sizeClasses[size]]"
+            :class="['relative w-full rounded-xl bg-surface-900 border border-surface-700/50 shadow-2xl shadow-black/50 max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] overflow-y-auto flex flex-col', sizeClasses[size]]"
           >
             <div v-if="title || $slots.header" class="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-surface-700/50 shrink-0">
               <slot name="header">
@@ -71,7 +71,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
             <div class="px-4 sm:px-6 py-5 overflow-y-auto">
               <slot />
             </div>
-            <div v-if="$slots.footer" class="px-4 sm:px-6 pb-5 flex justify-end gap-3 shrink-0 border-t border-surface-700/50">
+            <div v-if="$slots.footer" class="px-4 sm:px-6 pb-5 flex flex-wrap justify-end gap-2 sm:gap-3 shrink-0 border-t border-surface-700/50">
               <slot name="footer" />
             </div>
           </div>

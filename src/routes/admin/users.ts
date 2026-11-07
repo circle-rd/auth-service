@@ -13,8 +13,14 @@ import {
   loginHistory,
   subscriptionPlans,
 } from "../../db/schema.js";
-import { user as userTable } from "../../db/auth-schema.js";
-import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
+import {
+  user as userTable,
+  account as accountTable,
+  passkey as passkeyTable,
+  twoFactor as twoFactorTable,
+  verification as verificationTable,
+} from "../../db/auth-schema.js";
+import { and, count, desc, eq, inArray, like, max, or, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { isMailConfigured } from "../../services/mail/index.js";
@@ -27,6 +33,8 @@ import {
 import { importUsers, importUsersSchema } from "../../services/user-import.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
 import { publishEvent } from "../../services/event-bus.js";
+import { reconcileMfaFlag } from "../../services/mfa.js";
+import { acquireUserLock } from "../../services/user-lock.js";
 import { presentUserApplications } from "../../services/system-apps.js";
 import { syncBillingCustomerBestEffort } from "../../services/billing/customers.js";
 import {
@@ -542,6 +550,88 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       await revokeAllUserTokens(req.params.id);
 
       await reply.send({ ok: true });
+    },
+  );
+
+  // POST /api/admin/users/:id/mfa/reset — remove every second factor and
+  // revoke everything that authenticated before. This is the operational
+  // recovery path when a user has lost their passkeys and TOTP device; it
+  // deliberately bypasses the "last factor" policy that protects self-service
+  // removal.
+  fastify.post<{ Params: { id: string } }>(
+    "/:id/mfa/reset",
+    async (req, reply) => {
+      const [targetRow] = await db
+        .select({ role: userTable.role })
+        .from(userTable)
+        .where(eq(userTable.id, req.params.id))
+        .limit(1);
+      if (!targetRow) throw ERR.USR_001();
+
+      const callerRole = await getCallerRole(req);
+      if (!canManageRole(callerRole, targetRow.role)) {
+        throw ERR.AUTH_011("Insufficient permissions to reset this user's MFA");
+      }
+
+      // Serialise with in-flight passkey/TOTP verification: otherwise a
+      // verification that already read its credential can create a session
+      // after this reset revokes everything.
+      const release = await acquireUserLock(req.params.id);
+      try {
+        // Revoke first: if this fails, the factors are still present and the
+        // account is not left in a weaker state.
+        const authCtx = await auth.$context;
+        await authCtx.internalAdapter.deleteUserSessions(req.params.id);
+        await revokeAllUserTokens(req.params.id);
+
+        const [passwordAccount] = await db
+          .select({ id: accountTable.id })
+          .from(accountTable)
+          .where(
+            and(
+              eq(accountTable.userId, req.params.id),
+              eq(accountTable.providerId, "credential"),
+            ),
+          )
+          .limit(1);
+
+        await db.transaction(async (tx) => {
+          // A passkey on a passwordless account is a primary login credential,
+          // not an MFA factor: deleting it would lock the user out.
+          if (passwordAccount) {
+            await tx
+              .delete(passkeyTable)
+              .where(eq(passkeyTable.userId, req.params.id));
+          }
+          await tx
+            .delete(twoFactorTable)
+            .where(eq(twoFactorTable.userId, req.params.id));
+          // Trusted-device and pending 2FA records are keyed by user id in
+          // `verification`; leaving them would let an old device bypass a newly
+          // enrolled factor after the reset.
+          await tx
+            .delete(verificationTable)
+            .where(
+              and(
+                eq(verificationTable.value, req.params.id),
+                or(
+                  like(verificationTable.identifier, "trust-device-%"),
+                  like(verificationTable.identifier, "2fa-%"),
+                ),
+              ),
+            );
+          await tx
+            .update(userTable)
+            .set({ twoFactorEnabled: false })
+            .where(eq(userTable.id, req.params.id));
+        });
+        const mfa = await reconcileMfaFlag(req.params.id);
+        publishEvent("user.changed");
+
+        await reply.send({ ok: true, mfa });
+      } finally {
+        release();
+      }
     },
   );
 

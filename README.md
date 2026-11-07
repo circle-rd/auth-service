@@ -64,9 +64,9 @@ Full documentation: **https://docs.circle-cyber.com/auth-service**
 **Authentication**
 
 - Email / password with verification, password reset and change-email.
-- TOTP two-factor with backup codes, plus admin-enforced MFA. The WebAuthn
-  passkey endpoints are enabled server side; the admin SPA does not offer passkey
-  enrolment yet.
+- TOTP two-factor with backup codes and WebAuthn passkeys, plus
+  admin-enforced MFA. TOTP and passkeys are two methods of the same MFA
+  configuration, managed from the account security page.
 - Social sign-in (Google, GitHub) restricted per application.
 - Opt-in passwordless: magic link and email OTP (blocked for 2FA accounts).
 - Registration policy per application, with invitations and bulk user import.

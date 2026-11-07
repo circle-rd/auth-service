@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { getUser, sendVerificationEmail, markEmailVerified } from '@/api/users';
+import { getUser, sendVerificationEmail, markEmailVerified, resetUserMfa } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
 import { setSubscriptionCancellation } from '@/api/subscriptions';
 import { useToast } from '@/composables/useToast';
@@ -17,8 +17,9 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, Mail, MailCheck, KeyRound } from '@lucide/vue';
+import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, ShieldOff, Mail, MailCheck, KeyRound } from '@lucide/vue';
 import SetPasswordModal from '@/components/users/SetPasswordModal.vue';
+import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import UserWalletSection from '@/components/wallet/UserWalletSection.vue';
 
 const { t } = useI18n();
@@ -36,6 +37,7 @@ const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const loading = ref(true);
 const actionLoading = ref(false);
 const showSetPassword = ref(false);
+const showResetMfa = ref(false);
 
 const userId = route.params.id as string;
 
@@ -75,6 +77,28 @@ async function toggleCancellation(app: UserApplicationDetail): Promise<void> {
     toast.error(err instanceof Error ? err.message : t('common.error'));
   } finally {
     subscriptionBusy.value = null;
+  }
+}
+
+async function handleResetMfa(): Promise<void> {
+  actionLoading.value = true;
+  try {
+    await resetUserMfa(userId);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
+    actionLoading.value = false;
+    return;
+  }
+  // The reset has succeeded: close the dialog before refreshing so a failed
+  // refresh can never invite the admin to run the reset a second time.
+  showResetMfa.value = false;
+  toast.success(t('users.mfaReset'));
+  try {
+    await reloadUser();
+  } catch {
+    // Keep the success: the mutation already happened.
+  } finally {
+    actionLoading.value = false;
   }
 }
 
@@ -202,7 +226,7 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
           </div>
 
           <div class="mt-5 grid grid-cols-2 sm:grid-cols-3 gap-4 pt-5 border-t border-surface-700/40">
-            <div v-for="[key, val] in [['firstName', user.firstName], ['lastName', user.lastName], ['username', user.username], ['phone', user.phone], ['company', user.company], ['position', user.position], ['address', user.address], ['postalCode', user.postalCode], ['city', user.city], ['region', user.region], ['country', user.country]]" :key="(key as string)">
+            <div v-for="[key, val] in [['firstName', user.firstName], ['lastName', user.lastName], ['username', user.username], ['phone', user.phone], ['company', user.company], ['position', user.position], ['address', user.address], ['postalCode', user.postalCode], ['city', user.city], ['region', user.region], ['country', user.country], ['middleName', user.middleName], ['profileUrl', user.profileUrl], ['website', user.website], ['gender', user.gender], ['birthdate', user.birthdate], ['zoneinfo', user.zoneinfo], ['locale', user.locale]]" :key="(key as string)">
               <p class="text-xs font-medium text-surface-500 uppercase tracking-wide mb-1">{{ t(`profile.${key}`) }}</p>
               <p class="text-sm text-surface-300">{{ val ?? '—' }}</p>
             </div>
@@ -254,6 +278,15 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
             >
               <KeyRound class="w-4 h-4" />
               {{ t('users.setPassword') }}
+            </BaseButton>
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :disabled="actionLoading"
+              @click="showResetMfa = true"
+            >
+              <ShieldOff class="w-4 h-4" />
+              {{ t('users.resetMfa') }}
             </BaseButton>
           </div>
 
@@ -344,6 +377,15 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
       :user-id="userId"
       @close="showSetPassword = false"
       @success="reloadUser"
+    />
+    <ConfirmDialog
+      :open="showResetMfa"
+      :title="t('users.resetMfa')"
+      :message="t('users.resetMfaConfirm')"
+      :confirm-label="t('users.resetMfa')"
+      :loading="actionLoading"
+      @confirm="handleResetMfa"
+      @cancel="showResetMfa = false"
     />
   </AppLayout>
 </template>

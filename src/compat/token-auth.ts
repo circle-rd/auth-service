@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { oauthClient } from "../db/auth-schema.js";
@@ -39,6 +39,9 @@ export async function reconcileTokenAuthMethod(): Promise<void> {
         ]),
         ne(oauthClient.tokenEndpointAuthMethod, target),
         inArray(oauthClient.clientId, userApplicationSlugs),
+        // An administrator's explicit per-application choice wins over the
+        // instance-wide default.
+        sql`coalesce(${oauthClient.metadata}->>'tokenEndpointAuthMethodExplicit', 'false') <> 'true'`,
       ),
     )
     .returning({ clientId: oauthClient.clientId });

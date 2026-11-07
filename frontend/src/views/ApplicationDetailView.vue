@@ -21,6 +21,7 @@ import SearchSelect from '@/components/ui/SearchSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
+import CodeBlock from '@/components/ui/CodeBlock.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
@@ -53,7 +54,8 @@ const toast = useToast();
 const services = useServicesStore();
 
 const appId = route.params.id as string;
-const activeTab = ref<'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial'>('roles');
+type AppTabKey = 'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial';
+const activeTab = ref<AppTabKey>('roles');
 const invitationsTabRef = ref<InstanceType<typeof ApplicationInvitationsTab> | null>(null);
 
 const app = ref<Application | null>(null);
@@ -527,6 +529,14 @@ const tabs = [
   { key: 'financial', label: t('appDetail.financial') },
 ] as const;
 
+const tabOptions = computed<SelectOption[]>(() =>
+  tabs.map((tab) => ({ value: tab.key, label: tab.label })),
+);
+
+function setActiveTab(value: string) {
+  activeTab.value = value as AppTabKey;
+}
+
 type CodeTab = 'typescript' | 'python' | 'ioserver' | 'litellm-ts' | 'litellm-py';
 const activeCodeTab = ref<CodeTab>('typescript');
 
@@ -601,6 +611,11 @@ const activeCodeExample = computed(() => {
       return codeExampleLitellmPython.value;
   }
 });
+const activeCodeLanguage = computed<'typescript' | 'python'>(() =>
+  activeCodeTab.value === 'python' || activeCodeTab.value === 'litellm-py'
+    ? 'python'
+    : 'typescript',
+);
 async function copyActiveCode(): Promise<void> {
   try {
     await navigator.clipboard.writeText(activeCodeExample.value);
@@ -685,7 +700,7 @@ const financialKpis = computed(() => {
 
 <template>
   <AppLayout :title="app?.name ?? 'Application'" :subtitle="app?.slug">
-    <div class="space-y-5">
+    <div class="space-y-5 max-w-[1600px] mx-auto">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <BaseButton variant="ghost" size="sm" @click="router.go(-1)">
           <ArrowLeft class="w-4 h-4" />
@@ -697,8 +712,8 @@ const financialKpis = computed(() => {
         </div>
       </div>
 
-      <div v-if="appActivity" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 px-5 py-3 flex items-center justify-between gap-5">
-        <div class="flex items-center gap-5 text-sm">
+      <div v-if="appActivity" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-5">
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <div class="flex items-center gap-2">
             <Activity
               class="w-4 h-4"
@@ -714,15 +729,22 @@ const financialKpis = computed(() => {
             <span class="text-xs text-surface-500">{{ t('applications.activity.last7d') }}</span>
           </div>
         </div>
-        <Sparkline :values="appActivity.sparkline" :width="140" :height="32" />
+        <Sparkline :values="appActivity.sparkline" :width="140" :height="32" class="self-start sm:self-auto" />
       </div>
 
-      <div class="flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 overflow-x-auto -mx-6 sm:mx-0 px-6 sm:px-0 scroll-smooth snap-x snap-mandatory">
+      <div class="sm:hidden">
+        <BaseSelect
+          :model-value="activeTab"
+          :options="tabOptions"
+          @update:model-value="setActiveTab"
+        />
+      </div>
+      <div class="hidden sm:flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 overflow-x-auto scroll-smooth">
         <button
           v-for="tab in tabs"
           :key="tab.key"
           @click="activeTab = tab.key"
-          :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap snap-start', activeTab === tab.key ? 'bg-primary-600/20 text-primary-300 shadow-sm' : 'text-surface-500 hover:text-surface-300']"
+          :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap', activeTab === tab.key ? 'bg-primary-600/20 text-primary-300 shadow-sm' : 'text-surface-500 hover:text-surface-300']"
         >
           {{ tab.label }}
         </button>
@@ -742,10 +764,10 @@ const financialKpis = computed(() => {
         />
 
         <div v-if="activeTab === 'users'" class="space-y-4">
-          <div class="flex justify-end gap-2">
-            <BaseButton size="sm" @click="openInviteFromUsers"><Mail class="w-3.5 h-3.5" />{{ t('appDetail.inviteUser') }}</BaseButton>
-            <BaseButton size="sm" variant="outline" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
-            <BaseButton size="sm" variant="outline" @click="openBulkModal"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
+          <div class="grid grid-cols-1 gap-2 sm:flex sm:justify-end">
+            <BaseButton class="w-full sm:w-auto" size="sm" @click="openInviteFromUsers"><Mail class="w-3.5 h-3.5" />{{ t('appDetail.inviteUser') }}</BaseButton>
+            <BaseButton class="w-full sm:w-auto" size="sm" variant="outline" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
+            <BaseButton class="w-full sm:w-auto" size="sm" variant="outline" @click="openBulkModal"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
           </div>
           <DataTable
             :columns="userColumns"
@@ -878,7 +900,7 @@ const financialKpis = computed(() => {
           </div>
         </div>
 
-        <div v-if="activeTab === 'integration' && app" class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <div v-if="activeTab === 'integration' && app" class="grid grid-cols-1 xl:grid-cols-2 gap-5 xl:min-h-[420px]">
 
           <!-- ── Credentials ────────────────────────────────────────────── -->
           <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 space-y-4">
@@ -924,34 +946,36 @@ const financialKpis = computed(() => {
           </div>
 
           <!-- ── Code Examples ──────────────────────────────────────────── -->
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 flex flex-col">
-            <div class="flex items-center gap-2 mb-4">
-              <Code class="w-4 h-4 text-primary-400" />
-              <p class="text-sm font-semibold text-surface-200">{{ t('appDetail.codeSnippet') }}</p>
-              <button
-                type="button"
-                class="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-surface-400 hover:text-surface-100 hover:bg-surface-800/60 transition-colors"
-                :title="t('common.copy')"
-                @click="copyActiveCode"
-              >
-                <component :is="codeCopied ? Check : Copy" class="w-3.5 h-3.5" />
-                {{ codeCopied ? t('common.copied') : t('common.copy') }}
-              </button>
+          <div class="relative">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 flex flex-col xl:absolute xl:inset-0">
+              <div class="flex items-center gap-2 mb-4">
+                <Code class="w-4 h-4 text-primary-400" />
+                <p class="text-sm font-semibold text-surface-200">{{ t('appDetail.codeSnippet') }}</p>
+                <button
+                  type="button"
+                  class="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-surface-400 hover:text-surface-100 hover:bg-surface-800/60 transition-colors"
+                  :title="t('common.copy')"
+                  @click="copyActiveCode"
+                >
+                  <component :is="codeCopied ? Check : Copy" class="w-3.5 h-3.5" />
+                  {{ codeCopied ? t('common.copied') : t('common.copy') }}
+                </button>
+              </div>
+              <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
+                <button
+                  v-for="tab in codeTabs"
+                  :key="tab.key"
+                  @click="activeCodeTab = tab.key"
+                  :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
+                >{{ tab.label }}</button>
+              </div>
+              <CodeBlock :code="activeCodeExample" :language="activeCodeLanguage" class="flex-1 min-h-0 max-h-[60vh] xl:max-h-none" />
+              <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
+              <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
+              <p v-else-if="activeCodeTab === 'litellm-ts'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> and <code class="font-mono">openai</code> — <code class="font-mono">npm i oauth4webapi openai</code></p>
+              <p v-else-if="activeCodeTab === 'litellm-py'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> and <code class="font-mono">openai</code> — <code class="font-mono">pip install authlib requests openai</code></p>
+              <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
             </div>
-            <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
-              <button
-                v-for="tab in codeTabs"
-                :key="tab.key"
-                @click="activeCodeTab = tab.key"
-                :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
-              >{{ tab.label }}</button>
-            </div>
-            <pre class="flex-1 min-h-0 overflow-auto bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 border border-surface-800/50 leading-relaxed whitespace-pre">{{ activeCodeExample }}</pre>
-            <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
-            <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
-            <p v-else-if="activeCodeTab === 'litellm-ts'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> and <code class="font-mono">openai</code> — <code class="font-mono">npm i oauth4webapi openai</code></p>
-            <p v-else-if="activeCodeTab === 'litellm-py'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> and <code class="font-mono">openai</code> — <code class="font-mono">pip install authlib requests openai</code></p>
-            <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
           </div>
 
           <!-- ── Scopes & Claims ────────────────────────────────────────── -->
@@ -1065,16 +1089,16 @@ const financialKpis = computed(() => {
 
         <div v-if="activeTab === 'financial'" class="space-y-5">
           <!-- KPI row -->
-          <div class="grid grid-cols-3 gap-4">
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
               <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.activeSubscribers') }}</p>
               <p class="text-2xl font-bold text-surface-100">{{ financialKpis.activeSubscribers }}</p>
             </div>
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
               <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.mrr') }}</p>
               <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.mrr), financialKpis.currency) }}</p>
             </div>
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
               <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.arr') }}</p>
               <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.arr), financialKpis.currency) }}</p>
             </div>

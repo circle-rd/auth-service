@@ -137,8 +137,8 @@ function isOidcBirthdate(value: string): boolean {
   if (month === undefined) return year === 0 || year >= 1;
   if (month < 1 || month > 12) return false;
   if (day === undefined) return false;
-  if (year === 0) return day >= 1 && day <= 31;
-  const date = new Date(Date.UTC(year, month - 1, day));
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
   return (
     date.getUTCFullYear() === year &&
     date.getUTCMonth() === month - 1 &&

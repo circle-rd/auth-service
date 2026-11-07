@@ -207,7 +207,7 @@ function formatDate(value: string | null): string {
     <div v-if="loading" class="text-xs text-surface-500">{{ t('common.loading') }}</div>
 
     <div
-      v-else-if="passkeys.length === 0"
+      v-else-if="!loadError && passkeys.length === 0"
       class="rounded-lg border border-dashed border-surface-700/60 p-4 text-center"
     >
       <KeyIcon class="w-6 h-6 text-surface-500 mx-auto mb-2" />

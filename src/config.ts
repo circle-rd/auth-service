@@ -53,6 +53,11 @@ const envSchema = z
 
     BETTER_AUTH_SECRET: z.string().min(16),
     BETTER_AUTH_URL: z.string().url(),
+    // BetterAuth's built-in per-IP rate limiter. The application also applies
+    // its own auth/email buckets in server.ts; disable this only for
+    // environments where a shared egress IP makes the default limit unusable
+    // (for example, a conformance-suite deployment).
+    BETTER_AUTH_RATE_LIMIT_ENABLED: optionalEnvBoolean,
 
     // Display name used as TOTP issuer in authenticator apps and as BetterAuth
     // appName. Falls back to a sensible default when unset.
@@ -138,6 +143,9 @@ const envSchema = z
     // OAuth 2.0 Device Authorization Grant (RFC 8628). Adds the `deviceCode`
     // table and /device approval page; opt-in because it widens the schema.
     DEVICE_AUTHORIZATION_ENABLED: envBoolean(false),
+    // One-shot reconciliation of `two_factor_enabled` for pre-existing MFA
+    // factors. Off by default because it scans the historical user table.
+    MFA_BACKFILL_ENABLED: envBoolean(false),
 
     // CAPTCHA on credential endpoints. Deliberately opt-in via CAPTCHA_ENABLED
     // (not merely by setting keys): enabling it rejects sign-in, sign-up and
@@ -337,6 +345,7 @@ export const config = {
   betterAuth: {
     secret: parsed.data.BETTER_AUTH_SECRET,
     url: parsed.data.BETTER_AUTH_URL,
+    rateLimitEnabled: parsed.data.BETTER_AUTH_RATE_LIMIT_ENABLED,
   },
   appName: parsed.data.APP_NAME,
   appLogoUrl: parsed.data.APP_LOGO_URL,
@@ -373,6 +382,7 @@ export const config = {
     haveIBeenPwned: parsed.data.HAVEIBEENPWNED_ENABLED,
     lastLoginMethod: parsed.data.LAST_LOGIN_METHOD_ENABLED,
     deviceAuthorization: parsed.data.DEVICE_AUTHORIZATION_ENABLED,
+    mfaBackfill: parsed.data.MFA_BACKFILL_ENABLED,
   },
   captcha: {
     enabled: !!(

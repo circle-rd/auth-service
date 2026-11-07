@@ -45,6 +45,7 @@ import {
   ilike,
   inArray,
   or,
+  sql,
 } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { clientSecretAuthMethod } from "../../compat/token-auth.js";
@@ -94,6 +95,12 @@ interface OauthClientView {
   /** OIDC Back-Channel Logout endpoint, or null when the app does not support it. */
   backchannelLogoutUri: string | null;
   backchannelLogoutSessionRequired: boolean;
+  /** Whether the authorization-code flow requires a PKCE code verifier. */
+  requirePKCE: boolean;
+  /** How the client authenticates to the token endpoint (`none` for public clients). */
+  tokenEndpointAuthMethod: string | null;
+  /** True when the method was chosen explicitly instead of inherited from config. */
+  tokenEndpointAuthMethodExplicit?: boolean;
 }
 
 /**
@@ -106,6 +113,9 @@ const oauthClientViewFields = {
   backchannelLogoutUri: oauthClient.backchannelLogoutUri,
   backchannelLogoutSessionRequired:
     oauthClient.backchannelLogoutSessionRequired,
+  requirePKCE: oauthClient.requirePKCE,
+  tokenEndpointAuthMethod: oauthClient.tokenEndpointAuthMethod,
+  metadata: oauthClient.metadata,
 } as const;
 
 /**
@@ -120,6 +130,9 @@ function toOauthClientView(
         postLogoutRedirectUris: string[] | null;
         backchannelLogoutUri: string | null;
         backchannelLogoutSessionRequired: boolean | null;
+        requirePKCE: boolean | null;
+        tokenEndpointAuthMethod: string | null;
+        metadata: unknown;
       }
     | undefined,
 ): OauthClientView {
@@ -129,6 +142,13 @@ function toOauthClientView(
     backchannelLogoutUri: row?.backchannelLogoutUri ?? null,
     backchannelLogoutSessionRequired:
       row?.backchannelLogoutSessionRequired ?? false,
+    requirePKCE: row?.requirePKCE ?? true,
+    tokenEndpointAuthMethod: row?.tokenEndpointAuthMethod ?? null,
+    tokenEndpointAuthMethodExplicit:
+      typeof row?.metadata === "object" &&
+      row?.metadata !== null &&
+      (row.metadata as Record<string, unknown>)
+        .tokenEndpointAuthMethodExplicit === "true",
   };
 }
 
@@ -280,6 +300,14 @@ const createAppSchema = z.object({
   isActive: z.boolean().default(true),
   isPublic: z.boolean().default(false),
   isSystem: z.boolean().default(false),
+  // Confidential clients may opt out of PKCE for legacy interoperability;
+  // public clients always require it (enforced in the route).
+  requirePKCE: z.boolean().default(true),
+  // Confidential-client token endpoint authentication. Omitted = instance
+  // default from TOKEN_ENDPOINT_AUTH_METHOD.
+  tokenEndpointAuthMethod: z
+    .enum(["client_secret_basic", "client_secret_post"])
+    .optional(),
   skipConsent: z.boolean().default(false),
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(false),
@@ -328,6 +356,10 @@ const updateAppSchema = createAppSchema
   .extend({
     isActive: z.boolean().optional(),
     isSystem: z.boolean().optional(),
+    requirePKCE: z.boolean().optional(),
+    tokenEndpointAuthMethod: z
+      .enum(["client_secret_basic", "client_secret_post"])
+      .optional(),
     skipConsent: z.boolean().optional(),
     isMfaRequired: z.boolean().optional(),
     allowRegister: z.boolean().optional(),
@@ -387,6 +419,52 @@ async function assertMaySetSystemFlag(req: FastifyRequest): Promise<void> {
   }
 }
 
+type ConfidentialTokenAuthMethod = "client_secret_basic" | "client_secret_post";
+
+/**
+ * Reject combinations that would weaken a public client or change the
+ * authentication contract of a script-provisioned system client.
+ */
+function assertOauthClientSettings(input: {
+  isPublic: boolean;
+  isSystem: boolean;
+  requirePKCE?: boolean;
+  tokenEndpointAuthMethod?: ConfidentialTokenAuthMethod;
+}): void {
+  if (input.isPublic && input.requirePKCE === false) {
+    throw ERR.APP_001("Public clients must use PKCE");
+  }
+  if (input.isPublic && input.tokenEndpointAuthMethod !== undefined) {
+    throw ERR.APP_001(
+      "Public clients do not use a token endpoint authentication method",
+    );
+  }
+  if (
+    input.isSystem &&
+    input.tokenEndpointAuthMethod !== undefined &&
+    input.tokenEndpointAuthMethod !== "client_secret_basic"
+  ) {
+    throw ERR.APP_001("System clients must use client_secret_basic");
+  }
+}
+
+function effectiveTokenEndpointAuthMethod(input: {
+  isPublic: boolean;
+  isSystem: boolean;
+  tokenEndpointAuthMethod?: ConfidentialTokenAuthMethod;
+}): string {
+  if (input.isPublic) return "none";
+  if (input.isSystem) return "client_secret_basic";
+  return input.tokenEndpointAuthMethod ?? clientSecretAuthMethod(false);
+}
+
+function effectiveRequirePKCE(input: {
+  isPublic: boolean;
+  requirePKCE: boolean;
+}): boolean {
+  return input.isPublic ? true : input.requirePKCE;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 export async function applicationRoutes(
@@ -415,6 +493,7 @@ export async function applicationRoutes(
     }
     const data = parsed.data;
     if (data.isSystem) await assertMaySetSystemFlag(req);
+    assertOauthClientSettings(data);
 
     // The creator is resolved from its session, never from the request body.
     // `requireAdmin` runs as a preHandler and proves the session exists, so the
@@ -496,14 +575,12 @@ export async function applicationRoutes(
         // clients (SPAs) use `none` and are limited to the authorization code
         // flow. PKCE is required for every client.
         applicationType: "web",
-        tokenEndpointAuthMethod: data.isPublic
-          ? "none"
-          : clientSecretAuthMethod(data.isSystem),
+        tokenEndpointAuthMethod: effectiveTokenEndpointAuthMethod(data),
         grantTypes: data.isPublic
           ? ["authorization_code", "refresh_token"]
           : ["authorization_code", "refresh_token", "client_credentials"],
         responseTypes: ["code"],
-        requirePKCE: true,
+        requirePKCE: effectiveRequirePKCE(data),
         // Machine-to-machine scopes. Deliberately separate from the app's OIDC
         // `allowedScopes` (openid/profile/email are user-delegated and rejected
         // by the client_credentials grant). Public clients cannot use M2M. The
@@ -511,7 +588,13 @@ export async function applicationRoutes(
         clientCredentialsScopes: data.isPublic
           ? []
           : [...DEFAULT_MACHINE_SCOPES],
-        metadata: { clientId: data.slug, applicationId: app.id },
+        metadata: {
+          clientId: data.slug,
+          applicationId: app.id,
+          ...(data.tokenEndpointAuthMethod
+            ? { tokenEndpointAuthMethodExplicit: "true" }
+            : {}),
+        },
       });
 
       return rows;
@@ -620,6 +703,10 @@ export async function applicationRoutes(
           data.url,
         ),
         ...backchannelLogoutValues(data),
+        requirePKCE: effectiveRequirePKCE(data),
+        tokenEndpointAuthMethod: effectiveTokenEndpointAuthMethod(data),
+        tokenEndpointAuthMethodExplicit:
+          data.tokenEndpointAuthMethod !== undefined,
       }),
       clientId: data.slug,
     };
@@ -677,11 +764,20 @@ export async function applicationRoutes(
         name: applications.name,
         icon: applications.icon,
         allowedResources: applications.allowedResources,
+        isPublic: applications.isPublic,
+        isSystem: applications.isSystem,
       })
       .from(applications)
       .where(eq(applications.id, req.params.id))
       .limit(1);
     if (!before) throw ERR.APP_002();
+
+    assertOauthClientSettings({
+      isPublic: before.isPublic,
+      isSystem: parsed.data.isSystem ?? before.isSystem,
+      requirePKCE: parsed.data.requirePKCE,
+      tokenEndpointAuthMethod: parsed.data.tokenEndpointAuthMethod,
+    });
 
     // Re-validated on every update so a resource that disappeared since the
     // last save is reported instead of failing on the link insert.
@@ -756,6 +852,30 @@ export async function applicationRoutes(
     if (parsed.data.backchannelLogoutSessionRequired !== undefined)
       oauthUpdate.backchannelLogoutSessionRequired =
         parsed.data.backchannelLogoutSessionRequired;
+    if (parsed.data.requirePKCE !== undefined) {
+      oauthUpdate.requirePKCE = effectiveRequirePKCE({
+        isPublic: app.isPublic,
+        requirePKCE: parsed.data.requirePKCE,
+      });
+    }
+    if (parsed.data.tokenEndpointAuthMethod !== undefined) {
+      oauthUpdate.tokenEndpointAuthMethod = effectiveTokenEndpointAuthMethod({
+        isPublic: app.isPublic,
+        isSystem: app.isSystem,
+        tokenEndpointAuthMethod: parsed.data.tokenEndpointAuthMethod,
+      });
+      // Keep the explicit choice across the startup reconciliation that
+      // otherwise realigns every client with TOKEN_ENDPOINT_AUTH_METHOD.
+      oauthUpdate.metadata = sql`${oauthClient.metadata} || ${JSON.stringify({
+        tokenEndpointAuthMethodExplicit: "true",
+      })}::jsonb`;
+    }
+    if (parsed.data.isSystem === true) {
+      // System clients are script-provisioned and always use HTTP Basic.
+      oauthUpdate.tokenEndpointAuthMethod = app.isPublic
+        ? "none"
+        : "client_secret_basic";
+    }
 
     if (Object.keys(oauthUpdate).length > 0) {
       await db

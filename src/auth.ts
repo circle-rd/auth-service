@@ -43,6 +43,7 @@ import {
   sendOrganizationInvitationEmail,
 } from "./services/email.js";
 import { userMustSetupMfa } from "./services/mfa.js";
+import { passkeySecondFactor } from "./auth/mfa-passkey.js";
 import {
   clientIdOf,
   clientIdOfLink,
@@ -380,6 +381,9 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
   baseURL: config.betterAuth.url,
+  ...(config.betterAuth.rateLimitEnabled === undefined
+    ? {}
+    : { rateLimit: { enabled: config.betterAuth.rateLimitEnabled } }),
   // Used as the default TOTP issuer (shown in authenticator apps) and as a
   // display name in other BetterAuth contexts.
   appName: config.appName,
@@ -528,6 +532,13 @@ export const auth = betterAuth({
       city: { type: "string", required: false },
       region: { type: "string", required: false },
       country: { type: "string", required: false },
+      middleName: { type: "string", required: false },
+      profileUrl: { type: "string", required: false },
+      website: { type: "string", required: false },
+      gender: { type: "string", required: false },
+      birthdate: { type: "string", required: false },
+      zoneinfo: { type: "string", required: false },
+      locale: { type: "string", required: false },
       // Surfaced to admin listings as "last seen". Written by
       // services/login-history.ts; must not be user-writable.
       lastLoginAt: { type: "date", required: false, input: false },
@@ -763,6 +774,7 @@ export const auth = betterAuth({
     }),
     twoFactor({ issuer: config.appName }),
     passkey(),
+    passkeySecondFactor(),
     // ── Optional Phase 5b plugins (opt-in via env) ──────────────────────────
     // Every entry below is gated so the default deployment stays identical.
     ...(config.features.haveIBeenPwned ? [haveIBeenPwned()] : []),
@@ -965,23 +977,47 @@ export const auth = betterAuth({
           user as Record<string, unknown> & { id: string },
           clientId,
         );
+        const claims = await getCompatUserClaims(user.id, clientId, scopes, {
+          email: (user as Record<string, unknown>).email as
+            string | null | undefined,
+          emailVerified: (user as Record<string, unknown>).emailVerified as
+            boolean | null | undefined,
+          name: (user as Record<string, unknown>).name as
+            string | null | undefined,
+          firstName: (user as Record<string, unknown>).firstName as
+            string | null | undefined,
+          lastName: (user as Record<string, unknown>).lastName as
+            string | null | undefined,
+          username: (user as Record<string, unknown>).username as
+            string | null | undefined,
+          middleName: (user as Record<string, unknown>).middleName as
+            string | null | undefined,
+          profileUrl: (user as Record<string, unknown>).profileUrl as
+            string | null | undefined,
+          website: (user as Record<string, unknown>).website as
+            string | null | undefined,
+          gender: (user as Record<string, unknown>).gender as
+            string | null | undefined,
+          birthdate: (user as Record<string, unknown>).birthdate as
+            string | null | undefined,
+          zoneinfo: (user as Record<string, unknown>).zoneinfo as
+            string | null | undefined,
+          locale: (user as Record<string, unknown>).locale as
+            string | null | undefined,
+          company: (user as Record<string, unknown>).company as
+            string | null | undefined,
+          image: (user as Record<string, unknown>).image as
+            string | null | undefined,
+          phone: (user as Record<string, unknown>).phone as
+            string | null | undefined,
+          updatedAt: (user as Record<string, unknown>).updatedAt as
+            Date | null | undefined,
+        });
+        // Keep the scope-derived email claims in the ID token: clients that
+        // consume it directly (and older SDK versions that build the profile
+        // from it) must not lose the address they requested.
         return {
-          ...(await getCompatUserClaims(user.id, clientId, scopes, {
-            email: (user as Record<string, unknown>).email as
-              string | null | undefined,
-            emailVerified: (user as Record<string, unknown>).emailVerified as
-              boolean | null | undefined,
-            name: (user as Record<string, unknown>).name as
-              string | null | undefined,
-            company: (user as Record<string, unknown>).company as
-              string | null | undefined,
-            image: (user as Record<string, unknown>).image as
-              string | null | undefined,
-            phone: (user as Record<string, unknown>).phone as
-              string | null | undefined,
-            updatedAt: (user as Record<string, unknown>).updatedAt as
-              Date | null | undefined,
-          })),
+          ...claims,
           // Per-app metadata claims (additive; reserved keys are filtered).
           ...(await getApplicationMetadataClaims(clientId)),
         };
@@ -1027,6 +1063,26 @@ export const auth = betterAuth({
           emailVerified: (user as Record<string, unknown>).emailVerified as
             boolean | null | undefined,
           name: (user as Record<string, unknown>).name as
+            string | null | undefined,
+          firstName: (user as Record<string, unknown>).firstName as
+            string | null | undefined,
+          lastName: (user as Record<string, unknown>).lastName as
+            string | null | undefined,
+          username: (user as Record<string, unknown>).username as
+            string | null | undefined,
+          middleName: (user as Record<string, unknown>).middleName as
+            string | null | undefined,
+          profileUrl: (user as Record<string, unknown>).profileUrl as
+            string | null | undefined,
+          website: (user as Record<string, unknown>).website as
+            string | null | undefined,
+          gender: (user as Record<string, unknown>).gender as
+            string | null | undefined,
+          birthdate: (user as Record<string, unknown>).birthdate as
+            string | null | undefined,
+          zoneinfo: (user as Record<string, unknown>).zoneinfo as
+            string | null | undefined,
+          locale: (user as Record<string, unknown>).locale as
             string | null | undefined,
           company: (user as Record<string, unknown>).company as
             string | null | undefined,
@@ -1078,6 +1134,26 @@ export const auth = betterAuth({
             emailVerified: (user as Record<string, unknown>).emailVerified as
               boolean | null | undefined,
             name: (user as Record<string, unknown>).name as
+              string | null | undefined,
+            firstName: (user as Record<string, unknown>).firstName as
+              string | null | undefined,
+            lastName: (user as Record<string, unknown>).lastName as
+              string | null | undefined,
+            username: (user as Record<string, unknown>).username as
+              string | null | undefined,
+            middleName: (user as Record<string, unknown>).middleName as
+              string | null | undefined,
+            profileUrl: (user as Record<string, unknown>).profileUrl as
+              string | null | undefined,
+            website: (user as Record<string, unknown>).website as
+              string | null | undefined,
+            gender: (user as Record<string, unknown>).gender as
+              string | null | undefined,
+            birthdate: (user as Record<string, unknown>).birthdate as
+              string | null | undefined,
+            zoneinfo: (user as Record<string, unknown>).zoneinfo as
+              string | null | undefined,
+            locale: (user as Record<string, unknown>).locale as
               string | null | undefined,
             company: (user as Record<string, unknown>).company as
               string | null | undefined,

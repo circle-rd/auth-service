@@ -560,6 +560,9 @@ export const stripeInvoices = pgTable(
     stripeCreatedAt: timestamp("stripe_created_at", {
       withTimezone: true,
     }).notNull(),
+    // Stripe's `status_transitions.paid_at`, when the invoice was collected.
+    // Revenue windows use it in preference to the creation time.
+    paidAt: timestamp("paid_at", { withTimezone: true }),
     lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

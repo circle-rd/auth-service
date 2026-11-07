@@ -1,5 +1,5 @@
 <script setup lang="ts">
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'danger-outline' | 'outline';
 type Size = 'sm' | 'md' | 'lg';
 
 withDefaults(defineProps<{
@@ -21,6 +21,7 @@ const variantClasses: Record<Variant, string> = {
   secondary: 'bg-surface-700 hover:bg-surface-600 text-surface-100 shadow-sm focus-visible:outline-surface-500',
   ghost: 'text-surface-300 hover:text-surface-100 hover:bg-surface-700/60 focus-visible:outline-surface-500',
   danger: 'bg-red-600 hover:bg-red-500 text-white shadow-sm shadow-red-900/30 focus-visible:outline-red-500',
+  'danger-outline': 'border border-red-600/60 text-red-400 hover:border-red-400 hover:text-red-300 hover:bg-red-500/10 focus-visible:outline-red-500',
   outline: 'border border-surface-600 text-surface-300 hover:border-surface-400 hover:text-surface-100 focus-visible:outline-surface-500',
 };
 

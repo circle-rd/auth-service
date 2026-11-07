@@ -34,10 +34,15 @@ export async function getSession(): Promise<AuthSession | null> {
 export async function signInEmail(
   email: string,
   password: string,
+  oauthQuery?: string,
 ): Promise<SignInResult> {
   return apiFetch<SignInResult>('/auth/sign-in/email', {
     method: 'POST',
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({
+      email,
+      password,
+      ...(oauthQuery ? { oauth_query: oauthQuery } : {}),
+    }),
   });
 }
 
@@ -99,18 +104,60 @@ export async function disableTwoFactor(password: string): Promise<void> {
   });
 }
 
-export async function verifyTotp(code: string): Promise<void> {
-  await apiFetch('/auth/two-factor/verify-totp', {
+export async function verifyTotp(
+  code: string,
+  oauthQuery?: string,
+): Promise<SignInResult> {
+  return apiFetch<SignInResult>('/auth/two-factor/verify-totp', {
     method: 'POST',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({
+      code,
+      ...(oauthQuery ? { oauth_query: oauthQuery } : {}),
+    }),
   });
 }
 
-export async function verifyBackupCode(code: string): Promise<void> {
-  await apiFetch('/auth/two-factor/verify-backup-code', {
+export async function verifyBackupCode(
+  code: string,
+  oauthQuery?: string,
+): Promise<SignInResult> {
+  return apiFetch<SignInResult>('/auth/two-factor/verify-backup-code', {
     method: 'POST',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({
+      code,
+      ...(oauthQuery ? { oauth_query: oauthQuery } : {}),
+    }),
   });
+}
+
+/**
+ * Ask the OP for a fresh `session_state` bound to the current browser session.
+ * Needed after an internal OAuth resume, which returns the client redirect
+ * without passing through the authorize route that normally appends it.
+ */
+export async function appendSessionState(
+  url: string,
+  oauthQuery: string,
+): Promise<string> {
+  if (USE_MOCK || !oauthQuery) return url;
+  const query = new URLSearchParams(oauthQuery);
+  const clientId = query.get('client_id');
+  const redirectUri = query.get('redirect_uri');
+  if (!clientId || !redirectUri) return url;
+  try {
+    const response = await fetch(
+      `/api/session-state?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`,
+      { credentials: 'include', cache: 'no-store' },
+    );
+    if (!response.ok) return url;
+    const body = (await response.json()) as { session_state?: string | null };
+    if (!body.session_state) return url;
+    const target = new URL(url);
+    target.searchParams.set('session_state', body.session_state);
+    return target.toString();
+  } catch {
+    return url;
+  }
 }
 
 export async function generateBackupCodes(

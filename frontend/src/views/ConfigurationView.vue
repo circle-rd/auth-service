@@ -5,18 +5,24 @@ import { useServicesStore } from '@/stores/services';
 import { listUsers } from '@/api/users';
 import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
+import { getBillingStats, type BillingStats } from '@/api/stats';
 import type { User } from '@/types';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
+import Sparkline from '@/components/ui/Sparkline.vue';
 import { CheckCircle, XCircle, CreditCard, ShieldCheck, Lock, Users, AppWindow, Building2, ArrowRightLeft } from '@lucide/vue';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const services = useServicesStore();
 
 const users = ref<User[]>([]);
 const appCount = ref(0);
 const orgCount = ref(0);
 const loading = ref(true);
+const billingStats = ref<BillingStats | null>(null);
+const billingLoading = ref(false);
+const billingError = ref(false);
+const billingRange = ref<'7d' | '30d'>('30d');
 
 onMounted(async () => {
   await Promise.all([
@@ -29,6 +35,58 @@ onMounted(async () => {
     })(),
   ]);
   loading.value = false;
+  if (services.config?.stripe) await loadBillingStats();
+});
+
+async function loadBillingStats() {
+  billingLoading.value = true;
+  billingError.value = false;
+  try {
+    billingStats.value = await getBillingStats({ range: billingRange.value });
+  } catch {
+    billingError.value = true;
+  } finally {
+    billingLoading.value = false;
+  }
+}
+
+async function setBillingRange(range: '7d' | '30d') {
+  if (billingRange.value === range) return;
+  billingRange.value = range;
+  await loadBillingStats();
+}
+
+function formatMoney(amount: number, currency: string): string {
+  const options = {
+    style: 'currency' as const,
+    currency: currency.toUpperCase(),
+  };
+  const digits =
+    new Intl.NumberFormat(locale.value, options).resolvedOptions()
+      .maximumFractionDigits ?? 2;
+  return new Intl.NumberFormat(locale.value, options).format(
+    amount / 10 ** digits,
+  );
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat(locale.value).format(value);
+}
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return t('configuration.billingStats.never');
+  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return t('configuration.billingStats.justNow');
+  if (minutes < 60) return t('configuration.billingStats.minutesAgo', { n: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t('configuration.billingStats.hoursAgo', { n: hours });
+  return t('configuration.billingStats.daysAgo', { n: Math.floor(hours / 24) });
+}
+
+const topPlans = computed(() => {
+  const plans = billingStats.value?.subscriptions.byPlan.slice(0, 4) ?? [];
+  const max = Math.max(...plans.map((p) => p.count), 1);
+  return plans.map((p) => ({ ...p, percent: Math.round((p.count / max) * 100) }));
 });
 
 const mfaRate = computed(() => {
@@ -159,6 +217,119 @@ function getProvider(key: ProviderKey) {
               </p>
             </div>
             <p v-if="!services.config?.stripe" class="text-xs text-surface-500">{{ t('configuration.stripeInactiveNote') }}</p>
+
+            <template v-else>
+              <p v-if="billingLoading" class="text-xs text-surface-500 mt-3">{{ t('configuration.billingStats.loading') }}</p>
+              <div v-else-if="billingError" class="mt-3 flex items-center gap-2">
+                <p class="text-xs text-surface-500">{{ t('configuration.billingStats.error') }}</p>
+                <button
+                  type="button"
+                  class="text-xs font-medium text-primary-400 hover:text-primary-300"
+                  @click="loadBillingStats"
+                >{{ t('configuration.billingStats.retry') }}</button>
+              </div>
+              <template v-else-if="billingStats">
+                <div class="grid grid-cols-2 gap-3 mt-4">
+                  <div>
+                    <p class="text-xs text-surface-500 mb-1">{{ t('configuration.billingStats.revenue') }}</p>
+                    <p class="text-lg font-bold text-surface-100 tabular-nums">{{ formatMoney(billingStats.revenue.total, billingStats.currency) }}</p>
+                    <p class="text-[11px] text-surface-500">{{ t('configuration.billingStats.revenueSub', { n: formatNumber(billingStats.revenue.count) }) }}</p>
+                  </div>
+                  <div>
+                    <p class="text-xs text-surface-500 mb-1">{{ t('configuration.billingStats.activeSubscriptions') }}</p>
+                    <p class="text-lg font-bold text-surface-100 tabular-nums">{{ formatNumber(billingStats.subscriptions.active) }}</p>
+                    <p class="text-[11px] text-surface-500">
+                      {{ t('configuration.billingStats.activeSubscriptionsSub', {
+                        stripe: formatNumber(billingStats.subscriptions.stripeManaged),
+                        cancel: formatNumber(billingStats.subscriptions.cancelAtPeriodEnd),
+                      }) }}
+                    </p>
+                  </div>
+                  <div>
+                    <p class="text-xs text-surface-500 mb-1">{{ t('configuration.billingStats.customers') }}</p>
+                    <p class="text-lg font-bold text-surface-100 tabular-nums">{{ formatNumber(billingStats.customers.withStripe) }}</p>
+                    <p class="text-[11px] text-surface-500">
+                      {{ t('configuration.billingStats.customersSub', {
+                        stripe: formatNumber(billingStats.customers.withStripe),
+                        users: formatNumber(billingStats.customers.users),
+                      }) }}
+                    </p>
+                  </div>
+                  <div>
+                    <p class="text-xs text-surface-500 mb-1">{{ t('configuration.billingStats.openInvoices') }}</p>
+                    <p class="text-lg font-bold text-surface-100 tabular-nums">{{ formatNumber(billingStats.invoices.openCount) }}</p>
+                    <p class="text-[11px] text-surface-500">
+                      {{ t('configuration.billingStats.openInvoicesSub', {
+                        amount: formatMoney(billingStats.invoices.openAmount, billingStats.currency),
+                      }) }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[11px] text-surface-500">{{ t('configuration.billingStats.revenueWindow') }}</span>
+                    <div class="flex items-center gap-0.5 rounded-md bg-surface-800/70 p-0.5">
+                      <button
+                        v-for="range in (['7d', '30d'] as const)"
+                        :key="range"
+                        type="button"
+                        :class="[
+                          billingRange === range ? 'bg-surface-700 text-surface-100' : 'text-surface-500 hover:text-surface-300',
+                          'px-2 py-0.5 rounded text-[11px] tabular-nums transition-colors',
+                        ]"
+                        @click="setBillingRange(range)"
+                      >{{ range === '7d' ? t('configuration.billingStats.range7d') : t('configuration.billingStats.range30d') }}</button>
+                    </div>
+                  </div>
+                  <Sparkline
+                    :values="billingStats.revenue.series.map((p) => p.amount)"
+                    :width="180"
+                    :height="30"
+                  />
+                </div>
+                <p v-if="billingStats.revenue.byCurrency.length > 1" class="text-[11px] text-surface-500 mt-1">
+                  {{ t('configuration.billingStats.multiCurrency', { currency: billingStats.currency.toUpperCase() }) }}
+                </p>
+
+                <div class="mt-4">
+                  <p class="text-xs text-surface-500 mb-2">{{ t('configuration.billingStats.byPlan') }}</p>
+                  <div v-if="topPlans.length" class="space-y-1.5">
+                    <div v-for="plan in topPlans" :key="plan.planId">
+                      <div class="flex items-center justify-between gap-2 text-[11px] text-surface-400 mb-0.5">
+                        <span class="truncate">
+                          {{ plan.planName }}<span class="text-surface-600"> · {{ plan.applicationName }}</span>
+                        </span>
+                        <span class="tabular-nums shrink-0">{{ formatNumber(plan.count) }}</span>
+                      </div>
+                      <div class="h-1 bg-surface-800 rounded-full overflow-hidden">
+                        <div class="h-full bg-emerald-500/70 rounded-full" :style="{ width: `${plan.percent}%` }" />
+                      </div>
+                    </div>
+                  </div>
+                  <p v-else class="text-xs text-surface-500">{{ t('configuration.billingStats.noPlans') }}</p>
+                </div>
+
+                <div class="mt-4 pt-3 border-t border-surface-800/60 text-[11px] text-surface-500 space-y-1">
+                  <p>
+                    {{ t('configuration.billingStats.catalogCoverage') }}:
+                    {{ t('configuration.billingStats.plansLinked', {
+                      linked: formatNumber(billingStats.catalog.plansLinked),
+                      total: formatNumber(billingStats.catalog.plans),
+                    }) }} ·
+                    {{ t('configuration.billingStats.pricesLinked', {
+                      linked: formatNumber(billingStats.catalog.pricesLinked),
+                      total: formatNumber(billingStats.catalog.prices),
+                    }) }} ·
+                    {{ t('configuration.billingStats.metersLinked', { n: formatNumber(billingStats.catalog.metersLinked) }) }}
+                  </p>
+                  <p>
+                    {{ t('configuration.billingStats.lastEvent', { time: relativeTime(billingStats.webhooks.lastProcessedAt) }) }} ·
+                    {{ t('configuration.billingStats.events24h', { n: formatNumber(billingStats.webhooks.last24h) }) }}
+                  </p>
+                </div>
+              </template>
+            </template>
           </template>
         </div>
 

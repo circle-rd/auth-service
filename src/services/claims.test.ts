@@ -102,4 +102,75 @@ describe("getUserClaims", () => {
     expect(claims.email).toBeUndefined();
     expect(claims.name).toBeUndefined();
   });
+
+  it("derives standard profile claims from the user name and email", async () => {
+    const claims = await getUserClaims(
+      "user-1",
+      "client-1",
+      ["profile", "email"],
+      {
+        email: "alice@example.com",
+        emailVerified: true,
+        name: "Alice Smith",
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
+      },
+    );
+
+    expect(claims).toMatchObject({
+      name: "Alice Smith",
+      given_name: "Alice",
+      family_name: "Smith",
+      nickname: "Alice",
+      preferred_username: "alice",
+      updated_at: 1767225600,
+      email: "alice@example.com",
+      email_verified: true,
+    });
+    // Claims we cannot truthfully derive are omitted, not sent as nulls.
+    expect(claims).not.toHaveProperty("middle_name");
+    expect(claims).not.toHaveProperty("picture");
+    expect(claims).not.toHaveProperty("phone_number");
+  });
+
+  it("emits optional OIDC profile claims when supplied", async () => {
+    const claims = await getUserClaims("user-1", "client-1", ["profile"], {
+      name: "Alice Smith",
+      firstName: "Alice",
+      lastName: "Smith",
+      username: "asmith",
+      middleName: "B.",
+      profileUrl: "https://example.com/alice",
+      website: "https://alice.example",
+      gender: "female",
+      birthdate: "1990-01-31",
+      zoneinfo: "Europe/Paris",
+      locale: "fr-FR",
+    });
+
+    expect(claims).toMatchObject({
+      middle_name: "B.",
+      profile: "https://example.com/alice",
+      website: "https://alice.example",
+      gender: "female",
+      birthdate: "1990-01-31",
+      zoneinfo: "Europe/Paris",
+      locale: "fr-FR",
+    });
+  });
+
+  it("only emits phone claims when a phone number exists", async () => {
+    const withPhone = await getUserClaims("user-1", "client-1", ["phone"], {
+      phone: "+33612345678",
+    });
+    expect(withPhone).toMatchObject({
+      phone_number: "+33612345678",
+      phone_number_verified: false,
+    });
+
+    const withoutPhone = await getUserClaims("user-1", "client-1", ["phone"], {
+      phone: null,
+    });
+    expect(withoutPhone).not.toHaveProperty("phone_number");
+    expect(withoutPhone).not.toHaveProperty("phone_number_verified");
+  });
 });

@@ -35,11 +35,17 @@ export interface ApplicationFormState {
   postLogoutRedirectUris: string[];
   // OIDC Back-Channel Logout endpoint (public https); empty = not supported.
   backchannelLogoutUri: string;
+  // Confidential client: whether the code flow requires PKCE, and how the
+  // client authenticates to the token endpoint.
+  requirePKCE: boolean;
+  tokenEndpointAuthMethod: 'client_secret_basic' | 'client_secret_post';
   // Edited as ordered pairs, serialized to a plain Record<string, string> on submit.
   metadata: MetadataEntry[];
 }
 
-export function emptyApplicationForm(): ApplicationFormState {
+export function emptyApplicationForm(
+  tokenEndpointAuthMethod: ApplicationFormState['tokenEndpointAuthMethod'] = 'client_secret_basic',
+): ApplicationFormState {
   return {
     name: '',
     slug: '',
@@ -59,6 +65,8 @@ export function emptyApplicationForm(): ApplicationFormState {
     enableEndSession: false,
     postLogoutRedirectUris: [],
     backchannelLogoutUri: '',
+    requirePKCE: true,
+    tokenEndpointAuthMethod,
     metadata: [],
   };
 }
@@ -83,6 +91,11 @@ export function formFromApplication(a: Application): ApplicationFormState {
     enableEndSession: a.enableEndSession ?? false,
     postLogoutRedirectUris: a.postLogoutRedirectUris ? [...a.postLogoutRedirectUris] : [],
     backchannelLogoutUri: a.backchannelLogoutUri ?? '',
+    requirePKCE: a.requirePKCE ?? true,
+    tokenEndpointAuthMethod:
+      a.tokenEndpointAuthMethod === 'client_secret_post'
+        ? 'client_secret_post'
+        : 'client_secret_basic',
     metadata: Object.entries(a.metadata ?? {}).map(([key, value]) => ({ key, value: String(value) })),
   };
 }

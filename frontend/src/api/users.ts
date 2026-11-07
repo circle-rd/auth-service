@@ -39,6 +39,13 @@ export interface UpdateUserBody {
   city?: string | null
   region?: string | null
   country?: string | null
+  middleName?: string | null
+  profileUrl?: string | null
+  website?: string | null
+  gender?: 'female' | 'male' | 'other' | null
+  birthdate?: string | null
+  zoneinfo?: string | null
+  locale?: string | null
   image?: string | null
 }
 
@@ -75,7 +82,7 @@ export async function getUser(id: string): Promise<UserDetailResponse> {
 
 export async function createUser(body: CreateUserBody): Promise<{ user: User }> {
   if (USE_MOCK) {
-    const user: User = { ...body, id: `usr_${Math.random().toString(36).slice(2)}`, emailVerified: false, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), twoFactorEnabled: null, banned: null, banReason: null, banExpires: null, isMfaRequired: null, phone: null, firstName: null, lastName: null, username: null, company: null, position: null, address: null, postalCode: null, city: null, region: null, country: null };
+    const user: User = { ...body, id: `usr_${Math.random().toString(36).slice(2)}`, emailVerified: false, image: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), twoFactorEnabled: null, banned: null, banReason: null, banExpires: null, isMfaRequired: null, phone: null, firstName: null, lastName: null, username: null, company: null, position: null, address: null, postalCode: null, city: null, region: null, country: null, middleName: null, profileUrl: null, website: null, gender: null, birthdate: null, zoneinfo: null, locale: null };
     MOCK_USERS.push(user);
     return { user };
   }
@@ -104,6 +111,13 @@ export interface UpdateMyProfileBody {
   city?: string | null
   region?: string | null
   country?: string | null
+  middleName?: string | null
+  profileUrl?: string | null
+  website?: string | null
+  gender?: 'female' | 'male' | 'other' | null
+  birthdate?: string | null
+  zoneinfo?: string | null
+  locale?: string | null
   image?: string | null
 }
 
@@ -138,6 +152,14 @@ export async function enableUser(id: string): Promise<{ ok: true }> {
 export async function sendVerificationEmail(id: string): Promise<{ ok: true }> {
   if (USE_MOCK) return { ok: true };
   return apiFetch<{ ok: true }>(`/admin/users/${id}/send-verification`, {
+    method: 'POST',
+  });
+}
+
+/** Remove every MFA factor and revoke the user's sessions and tokens. */
+export async function resetUserMfa(id: string): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/users/${id}/mfa/reset`, {
     method: 'POST',
   });
 }

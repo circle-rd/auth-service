@@ -181,22 +181,22 @@ function formatDate(iso: string) {
   <div class="space-y-5">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <section class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-        <header class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
+        <header class="px-4 sm:px-5 py-4 border-b border-surface-700/40 flex items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.roles') }}</h3>
           <BaseButton size="sm" @click="openCreateRole"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createRole') }}</BaseButton>
         </header>
         <p v-if="!roles.length" class="px-5 py-8 text-center text-sm text-surface-500">{{ t('appDetail.noRoles') }}</p>
         <ul v-else class="divide-y divide-surface-800/40 max-h-[28rem] overflow-y-auto">
-          <li v-for="role in roles" :key="role.id" class="px-5 py-4 flex items-center gap-4 group">
-            <div class="flex-1 min-w-0">
+          <li v-for="role in roles" :key="role.id" class="px-4 sm:px-5 py-4 flex flex-wrap items-center gap-x-3 gap-y-2 sm:gap-4 group">
+            <div class="flex-1 min-w-[10rem]">
               <div class="flex items-center gap-2">
                 <p class="text-sm font-medium text-surface-200 truncate">{{ role.name }}</p>
-                <BaseBadge v-if="role.isDefault" variant="primary" size="sm">{{ t('appDetail.defaultBadge') }}</BaseBadge>
+                <BaseBadge v-if="role.isDefault" variant="primary" size="sm" class="shrink-0">{{ t('appDetail.defaultBadge') }}</BaseBadge>
               </div>
               <p class="text-xs text-surface-500 mt-0.5 truncate">{{ role.description ?? '—' }}</p>
             </div>
-            <span class="text-xs text-surface-500 whitespace-nowrap">{{ t('appDetail.permissionCount', role.permissionIds.length) }}</span>
-            <div class="flex items-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+            <span class="text-xs text-surface-500 whitespace-nowrap shrink-0">{{ t('appDetail.permissionCount', role.permissionIds.length) }}</span>
+            <div class="flex items-center shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
               <button
                 type="button"
                 :aria-label="t('appDetail.editRole')"
@@ -221,15 +221,15 @@ function formatDate(iso: string) {
       </section>
 
       <section class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-        <header class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
+        <header class="px-4 sm:px-5 py-4 border-b border-surface-700/40 flex items-center justify-between gap-2">
           <h3 class="text-sm font-semibold text-surface-200">{{ t('appDetail.permissions') }}</h3>
           <BaseButton size="sm" @click="openCreatePermission"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.createPermission') }}</BaseButton>
         </header>
         <p v-if="!permissions.length" class="px-5 py-8 text-center text-sm text-surface-500">{{ t('appDetail.noPermissions') }}</p>
         <ul v-else class="divide-y divide-surface-800/40 max-h-[28rem] overflow-y-auto">
-          <li v-for="perm in permissions" :key="perm.id" class="px-5 py-3 flex items-center gap-4 group">
+          <li v-for="perm in permissions" :key="perm.id" class="px-4 sm:px-5 py-3 flex items-center gap-3 sm:gap-4 group">
             <code class="flex-1 min-w-0 truncate text-sm font-mono text-surface-300">{{ perm.resource }}:<span :class="perm.action === 'write' ? 'text-amber-400' : 'text-emerald-400'">{{ perm.action }}</span></code>
-            <span class="text-xs text-surface-600">{{ formatDate(perm.createdAt) }}</span>
+            <span class="hidden sm:inline text-xs text-surface-600">{{ formatDate(perm.createdAt) }}</span>
             <button
               type="button"
               :aria-label="t('appDetail.deletePermission')"

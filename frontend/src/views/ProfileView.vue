@@ -243,6 +243,7 @@ watch(
   () => auth.user,
   (user) => {
     if (!user) return;
+    if (Object.keys(buildProfilePatch()).length > 0) return;
     populateForm(user);
     initialForm.value = { ...form.value };
     applyInitialPrefills();

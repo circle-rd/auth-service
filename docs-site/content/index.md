@@ -32,7 +32,7 @@ What it does
 ::::u-page-feature{icon="i-lucide-layers" title="Multi-application RBAC" description="Each registered application gets its own isolated role and permission model. Users carry different roles across applications; claims are injected into JWT access tokens when the matching scope is requested."}
 ::::
 
-::::u-page-feature{icon="i-lucide-fingerprint" title="MFA — TOTP and backup codes" description="Two-factor authentication via TOTP authenticator apps, with backup codes. Per-application MFA enforcement is configurable. Passkeys (WebAuthn) ship as a TOTP-equivalent second factor with profile management; primary passwordless passkey login exists server-side but is not exposed in the SPA."}
+::::u-page-feature{icon="i-lucide-fingerprint" title="MFA — TOTP, backup codes, and passkeys" description="Two-factor authentication via TOTP authenticator apps, with backup codes. Per-application MFA enforcement is configurable. Passkeys (WebAuthn) ship as a TOTP-equivalent second factor with profile management; primary passwordless passkey login exists server-side but is not exposed in the SPA."}
 ::::
 
 ::::u-page-feature{icon="i-lucide-credit-card" title="Subscription plans" description="Define subscription plans with arbitrary feature flags per application. Stripe integration creates products and prices automatically. Plan and feature data are included in access tokens."}

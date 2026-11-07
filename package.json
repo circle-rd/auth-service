@@ -1,6 +1,6 @@
 {
     "name": "auth-service",
-    "version": "0.1.36",
+    "version": "0.2.0",
     "description": "Self-hosted OAuth 2.1 / OIDC identity provider with multi-app RBAC, MFA, organizations and billing.",
     "license": "GPL-3.0-or-later",
     "repository": {

@@ -508,7 +508,7 @@ export function passkeySecondFactor(): BetterAuthPlugin {
                 MFA_ERRORS.LAST_AUTHENTICATION_METHOD,
               );
             }
-            await holdUserLock(target.userId);
+            await holdUserLock(ctx, target.userId);
           }),
         },
         {
@@ -529,7 +529,7 @@ export function passkeySecondFactor(): BetterAuthPlugin {
                 MFA_ERRORS.LAST_FACTOR_REQUIRED,
               );
             }
-            await holdUserLock(session.user.id);
+            await holdUserLock(ctx, session.user.id);
           }),
         },
       ],
@@ -549,7 +549,7 @@ export function passkeySecondFactor(): BetterAuthPlugin {
               (ctx.path === "/passkey/delete-passkey" ||
                 ctx.path === "/two-factor/disable")
             ) {
-              releaseUserLock(userId);
+              releaseUserLock(ctx);
             }
           }),
         },

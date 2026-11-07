@@ -142,9 +142,9 @@ export async function hasBackupCodes(userId: string): Promise<boolean> {
     const codes: unknown = JSON.parse(decoded);
     return Array.isArray(codes) && codes.length > 0;
   } catch {
-    // A custom unencrypted store cannot be inspected here; TOTP presence is
-    // the best available answer.
-    return true;
+    // A corrupt row or a misconfigured secret cannot mint a working backup
+    // code, so never advertise the fallback as available.
+    return false;
   }
 }
 

@@ -182,7 +182,7 @@ export default {
     setPasswordSuccess: 'Mot de passe mis à jour. Toutes les sessions de cet utilisateur ont été révoquées.',
     setPasswordError: 'Impossible de définir le mot de passe.',
     resetMfa: 'Réinitialiser la MFA',
-    resetMfaConfirm: 'Supprimer tous les secrets TOTP et toutes les passkeys de cet utilisateur ? Ses sessions et jetons OAuth seront révoqués. S\'il est soumis à la MFA, il devra enrôler un nouveau facteur.',
+    resetMfaConfirm: 'Supprimer les secrets TOTP et les passkeys MFA de cet utilisateur ? Ses sessions et jetons OAuth seront révoqués, mais ses passkeys principales sont conservées si le compte n\'a pas de mot de passe. S\'il est soumis à la MFA, il devra enrôler un nouveau facteur.',
     mfaReset: 'MFA réinitialisée. Tous les facteurs et sessions ont été supprimés.',
     importUsers: 'Importer des utilisateurs',
     importHint: 'Chargez un fichier CSV avec les colonnes name, email, password (optionnel) et role (user ou admin), un utilisateur par ligne. Si le mot de passe est absent, un mot de passe temporaire est généré et affiché dans les résultats.',

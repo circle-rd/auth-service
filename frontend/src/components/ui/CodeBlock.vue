@@ -14,15 +14,13 @@ const props = defineProps<{
 }>();
 
 const highlighted = computed(
-  () => `<code class="hljs">${hljs.highlight(props.code, { language: props.language }).value}</code>`,
+  () => hljs.highlight(props.code, { language: props.language }).value,
 );
 </script>
 
 <template>
-  <pre
-    class="overflow-auto bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 border border-surface-800/50 leading-relaxed whitespace-pre"
-    v-html="highlighted"
-  />
+  <!-- prettier-ignore -->
+  <pre class="overflow-auto bg-surface-950/80 rounded-xl p-4 text-xs font-mono text-surface-300 border border-surface-800/50 leading-relaxed whitespace-pre"><code class="hljs" v-html="highlighted" /></pre>
 </template>
 
 <style scoped>

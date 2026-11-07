@@ -529,7 +529,8 @@ describe("POST /api/admin/users/:id/mfa/reset", () => {
       .select()
       .from(oauthRefreshToken)
       .where(eq(oauthRefreshToken.userId, targetId));
-    expect(refresh?.revoked).not.toBeNull();
+    expect(refresh).toBeDefined();
+    expect(refresh?.revoked).toBeInstanceOf(Date);
     expect(
       await db
         .select()

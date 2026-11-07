@@ -182,7 +182,7 @@ export default {
     setPasswordSuccess: 'Password updated. All sessions of this user were revoked.',
     setPasswordError: 'Could not set the password.',
     resetMfa: 'Reset MFA',
-    resetMfaConfirm: 'Remove every TOTP secret and passkey for this user? Their sessions and OAuth tokens will be revoked. If MFA is required for them, they will have to enrol a new factor.',
+    resetMfaConfirm: 'Remove this user\'s TOTP secrets and MFA passkeys? Their sessions and OAuth tokens will be revoked, while primary passkeys on passwordless accounts are kept. If MFA is required for them, they will have to enrol a new factor.',
     mfaReset: 'MFA reset. All factors and sessions were removed.',
     importUsers: 'Import users',
     importHint: 'Upload a CSV with the columns name, email, password (optional) and role (user or admin), one user per line. When the password is omitted, a temporary one is generated and shown in the results.',

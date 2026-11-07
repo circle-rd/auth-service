@@ -344,7 +344,7 @@
           setTimeout(() => { resetOtp(); otpInputs[0].focus(); }, 400);
           return;
         }
-        redirectAfter(data);
+        await redirectAfter(data);
       } catch {
         errorBox.textContent = 'A network error occurred. Please try again.';
       } finally {
@@ -369,7 +369,7 @@
           errorBox.textContent = data?.error?.message ?? 'Invalid backup code.';
           return;
         }
-        redirectAfter(data);
+        await redirectAfter(data);
       } catch {
         errorBox.textContent = 'A network error occurred. Please try again.';
       } finally {

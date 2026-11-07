@@ -91,7 +91,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       postLogoutRedirectUris: body.postLogoutRedirectUris ?? [],
       backchannelLogoutUri: body.backchannelLogoutUri ?? null,
       backchannelLogoutSessionRequired: body.backchannelLogoutSessionRequired ?? false,
-      requirePKCE: body.requirePKCE ?? true,
+      requirePKCE: body.isPublic ? true : body.requirePKCE ?? true,
       tokenEndpointAuthMethod: body.isPublic
         ? 'none'
         : body.tokenEndpointAuthMethod ?? 'client_secret_basic',

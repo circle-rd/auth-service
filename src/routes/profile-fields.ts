@@ -119,7 +119,13 @@ export const profileFieldsSchema = z.object({
     .string()
     .trim()
     .max(35)
-    .refine((value) => /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(value), {
+    .refine((value) => {
+      try {
+        return Intl.getCanonicalLocales(value).length === 1;
+      } catch {
+        return false;
+      }
+    }, {
       message: "Use a BCP 47 language tag, e.g. fr-FR",
     })
     .nullable()

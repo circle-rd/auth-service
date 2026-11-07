@@ -49,7 +49,9 @@ function safeHttpUrl(value: string): string | null {
     const url = new URL(value.trim());
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
     if (url.username || url.password) return null;
-    return url.toString();
+    const normalized = url.toString();
+    if (normalized.length > 2048) return null;
+    return normalized;
   } catch {
     return null;
   }

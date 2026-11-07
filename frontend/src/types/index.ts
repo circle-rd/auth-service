@@ -117,6 +117,14 @@ export interface Application {
   backchannelLogoutUri: string | null
   /** Require the logout token to carry `sid` (spec §2.8). */
   backchannelLogoutSessionRequired: boolean
+  /** Whether the authorization-code flow requires a PKCE code verifier. */
+  requirePKCE: boolean
+  /** Token endpoint authentication method (`none` for public clients). */
+  tokenEndpointAuthMethod:
+    | 'client_secret_basic'
+    | 'client_secret_post'
+    | 'none'
+    | null
   createdAt: string
   updatedAt: string
 }

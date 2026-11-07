@@ -970,23 +970,35 @@ export const auth = betterAuth({
           user as Record<string, unknown> & { id: string },
           clientId,
         );
+        const claims = await getCompatUserClaims(user.id, clientId, scopes, {
+          email: (user as Record<string, unknown>).email as
+            string | null | undefined,
+          emailVerified: (user as Record<string, unknown>).emailVerified as
+            boolean | null | undefined,
+          name: (user as Record<string, unknown>).name as
+            string | null | undefined,
+          firstName: (user as Record<string, unknown>).firstName as
+            string | null | undefined,
+          lastName: (user as Record<string, unknown>).lastName as
+            string | null | undefined,
+          username: (user as Record<string, unknown>).username as
+            string | null | undefined,
+          company: (user as Record<string, unknown>).company as
+            string | null | undefined,
+          image: (user as Record<string, unknown>).image as
+            string | null | undefined,
+          phone: (user as Record<string, unknown>).phone as
+            string | null | undefined,
+          updatedAt: (user as Record<string, unknown>).updatedAt as
+            Date | null | undefined,
+        });
+        // Scope-derived claims belong in UserInfo when an access token is
+        // issued. The provider only advertises the code flow, so the ID token
+        // carries the custom application claims and not the email claims.
+        delete claims.email;
+        delete claims.email_verified;
         return {
-          ...(await getCompatUserClaims(user.id, clientId, scopes, {
-            email: (user as Record<string, unknown>).email as
-              string | null | undefined,
-            emailVerified: (user as Record<string, unknown>).emailVerified as
-              boolean | null | undefined,
-            name: (user as Record<string, unknown>).name as
-              string | null | undefined,
-            company: (user as Record<string, unknown>).company as
-              string | null | undefined,
-            image: (user as Record<string, unknown>).image as
-              string | null | undefined,
-            phone: (user as Record<string, unknown>).phone as
-              string | null | undefined,
-            updatedAt: (user as Record<string, unknown>).updatedAt as
-              Date | null | undefined,
-          })),
+          ...claims,
           // Per-app metadata claims (additive; reserved keys are filtered).
           ...(await getApplicationMetadataClaims(clientId)),
         };
@@ -1032,6 +1044,12 @@ export const auth = betterAuth({
           emailVerified: (user as Record<string, unknown>).emailVerified as
             boolean | null | undefined,
           name: (user as Record<string, unknown>).name as
+            string | null | undefined,
+          firstName: (user as Record<string, unknown>).firstName as
+            string | null | undefined,
+          lastName: (user as Record<string, unknown>).lastName as
+            string | null | undefined,
+          username: (user as Record<string, unknown>).username as
             string | null | undefined,
           company: (user as Record<string, unknown>).company as
             string | null | undefined,
@@ -1083,6 +1101,12 @@ export const auth = betterAuth({
             emailVerified: (user as Record<string, unknown>).emailVerified as
               boolean | null | undefined,
             name: (user as Record<string, unknown>).name as
+              string | null | undefined,
+            firstName: (user as Record<string, unknown>).firstName as
+              string | null | undefined,
+            lastName: (user as Record<string, unknown>).lastName as
+              string | null | undefined,
+            username: (user as Record<string, unknown>).username as
               string | null | undefined,
             company: (user as Record<string, unknown>).company as
               string | null | undefined,

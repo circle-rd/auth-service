@@ -40,6 +40,12 @@ const isEdit = computed(() => !!props.application);
 
 const form = ref<ApplicationFormState>(emptyApplicationForm());
 
+// PKCE and token endpoint authentication are confidential-client settings;
+// public clients always use PKCE and `none`, and system clients stay on Basic.
+const showOauthClientSettings = computed(
+  () => !form.value.isPublic && !(props.application?.isSystem ?? false),
+);
+
 // ── Steps ────────────────────────────────────────────────────────────────
 // Authorization and Advanced are optional: the application can be saved from
 // the Authorization step on (from any step when editing).
@@ -281,6 +287,12 @@ async function submit() {
       // Every logout token carries `sid`, so an endpoint can always rely on it.
       backchannelLogoutSessionRequired: Boolean(form.value.backchannelLogoutUri),
       metadata,
+      ...(showOauthClientSettings.value
+        ? {
+            requirePKCE: form.value.requirePKCE,
+            tokenEndpointAuthMethod: form.value.tokenEndpointAuthMethod,
+          }
+        : {}),
     };
     if (isEdit.value && props.application) {
       const res = await updateApplication(props.application.id, body);
@@ -387,6 +399,7 @@ function onEnter() {
         v-else-if="step === STEP_AUTHORIZATION"
         :form="form"
         :hidden-resources="hiddenResources"
+        :is-system="props.application?.isSystem ?? false"
       />
       <StepAdvanced v-else :form="form" :available-providers="availableProviders" />
     </form>

@@ -53,6 +53,10 @@ export interface CreateApplicationBody {
   backchannelLogoutUri?: string | null
   /** Require the logout token to carry `sid`. */
   backchannelLogoutSessionRequired?: boolean
+  /** Require PKCE on the authorization-code flow (public clients always do). */
+  requirePKCE?: boolean
+  /** Confidential-client token endpoint authentication method. */
+  tokenEndpointAuthMethod?: 'client_secret_basic' | 'client_secret_post'
   /**
    * Free-form per-application metadata. Stored as a flat string→string map
    * and surfaced inside the JWT under the `client_attrs` field for resource
@@ -87,6 +91,10 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       postLogoutRedirectUris: body.postLogoutRedirectUris ?? [],
       backchannelLogoutUri: body.backchannelLogoutUri ?? null,
       backchannelLogoutSessionRequired: body.backchannelLogoutSessionRequired ?? false,
+      requirePKCE: body.requirePKCE ?? true,
+      tokenEndpointAuthMethod: body.isPublic
+        ? 'none'
+        : body.tokenEndpointAuthMethod ?? 'client_secret_basic',
       metadata: body.metadata ?? {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

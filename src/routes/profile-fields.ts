@@ -20,6 +20,13 @@ export const USER_PROFILE_FIELDS = [
   "city",
   "region",
   "country",
+  "middleName",
+  "profileUrl",
+  "website",
+  "gender",
+  "birthdate",
+  "zoneinfo",
+  "locale",
   "image",
 ] as const;
 
@@ -38,6 +45,13 @@ export type UserProfileValues = {
   city: string | null;
   region: string | null;
   country: string | null;
+  middleName: string | null;
+  profileUrl: string | null;
+  website: string | null;
+  gender: "female" | "male" | "other" | null;
+  birthdate: string | null;
+  zoneinfo: string | null;
+  locale: string | null;
   image: string | null;
 };
 
@@ -45,6 +59,27 @@ export type UserProfileUpdate = Partial<UserProfileValues>;
 
 const nullableText = (max: number) =>
   z.string().trim().max(max).nullable().optional();
+
+const httpUrl = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine(isHttpUrl, { message: "Use an http(s) URL" })
+  .nullable()
+  .optional();
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+}
 
 export const profileFieldsSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -67,8 +102,49 @@ export const profileFieldsSchema = z.object({
     .transform((value) => value.toUpperCase())
     .nullable()
     .optional(),
-  image: z.string().url().nullable().optional(),
+  middleName: nullableText(100),
+  profileUrl: httpUrl,
+  website: httpUrl,
+  gender: z.enum(["female", "male", "other"]).nullable().optional(),
+  birthdate: z
+    .string()
+    .trim()
+    .refine(isOidcBirthdate, {
+      message: "Use YYYY, YYYY-MM-DD, or 0000 when unknown",
+    })
+    .nullable()
+    .optional(),
+  zoneinfo: nullableText(100),
+  locale: z
+    .string()
+    .trim()
+    .max(35)
+    .refine((value) => /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(value), {
+      message: "Use a BCP 47 language tag, e.g. fr-FR",
+    })
+    .nullable()
+    .optional(),
+  image: httpUrl,
 });
+
+/** Accept the OIDC birthdate forms: YYYY, YYYY-MM-DD, and 0000 for unknown. */
+function isOidcBirthdate(value: string): boolean {
+  const match = /^(\d{4})(?:-(\d{2})-(\d{2}))?$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = match[2] ? Number(match[2]) : undefined;
+  const day = match[3] ? Number(match[3]) : undefined;
+  if (month === undefined) return year === 0 || year >= 1;
+  if (month < 1 || month > 12) return false;
+  if (day === undefined) return false;
+  if (year === 0) return day >= 1 && day <= 31;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
 
 /** Build the Drizzle `set` payload from the fields actually present in a PATCH. */
 export function profileUpdateSet(data: UserProfileUpdate): UserProfileUpdate {

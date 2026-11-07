@@ -54,7 +54,8 @@ const toast = useToast();
 const services = useServicesStore();
 
 const appId = route.params.id as string;
-const activeTab = ref<'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial'>('roles');
+type AppTabKey = 'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial';
+const activeTab = ref<AppTabKey>('roles');
 const invitationsTabRef = ref<InstanceType<typeof ApplicationInvitationsTab> | null>(null);
 
 const app = ref<Application | null>(null);
@@ -528,6 +529,14 @@ const tabs = [
   { key: 'financial', label: t('appDetail.financial') },
 ] as const;
 
+const tabOptions = computed<SelectOption[]>(() =>
+  tabs.map((tab) => ({ value: tab.key, label: tab.label })),
+);
+
+function setActiveTab(value: string) {
+  activeTab.value = value as AppTabKey;
+}
+
 type CodeTab = 'typescript' | 'python' | 'ioserver' | 'litellm-ts' | 'litellm-py';
 const activeCodeTab = ref<CodeTab>('typescript');
 
@@ -691,7 +700,7 @@ const financialKpis = computed(() => {
 
 <template>
   <AppLayout :title="app?.name ?? 'Application'" :subtitle="app?.slug">
-    <div class="space-y-5">
+    <div class="space-y-5 max-w-[1600px] mx-auto">
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <BaseButton variant="ghost" size="sm" @click="router.go(-1)">
           <ArrowLeft class="w-4 h-4" />
@@ -703,8 +712,8 @@ const financialKpis = computed(() => {
         </div>
       </div>
 
-      <div v-if="appActivity" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 px-5 py-3 flex items-center justify-between gap-5">
-        <div class="flex items-center gap-5 text-sm">
+      <div v-if="appActivity" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-5">
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <div class="flex items-center gap-2">
             <Activity
               class="w-4 h-4"
@@ -720,15 +729,22 @@ const financialKpis = computed(() => {
             <span class="text-xs text-surface-500">{{ t('applications.activity.last7d') }}</span>
           </div>
         </div>
-        <Sparkline :values="appActivity.sparkline" :width="140" :height="32" />
+        <Sparkline :values="appActivity.sparkline" :width="140" :height="32" class="self-start sm:self-auto" />
       </div>
 
-      <div class="flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 overflow-x-auto -mx-6 sm:mx-0 px-6 sm:px-0 scroll-smooth snap-x snap-mandatory">
+      <div class="sm:hidden">
+        <BaseSelect
+          :model-value="activeTab"
+          :options="tabOptions"
+          @update:model-value="setActiveTab"
+        />
+      </div>
+      <div class="hidden sm:flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 overflow-x-auto scroll-smooth">
         <button
           v-for="tab in tabs"
           :key="tab.key"
           @click="activeTab = tab.key"
-          :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap snap-start', activeTab === tab.key ? 'bg-primary-600/20 text-primary-300 shadow-sm' : 'text-surface-500 hover:text-surface-300']"
+          :class="['px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap', activeTab === tab.key ? 'bg-primary-600/20 text-primary-300 shadow-sm' : 'text-surface-500 hover:text-surface-300']"
         >
           {{ tab.label }}
         </button>
@@ -748,10 +764,10 @@ const financialKpis = computed(() => {
         />
 
         <div v-if="activeTab === 'users'" class="space-y-4">
-          <div class="flex justify-end gap-2">
-            <BaseButton size="sm" @click="openInviteFromUsers"><Mail class="w-3.5 h-3.5" />{{ t('appDetail.inviteUser') }}</BaseButton>
-            <BaseButton size="sm" variant="outline" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
-            <BaseButton size="sm" variant="outline" @click="openBulkModal"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
+          <div class="grid grid-cols-1 gap-2 sm:flex sm:justify-end">
+            <BaseButton class="w-full sm:w-auto" size="sm" @click="openInviteFromUsers"><Mail class="w-3.5 h-3.5" />{{ t('appDetail.inviteUser') }}</BaseButton>
+            <BaseButton class="w-full sm:w-auto" size="sm" variant="outline" @click="openGrantModal"><Plus class="w-3.5 h-3.5" />{{ t('appDetail.grantAccess') }}</BaseButton>
+            <BaseButton class="w-full sm:w-auto" size="sm" variant="outline" @click="openBulkModal"><Users class="w-3.5 h-3.5" />{{ t('appDetail.bulkGrantAccess') }}</BaseButton>
           </div>
           <DataTable
             :columns="userColumns"
@@ -1073,16 +1089,16 @@ const financialKpis = computed(() => {
 
         <div v-if="activeTab === 'financial'" class="space-y-5">
           <!-- KPI row -->
-          <div class="grid grid-cols-3 gap-4">
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
               <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.activeSubscribers') }}</p>
               <p class="text-2xl font-bold text-surface-100">{{ financialKpis.activeSubscribers }}</p>
             </div>
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
               <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.mrr') }}</p>
               <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.mrr), financialKpis.currency) }}</p>
             </div>
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
+            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
               <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.arr') }}</p>
               <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.arr), financialKpis.currency) }}</p>
             </div>

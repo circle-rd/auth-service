@@ -38,6 +38,15 @@ export const user = pgTable("user", {
   city: text("city"),
   region: text("region"),
   country: text("country"),
+  // Optional OpenID Connect profile claims. Kept separate from the display
+  // name so the UserInfo endpoint can return the standard claim set.
+  middleName: text("middle_name"),
+  profileUrl: text("profile_url"),
+  website: text("website"),
+  gender: text("gender"),
+  birthdate: text("birthdate"),
+  zoneinfo: text("zoneinfo"),
+  locale: text("locale"),
   // Denormalised timestamp of the user's most recent successful login,
   // updated by recordLogin() in src/services/login-history.ts. Allows the
   // admin users listing to render a "last seen" column without joining the

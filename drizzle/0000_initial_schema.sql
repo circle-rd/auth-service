@@ -534,6 +534,13 @@ CREATE TABLE "user" (
 	"city" text,
 	"region" text,
 	"country" text,
+	"middle_name" text,
+	"profile_url" text,
+	"website" text,
+	"gender" text,
+	"birthdate" text,
+	"zoneinfo" text,
+	"locale" text,
 	"last_login_at" timestamp,
 	CONSTRAINT "user_email_unique" UNIQUE("email")
 );

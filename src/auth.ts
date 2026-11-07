@@ -532,6 +532,13 @@ export const auth = betterAuth({
       city: { type: "string", required: false },
       region: { type: "string", required: false },
       country: { type: "string", required: false },
+      middleName: { type: "string", required: false },
+      profileUrl: { type: "string", required: false },
+      website: { type: "string", required: false },
+      gender: { type: "string", required: false },
+      birthdate: { type: "string", required: false },
+      zoneinfo: { type: "string", required: false },
+      locale: { type: "string", required: false },
       // Surfaced to admin listings as "last seen". Written by
       // services/login-history.ts; must not be user-writable.
       lastLoginAt: { type: "date", required: false, input: false },
@@ -983,6 +990,20 @@ export const auth = betterAuth({
             string | null | undefined,
           username: (user as Record<string, unknown>).username as
             string | null | undefined,
+          middleName: (user as Record<string, unknown>).middleName as
+            string | null | undefined,
+          profileUrl: (user as Record<string, unknown>).profileUrl as
+            string | null | undefined,
+          website: (user as Record<string, unknown>).website as
+            string | null | undefined,
+          gender: (user as Record<string, unknown>).gender as
+            string | null | undefined,
+          birthdate: (user as Record<string, unknown>).birthdate as
+            string | null | undefined,
+          zoneinfo: (user as Record<string, unknown>).zoneinfo as
+            string | null | undefined,
+          locale: (user as Record<string, unknown>).locale as
+            string | null | undefined,
           company: (user as Record<string, unknown>).company as
             string | null | undefined,
           image: (user as Record<string, unknown>).image as
@@ -1051,6 +1072,20 @@ export const auth = betterAuth({
             string | null | undefined,
           username: (user as Record<string, unknown>).username as
             string | null | undefined,
+          middleName: (user as Record<string, unknown>).middleName as
+            string | null | undefined,
+          profileUrl: (user as Record<string, unknown>).profileUrl as
+            string | null | undefined,
+          website: (user as Record<string, unknown>).website as
+            string | null | undefined,
+          gender: (user as Record<string, unknown>).gender as
+            string | null | undefined,
+          birthdate: (user as Record<string, unknown>).birthdate as
+            string | null | undefined,
+          zoneinfo: (user as Record<string, unknown>).zoneinfo as
+            string | null | undefined,
+          locale: (user as Record<string, unknown>).locale as
+            string | null | undefined,
           company: (user as Record<string, unknown>).company as
             string | null | undefined,
           image: (user as Record<string, unknown>).image as
@@ -1107,6 +1142,20 @@ export const auth = betterAuth({
             lastName: (user as Record<string, unknown>).lastName as
               string | null | undefined,
             username: (user as Record<string, unknown>).username as
+              string | null | undefined,
+            middleName: (user as Record<string, unknown>).middleName as
+              string | null | undefined,
+            profileUrl: (user as Record<string, unknown>).profileUrl as
+              string | null | undefined,
+            website: (user as Record<string, unknown>).website as
+              string | null | undefined,
+            gender: (user as Record<string, unknown>).gender as
+              string | null | undefined,
+            birthdate: (user as Record<string, unknown>).birthdate as
+              string | null | undefined,
+            zoneinfo: (user as Record<string, unknown>).zoneinfo as
+              string | null | undefined,
+            locale: (user as Record<string, unknown>).locale as
               string | null | undefined,
             company: (user as Record<string, unknown>).company as
               string | null | undefined,

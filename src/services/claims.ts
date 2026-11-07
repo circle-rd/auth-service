@@ -60,6 +60,13 @@ export async function getUserClaims(
     image?: string | null;
     phone?: string | null;
     updatedAt?: Date | null;
+    middleName?: string | null;
+    profileUrl?: string | null;
+    website?: string | null;
+    gender?: string | null;
+    birthdate?: string | null;
+    zoneinfo?: string | null;
+    locale?: string | null;
   },
 ): Promise<UserClaims> {
   const claims: UserClaims = {};
@@ -92,6 +99,13 @@ export async function getUserClaims(
       }
       if (profile.company) claims.company = profile.company;
       if (profile.image) claims.picture = profile.image;
+      if (profile.middleName) claims.middle_name = profile.middleName;
+      if (profile.profileUrl) claims.profile = profile.profileUrl;
+      if (profile.website) claims.website = profile.website;
+      if (profile.gender) claims.gender = profile.gender;
+      if (profile.birthdate) claims.birthdate = profile.birthdate;
+      if (profile.zoneinfo) claims.zoneinfo = profile.zoneinfo;
+      if (profile.locale) claims.locale = profile.locale;
       if (profile.updatedAt)
         claims.updated_at = Math.floor(profile.updatedAt.getTime() / 1000);
     }

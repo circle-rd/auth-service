@@ -23,6 +23,13 @@ export interface User {
   city?: string | null
   region?: string | null
   country?: string | null
+  middleName?: string | null
+  profileUrl?: string | null
+  website?: string | null
+  gender?: 'female' | 'male' | 'other' | null
+  birthdate?: string | null
+  zoneinfo?: string | null
+  locale?: string | null
   /** ISO timestamp of the most recent OAuth token issuance. Null when the user has never logged in. */
   lastLoginAt?: string | null
   /** Applications the user currently has active access to. Populated by /admin/users. */

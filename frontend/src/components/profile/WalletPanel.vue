@@ -116,7 +116,7 @@ onUnmounted(() => {
 
 <template>
   <div class="space-y-5" data-testid="wallet-panel">
-    <div v-if="error && !account" class="rounded-2xl border border-red-500/30 bg-red-500/10 p-5 flex items-center justify-between gap-4">
+    <div v-if="error && !account" class="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <p class="text-sm text-red-300">{{ t('wallet.loadError') }}</p>
       <BaseButton variant="outline" size="sm" @click="refresh">{{ t('wallet.refresh') }}</BaseButton>
     </div>
@@ -130,7 +130,7 @@ onUnmounted(() => {
         </template>
       </WalletBalanceCard>
 
-      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-6" data-testid="wallet-topup">
+      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-6" data-testid="wallet-topup">
         <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-4">{{ t('wallet.topup.title') }}</h3>
 
         <template v-if="options?.enabled">

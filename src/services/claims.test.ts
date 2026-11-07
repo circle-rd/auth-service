@@ -132,6 +132,32 @@ describe("getUserClaims", () => {
     expect(claims).not.toHaveProperty("phone_number");
   });
 
+  it("emits optional OIDC profile claims when supplied", async () => {
+    const claims = await getUserClaims("user-1", "client-1", ["profile"], {
+      name: "Alice Smith",
+      firstName: "Alice",
+      lastName: "Smith",
+      username: "asmith",
+      middleName: "B.",
+      profileUrl: "https://example.com/alice",
+      website: "https://alice.example",
+      gender: "female",
+      birthdate: "1990-01-31",
+      zoneinfo: "Europe/Paris",
+      locale: "fr-FR",
+    });
+
+    expect(claims).toMatchObject({
+      middle_name: "B.",
+      profile: "https://example.com/alice",
+      website: "https://alice.example",
+      gender: "female",
+      birthdate: "1990-01-31",
+      zoneinfo: "Europe/Paris",
+      locale: "fr-FR",
+    });
+  });
+
   it("only emits phone claims when a phone number exists", async () => {
     const withPhone = await getUserClaims("user-1", "client-1", ["phone"], {
       phone: "+33612345678",

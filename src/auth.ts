@@ -1013,11 +1013,9 @@ export const auth = betterAuth({
           updatedAt: (user as Record<string, unknown>).updatedAt as
             Date | null | undefined,
         });
-        // Scope-derived claims belong in UserInfo when an access token is
-        // issued. The provider only advertises the code flow, so the ID token
-        // carries the custom application claims and not the email claims.
-        delete claims.email;
-        delete claims.email_verified;
+        // Keep the scope-derived email claims in the ID token: clients that
+        // consume it directly (and older SDK versions that build the profile
+        // from it) must not lose the address they requested.
         return {
           ...claims,
           // Per-app metadata claims (additive; reserved keys are filtered).

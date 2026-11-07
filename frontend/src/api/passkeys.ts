@@ -7,7 +7,7 @@ import {
   type RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import { apiFetch, USE_MOCK } from './client';
-import type { MfaMethod, MfaState, PasskeySummary } from '@/types';
+import type { MfaMethod, MfaState, PasskeySummary, SignInResult } from '@/types';
 
 interface MfaMethodsResponse {
   methods: MfaMethod[]
@@ -19,10 +19,10 @@ interface MfaMethodsResponse {
 export async function getMfaMethods(): Promise<MfaMethodsResponse> {
   if (USE_MOCK) {
     return {
-      methods: [],
-      totpRegistered: false,
+      methods: ['totp'],
+      totpRegistered: true,
       passkeyCount: 0,
-      backupCodesAvailable: false,
+      backupCodesAvailable: true,
     };
   }
   return apiFetch<MfaMethodsResponse>('/auth/mfa/methods');
@@ -31,31 +31,37 @@ export async function getMfaMethods(): Promise<MfaMethodsResponse> {
 export async function getMyMfaState(): Promise<MfaState> {
   if (USE_MOCK) {
     return {
-      mfaEnabled: false,
-      methods: [],
-      totpRegistered: false,
+      mfaEnabled: true,
+      methods: ['totp'],
+      totpRegistered: true,
       passkeyCount: 0,
-      backupCodesAvailable: false,
+      backupCodesAvailable: true,
     };
   }
   return apiFetch<MfaState>('/user/mfa');
 }
 
-export async function authenticateWithPasskey(): Promise<void> {
+export async function authenticateWithPasskey(
+  oauthQuery?: string,
+): Promise<SignInResult> {
   if (USE_MOCK) throw new Error('Passkeys are not available in mock mode');
   const options = await apiFetch<PublicKeyCredentialRequestOptionsJSON>(
     '/auth/mfa/passkey/options',
   );
   const response = await startAuthentication({ optionsJSON: options });
-  await verifyMfaPasskey(response);
+  return verifyMfaPasskey(response, oauthQuery);
 }
 
 export async function verifyMfaPasskey(
   response: AuthenticationResponseJSON,
-): Promise<void> {
-  await apiFetch('/auth/mfa/passkey/verify-authentication', {
+  oauthQuery?: string,
+): Promise<SignInResult> {
+  return apiFetch<SignInResult>('/auth/mfa/passkey/verify-authentication', {
     method: 'POST',
-    body: JSON.stringify({ response }),
+    body: JSON.stringify({
+      response,
+      ...(oauthQuery ? { oauth_query: oauthQuery } : {}),
+    }),
   });
 }
 

@@ -99,6 +99,8 @@ interface OauthClientView {
   requirePKCE: boolean;
   /** How the client authenticates to the token endpoint (`none` for public clients). */
   tokenEndpointAuthMethod: string | null;
+  /** True when the method was chosen explicitly instead of inherited from config. */
+  tokenEndpointAuthMethodExplicit?: boolean;
 }
 
 /**
@@ -113,6 +115,7 @@ const oauthClientViewFields = {
     oauthClient.backchannelLogoutSessionRequired,
   requirePKCE: oauthClient.requirePKCE,
   tokenEndpointAuthMethod: oauthClient.tokenEndpointAuthMethod,
+  metadata: oauthClient.metadata,
 } as const;
 
 /**
@@ -129,6 +132,7 @@ function toOauthClientView(
         backchannelLogoutSessionRequired: boolean | null;
         requirePKCE: boolean | null;
         tokenEndpointAuthMethod: string | null;
+        metadata: unknown;
       }
     | undefined,
 ): OauthClientView {
@@ -140,6 +144,11 @@ function toOauthClientView(
       row?.backchannelLogoutSessionRequired ?? false,
     requirePKCE: row?.requirePKCE ?? true,
     tokenEndpointAuthMethod: row?.tokenEndpointAuthMethod ?? null,
+    tokenEndpointAuthMethodExplicit:
+      typeof row?.metadata === "object" &&
+      row?.metadata !== null &&
+      (row.metadata as Record<string, unknown>)
+        .tokenEndpointAuthMethodExplicit === "true",
   };
 }
 
@@ -696,6 +705,8 @@ export async function applicationRoutes(
         ...backchannelLogoutValues(data),
         requirePKCE: effectiveRequirePKCE(data),
         tokenEndpointAuthMethod: effectiveTokenEndpointAuthMethod(data),
+        tokenEndpointAuthMethodExplicit:
+          data.tokenEndpointAuthMethod !== undefined,
       }),
       clientId: data.slug,
     };

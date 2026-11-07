@@ -92,9 +92,11 @@ export async function checkSessionState(
   clientId: string,
   origin: string,
   value: string,
+  currentSessionId: string | null,
 ): Promise<SessionStatus> {
   const state = parseSessionState(value);
   if (!state || state.c !== clientId || state.o !== origin) return "error";
+  if (currentSessionId !== state.s) return "changed";
   return (await isSessionActive(state.s)) ? "unchanged" : "changed";
 }
 

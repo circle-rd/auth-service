@@ -33,32 +33,41 @@ describe("session management", () => {
     mockLimit.mockResolvedValue([{ expiresAt: new Date(Date.now() + 60_000) }]);
     const state = createSessionState("session-1", CLIENT_ID, ORIGIN);
 
-    await expect(checkSessionState(CLIENT_ID, ORIGIN, state)).resolves.toBe(
-      "unchanged",
-    );
+    await expect(
+      checkSessionState(CLIENT_ID, ORIGIN, state, "session-1"),
+    ).resolves.toBe("unchanged");
+  });
+
+  it("reports changed when the browser holds another session", async () => {
+    mockLimit.mockResolvedValue([{ expiresAt: new Date(Date.now() + 60_000) }]);
+    const state = createSessionState("session-1", CLIENT_ID, ORIGIN);
+
+    await expect(
+      checkSessionState(CLIENT_ID, ORIGIN, state, "session-2"),
+    ).resolves.toBe("changed");
   });
 
   it("reports a missing or expired session as changed", async () => {
     const state = createSessionState("session-1", CLIENT_ID, ORIGIN);
     mockLimit.mockResolvedValueOnce([]);
-    await expect(checkSessionState(CLIENT_ID, ORIGIN, state)).resolves.toBe(
-      "changed",
-    );
+    await expect(
+      checkSessionState(CLIENT_ID, ORIGIN, state, "session-1"),
+    ).resolves.toBe("changed");
 
     mockLimit.mockResolvedValueOnce([{ expiresAt: new Date(Date.now() - 1) }]);
-    await expect(checkSessionState(CLIENT_ID, ORIGIN, state)).resolves.toBe(
-      "changed",
-    );
+    await expect(
+      checkSessionState(CLIENT_ID, ORIGIN, state, "session-1"),
+    ).resolves.toBe("changed");
   });
 
   it("rejects a state bound to another client or origin", async () => {
     const state = createSessionState("session-1", CLIENT_ID, ORIGIN);
 
-    await expect(checkSessionState("client-2", ORIGIN, state)).resolves.toBe(
-      "error",
-    );
     await expect(
-      checkSessionState(CLIENT_ID, "https://other.example", state),
+      checkSessionState("client-2", ORIGIN, state, "session-1"),
+    ).resolves.toBe("error");
+    await expect(
+      checkSessionState(CLIENT_ID, "https://other.example", state, "session-1"),
     ).resolves.toBe("error");
     expect(mockLimit).not.toHaveBeenCalled();
   });
@@ -67,11 +76,11 @@ describe("session management", () => {
     const state = createSessionState("session-1", CLIENT_ID, ORIGIN);
     const tampered = `${state.slice(0, -1)}x`;
 
-    await expect(checkSessionState(CLIENT_ID, ORIGIN, tampered)).resolves.toBe(
-      "error",
-    );
     await expect(
-      checkSessionState(CLIENT_ID, ORIGIN, "not-a-state"),
+      checkSessionState(CLIENT_ID, ORIGIN, tampered, "session-1"),
+    ).resolves.toBe("error");
+    await expect(
+      checkSessionState(CLIENT_ID, ORIGIN, "not-a-state", "session-1"),
     ).resolves.toBe("error");
   });
 });

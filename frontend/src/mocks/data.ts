@@ -185,7 +185,7 @@ export const MOCK_APPLICATIONS: Application[] = [
     backchannelLogoutUri: 'https://app.acme.com/backchannel-logout',
     backchannelLogoutSessionRequired: true,
     requirePKCE: true,
-    tokenEndpointAuthMethod: 'client_secret_basic',
+    tokenEndpointAuthMethod: 'none',
     metadata: {},
     createdAt: '2024-03-22T14:30:00.000Z',
     updatedAt: '2024-10-15T09:45:00.000Z',
@@ -400,7 +400,9 @@ function appRecord(over: Partial<Application> & Pick<Application, 'id' | 'name' 
     backchannelLogoutUri: null,
     backchannelLogoutSessionRequired: false,
     requirePKCE: true,
-    tokenEndpointAuthMethod: 'client_secret_basic',
+    tokenEndpointAuthMethod: (over.isPublic ?? true)
+      ? 'none'
+      : 'client_secret_basic',
     metadata: {},
     createdAt: daysAgo(120),
     updatedAt: daysAgo(12),

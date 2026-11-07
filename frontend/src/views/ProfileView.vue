@@ -226,7 +226,7 @@ function applyInitialPrefills() {
       form.value.locale = defaults.locale;
       lastAutoLocale.value = defaults.locale;
     }
-    if (!form.value.zoneinfo.trim()) {
+    if (!form.value.zoneinfo.trim() && defaults.timezone) {
       form.value.zoneinfo = defaults.timezone;
       lastAutoZoneinfo.value = defaults.timezone;
     }
@@ -235,8 +235,8 @@ function applyInitialPrefills() {
 
 if (auth.user) {
   populateForm(auth.user);
-  initialForm.value = { ...form.value };
   applyInitialPrefills();
+  initialForm.value = { ...form.value };
 }
 
 watch(
@@ -245,8 +245,8 @@ watch(
     if (!user) return;
     if (Object.keys(buildProfilePatch()).length > 0) return;
     populateForm(user);
-    initialForm.value = { ...form.value };
     applyInitialPrefills();
+    initialForm.value = { ...form.value };
   },
 );
 
@@ -315,7 +315,10 @@ watch(
       form.value.locale = defaults.locale;
       lastAutoLocale.value = defaults.locale;
     }
-    if (!form.value.zoneinfo.trim() || form.value.zoneinfo === lastAutoZoneinfo.value) {
+    if (
+      defaults.timezone &&
+      (!form.value.zoneinfo.trim() || form.value.zoneinfo === lastAutoZoneinfo.value)
+    ) {
       form.value.zoneinfo = defaults.timezone;
       lastAutoZoneinfo.value = defaults.timezone;
     }
@@ -448,6 +451,7 @@ async function handleRevoke(session: Session) {
 const showSetupMfa = ref(false);
 const showDisableMfa = ref(false);
 const showRegenerateBackup = ref(false);
+const mfaStateKnown = ref(false);
 const myMfa = ref<MfaState>({
   mfaEnabled: false,
   methods: [],
@@ -459,9 +463,11 @@ const myMfa = ref<MfaState>({
 async function loadMfaState(): Promise<void> {
   try {
     myMfa.value = await getMyMfaState();
+    mfaStateKnown.value = true;
   } catch {
-    // The security panel keeps its last known state; the TOTP row must never
-    // infer TOTP from `twoFactorEnabled`, which can also mean passkey-only.
+    // Keep the last known state. On the first failure the state stays unknown,
+    // so the panel hides factor actions instead of offering TOTP enrolment to
+    // a user who may already have it.
   }
 }
 
@@ -740,11 +746,11 @@ async function handleChangePlan() {
               <div class="min-w-0">
                 <p class="text-sm font-medium text-surface-200">{{ t('mfa.totp.title') }}</p>
                 <p class="text-xs text-surface-500 mt-0.5">
-                  {{ myMfa.totpRegistered ? t('mfa.totp.enabledDesc') : t('mfa.totp.disabledDesc') }}
+                  {{ !mfaStateKnown ? t('common.loading') : myMfa.totpRegistered ? t('mfa.totp.enabledDesc') : t('mfa.totp.disabledDesc') }}
                 </p>
               </div>
             </div>
-            <div class="flex items-center gap-2 shrink-0">
+            <div v-if="mfaStateKnown" class="flex items-center gap-2 shrink-0">
               <template v-if="myMfa.totpRegistered">
                 <BaseBadge variant="success" size="sm" dot>{{ t('common.enabled') }}</BaseBadge>
                 <BaseButton variant="danger-outline" size="sm" @click="showDisableMfa = true">
@@ -761,7 +767,7 @@ async function handleChangePlan() {
           </div>
 
           <!-- Backup codes — visible only when TOTP is enabled -->
-          <div v-if="myMfa.totpRegistered" class="flex flex-col gap-3 py-3 border-b border-surface-800/40 sm:flex-row sm:items-center sm:justify-between">
+          <div v-if="mfaStateKnown && myMfa.totpRegistered" class="flex flex-col gap-3 py-3 border-b border-surface-800/40 sm:flex-row sm:items-center sm:justify-between">
             <div class="flex items-center gap-3 min-w-0">
               <div class="w-8 h-8 rounded-lg bg-surface-700 flex items-center justify-center shrink-0">
                 <RefreshCw class="w-4 h-4 text-surface-400" />

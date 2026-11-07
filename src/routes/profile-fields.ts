@@ -48,7 +48,7 @@ export type UserProfileValues = {
   middleName: string | null;
   profileUrl: string | null;
   website: string | null;
-  gender: "female" | "male" | "other" | null;
+  gender: string | null;
   birthdate: string | null;
   zoneinfo: string | null;
   locale: string | null;
@@ -105,7 +105,7 @@ export const profileFieldsSchema = z.object({
   middleName: nullableText(100),
   profileUrl: httpUrl,
   website: httpUrl,
-  gender: z.enum(["female", "male", "other"]).nullable().optional(),
+  gender: z.string().trim().max(100).nullable().optional(),
   birthdate: z
     .string()
     .trim()
@@ -119,15 +119,18 @@ export const profileFieldsSchema = z.object({
     .string()
     .trim()
     .max(35)
-    .refine((value) => {
-      try {
-        return Intl.getCanonicalLocales(value).length === 1;
-      } catch {
-        return false;
-      }
-    }, {
-      message: "Use a BCP 47 language tag, e.g. fr-FR",
-    })
+    .refine(
+      (value) => {
+        try {
+          return Intl.getCanonicalLocales(value).length === 1;
+        } catch {
+          return false;
+        }
+      },
+      {
+        message: "Use a BCP 47 language tag, e.g. fr-FR",
+      },
+    )
     .nullable()
     .optional(),
   image: httpUrl,

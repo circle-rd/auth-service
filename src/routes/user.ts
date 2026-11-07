@@ -26,7 +26,7 @@ import { listInvoices } from "../services/billing/invoices.js";
 import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
-import { getMfaState } from "../services/mfa.js";
+import { getMfaState, hasBackupCodes } from "../services/mfa.js";
 import {
   createBillingPortalUrl,
   createSubscriptionCheckout,
@@ -502,7 +502,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       methods: state.methods,
       totpRegistered: state.totpRegistered,
       passkeyCount: state.passkeyCount,
-      backupCodesAvailable: state.totpRegistered,
+      backupCodesAvailable: await hasBackupCodes(userId),
     });
   });
 }

@@ -84,11 +84,19 @@ async function handleResetMfa(): Promise<void> {
   actionLoading.value = true;
   try {
     await resetUserMfa(userId);
-    await reloadUser();
-    toast.success(t('users.mfaReset'));
-    showResetMfa.value = false;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('common.error'));
+    actionLoading.value = false;
+    return;
+  }
+  // The reset has succeeded: close the dialog before refreshing so a failed
+  // refresh can never invite the admin to run the reset a second time.
+  showResetMfa.value = false;
+  toast.success(t('users.mfaReset'));
+  try {
+    await reloadUser();
+  } catch {
+    // Keep the success: the mutation already happened.
   } finally {
     actionLoading.value = false;
   }

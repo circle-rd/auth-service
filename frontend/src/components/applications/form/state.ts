@@ -43,7 +43,9 @@ export interface ApplicationFormState {
   metadata: MetadataEntry[];
 }
 
-export function emptyApplicationForm(): ApplicationFormState {
+export function emptyApplicationForm(
+  tokenEndpointAuthMethod: ApplicationFormState['tokenEndpointAuthMethod'] = 'client_secret_basic',
+): ApplicationFormState {
   return {
     name: '',
     slug: '',
@@ -64,7 +66,7 @@ export function emptyApplicationForm(): ApplicationFormState {
     postLogoutRedirectUris: [],
     backchannelLogoutUri: '',
     requirePKCE: true,
-    tokenEndpointAuthMethod: 'client_secret_basic',
+    tokenEndpointAuthMethod,
     metadata: [],
   };
 }

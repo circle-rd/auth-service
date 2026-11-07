@@ -62,8 +62,13 @@ describe("profileFieldsSchema", () => {
     ).toBe("http://example.com");
   });
 
-  it("rejects an unsupported gender and a malformed locale", () => {
-    expect(profileFieldsSchema.safeParse({ gender: "x" }).success).toBe(false);
+  it("accepts free-form gender values and rejects a malformed locale", () => {
+    expect(
+      profileFieldsSchema.safeParse({ gender: "non-binary" }).success,
+    ).toBe(true);
+    expect(
+      profileFieldsSchema.safeParse({ gender: "x".repeat(101) }).success,
+    ).toBe(false);
     expect(profileFieldsSchema.safeParse({ locale: "fr FR" }).success).toBe(
       false,
     );

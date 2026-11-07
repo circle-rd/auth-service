@@ -99,9 +99,6 @@ const AUTH_RATE_PATHS = [
   "/api/auth/sign-up/email",
   "/api/auth/two-factor/verify-totp",
   "/api/auth/two-factor/verify-backup-code",
-  "/api/auth/mfa/methods",
-  "/api/auth/mfa/passkey/options",
-  "/api/auth/mfa/passkey/verify-authentication",
   "/api/auth/passkey/generate-register-options",
   "/api/auth/passkey/verify-registration",
   "/api/auth/passkey/generate-authenticate-options",
@@ -109,6 +106,17 @@ const AUTH_RATE_PATHS = [
 ];
 const AUTH_RATE_MAX = 10;
 const AUTH_RATE_WINDOW = 60_000;
+
+// A passkey sign-in performs a method lookup, an options request and a
+// verification; sharing the 10/min credential bucket would allow only two
+// logins per minute behind a shared IP.
+const MFA_RATE_PATHS = [
+  "/api/auth/mfa/methods",
+  "/api/auth/mfa/passkey/options",
+  "/api/auth/mfa/passkey/verify-authentication",
+];
+const MFA_RATE_MAX = 30;
+const MFA_RATE_WINDOW = 60_000;
 
 const EMAIL_SEND_PATHS = [
   // BetterAuth >=1.6 renamed `/forget-password` to `/request-password-reset`;
@@ -638,6 +646,20 @@ export async function buildServer(
       }
     }
     if (
+      MFA_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))
+    ) {
+      const allowed = await rateLimitStore.hit(
+        `mfa:${ip}`,
+        MFA_RATE_MAX,
+        MFA_RATE_WINDOW,
+      );
+      if (!allowed) {
+        reply.raw.writeHead(429, { "Content-Type": "application/json" });
+        reply.raw.end(JSON.stringify(ERR.RATE_001().toJSON()));
+        return;
+      }
+    }
+    if (
       EMAIL_SEND_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))
     ) {
       const allowed = await rateLimitStore.hit(
@@ -810,7 +832,10 @@ export async function buildServer(
       const body = (await res.json()) as Record<string, unknown>;
       // Session Management 1.0: the OP advertises an iframe the RP polls for
       // the end-user's OP session status.
-      body.check_session_iframe = `${config.betterAuth.url}/check_session_iframe`;
+      body.check_session_iframe = new URL(
+        "/check_session_iframe",
+        config.betterAuth.url,
+      ).toString();
       return reply
         .status(res.status)
         .header("content-type", "application/json")
@@ -881,14 +906,56 @@ export async function buildServer(
     const query = req.query as Record<string, string | undefined>;
     const clientId = query.client_id;
     const origin = query.origin;
-    const sessionState = query.session_state;
+    const sessionState =
+      typeof query.session_state === "string" ? query.session_state : undefined;
     if (!clientId || !origin || !sessionState) {
       return reply
         .header("cache-control", "no-store")
         .send({ status: "error" });
     }
+    let currentSessionId: string | null;
+    try {
+      const current = await auth.api.getSession({
+        headers: fromNodeHeaders(req.headers),
+      });
+      currentSessionId = current?.session?.id ?? null;
+    } catch {
+      // An unreadable cookie means no current OP session: the state is stale.
+      currentSessionId = null;
+    }
     return reply.header("cache-control", "no-store").send({
-      status: await checkSessionState(clientId, origin, sessionState),
+      status: await checkSessionState(
+        clientId,
+        origin,
+        sessionState,
+        currentSessionId,
+      ),
+    });
+  });
+
+  // Internal resume paths (sign-in, MFA verification) return the client
+  // redirect directly and bypass the authorize route that adds `session_state`.
+  // The login page asks for the same signed value here before navigating.
+  fastify.get("/api/session-state", async (req, reply) => {
+    const query = req.query as Record<string, string | undefined>;
+    const clientId = query.client_id;
+    const redirectUri = query.redirect_uri;
+    if (!clientId || !redirectUri) {
+      throw ERR.AUTH_012("client_id and redirect_uri are required");
+    }
+    let origin: string;
+    try {
+      origin = new URL(redirectUri).origin;
+    } catch {
+      throw ERR.AUTH_012("redirect_uri is not a valid URL");
+    }
+    const current = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    return reply.header("cache-control", "no-store").send({
+      session_state: current?.session?.id
+        ? createSessionState(current.session.id, clientId, origin)
+        : null,
     });
   });
 

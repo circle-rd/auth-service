@@ -57,12 +57,16 @@ async function setBillingRange(range: '7d' | '30d') {
 }
 
 function formatMoney(amount: number, currency: string): string {
-  return new Intl.NumberFormat(locale.value, {
-    style: 'currency',
+  const options = {
+    style: 'currency' as const,
     currency: currency.toUpperCase(),
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount / 100);
+  };
+  const digits =
+    new Intl.NumberFormat(locale.value, options).resolvedOptions()
+      .maximumFractionDigits ?? 2;
+  return new Intl.NumberFormat(locale.value, options).format(
+    amount / 10 ** digits,
+  );
 }
 
 function formatNumber(value: number): string {
@@ -262,7 +266,7 @@ function getProvider(key: ProviderKey) {
                   </div>
                 </div>
 
-                <div class="mt-3 flex items-center justify-between gap-2">
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <div class="flex items-center gap-2">
                     <span class="text-[11px] text-surface-500">{{ t('configuration.billingStats.revenueWindow') }}</span>
                     <div class="flex items-center gap-0.5 rounded-md bg-surface-800/70 p-0.5">

@@ -140,6 +140,7 @@ CREATE TABLE "stripe_invoices" (
 	"hosted_invoice_url" text,
 	"invoice_pdf" text,
 	"stripe_created_at" timestamp with time zone NOT NULL,
+	"paid_at" timestamp with time zone,
 	"last_event_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,

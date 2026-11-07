@@ -34,8 +34,17 @@ describe("services/mfa", () => {
       expect(deriveMfaState(false, 2, false)).toEqual({
         totpRegistered: false,
         passkeyCount: 2,
-        methods: ["passkey"],
+        methods: [],
         mfaEnabled: false,
+      });
+    });
+
+    it("does not count a primary passkey as a remaining MFA factor", () => {
+      expect(deriveMfaState(true, 1, false)).toEqual({
+        totpRegistered: true,
+        passkeyCount: 1,
+        methods: ["totp"],
+        mfaEnabled: true,
       });
     });
 

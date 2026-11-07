@@ -49,10 +49,13 @@ export function countryOptions(locale: string): SelectOption[] {
 
 /**
  * Representative locale and timezone for a country. Only countries with a
- * clear default are listed; for the rest the user keeps full control instead
- * of receiving a guessed value.
+ * clear default are listed; multi-timezone countries such as the US leave the
+ * timezone unset so the user keeps full control instead of receiving a guess.
  */
-const COUNTRY_DEFAULTS: Record<string, { locale: string; timezone: string }> = {
+const COUNTRY_DEFAULTS: Record<
+  string,
+  { locale: string; timezone?: string }
+> = {
   AR: { locale: 'es-AR', timezone: 'America/Argentina/Buenos_Aires' },
   AT: { locale: 'de-AT', timezone: 'Europe/Vienna' },
   AU: { locale: 'en-AU', timezone: 'Australia/Sydney' },
@@ -112,7 +115,7 @@ const COUNTRY_DEFAULTS: Record<string, { locale: string; timezone: string }> = {
   TR: { locale: 'tr-TR', timezone: 'Europe/Istanbul' },
   TW: { locale: 'zh-TW', timezone: 'Asia/Taipei' },
   UA: { locale: 'uk-UA', timezone: 'Europe/Kyiv' },
-  US: { locale: 'en-US', timezone: 'America/New_York' },
+  US: { locale: 'en-US' },
   UY: { locale: 'es-UY', timezone: 'America/Montevideo' },
   VN: { locale: 'vi-VN', timezone: 'Asia/Ho_Chi_Minh' },
   ZA: { locale: 'en-ZA', timezone: 'Africa/Johannesburg' },
@@ -120,7 +123,7 @@ const COUNTRY_DEFAULTS: Record<string, { locale: string; timezone: string }> = {
 
 export function countryDefaults(
   code: string | null | undefined,
-): { locale: string; timezone: string } | null {
+): { locale: string; timezone?: string } | null {
   if (!code) return null;
   return COUNTRY_DEFAULTS[code.toUpperCase()] ?? null;
 }

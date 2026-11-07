@@ -19,7 +19,11 @@ import { auth } from "../auth.js";
 import { db } from "../db/index.js";
 import {
   account as accountTable,
+  oauthAccessToken,
+  oauthClient,
+  oauthRefreshToken,
   passkey as passkeyTable,
+  session as sessionTable,
   twoFactor as twoFactorTable,
   user as userTable,
   verification as verificationTable,
@@ -433,6 +437,43 @@ describe("POST /api/admin/users/:id/mfa/reset", () => {
       },
     ]);
 
+    await db.insert(oauthClient).values({
+      id: "oc_reset",
+      clientId: "reset-client",
+      redirectUris: [],
+      scopes: ["openid"],
+    });
+    await db.insert(sessionTable).values([
+      {
+        id: "sess-target",
+        token: "token-target",
+        userId: targetId,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+      {
+        id: "sess-admin",
+        token: "token-admin",
+        userId: adminId,
+        expiresAt: new Date(Date.now() + 86_400_000),
+      },
+    ]);
+    await db.insert(oauthRefreshToken).values({
+      id: "rt-target",
+      token: "refresh-target",
+      clientId: "reset-client",
+      userId: targetId,
+      sessionId: "sess-target",
+      scopes: ["openid"],
+    });
+    await db.insert(oauthAccessToken).values({
+      id: "at-target",
+      token: "access-target",
+      clientId: "reset-client",
+      userId: targetId,
+      sessionId: "sess-target",
+      scopes: ["openid"],
+    });
+
     const cookie = await signInCookie("reset-admin@example.com");
     const response = await handle.app.inject({
       method: "POST",
@@ -472,5 +513,51 @@ describe("POST /api/admin/users/:id/mfa/reset", () => {
       .from(accountTable)
       .where(eq(accountTable.userId, adminId));
     expect(adminAccount).toHaveLength(1);
+
+    const targetSessions = await db
+      .select()
+      .from(sessionTable)
+      .where(eq(sessionTable.userId, targetId));
+    expect(targetSessions).toHaveLength(0);
+    const adminSessions = await db
+      .select()
+      .from(sessionTable)
+      .where(eq(sessionTable.userId, adminId));
+    expect(adminSessions.length).toBeGreaterThan(0);
+
+    const [refresh] = await db
+      .select()
+      .from(oauthRefreshToken)
+      .where(eq(oauthRefreshToken.userId, targetId));
+    expect(refresh?.revoked).not.toBeNull();
+    expect(
+      await db
+        .select()
+        .from(oauthAccessToken)
+        .where(eq(oauthAccessToken.userId, targetId)),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a passwordless user's primary passkey", async () => {
+    const adminId = await createUser("reset-admin-2@example.com", {
+      role: "superadmin",
+    });
+    const targetId = await createSocialUser("reset-social@example.com");
+    await addPasskey(targetId);
+
+    const cookie = await signInCookie("reset-admin-2@example.com");
+    const response = await handle.app.inject({
+      method: "POST",
+      url: `/api/admin/users/${targetId}/mfa/reset`,
+      headers: { cookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const remaining = await db
+      .select()
+      .from(passkeyTable)
+      .where(eq(passkeyTable.userId, targetId));
+    expect(remaining).toHaveLength(1);
+    expect(adminId).toBeTruthy();
   });
 });

@@ -38,7 +38,17 @@ const services = ref<ServicesConfig | null>(null);
 
 const isEdit = computed(() => !!props.application);
 
-const form = ref<ApplicationFormState>(emptyApplicationForm());
+const effectiveTokenAuthMethod = computed<
+  ApplicationFormState['tokenEndpointAuthMethod']
+>(() =>
+  services.value?.compat.tokenAuthMethod === 'post'
+    ? 'client_secret_post'
+    : 'client_secret_basic',
+);
+
+const form = ref<ApplicationFormState>(
+  emptyApplicationForm(effectiveTokenAuthMethod.value),
+);
 
 // PKCE and token endpoint authentication are confidential-client settings;
 // public clients always use PKCE and `none`, and system clients stay on Basic.
@@ -217,7 +227,9 @@ watch(
     litellmEnabled.value =
       !!a && litellmAvailable.value && (a.allowedResources ?? []).includes(litellmUrls.value[0]!);
     lastAutoRedirectUri.value = '';
-    form.value = a ? formFromApplication(a) : emptyApplicationForm();
+    form.value = a
+      ? formFromApplication(a)
+      : emptyApplicationForm(effectiveTokenAuthMethod.value);
   },
   { immediate: true },
 );
@@ -290,7 +302,15 @@ async function submit() {
       ...(showOauthClientSettings.value
         ? {
             requirePKCE: form.value.requirePKCE,
-            tokenEndpointAuthMethod: form.value.tokenEndpointAuthMethod,
+            // Omit an unchanged inherited value so routine edits do not pin the
+            // client to the current instance default.
+            ...(form.value.tokenEndpointAuthMethod !==
+            (isEdit.value
+              ? (props.application?.tokenEndpointAuthMethod ??
+                effectiveTokenAuthMethod.value)
+              : effectiveTokenAuthMethod.value)
+              ? { tokenEndpointAuthMethod: form.value.tokenEndpointAuthMethod }
+              : {}),
           }
         : {}),
     };

@@ -214,6 +214,29 @@
   <script type="module">
     const AUTH_URL = '<%= it.AUTH_URL %>';
 
+    async function withSessionState(url, oauthQuery) {
+      if (!oauthQuery) return url;
+      const params = new URLSearchParams(oauthQuery);
+      const clientId = params.get('client_id');
+      const redirectUri = params.get('redirect_uri');
+      if (!clientId || !redirectUri) return url;
+      try {
+        const res = await fetch(
+          AUTH_URL + '/api/session-state?client_id=' + encodeURIComponent(clientId) +
+            '&redirect_uri=' + encodeURIComponent(redirectUri),
+          { credentials: 'include', cache: 'no-store' },
+        );
+        if (!res.ok) return url;
+        const data = await res.json().catch(() => null);
+        if (!data || !data.session_state) return url;
+        const target = new URL(url);
+        target.searchParams.set('session_state', data.session_state);
+        return target.toString();
+      } catch {
+        return url;
+      }
+    }
+
     async function redirectToPasskeyChallenge() {
       try {
         const res = await fetch(AUTH_URL + '/api/auth/mfa/methods', { credentials: 'include' });
@@ -233,9 +256,6 @@
       }
     }
 
-    redirectToPasskeyChallenge();
-
-
     const errorBox   = document.getElementById('error-box');
     const otpGroup   = document.getElementById('otp-group');
     const otpInputs  = Array.from(otpGroup.querySelectorAll('.otp-input'));
@@ -249,6 +269,18 @@
     const oauthQuery = document.getElementById('oauthQuery').value;
 
     let mfaMode = 'totp';
+    // While the passkey discovery is in flight, a TOTP/backup success must not
+    // race the passkey redirect that follows it.
+    let mfaLocked = true;
+    totpSubmit.disabled = true;
+    backupSub.disabled = true;
+    redirectToPasskeyChallenge().then((redirecting) => {
+      if (redirecting) return;
+      mfaLocked = false;
+      totpSubmit.disabled = false;
+      backupSub.disabled = false;
+      setTimeout(() => otpInputs[0]?.focus(), 50);
+    });
 
     function resetOtp() {
       otpInputs.forEach(i => { i.value = ''; i.classList.remove('is-filled'); });
@@ -290,13 +322,11 @@
       });
     });
 
-    // Autofocus first input on load
-    setTimeout(() => otpInputs[0]?.focus(), 50);
-
     totpForm.addEventListener('submit', (e) => { e.preventDefault(); submitTotp(); });
     backupForm.addEventListener('submit', (e) => { e.preventDefault(); submitBackup(); });
 
     async function submitTotp() {
+      if (mfaLocked) return;
       const code = otpValue();
       if (code.length !== 6) return;
       totpSubmit.disabled = true; totpSubmit.textContent = 'Verifying…';
@@ -323,6 +353,7 @@
     }
 
     async function submitBackup() {
+      if (mfaLocked) return;
       const code = backupInp.value.trim();
       if (!code) return;
       backupSub.disabled = true; backupSub.textContent = 'Verifying…';
@@ -346,8 +377,8 @@
       }
     }
 
-    function redirectAfter(data) {
-      if (data?.url) { window.location.href = data.url; return; }
+    async function redirectAfter(data) {
+      if (data?.url) { window.location.href = await withSessionState(data.url, oauthQuery); return; }
       if (oauthQuery) {
         window.location.href = AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery;
         return;

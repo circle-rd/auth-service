@@ -27,8 +27,14 @@ import {
 import {
   checkMfaMethodRemoval,
   getMfaState,
+  hasBackupCodes,
   reconcileMfaFlag,
 } from "../services/mfa.js";
+import {
+  acquireUserLock,
+  holdUserLock,
+  releaseUserLock,
+} from "../services/user-lock.js";
 
 /**
  * Passkey as a second factor.
@@ -223,7 +229,7 @@ export function passkeySecondFactor(): BetterAuthPlugin {
               methods: state.methods,
               totpRegistered: state.totpRegistered,
               passkeyCount: state.passkeyCount,
-              backupCodesAvailable: state.totpRegistered,
+              backupCodesAvailable: await hasBackupCodes(pending.user.id),
             },
             { status: 200 },
           );
@@ -288,6 +294,9 @@ export function passkeySecondFactor(): BetterAuthPlugin {
             response: z.custom<AuthenticationResponseJSON>(
               (value) => typeof value === "object" && value !== null,
             ),
+            // Carries the signed authorize request so BetterAuth can resume it
+            // after the session cookie is set (prompt/login, max_age).
+            oauth_query: z.string().optional(),
           }),
         },
         async (ctx) => {
@@ -297,150 +306,161 @@ export function passkeySecondFactor(): BetterAuthPlugin {
             throw APIError.from("BAD_REQUEST", MFA_ERRORS.ORIGIN_MISSING);
           }
 
-          const challengeCookie =
-            ctx.context.createAuthCookie(CHALLENGE_COOKIE);
-          const challengeToken = await ctx.getSignedCookie(
-            challengeCookie.name,
-            ctx.context.secret,
-          );
-          if (!challengeToken) {
-            throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_NOT_FOUND);
-          }
-
-          const challengeVerification =
-            await ctx.context.internalAdapter.consumeVerificationValue(
-              challengeToken,
-            );
-          if (!challengeVerification) {
-            throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_NOT_FOUND);
-          }
-
-          let challenge: {
-            type?: unknown;
-            expectedChallenge?: unknown;
-            userId?: unknown;
-            twoFactorToken?: unknown;
-          };
+          const release = await acquireUserLock(pending.user.id);
           try {
-            challenge = JSON.parse(challengeVerification.value) as {
+            const challengeCookie =
+              ctx.context.createAuthCookie(CHALLENGE_COOKIE);
+            const challengeToken = await ctx.getSignedCookie(
+              challengeCookie.name,
+              ctx.context.secret,
+            );
+            if (!challengeToken) {
+              throw APIError.from(
+                "BAD_REQUEST",
+                MFA_ERRORS.CHALLENGE_NOT_FOUND,
+              );
+            }
+
+            const challengeVerification =
+              await ctx.context.internalAdapter.consumeVerificationValue(
+                challengeToken,
+              );
+            if (!challengeVerification) {
+              throw APIError.from(
+                "BAD_REQUEST",
+                MFA_ERRORS.CHALLENGE_NOT_FOUND,
+              );
+            }
+
+            let challenge: {
               type?: unknown;
               expectedChallenge?: unknown;
               userId?: unknown;
               twoFactorToken?: unknown;
             };
-          } catch {
-            throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_INVALID);
-          }
+            try {
+              challenge = JSON.parse(challengeVerification.value) as {
+                type?: unknown;
+                expectedChallenge?: unknown;
+                userId?: unknown;
+                twoFactorToken?: unknown;
+              };
+            } catch {
+              throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_INVALID);
+            }
 
-          if (
-            challenge.type !== "mfa-passkey" ||
-            typeof challenge.expectedChallenge !== "string" ||
-            challenge.userId !== pending.user.id ||
-            challenge.twoFactorToken !== pending.token
-          ) {
-            throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_INVALID);
-          }
+            if (
+              challenge.type !== "mfa-passkey" ||
+              typeof challenge.expectedChallenge !== "string" ||
+              challenge.userId !== pending.user.id ||
+              challenge.twoFactorToken !== pending.token
+            ) {
+              throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_INVALID);
+            }
 
-          const response = ctx.body.response;
-          if (typeof response.id !== "string" || !response.id) {
-            throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_INVALID);
-          }
+            const response = ctx.body.response;
+            if (typeof response.id !== "string" || !response.id) {
+              throw APIError.from("BAD_REQUEST", MFA_ERRORS.CHALLENGE_INVALID);
+            }
 
-          const [credential] = await db
-            .select({
-              id: passkeyTable.id,
-              publicKey: passkeyTable.publicKey,
-              counter: passkeyTable.counter,
-              transports: passkeyTable.transports,
-            })
-            .from(passkeyTable)
-            .where(
-              and(
-                eq(passkeyTable.userId, pending.user.id),
-                eq(passkeyTable.credentialID, response.id),
-              ),
-            )
-            .limit(1);
+            const [credential] = await db
+              .select({
+                id: passkeyTable.id,
+                publicKey: passkeyTable.publicKey,
+                counter: passkeyTable.counter,
+                transports: passkeyTable.transports,
+              })
+              .from(passkeyTable)
+              .where(
+                and(
+                  eq(passkeyTable.userId, pending.user.id),
+                  eq(passkeyTable.credentialID, response.id),
+                ),
+              )
+              .limit(1);
 
-          if (!credential) {
-            throw APIError.from(
-              "UNAUTHORIZED",
-              MFA_ERRORS.AUTHENTICATION_FAILED,
+            if (!credential) {
+              throw APIError.from(
+                "UNAUTHORIZED",
+                MFA_ERRORS.AUTHENTICATION_FAILED,
+              );
+            }
+
+            let verification;
+            try {
+              verification = await verifyAuthenticationResponse({
+                response,
+                expectedChallenge: challenge.expectedChallenge,
+                expectedOrigin: pinnedOrigin(ctx, origin),
+                expectedRPID: rpID(ctx),
+                credential: {
+                  id: response.id,
+                  publicKey: Buffer.from(credential.publicKey, "base64"),
+                  counter: credential.counter,
+                  transports: parseTransports(credential.transports),
+                },
+                requireUserVerification: false,
+              });
+            } catch (error) {
+              ctx.context.logger.warn(
+                "Passkey second-factor verification failed",
+                error instanceof Error ? error.message : "unknown error",
+              );
+              throw APIError.from(
+                "UNAUTHORIZED",
+                MFA_ERRORS.AUTHENTICATION_FAILED,
+              );
+            }
+
+            if (!verification.verified) {
+              throw APIError.from(
+                "UNAUTHORIZED",
+                MFA_ERRORS.AUTHENTICATION_FAILED,
+              );
+            }
+
+            await db
+              .update(passkeyTable)
+              .set({ counter: verification.authenticationInfo.newCounter })
+              .where(eq(passkeyTable.id, credential.id));
+
+            const consumed =
+              await ctx.context.internalAdapter.consumeVerificationValue(
+                pending.token,
+              );
+            if (!consumed || consumed.value !== pending.user.id) {
+              expireCookie(ctx, pending.cookie);
+              throw APIError.from("UNAUTHORIZED", MFA_ERRORS.PENDING_NOT_FOUND);
+            }
+
+            const session = await ctx.context.internalAdapter.createSession(
+              pending.user.id,
+              pending.dontRememberMe,
             );
-          }
+            if (!session) {
+              throw APIError.from(
+                "INTERNAL_SERVER_ERROR",
+                MFA_ERRORS.SESSION_FAILED,
+              );
+            }
 
-          let verification;
-          try {
-            verification = await verifyAuthenticationResponse({
-              response,
-              expectedChallenge: challenge.expectedChallenge,
-              expectedOrigin: pinnedOrigin(ctx, origin),
-              expectedRPID: rpID(ctx),
-              credential: {
-                id: response.id,
-                publicKey: Buffer.from(credential.publicKey, "base64"),
-                counter: credential.counter,
-                transports: parseTransports(credential.transports),
-              },
-              requireUserVerification: false,
+            await setSessionCookie(ctx, {
+              session,
+              user: pending.user,
             });
-          } catch (error) {
-            ctx.context.logger.warn(
-              "Passkey second-factor verification failed",
-              error instanceof Error ? error.message : "unknown error",
-            );
-            throw APIError.from(
-              "UNAUTHORIZED",
-              MFA_ERRORS.AUTHENTICATION_FAILED,
-            );
-          }
-
-          if (!verification.verified) {
-            throw APIError.from(
-              "UNAUTHORIZED",
-              MFA_ERRORS.AUTHENTICATION_FAILED,
-            );
-          }
-
-          await db
-            .update(passkeyTable)
-            .set({ counter: verification.authenticationInfo.newCounter })
-            .where(eq(passkeyTable.id, credential.id));
-
-          const consumed =
-            await ctx.context.internalAdapter.consumeVerificationValue(
-              pending.token,
-            );
-          if (!consumed || consumed.value !== pending.user.id) {
             expireCookie(ctx, pending.cookie);
-            throw APIError.from("UNAUTHORIZED", MFA_ERRORS.PENDING_NOT_FOUND);
-          }
+            expireCookie(ctx, challengeCookie);
 
-          const session = await ctx.context.internalAdapter.createSession(
-            pending.user.id,
-            pending.dontRememberMe,
-          );
-          if (!session) {
-            throw APIError.from(
-              "INTERNAL_SERVER_ERROR",
-              MFA_ERRORS.SESSION_FAILED,
+            return ctx.json(
+              {
+                token: session.token,
+                user: parseUserOutput(ctx.context.options, pending.user),
+              },
+              { status: 200 },
             );
+          } finally {
+            release();
           }
-
-          await setSessionCookie(ctx, {
-            session,
-            user: pending.user,
-          });
-          expireCookie(ctx, pending.cookie);
-          expireCookie(ctx, challengeCookie);
-
-          return ctx.json(
-            {
-              token: session.token,
-              user: parseUserOutput(ctx.context.options, pending.user),
-            },
-            { status: 200 },
-          );
         },
       ),
     },
@@ -488,6 +508,7 @@ export function passkeySecondFactor(): BetterAuthPlugin {
                 MFA_ERRORS.LAST_AUTHENTICATION_METHOD,
               );
             }
+            await holdUserLock(target.userId);
           }),
         },
         {
@@ -508,6 +529,7 @@ export function passkeySecondFactor(): BetterAuthPlugin {
                 MFA_ERRORS.LAST_FACTOR_REQUIRED,
               );
             }
+            await holdUserLock(session.user.id);
           }),
         },
       ],
@@ -522,6 +544,13 @@ export function passkeySecondFactor(): BetterAuthPlugin {
             const userId =
               ctx.context.session?.user.id ?? ctx.context.newSession?.user.id;
             if (userId) await reconcileMfaFlag(userId);
+            if (
+              userId &&
+              (ctx.path === "/passkey/delete-passkey" ||
+                ctx.path === "/two-factor/disable")
+            ) {
+              releaseUserLock(userId);
+            }
           }),
         },
       ],

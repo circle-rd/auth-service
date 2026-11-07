@@ -12,10 +12,11 @@ export function denseDailySeries<T>(
   raw: { day: string; value: T }[],
   days: number,
   zero: T,
+  anchor: Date = new Date(),
 ): { date: string; value: T }[] {
   const byDay = new Map(raw.map((r) => [r.day, r.value]));
   const out: { date: string; value: T }[] = [];
-  const today = new Date();
+  const today = new Date(anchor);
   today.setUTCHours(0, 0, 0, 0);
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today);
@@ -27,8 +28,8 @@ export function denseDailySeries<T>(
 }
 
 /** First instant of the range window, in UTC, `days` inclusive of today. */
-export function rangeStart(days: number): Date {
-  const since = new Date();
+export function rangeStart(days: number, now: Date = new Date()): Date {
+  const since = new Date(now);
   since.setUTCDate(since.getUTCDate() - (days - 1));
   since.setUTCHours(0, 0, 0, 0);
   return since;

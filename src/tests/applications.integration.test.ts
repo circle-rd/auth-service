@@ -312,23 +312,37 @@ describe("applicationRoutes integration", () => {
 
   it("PATCH /:id → an explicit token auth choice survives reconciliation", async () => {
     asAdmin();
-    await app.inject({
+    const created = await app.inject({
       method: "POST",
       url: "/",
       payload: {
         name: "Explicit Auth",
         slug: "explicit-auth",
-        tokenEndpointAuthMethod: "client_secret_post",
       },
     });
+    const appId = created.json<{ application: { id: string } }>().application.id;
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/${appId}`,
+      payload: { tokenEndpointAuthMethod: "client_secret_post" },
+    });
+    expect(patched.statusCode).toBe(200);
 
     await reconcileTokenAuthMethod();
 
     const [client] = await db
-      .select({ method: oauthClient.tokenEndpointAuthMethod })
+      .select({
+        method: oauthClient.tokenEndpointAuthMethod,
+        metadata: oauthClient.metadata,
+      })
       .from(oauthClient)
       .where(eq(oauthClient.clientId, "explicit-auth"));
     expect(client?.method).toBe("client_secret_post");
+    expect(
+      (client?.metadata as Record<string, string>)
+        .tokenEndpointAuthMethodExplicit,
+    ).toBe("true");
   });
 
   it("PATCH /:id → public clients cannot disable PKCE", async () => {

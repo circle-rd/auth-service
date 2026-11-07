@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useId } from 'vue';
+
+const inputId = useId();
+
 defineProps<{
   label?: string;
   error?: string;
@@ -20,11 +24,12 @@ const emit = defineEmits<{
 
 <template>
   <div class="space-y-1.5">
-    <label v-if="label" class="block text-xs font-medium text-surface-400 uppercase tracking-wide">
+    <label v-if="label" :for="inputId" class="block text-xs font-medium text-surface-400 uppercase tracking-wide">
       {{ label }}
       <span v-if="required" class="text-red-400 ml-0.5">*</span>
     </label>
     <input
+      :id="inputId"
       :value="modelValue"
       :type="type || 'text'"
       :placeholder="placeholder"

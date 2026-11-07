@@ -1,4 +1,6 @@
 import { and, count, eq, exists, isNull, or, sql } from "drizzle-orm";
+import { symmetricDecrypt } from "better-auth/crypto";
+import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { publishEvent } from "./event-bus.js";
 import {
@@ -67,7 +69,9 @@ export function deriveMfaState(
 ): MfaState {
   const methods: MfaMethod[] = [];
   if (totpRegistered) methods.push("totp");
-  if (passkeyCount > 0) methods.push("passkey");
+  // A passkey on a passwordless account is a primary credential, not a
+  // remaining second factor.
+  if (passkeyCount > 0 && hasPassword) methods.push("passkey");
   return {
     totpRegistered,
     passkeyCount,
@@ -117,6 +121,31 @@ async function loadMfaState(
 
 export async function getMfaState(userId: string): Promise<MfaState> {
   return loadMfaState(db, userId);
+}
+
+/**
+ * True while the user still owns an unused backup code. BetterAuth stores the
+ * codes encrypted in the `two_factor` row and rewrites the list on each use.
+ */
+export async function hasBackupCodes(userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ backupCodes: twoFactorTable.backupCodes })
+    .from(twoFactorTable)
+    .where(and(eq(twoFactorTable.userId, userId), activeTotpPredicate))
+    .limit(1);
+  if (!row) return false;
+  try {
+    const decoded = await symmetricDecrypt({
+      key: config.betterAuth.secret,
+      data: row.backupCodes,
+    });
+    const codes: unknown = JSON.parse(decoded);
+    return Array.isArray(codes) && codes.length > 0;
+  } catch {
+    // A custom unencrypted store cannot be inspected here; TOTP presence is
+    // the best available answer.
+    return true;
+  }
 }
 
 /**

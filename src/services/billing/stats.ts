@@ -1,4 +1,14 @@
-import { and, count, desc, eq, isNotNull, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { user } from "../../db/auth-schema.js";
 import {
@@ -71,8 +81,8 @@ async function primaryCurrencyFallback(): Promise<string> {
   return row?.currency ?? "eur";
 }
 
-async function revenueStats(days: number) {
-  const since = rangeStart(days);
+async function revenueStats(days: number, anchor: Date) {
+  const since = rangeStart(days, anchor);
   // Raw aggregate via sql`` because date_trunc is not exposed by the typed
   // builder; every input here is server-controlled (no user concatenation).
   const rows = (await db.execute(
@@ -82,23 +92,32 @@ async function revenueStats(days: number) {
                COUNT(*)::int AS count
         FROM stripe_invoices
         WHERE status = 'paid'
-          AND application_id IS NOT NULL
-          AND stripe_created_at >= ${since.toISOString()}::timestamptz
+          AND stripe_subscription_id IS NOT NULL
+          AND COALESCE(paid_at, stripe_created_at) >= ${since.toISOString()}::timestamptz
         GROUP BY day, currency
         ORDER BY day ASC`,
   )) as unknown as RevenueRow[];
 
   const byCurrency = new Map<string, number>();
+  // Selecting by invoice count is a non-monetary rule: raw minor-unit totals
+  // in different currencies are not comparable.
+  const countByCurrency = new Map<string, number>();
   for (const r of rows) {
     byCurrency.set(
       r.currency,
       (byCurrency.get(r.currency) ?? 0) + Number(r.amount),
     );
+    countByCurrency.set(
+      r.currency,
+      (countByCurrency.get(r.currency) ?? 0) + r.count,
+    );
   }
 
   let currency: string;
-  if (byCurrency.size > 0) {
-    currency = [...byCurrency.entries()].sort((a, b) => b[1] - a[1])[0]![0];
+  if (countByCurrency.size > 0) {
+    currency = [...countByCurrency.entries()].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+    )[0]![0];
   } else {
     currency = await primaryCurrencyFallback();
   }
@@ -108,6 +127,7 @@ async function revenueStats(days: number) {
     forCurrency.map((r) => ({ day: r.day, value: Number(r.amount) })),
     days,
     0,
+    anchor,
   ).map((p) => ({ date: p.date, amount: p.value }));
 
   return {
@@ -123,29 +143,32 @@ async function revenueStats(days: number) {
   };
 }
 
-async function subscriptionStats() {
+function activeSubscription(now: Date) {
+  return and(
+    eq(userSubscriptions.isActive, true),
+    or(
+      isNull(userSubscriptions.expiresAt),
+      gt(userSubscriptions.expiresAt, now),
+    ),
+  );
+}
+
+async function subscriptionStats(now: Date) {
+  const activePredicate = activeSubscription(now);
   const [active] = await db
     .select({ count: count() })
     .from(userSubscriptions)
-    .where(eq(userSubscriptions.isActive, true));
+    .where(activePredicate);
   const [stripeManaged] = await db
     .select({ count: count() })
     .from(userSubscriptions)
     .where(
-      and(
-        eq(userSubscriptions.isActive, true),
-        isNotNull(userSubscriptions.stripeSubscriptionId),
-      ),
+      and(activePredicate, isNotNull(userSubscriptions.stripeSubscriptionId)),
     );
   const [cancelAtPeriodEnd] = await db
     .select({ count: count() })
     .from(userSubscriptions)
-    .where(
-      and(
-        eq(userSubscriptions.isActive, true),
-        eq(userSubscriptions.cancelAtPeriodEnd, true),
-      ),
-    );
+    .where(and(activePredicate, eq(userSubscriptions.cancelAtPeriodEnd, true)));
 
   const byPlan = await db
     .select({
@@ -163,7 +186,7 @@ async function subscriptionStats() {
       applications,
       eq(subscriptionPlans.applicationId, applications.id),
     )
-    .where(eq(userSubscriptions.isActive, true))
+    .where(activePredicate)
     .groupBy(
       userSubscriptions.planId,
       subscriptionPlans.name,
@@ -224,12 +247,13 @@ async function webhookStats() {
 
 export async function getBillingStats(
   range: StatsRange,
+  now: Date = new Date(),
 ): Promise<BillingStats> {
   const days = rangeToDays(range);
-  const { currency, revenue } = await revenueStats(days);
+  const { currency, revenue } = await revenueStats(days, now);
   const [subscriptions, catalog, webhooks, customerRows, userRows, openRows] =
     await Promise.all([
-      subscriptionStats(),
+      subscriptionStats(now),
       catalogStats(),
       webhookStats(),
       db

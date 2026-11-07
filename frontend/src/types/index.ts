@@ -92,6 +92,8 @@ export interface PasskeySummary {
 export interface SignInResult {
   twoFactorRedirect?: boolean
   twoFactorMethods?: MfaMethod[]
+  /** OAuth redirect returned when a signed `oauth_query` was resumed. */
+  url?: string
 }
 
 export interface Application {
@@ -132,6 +134,8 @@ export interface Application {
     | 'client_secret_post'
     | 'none'
     | null
+  /** True when the method was chosen explicitly instead of inherited from config. */
+  tokenEndpointAuthMethodExplicit?: boolean
   createdAt: string
   updatedAt: string
 }

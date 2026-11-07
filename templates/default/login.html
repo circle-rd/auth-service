@@ -316,6 +316,31 @@
   <script type="module">
     const AUTH_URL = '<%= it.AUTH_URL %>';
 
+    // An internal BetterAuth resume returns the client redirect directly and
+    // bypasses the authorize route that adds `session_state`.
+    async function withSessionState(url, oauthQuery) {
+      if (!oauthQuery) return url;
+      const params = new URLSearchParams(oauthQuery);
+      const clientId = params.get('client_id');
+      const redirectUri = params.get('redirect_uri');
+      if (!clientId || !redirectUri) return url;
+      try {
+        const res = await fetch(
+          AUTH_URL + '/api/session-state?client_id=' + encodeURIComponent(clientId) +
+            '&redirect_uri=' + encodeURIComponent(redirectUri),
+          { credentials: 'include', cache: 'no-store' },
+        );
+        if (!res.ok) return url;
+        const data = await res.json().catch(() => null);
+        if (!data || !data.session_state) return url;
+        const target = new URL(url);
+        target.searchParams.set('session_state', data.session_state);
+        return target.toString();
+      } catch {
+        return url;
+      }
+    }
+
     async function redirectToPasskeyChallenge() {
       try {
         const res = await fetch(AUTH_URL + '/api/auth/mfa/methods', { credentials: 'include' });
@@ -390,7 +415,7 @@
           return;
         }
         if (data?.url) {
-          window.location.href = data.url;
+          window.location.href = await withSessionState(data.url, oauthQuery);
         } else if (redirectTo.startsWith('/api/') || redirectTo.startsWith('http')) {
           window.location.href = redirectTo;
         } else {
@@ -556,10 +581,10 @@
 
     // After successful MFA, BetterAuth returns the same payload shape as a
     // normal sign-in: either `{ url }` (OAuth redirect) or a session object.
-    function redirectAfterMfa(data) {
+    async function redirectAfterMfa(data) {
       const redirectTo = form.redirectTo.value || '/';
       const oauthQuery = form.oauthQuery.value;
-      if (data?.url) { window.location.href = data.url; return; }
+      if (data?.url) { window.location.href = await withSessionState(data.url, oauthQuery); return; }
       if (oauthQuery) {
         window.location.href = AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery;
         return;

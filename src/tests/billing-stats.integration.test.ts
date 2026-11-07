@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { user } from "../db/auth-schema.js";
 import {
@@ -15,8 +16,10 @@ import { getBillingStats } from "../services/billing/stats.js";
 
 const DAY_MS = 86_400_000;
 
+let now: Date;
+
 function daysAgo(n: number, hour = 12): Date {
-  const d = new Date();
+  const d = new Date(now);
   d.setUTCHours(hour, 0, 0, 0);
   return new Date(d.getTime() - n * DAY_MS);
 }
@@ -41,6 +44,7 @@ interface InvoiceInput {
   amountPaid: number;
   amountRemaining: number;
   at: Date;
+  stripeSubscriptionId?: string | null;
 }
 
 async function insertInvoice(input: InvoiceInput) {
@@ -53,12 +57,20 @@ async function insertInvoice(input: InvoiceInput) {
     amountDue: input.amountPaid + input.amountRemaining,
     amountPaid: input.amountPaid,
     amountRemaining: input.amountRemaining,
+    stripeSubscriptionId:
+      input.stripeSubscriptionId === undefined
+        ? input.applicationId
+          ? "sub_test"
+          : null
+        : input.stripeSubscriptionId,
     stripeCreatedAt: input.at,
+    paidAt: input.status === "paid" ? input.at : null,
     lastEventAt: input.at,
   });
 }
 
 beforeEach(async () => {
+  now = new Date();
   await cleanDb();
 });
 
@@ -216,7 +228,7 @@ describe("getBillingStats", () => {
       { id: "evt_5", type: "invoice.paid", processedAt: daysAgo(10) },
     ]);
 
-    const stats = await getBillingStats("30d");
+    const stats = await getBillingStats("30d", now);
 
     expect(stats.range).toBe("30d");
     expect(stats.currency).toBe("eur");
@@ -272,6 +284,66 @@ describe("getBillingStats", () => {
     expect(stats.webhooks.lastProcessedAt).toBe(daysAgo(0, 3).toISOString());
   });
 
+  it("keeps subscription revenue after the application row is deleted", async () => {
+    await seedUser("u1");
+    const [appRow] = await db
+      .insert(applications)
+      .values({ name: "Deleted", slug: "deleted-app", isActive: true })
+      .returning();
+    await insertInvoice({
+      id: "in_deleted_app",
+      applicationId: appRow!.id,
+      status: "paid",
+      currency: "eur",
+      amountPaid: 2500,
+      amountRemaining: 0,
+      at: daysAgo(0),
+    });
+    await db.delete(applications).where(eq(applications.id, appRow!.id));
+
+    const stats = await getBillingStats("30d", now);
+
+    expect(stats.revenue.total).toBe(2500);
+    expect(stats.revenue.count).toBe(1);
+  });
+
+  it("does not count expired subscriptions as active", async () => {
+    await seedUser("u1");
+    await seedUser("u2");
+    const [appRow] = await db
+      .insert(applications)
+      .values({ name: "Expiry", slug: "expiry-app", isActive: true })
+      .returning();
+    const [planRow] = await db
+      .insert(subscriptionPlans)
+      .values({
+        applicationId: appRow!.id,
+        name: "Expiring",
+        stripeProductId: "prod_expiry",
+      })
+      .returning();
+    await db.insert(userSubscriptions).values([
+      {
+        userId: "u1",
+        applicationId: appRow!.id,
+        planId: planRow!.id,
+        isActive: true,
+        expiresAt: new Date(now.getTime() - 60_000),
+      },
+      {
+        userId: "u2",
+        applicationId: appRow!.id,
+        planId: planRow!.id,
+        isActive: true,
+        expiresAt: new Date(now.getTime() + 86_400_000),
+      },
+    ]);
+
+    const stats = await getBillingStats("30d", now);
+
+    expect(stats.subscriptions.active).toBe(1);
+  });
+
   it("falls back to the most common price currency when there is no revenue", async () => {
     const [appA] = await db
       .insert(applications)
@@ -287,7 +359,7 @@ describe("getBillingStats", () => {
       { planId: planA!.id, name: "Legacy", amount: "500", currency: "gbp" },
     ]);
 
-    const stats = await getBillingStats("7d");
+    const stats = await getBillingStats("7d", now);
 
     expect(stats.currency).toBe("usd");
     expect(stats.revenue.total).toBe(0);

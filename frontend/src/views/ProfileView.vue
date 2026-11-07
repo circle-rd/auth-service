@@ -303,7 +303,13 @@ watch(
   () => form.value.country,
   (country) => {
     const defaults = countryDefaults(country);
-    if (!defaults) return;
+    if (!defaults) {
+      if (form.value.locale === lastAutoLocale.value) form.value.locale = '';
+      if (form.value.zoneinfo === lastAutoZoneinfo.value) form.value.zoneinfo = '';
+      lastAutoLocale.value = '';
+      lastAutoZoneinfo.value = '';
+      return;
+    }
     if (!form.value.locale.trim() || form.value.locale === lastAutoLocale.value) {
       form.value.locale = defaults.locale;
       lastAutoLocale.value = defaults.locale;

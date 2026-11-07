@@ -53,6 +53,11 @@ const envSchema = z
 
     BETTER_AUTH_SECRET: z.string().min(16),
     BETTER_AUTH_URL: z.string().url(),
+    // BetterAuth's built-in per-IP rate limiter. The application also applies
+    // its own auth/email buckets in server.ts; disable this only for
+    // environments where a shared egress IP makes the default limit unusable
+    // (for example, a conformance-suite deployment).
+    BETTER_AUTH_RATE_LIMIT_ENABLED: optionalEnvBoolean,
 
     // Display name used as TOTP issuer in authenticator apps and as BetterAuth
     // appName. Falls back to a sensible default when unset.
@@ -340,6 +345,7 @@ export const config = {
   betterAuth: {
     secret: parsed.data.BETTER_AUTH_SECRET,
     url: parsed.data.BETTER_AUTH_URL,
+    rateLimitEnabled: parsed.data.BETTER_AUTH_RATE_LIMIT_ENABLED,
   },
   appName: parsed.data.APP_NAME,
   appLogoUrl: parsed.data.APP_LOGO_URL,

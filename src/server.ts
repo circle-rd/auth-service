@@ -28,6 +28,12 @@ import { config } from "./config.js";
 import { prettyTransport } from "./logger.js";
 import { auth } from "./auth.js";
 import { corsOrigins } from "./runtime-config.js";
+import {
+  appendSessionState,
+  checkSessionIframeHtml,
+  checkSessionState,
+  createSessionState,
+} from "./services/session-management.js";
 import { healthRoutes } from "./routes/health.js";
 import { applicationRoutes } from "./routes/admin/applications.js";
 import { rolesRoutes } from "./routes/admin/roles.js";
@@ -663,7 +669,52 @@ export async function buildServer(
       }
     }
 
+    // OIDC Session Management: the authentication response carries an opaque
+    // `session_state` for the check_session_iframe. It is only meaningful on
+    // the final redirect back to a client (a `code`/`error` response).
+    let sessionState: string | undefined;
+    if (
+      urlPath === "/api/auth/oauth2/authorize" &&
+      (req.method === "GET" || req.method === "HEAD")
+    ) {
+      const query = req.query as Record<string, string | undefined>;
+      const clientId = query.client_id;
+      const redirectUri = query.redirect_uri;
+      if (clientId && redirectUri) {
+        try {
+          const activeSession = await auth.api.getSession({
+            headers: fromNodeHeaders(req.headers),
+          });
+          if (activeSession?.session?.id) {
+            sessionState = createSessionState(
+              activeSession.session.id,
+              clientId,
+              new URL(redirectUri).origin,
+            );
+          }
+        } catch {
+          // An unreadable session simply yields no session_state; the
+          // authorization endpoint decides whether the request can proceed.
+        }
+      }
+    }
+
     reply.hijack();
+    if (sessionState) {
+      const original = reply.raw.setHeader.bind(reply.raw);
+      const patched = (
+        name: string,
+        value: number | string | readonly string[],
+      ): void => {
+        original(
+          name,
+          name.toLowerCase() === "location" && typeof value === "string"
+            ? appendSessionState(value, sessionState)
+            : value,
+        );
+      };
+      reply.raw.setHeader = patched as unknown as typeof reply.raw.setHeader;
+    }
     betterAuthHandler(req.raw, reply.raw);
   });
 
@@ -756,7 +807,10 @@ export async function buildServer(
           config.betterAuth.url + "/.well-known/openid-configuration",
         ),
       );
-      const body = await res.json();
+      const body = (await res.json()) as Record<string, unknown>;
+      // Session Management 1.0: the OP advertises an iframe the RP polls for
+      // the end-user's OP session status.
+      body.check_session_iframe = `${config.betterAuth.url}/check_session_iframe`;
       return reply
         .status(res.status)
         .header("content-type", "application/json")
@@ -796,6 +850,47 @@ export async function buildServer(
     DISCOVERY_ROUTE_OPTIONS,
     async (_req, reply) => reply.status(204).send(),
   );
+
+  // ── OIDC Session Management ─────────────────────────────────────
+  // The iframe is loaded by the relying party's origin, so it must not carry
+  // the SAMEORIGIN / frame-ancestors=none headers applied to every other route.
+  const SESSION_IFRAME_ROUTE_OPTIONS = {
+    helmet: {
+      frameguard: false,
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: false,
+      crossOriginOpenerPolicy: false,
+    },
+  };
+
+  fastify.get(
+    "/check_session_iframe",
+    SESSION_IFRAME_ROUTE_OPTIONS,
+    async (_req, reply) =>
+      reply
+        .header(
+          "content-security-policy",
+          "default-src 'none'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors *;",
+        )
+        .header("cache-control", "no-store")
+        .type("text/html; charset=utf-8")
+        .send(checkSessionIframeHtml()),
+  );
+
+  fastify.get("/check_session_state", async (req, reply) => {
+    const query = req.query as Record<string, string | undefined>;
+    const clientId = query.client_id;
+    const origin = query.origin;
+    const sessionState = query.session_state;
+    if (!clientId || !origin || !sessionState) {
+      return reply
+        .header("cache-control", "no-store")
+        .send({ status: "error" });
+    }
+    return reply.header("cache-control", "no-store").send({
+      status: await checkSessionState(clientId, origin, sessionState),
+    });
+  });
 
   // ── SPA fallback ────────────────────────────────────────────────
   // Asset-shaped paths (file extension or under /assets/) return 404;

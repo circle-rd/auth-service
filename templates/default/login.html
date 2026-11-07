@@ -247,7 +247,7 @@
           <!-- ── Step 1: credentials ─────────────────────────────────── -->
           <div class="step" aria-hidden="false">
             <div class="step-inner">
-              <form id="login-form">
+              <form id="login-form" method="post" action="/login">
                 <input type="hidden" name="redirectTo" value="<%= it.REDIRECT_TO %>" />
                 <input type="hidden" name="oauthQuery" value="<%= it.OAUTH_QUERY %>" />
                 <div class="form-group">
@@ -367,9 +367,12 @@
         const callbackURL = oauthQuery
           ? AUTH_URL + '/api/auth/oauth2/authorize?' + oauthQuery
           : (redirectTo || '/');
-        // The signed query lets BetterAuth resume the authorization request,
-        // dropping `prompt=login` once this sign-in satisfies it.
-        const body = { email, password, callbackURL, oauth_query: oauthQuery || undefined };
+        // Let the browser issue the final authorization request with the new
+        // session so the OP can attach session_state. Only prompt=login needs
+        // BetterAuth's internal resume to clear the prompt it just satisfied.
+        const oauthParams = new URLSearchParams(oauthQuery || '');
+        const resumeInSignIn = oauthParams.get('prompt') === 'login';
+        const body = { email, password, callbackURL, oauth_query: resumeInSignIn ? oauthQuery : undefined };
         const res = await fetch(AUTH_URL + '/api/auth/sign-in/email', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },

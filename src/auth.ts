@@ -381,6 +381,9 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
   baseURL: config.betterAuth.url,
+  ...(config.betterAuth.rateLimitEnabled === undefined
+    ? {}
+    : { rateLimit: { enabled: config.betterAuth.rateLimitEnabled } }),
   // Used as the default TOTP issuer (shown in authenticator apps) and as a
   // display name in other BetterAuth contexts.
   appName: config.appName,

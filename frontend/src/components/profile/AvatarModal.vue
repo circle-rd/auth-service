@@ -76,7 +76,7 @@ watch(
     emailHash.value = await sha256(props.email ?? '');
 
     if (props.image && /gravatar\.com\/avatar\//.test(props.image)) {
-      mode.value = 'none';
+      mode.value = 'gravatar';
     } else if (props.image) {
       mode.value = 'custom';
       customUrl.value = props.image;

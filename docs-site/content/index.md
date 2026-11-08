@@ -4,7 +4,7 @@ seo:
   description: Self-hosted OAuth 2.1 / OIDC identity provider built on BetterAuth. Multi-app RBAC, MFA (TOTP + backup codes), subscription plans with feature flags, consumption tracking, organizations, social login, login history, and MCP server integration.
 ---
 
-:::u-page-hero
+:::u-page-hero{.circle-hero}
 #title
 Auth Service
 
@@ -16,12 +16,20 @@ A self-hosted OAuth 2.1 / OIDC identity provider built on [BetterAuth](https://b
 Get started
 ::::
 
+::::u-button{to="https://docs.circle-cyber.com/auth-ai/typescript/" size="xl" variant="outline" color="neutral" icon="i-simple-icons-typescript"}
+SDK TypeScript
+::::
+
+::::u-button{to="https://docs.circle-cyber.com/auth-ai/python/" size="xl" variant="outline" color="neutral" icon="i-simple-icons-python"}
+SDK Python
+::::
+
 ::::u-button{to="https://github.com/circle-rd/auth-service" target="_blank" size="xl" variant="outline" color="neutral" icon="i-simple-icons-github"}
 GitHub
 ::::
 :::
 
-:::u-page-section
+:::u-page-section{.circle-section}
 #title
 What it does
 
@@ -57,7 +65,7 @@ What it does
 ::::
 :::
 
-:::u-page-section
+:::u-page-section{.circle-section}
 #title
 Client SDKs
 

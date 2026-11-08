@@ -52,6 +52,25 @@ async function seedSession(userId: string, sessionId: string) {
   });
 }
 
+describe("POST /sessions/revoke-others", () => {
+  it("revokes every other session and keeps the current one", async () => {
+    await seedSession("user-1", "current-session");
+    await seedSession("user-1", "other-session");
+    asUser("user-1");
+    const spy = vi
+      .spyOn(auth.api, "revokeOtherSessions")
+      .mockResolvedValue({ status: true } as never);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/sessions/revoke-others",
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(spy).toHaveBeenCalledOnce();
+  });
+});
+
 describe("DELETE /sessions/:id", () => {
   // A missing session is a 404, not a 401: the caller is authenticated, and a
   // 401 would read as "sign in again" to the clients that handle it that way.

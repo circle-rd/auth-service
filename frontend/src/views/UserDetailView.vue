@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { getUser, sendVerificationEmail, markEmailVerified, resetUserMfa } from '@/api/users';
+import { getUser, sendVerificationEmail, markEmailVerified, resetUserMfa, revokeUserSessions } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
 import { setSubscriptionCancellation } from '@/api/subscriptions';
 import { useToast } from '@/composables/useToast';
@@ -17,7 +17,7 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, ShieldOff, Mail, MailCheck, KeyRound } from '@lucide/vue';
+import { ArrowLeft, CheckCircle, XCircle, Shield, ShieldAlert, ShieldOff, Mail, MailCheck, KeyRound, LogOut } from '@lucide/vue';
 import SetPasswordModal from '@/components/users/SetPasswordModal.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import UserWalletSection from '@/components/wallet/UserWalletSection.vue';
@@ -38,6 +38,7 @@ const loading = ref(true);
 const actionLoading = ref(false);
 const showSetPassword = ref(false);
 const showResetMfa = ref(false);
+const showRevokeSessions = ref(false);
 
 const userId = route.params.id as string;
 
@@ -112,6 +113,19 @@ async function handleMarkVerified(): Promise<void> {
     toast.error(
       err instanceof Error ? err.message : t('users.markVerifiedError'),
     );
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
+async function handleRevokeSessions(): Promise<void> {
+  actionLoading.value = true;
+  try {
+    await revokeUserSessions(userId);
+    showRevokeSessions.value = false;
+    toast.success(t('users.sessionsRevoked'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
   } finally {
     actionLoading.value = false;
   }
@@ -261,6 +275,21 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
             </BaseButton>
           </div>
 
+          <div
+            v-if="user && auth.canManageUser(user.role)"
+            class="mt-5 flex flex-wrap gap-2"
+          >
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :disabled="actionLoading"
+              @click="showRevokeSessions = true"
+            >
+              <LogOut class="w-4 h-4" />
+              {{ t('users.revokeSessions') }}
+            </BaseButton>
+          </div>
+
           <!--
             Password reset. Guarded by the STRICT policy (`canManageRole`), not by
             `canManageUser`: the server refuses a reset against a peer, so a
@@ -377,6 +406,15 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
       :user-id="userId"
       @close="showSetPassword = false"
       @success="reloadUser"
+    />
+    <ConfirmDialog
+      :open="showRevokeSessions"
+      :title="t('users.revokeSessions')"
+      :message="t('users.revokeSessionsConfirm')"
+      :confirm-label="t('users.revokeSessions')"
+      :loading="actionLoading"
+      @confirm="handleRevokeSessions"
+      @cancel="showRevokeSessions = false"
     />
     <ConfirmDialog
       :open="showResetMfa"

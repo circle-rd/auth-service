@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeAll,
+  afterAll,
+  beforeEach,
+} from "vitest";
 import Fastify from "fastify";
 import { usersRoutes } from "./users.js";
 
@@ -6,7 +14,7 @@ import { usersRoutes } from "./users.js";
 
 vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
 
-const { mockDb, mockGetSession } = vi.hoisted(() => {
+const { mockDb, mockGetSession, mockRevoke, makeChain } = vi.hoisted(() => {
   function makeChain(result: unknown[] = []): Record<string, unknown> {
     const p = Promise.resolve(result);
     const c: Record<string, unknown> = {
@@ -34,7 +42,8 @@ const { mockDb, mockGetSession } = vi.hoisted(() => {
     delete: vi.fn(() => makeChain()),
   };
   const mockGetSession = vi.fn();
-  return { mockDb, mockGetSession };
+  const mockRevoke = vi.fn();
+  return { mockDb, mockGetSession, mockRevoke, makeChain };
 });
 
 vi.mock("../../db/index.js", () => ({ db: mockDb }));
@@ -47,6 +56,9 @@ vi.mock("../../auth.js", () => ({
       sendVerificationEmail: vi.fn().mockResolvedValue({ status: true }),
     },
   },
+}));
+vi.mock("../../services/session-revocation.js", () => ({
+  revokeUserSessionsAndTokens: mockRevoke,
 }));
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -66,6 +78,11 @@ describe("Admin — usersRoutes", () => {
 
   afterAll(() => app.close());
 
+  beforeEach(() => {
+    mockGetSession.mockReset();
+    mockRevoke.mockReset();
+  });
+
   // ── Auth guard ─────────────────────────────────────────────────────────
 
   it("GET / → 401 when not authenticated", async () => {
@@ -78,6 +95,29 @@ describe("Admin — usersRoutes", () => {
     mockGetSession.mockResolvedValueOnce({ user: { id: "u1", role: "user" } });
     const res = await app.inject({ method: "GET", url: "/" });
     expect(res.statusCode).toBe(403);
+  });
+
+  // ── POST /:id/revoke-sessions ─────────────────────────────────────────
+  it("POST /:id/revoke-sessions → revokes the target's sessions", async () => {
+    mockGetSession.mockResolvedValue(adminSession);
+    mockDb.select.mockImplementationOnce(() => makeChain([{ role: "user" }]));
+    const res = await app.inject({
+      method: "POST",
+      url: "/u1/revoke-sessions",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockRevoke).toHaveBeenCalledWith("u1");
+  });
+
+  it("POST /:id/revoke-sessions → 403 when an admin targets another admin", async () => {
+    mockGetSession.mockResolvedValue(adminSession);
+    mockDb.select.mockImplementationOnce(() => makeChain([{ role: "admin" }]));
+    const res = await app.inject({
+      method: "POST",
+      url: "/peer/revoke-sessions",
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockRevoke).not.toHaveBeenCalled();
   });
 
   // ── GET / ─────────────────────────────────────────────────────────────

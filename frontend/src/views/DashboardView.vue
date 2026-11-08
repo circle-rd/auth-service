@@ -369,7 +369,7 @@ void d;
           :sub="t('dashboard.onlineNowSub')"
         />
         <StatCard :label="t('dashboard.totalUsers')" :value="loading ? '' : users.length" :loading="loading" :icon="Users" />
-        <StatCard :label="t('dashboard.activeSessions')" :value="loading ? '' : sessions.length" :loading="loading" :icon="MonitorSmartphone" :sub="t('dashboard.lastRefreshed') + ' ' + lastRefreshed.toLocaleTimeString()" />
+        <StatCard :label="t('dashboard.activeSessions')" :value="sessionsLoading ? '' : sessionTotal" :loading="sessionsLoading" :icon="MonitorSmartphone" :sub="t('dashboard.lastRefreshed') + ' ' + lastRefreshed.toLocaleTimeString()" />
         <StatCard :label="t('dashboard.totalApplications')" :value="loading ? '' : applications.length" :loading="loading" :icon="AppWindow" :sub="`${activeApplications} ${t('common.active')}`" />
         <StatCard :label="t('dashboard.totalOrganizations')" :value="loading ? '' : organizations.length" :loading="loading" :icon="Building2" />
       </div>

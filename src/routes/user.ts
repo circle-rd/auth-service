@@ -403,6 +403,21 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     await reply.send({ sessions, currentSessionId: ctx.sessionId });
   });
 
+  // POST /api/user/sessions/revoke-others
+  // Sign out every other device: BetterAuth deletes the user's other sessions
+  // and leaves the current one in place. Sensitive-session rules apply, so a
+  // stale session must re-authenticate before using this action.
+  fastify.post("/sessions/revoke-others", async (req, reply) => {
+    const ctx = await requireFullSession(req, reply);
+    if (!ctx) return;
+
+    await auth.api.revokeOtherSessions({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    await reply.status(204).send();
+  });
+
   // DELETE /api/user/sessions/:id
   // Revoke one of the current user's sessions (cannot revoke a foreign user's session).
   fastify.delete<{ Params: { id: string } }>(

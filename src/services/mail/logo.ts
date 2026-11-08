@@ -7,8 +7,10 @@
  *   - `http(s)://...` — fetched once and cached (best effort)
  *
  * Security / reliability:
- *   - the destination host is resolved and loopback/private/link-local
- *     addresses are rejected (basic SSRF guard);
+ *   - the destination host is resolved and loopback/link-local addresses are
+ *     rejected; private/internal addresses are allowed because the URL is
+ *     operator-controlled and an internal DNS may answer a private address for
+ *     a public name (split-horizon deployments);
  *   - redirects are followed manually and each hop is re-validated;
  *   - the body is capped at `MAX_LOGO_BYTES`.
  *
@@ -22,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { config } from "../../config.js";
 import { logger } from "../../logger.js";
-import { assertPublicHost } from "../outbound-guard.js";
+import { assertNonLocalHost } from "../outbound-guard.js";
 import type { MailAttachment } from "./types.js";
 
 /** CID referenced from the templates as `cid:app-logo`. */
@@ -117,7 +119,7 @@ async function fromRemote(initialUrl: string): Promise<MailAttachment | null> {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new Error(`unsupported protocol: ${parsed.protocol}`);
     }
-    await assertPublicHost(parsed.hostname);
+    await assertNonLocalHost(parsed.hostname);
 
     const res = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

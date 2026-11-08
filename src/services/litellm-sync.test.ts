@@ -46,6 +46,7 @@ vi.mock("./litellm-teams.js", () => {
 
 import { LitellmGatewayError } from "./litellm-teams.js";
 import {
+  deleteApplicationTeams,
   ensurePlanTeamBeforeSave,
   ensureTeamBeforeSave,
   reconcileLitellmTeams,
@@ -137,24 +138,11 @@ describe("retireTeamAfterSave", () => {
     ]);
   });
 
-  it("deletes the managed teams and groups of a deleted application, never an admin-made one", async () => {
-    m.rows = [[{ url: GW }]];
-    m.listTeams.mockResolvedValueOnce([
-      { team_id: "app:free", metadata: { managed_by: "auth-service" } },
-      { team_id: "app:hand-made", metadata: { note: 1 } },
-    ]);
-    await retireTeamAfterSave("app", [GW], null);
-    expect(m.deleteTeam.mock.calls.map((c) => c[0])).toEqual(["app:free"]);
-    expect(m.deleteAccessGroupByName.mock.calls.map((c) => c[0])).toEqual([
-      "app:free",
-    ]);
-  });
-
   it("leaves alone an application that keeps or never had the support", async () => {
     m.rows = [[{ url: GW }]];
     await retireTeamAfterSave("app", [GW], [GW]);
     m.rows = [[{ url: GW }]];
-    await retireTeamAfterSave("app", [], null);
+    await retireTeamAfterSave("app", [], []);
     expect(m.blockTeam).not.toHaveBeenCalled();
     expect(m.deleteTeam).not.toHaveBeenCalled();
     expect(m.listTeams).not.toHaveBeenCalled();
@@ -164,6 +152,36 @@ describe("retireTeamAfterSave", () => {
     m.rows = [[{ url: GW }]];
     m.listTeams.mockRejectedValueOnce(new Error("down"));
     await expect(retireTeamAfterSave("app", [GW], [])).resolves.toBeUndefined();
+  });
+});
+
+describe("deleteApplicationTeams", () => {
+  it("deletes managed teams even after the support was switched off", async () => {
+    m.rows = [[{ url: GW }]];
+    m.listTeams.mockResolvedValueOnce([
+      { team_id: "app:free", metadata: { managed_by: "auth-service" } },
+      { team_id: "app:hand-made", metadata: { note: 1 } },
+    ]);
+    await deleteApplicationTeams("app");
+    expect(m.deleteTeam.mock.calls.map((c) => c[0])).toEqual(["app:free"]);
+    expect(m.deleteAccessGroupByName.mock.calls.map((c) => c[0])).toEqual([
+      "app:free",
+    ]);
+    expect(m.deleteAccessGroupByName.mock.invocationCallOrder[0]).toBeLessThan(
+      m.deleteTeam.mock.invocationCallOrder[0] ?? Infinity,
+    );
+  });
+
+  it("is a no-op without a deployed gateway", async () => {
+    m.configured = false;
+    await deleteApplicationTeams("app");
+    expect(m.listTeams).not.toHaveBeenCalled();
+  });
+
+  it("never throws", async () => {
+    m.rows = [[{ url: GW }]];
+    m.listTeams.mockRejectedValueOnce(new Error("down"));
+    await expect(deleteApplicationTeams("app")).resolves.toBeUndefined();
   });
 });
 
@@ -270,24 +288,63 @@ describe("reconcileLitellmTeams", () => {
     m.listTeams.mockResolvedValueOnce([
       { team_id: "on:free", metadata: { managed_by: "auth-service" } },
       { team_id: "off:free", metadata: { managed_by: "auth-service" } },
-      { team_id: "gone:free", metadata: { managed_by: "auth-service" } },
-      { team_id: "hand-made" },
       {
-        team_id: "already:free",
+        team_id: "off:blocked",
         blocked: true,
         metadata: { managed_by: "auth-service" },
       },
+      { team_id: "gone:free", metadata: { managed_by: "auth-service" } },
+      {
+        team_id: "orphan:free",
+        blocked: true,
+        metadata: { managed_by: "auth-service" },
+      },
+      { team_id: "hand-made" },
     ]);
     const report = await reconcileLitellmTeams();
     expect(report).toEqual({
       ensured: ["on:free"],
-      blocked: ["off:free", "gone:free"],
+      blocked: ["off:free"],
+      deleted: ["gone:free", "orphan:free"],
       failed: [],
     });
-    expect(m.blockTeam.mock.calls.map((c) => c[0])).toEqual([
-      "off:free",
+    expect(m.blockTeam.mock.calls.map((c) => c[0])).toEqual(["off:free"]);
+    expect(m.deleteTeam.mock.calls.map((c) => c[0])).toEqual([
       "gone:free",
+      "orphan:free",
     ]);
+    expect(m.deleteAccessGroupByName.mock.calls.map((c) => c[0])).toEqual([
+      "gone:free",
+      "orphan:free",
+    ]);
+    const groupOrder = m.deleteAccessGroupByName.mock.invocationCallOrder;
+    const teamOrder = m.deleteTeam.mock.invocationCallOrder;
+    expect(groupOrder[0]).toBeLessThan(teamOrder[0] ?? Infinity);
+    expect(groupOrder[1]).toBeLessThan(teamOrder[1] ?? Infinity);
+  });
+
+  it("reports a failed orphan deletion and keeps reconciling", async () => {
+    m.rows = [
+      [{ url: GW }],
+      [
+        {
+          id: "1",
+          slug: "on",
+          name: "On",
+          allowedResources: [GW],
+          isSystem: false,
+        },
+      ],
+      [{ name: "free" }],
+    ];
+    m.listTeams.mockResolvedValueOnce([
+      { team_id: "gone:free", metadata: { managed_by: "auth-service" } },
+      { team_id: "also-gone:free", metadata: { managed_by: "auth-service" } },
+    ]);
+    m.deleteTeam.mockRejectedValueOnce(new Error("down"));
+    const report = await reconcileLitellmTeams();
+    expect(report.deleted).toEqual(["also-gone:free"]);
+    expect(report.failed).toEqual(["gone:free"]);
   });
 
   it("reports failures without stopping", async () => {
@@ -323,6 +380,7 @@ describe("reconcileLitellmTeams", () => {
     expect(await reconcileLitellmTeams()).toEqual({
       ensured: [],
       blocked: [],
+      deleted: [],
       failed: [],
     });
     expect(m.listTeams).not.toHaveBeenCalled();

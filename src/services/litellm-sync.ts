@@ -139,8 +139,10 @@ async function retireApplicationTeams(
   const teamIds = managedTeamsOfApplication(await listTeams(), slug);
   for (const teamId of teamIds) {
     if (mode === "delete") {
-      await deleteTeam(teamId);
+      // Group first: if the group deletion fails, the team still exists and the
+      // reconciler can discover and retry the cleanup.
       await deleteAccessGroupByName(teamId);
+      await deleteTeam(teamId);
     } else {
       await blockTeam(teamId);
     }
@@ -181,29 +183,46 @@ export async function ensureTeamBeforeSave(
 }
 
 /**
- * After a save, or a deletion (`next` is null): cut the teams of an application
- * that lost its support. The save already stopped new tokens, so a failure only
- * warns (the reconciler retries). A deleted application's teams are deleted, an
- * edited one's are blocked.
+ * After a save: cut the teams of an application that lost its support. The save
+ * already stopped new tokens, so a failure only warns (the reconciler retries).
+ * An application that keeps the support is left alone.
  */
 export async function retireTeamAfterSave(
   slug: string,
   previousResources: string[],
-  next: string[] | null,
+  next: string[],
 ): Promise<void> {
   const gateway = await active();
   if (
     !supportsLitellm(previousResources, gateway) ||
-    (next !== null && supportsLitellm(next, gateway))
+    supportsLitellm(next, gateway)
   ) {
     return;
   }
   try {
-    await retireApplicationTeams(slug, next === null ? "delete" : "block");
+    await retireApplicationTeams(slug, "block");
   } catch (err) {
     logger.warn(
       { err: String(err), slug },
       "[litellm] could not retire the gateway teams; the reconciler will retry",
+    );
+  }
+}
+
+/**
+ * Delete every gateway team auth-service manages for an application. Called on
+ * deletion regardless of the current support flags: an application whose
+ * LiteLLM support was switched off first still owns blocked teams, and they
+ * must not outlive it. Only teams marked `managed_by: auth-service` are touched.
+ */
+export async function deleteApplicationTeams(slug: string): Promise<void> {
+  if (!(await active())) return;
+  try {
+    await retireApplicationTeams(slug, "delete");
+  } catch (err) {
+    logger.warn(
+      { err: String(err), slug },
+      "[litellm] could not delete the gateway teams; they may remain blocked",
     );
   }
 }
@@ -272,17 +291,24 @@ export async function retireRenamedPlanTeam(
 export interface ReconcileReport {
   ensured: string[];
   blocked: string[];
+  deleted: string[];
   failed: string[];
 }
 
 /**
  * Bring the gateway teams in line with the applications and their plans: every
- * plan of an application with LiteLLM support has a usable team, and a team
- * auth-service manages whose plan (or application) no longer exists is blocked.
- * Teams made by hand in the gateway are left alone.
+ * plan of an application with LiteLLM support has a usable team, a team whose
+ * plan no longer exists is blocked, and a team whose application no longer
+ * exists is deleted (retrying a deletion that failed earlier). Teams made by
+ * hand in the gateway are left alone.
  */
 export async function reconcileLitellmTeams(): Promise<ReconcileReport> {
-  const report: ReconcileReport = { ensured: [], blocked: [], failed: [] };
+  const report: ReconcileReport = {
+    ensured: [],
+    blocked: [],
+    deleted: [],
+    failed: [],
+  };
   const gateway = await active();
   if (!gateway) return report;
 
@@ -295,6 +321,7 @@ export async function reconcileLitellmTeams(): Promise<ReconcileReport> {
       isSystem: applications.isSystem,
     })
     .from(applications);
+  const applicationSlugs = new Set(apps.map((app) => app.slug));
   const desired = new Set<string>();
   for (const app of apps) {
     if (app.isSystem || !supportsLitellm(app.allowedResources, gateway)) {
@@ -328,7 +355,26 @@ export async function reconcileLitellmTeams(): Promise<ReconcileReport> {
   }
   for (const team of teams) {
     const managed = team.metadata?.managed_by === MANAGED_BY;
-    if (!managed || desired.has(team.team_id) || team.blocked) continue;
+    if (!managed || desired.has(team.team_id)) continue;
+    const separator = team.team_id.indexOf(PLAN_TEAM_SEPARATOR);
+    const slug = separator > 0 ? team.team_id.slice(0, separator) : null;
+    if (slug === null || !applicationSlugs.has(slug)) {
+      try {
+        // Group first so a transient failure leaves the team discoverable and
+        // the reconciler can retry instead of orphaning the group.
+        await deleteAccessGroupByName(team.team_id);
+        await deleteTeam(team.team_id);
+        report.deleted.push(team.team_id);
+      } catch (err) {
+        report.failed.push(team.team_id);
+        logger.warn(
+          { err: String(err), teamId: team.team_id },
+          "[litellm] orphaned plan team deletion failed",
+        );
+      }
+      continue;
+    }
+    if (team.blocked) continue;
     try {
       await blockTeam(team.team_id);
       report.blocked.push(team.team_id);
@@ -349,7 +395,13 @@ export function startLitellmReconciler(): void {
   const run = () =>
     reconcileLitellmTeams()
       .then((r) => {
-        if (r.ensured.length + r.blocked.length + r.failed.length > 0) {
+        if (
+          r.ensured.length +
+            r.blocked.length +
+            r.deleted.length +
+            r.failed.length >
+          0
+        ) {
           logger.info(r, "[litellm] gateway teams reconciled");
         }
       })

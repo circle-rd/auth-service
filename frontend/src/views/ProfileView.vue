@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { updateMyProfile, type UpdateMyProfileBody } from '@/api/users';
-import { listMySessions, revokeSession } from '@/api/sessions';
+import { listMySessions, revokeSession, revokeOtherSessions } from '@/api/sessions';
 import { getMyConsumption } from '@/api/consumption';
 import { getMyOrganizations } from '@/api/organizations';
 import { getMySubscriptions, changeMyPlan } from '@/api/subscriptions';
@@ -78,6 +78,7 @@ const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
 const myOrgs = ref<Array<{ id: string; name: string; slug: string; logo: string | null; role: string }>>([]);
 const saveLoading = ref(false);
 const sessionsLoading = ref(true);
+const revokeOthersLoading = ref(false);
 const appsLoading = ref(true);
 
 const form = ref({
@@ -447,6 +448,22 @@ async function handleRevoke(session: Session) {
   }
 }
 
+async function handleRevokeOthers() {
+  revokeOthersLoading.value = true;
+  try {
+    await revokeOtherSessions();
+    // The current session is the only one left in both the real and mock
+    // backends; drop the others locally instead of refetching an unchanged
+    // mock list.
+    sessions.value = sessions.value.filter(s => s.id === currentSessionId.value);
+    toast.success(t('profile.otherSessionsRevoked'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
+  } finally {
+    revokeOthersLoading.value = false;
+  }
+}
+
 // ── MFA modal state ────────────────────────────────────────────────────────
 const showSetupMfa = ref(false);
 const showDisableMfa = ref(false);
@@ -797,8 +814,17 @@ async function handleChangePlan() {
 
       <!-- Active sessions -->
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-        <div class="px-5 py-4 border-b border-surface-700/40">
+        <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between gap-3">
           <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.activeSessions') }}</h3>
+          <BaseButton
+            v-if="sessions.length > 1"
+            variant="ghost"
+            size="sm"
+            :loading="revokeOthersLoading"
+            @click="handleRevokeOthers"
+          >
+            {{ t('profile.revokeOtherSessions') }}
+          </BaseButton>
         </div>
         <div v-if="sessionsLoading" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.loading') }}</div>
         <div v-else-if="sessions.length === 0" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.noData') }}</div>

@@ -6,7 +6,7 @@
  */
 
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 
 // `local` addresses never leave the machine or its link (loopback, unspecified,
 // link-local including cloud metadata, multicast and reserved). `private` ones
@@ -34,8 +34,23 @@ function isBlockedIPv4(ip: string, allowPrivate: boolean): boolean {
   return !allowPrivate && isPrivateIPv4(a, b, c);
 }
 
+// Known cloud instance-metadata endpoints. They sit inside ranges that are
+// otherwise legitimate internal networks, so they need an explicit deny even
+// when private destinations are allowed.
+const METADATA_ADDRESSES = new BlockList();
+METADATA_ADDRESSES.addAddress("169.254.169.254", "ipv4");
+METADATA_ADDRESSES.addAddress("100.100.100.200", "ipv4");
+METADATA_ADDRESSES.addAddress("fd00:ec2::254", "ipv6");
+
 function isBlockedAddress(ip: string, allowPrivate: boolean): boolean {
-  if (isIP(ip) === 4) return isBlockedIPv4(ip, allowPrivate);
+  const family = isIP(ip);
+  if (
+    family !== 0 &&
+    METADATA_ADDRESSES.check(ip, family === 6 ? "ipv6" : "ipv4")
+  ) {
+    return true;
+  }
+  if (family === 4) return isBlockedIPv4(ip, allowPrivate);
   const lower = ip.toLowerCase();
   if (lower === "::" || lower === "::1") return true;
   if (/^fe[89ab]/.test(lower)) return true; // fe80::/10
@@ -44,7 +59,7 @@ function isBlockedAddress(ip: string, allowPrivate: boolean): boolean {
   }
   if (lower.startsWith("::ffff:")) {
     const v4 = lower.slice(7);
-    if (isIP(v4) === 4) return isBlockedIPv4(v4, allowPrivate);
+    if (isIP(v4) === 4) return isBlockedAddress(v4, allowPrivate);
   }
   return false;
 }

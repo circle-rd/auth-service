@@ -27,6 +27,7 @@ import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
+import { revokeOtherUserRefreshTokens } from "../services/oauth-tokens.js";
 import {
   createBillingPortalUrl,
   createSubscriptionCheckout,
@@ -401,6 +402,27 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       .orderBy(sessionTable.createdAt);
 
     await reply.send({ sessions, currentSessionId: ctx.sessionId });
+  });
+
+  // POST /api/user/sessions/revoke-others
+  // Sign out every other device: BetterAuth deletes the user's other sessions
+  // and leaves the current one in place. Sensitive-session rules apply, so a
+  // stale session must re-authenticate before using this action.
+  fastify.post("/sessions/revoke-others", async (req, reply) => {
+    const ctx = await requireFullSession(req, reply);
+    if (!ctx) return;
+
+    // The provider validates the authoritative session, deletes the other
+    // sessions, and runs the back-channel plan (which still sees the tokens
+    // before the rows are detached). Offline refresh tokens deliberately
+    // survive that path, so revoke them afterwards: their sessionId is now
+    // null and the current session's tokens remain untouched.
+    await auth.api.revokeOtherSessions({
+      headers: fromNodeHeaders(req.headers),
+    });
+    await revokeOtherUserRefreshTokens(ctx.userId, ctx.sessionId);
+
+    await reply.status(204).send();
   });
 
   // DELETE /api/user/sessions/:id

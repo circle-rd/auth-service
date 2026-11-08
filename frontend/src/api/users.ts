@@ -148,6 +148,12 @@ export async function enableUser(id: string): Promise<{ ok: true }> {
   return apiFetch<{ ok: true }>(`/admin/users/${id}/enable`, { method: 'POST' });
 }
 
+/** Revoke every session and OAuth token the user holds, without banning them. */
+export async function revokeUserSessions(id: string): Promise<{ ok: true }> {
+  if (USE_MOCK) return { ok: true };
+  return apiFetch<{ ok: true }>(`/admin/users/${id}/revoke-sessions`, { method: 'POST' });
+}
+
 /** Re-send the verification email; this also reverts the user to unverified. */
 export async function sendVerificationEmail(id: string): Promise<{ ok: true }> {
   if (USE_MOCK) return { ok: true };

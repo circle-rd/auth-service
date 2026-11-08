@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { verifyJwsAccessToken } from "better-auth/oauth2";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
   jwks as jwksTable,
@@ -175,13 +175,40 @@ export async function revokeUserClientTokens(
     );
 }
 
-/** Revoke every OAuth token a user holds across all clients (ban/delete). */
-export async function revokeAllUserTokens(userId: string): Promise<void> {
+/** Revoke every refresh token a user holds, leaving access-token rows alone. */
+export async function revokeUserRefreshTokens(userId: string): Promise<void> {
   await db
     .update(oauthRefreshToken)
     .set({ revoked: new Date() })
     .where(eq(oauthRefreshToken.userId, userId));
+}
+
+/** Delete every access-token row a user holds. */
+export async function deleteUserAccessTokens(userId: string): Promise<void> {
   await db.delete(oauthAccessToken).where(eq(oauthAccessToken.userId, userId));
+}
+
+/**
+ * Revoke every refresh token except the current session's, including offline
+ * tokens whose session was removed by an earlier sign-out. Used by "sign out
+ * other devices" so a token minted on another device cannot keep refreshing.
+ */
+export async function revokeOtherUserRefreshTokens(
+  userId: string,
+  currentSessionId: string,
+): Promise<void> {
+  await db
+    .update(oauthRefreshToken)
+    .set({ revoked: new Date() })
+    .where(
+      and(
+        eq(oauthRefreshToken.userId, userId),
+        or(
+          isNull(oauthRefreshToken.sessionId),
+          ne(oauthRefreshToken.sessionId, currentSessionId),
+        ),
+      ),
+    );
 }
 
 /** Revoke every token issued to a client (secret rotation, app deletion). */

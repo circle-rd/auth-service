@@ -24,7 +24,7 @@ import { and, count, desc, eq, inArray, like, max, or, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { isMailConfigured } from "../../services/mail/index.js";
-import { revokeAllUserTokens } from "../../services/oauth-tokens.js";
+import { revokeUserSessionsAndTokens } from "../../services/session-revocation.js";
 import {
   getActorUserId,
   getCallerRole,
@@ -441,16 +441,35 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         headers: fromNodeHeaders(req.headers),
         body: { userId: req.params.id },
       });
-      // Ending every session is what makes the ban effective: deleting the
-      // session rows also drives the OAuth provider's session-delete hook,
-      // which revokes the session-bound tokens and posts a back-channel logout
-      // to each relying party. `revokeAllUserTokens` then clears what session
-      // deletion deliberately spares (offline_access refresh tokens).
-      const authCtx = await auth.$context;
-      await authCtx.internalAdapter.deleteUserSessions(req.params.id);
-      // A ban must also invalidate the user's OAuth tokens so an existing
-      // refresh token cannot keep issuing access tokens.
-      await revokeAllUserTokens(req.params.id);
+      // Ending every session is what makes the ban effective: the helper
+      // deletes the session rows (driving the OAuth provider's session-delete
+      // hook, which revokes session-bound tokens and posts a back-channel
+      // logout) and clears the refresh tokens that deletion deliberately spares.
+      await revokeUserSessionsAndTokens(req.params.id);
+      await reply.send({ ok: true });
+    },
+  );
+
+  // POST /api/admin/users/:id/revoke-sessions — sign a user out everywhere and
+  // invalidate their OAuth tokens without banning or changing credentials.
+  fastify.post<{ Params: { id: string } }>(
+    "/:id/revoke-sessions",
+    async (req, reply) => {
+      const [targetRow] = await db
+        .select({ role: userTable.role })
+        .from(userTable)
+        .where(eq(userTable.id, req.params.id))
+        .limit(1);
+      if (!targetRow) throw ERR.USR_001();
+
+      const callerRole = await getCallerRole(req);
+      if (!canAdminTargetUser(callerRole, targetRow.role)) {
+        throw ERR.AUTH_011(
+          "Insufficient permissions to revoke this user's sessions",
+        );
+      }
+
+      await revokeUserSessionsAndTokens(req.params.id);
       await reply.send({ ok: true });
     },
   );
@@ -543,11 +562,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Unconditional and not configurable: a session or refresh token minted
       // before the reset is exactly what the reset is meant to take away.
-      await authCtx.internalAdapter.deleteUserSessions(req.params.id);
-      // Sessions and OAuth tokens are separate credentials here — deleting the
-      // session rows only nulls the tokens' `sessionId` (onDelete: "set null"),
-      // so a stolen refresh token would keep minting access tokens.
-      await revokeAllUserTokens(req.params.id);
+      await revokeUserSessionsAndTokens(req.params.id);
 
       await reply.send({ ok: true });
     },
@@ -580,9 +595,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       try {
         // Revoke first: if this fails, the factors are still present and the
         // account is not left in a weaker state.
-        const authCtx = await auth.$context;
-        await authCtx.internalAdapter.deleteUserSessions(req.params.id);
-        await revokeAllUserTokens(req.params.id);
+        await revokeUserSessionsAndTokens(req.params.id);
 
         const [passwordAccount] = await db
           .select({ id: accountTable.id })

@@ -42,4 +42,25 @@ describe("logo resolver", () => {
     const mod = await loadLogoModule("http://127.0.0.1:9/logo.png");
     expect(await mod.ensureLogoAttachmentWarmed()).toBeNull();
   });
+
+  it("allows an internal address for a split-horizon deployment", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array([137, 80, 78, 71]), {
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+          "content-length": "4",
+        },
+      }),
+    );
+    try {
+      const mod = await loadLogoModule("http://10.0.0.89/logo.png");
+      const attachment = await mod.ensureLogoAttachmentWarmed();
+      expect(attachment?.contentType).toBe("image/png");
+      expect(attachment?.content.byteLength).toBe(4);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
 });

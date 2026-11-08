@@ -208,7 +208,7 @@ async function main(): Promise<void> {
     for (const slug of [privateSlug, publicSlug]) {
       const teamId = planTeamId(slug);
       const groups = accessGroups.parse(
-        (await litellm("/v1/access_group", masterKey)).json(),
+        await (await litellm("/v1/access_group", masterKey)).json(),
       );
       const group = groups.find((g) => g.access_group_name === teamId);
       if (!group) throw new Error(`access group ${teamId} not found`);
@@ -222,16 +222,8 @@ async function main(): Promise<void> {
       );
       report(grant.ok, `model granted to the access group of ${teamId}`);
     }
-    // The gateway caches teams for about a minute.
-    report(
-      await eventually(
-        async () => (await chat(privateToken)).status === 200,
-        90,
-      ),
-      "a team with a granted model can call it",
-    );
-
     // The smoke user needs credit: the gateway refuses a call without any.
+    // Fund it before the team check, which must reach the model, not the wallet.
     const userId = z.string().parse(claims.sub);
     const start = await admin.getWallet(userId);
     if (!start.canSpend || start.balance < SMOKE_CREDIT / 2n) {
@@ -243,6 +235,15 @@ async function main(): Promise<void> {
       );
     }
     const before = (await admin.getWallet(userId)).balance;
+
+    // The gateway caches teams for about a minute.
+    report(
+      await eventually(
+        async () => (await chat(privateToken)).status === 200,
+        90,
+      ),
+      "a team with a granted model can call it",
+    );
 
     await expectStatus("public app user token → /v1/models", 200, () =>
       litellm("/v1/models", publicToken),

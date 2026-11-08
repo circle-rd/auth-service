@@ -71,6 +71,7 @@ import {
 } from "../../services/backchannel-logout-uri.js";
 import { publishEvent } from "../../services/event-bus.js";
 import {
+  deleteApplicationTeams,
   ensureTeamBeforeSave,
   retireTeamAfterSave,
 } from "../../services/litellm-sync.js";
@@ -924,7 +925,6 @@ export async function applicationRoutes(
     const [existing] = await db
       .select({
         isSystem: applications.isSystem,
-        allowedResources: applications.allowedResources,
       })
       .from(applications)
       .where(eq(applications.id, req.params.id))
@@ -957,7 +957,7 @@ export async function applicationRoutes(
       removeCorsOrigin(deleted.url);
     }
 
-    await retireTeamAfterSave(deleted.slug, existing.allowedResources, null);
+    await deleteApplicationTeams(deleted.slug);
     await archiveApplicationCatalogue(catalogue);
 
     publishEvent("application.changed");

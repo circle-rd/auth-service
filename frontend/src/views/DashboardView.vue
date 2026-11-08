@@ -5,7 +5,8 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useServicesStore } from '@/stores/services';
 import { listUsers } from '@/api/users';
-import { listSessions, revokeSession } from '@/api/sessions';
+import { USE_MOCK } from '@/api/client';
+import { listSessions, revokeAdminSession } from '@/api/sessions';
 import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
 import { getActiveUsers, getLogins, getRegistrations, type DailyCountPoint, type LoginsSeriesPoint } from '@/api/stats';
@@ -346,7 +347,17 @@ const hasNoProviders = computed(() => {
 const hasNoMfa = computed(() => !users.value.some(u => u.twoFactorEnabled || u.isMfaRequired));
 
 async function handleRevoke(session: Session) {
-  await revokeSession(session.id);
+  await revokeAdminSession(session.id);
+  sessions.value = sessions.value.filter(s => s.id !== session.id);
+  sessionTotal.value = Math.max(0, sessionTotal.value - 1);
+  if (USE_MOCK) return;
+  // The table is server-paginated: refetch so the next row fills the gap and
+  // the total stays authoritative. If the page is now empty, step back one
+  // page and let the page watcher reload it.
+  if (sessions.value.length === 0 && sessionPage.value > 1) {
+    sessionPage.value -= 1;
+    return;
+  }
   await loadSessions();
 }
 
@@ -369,7 +380,7 @@ void d;
           :sub="t('dashboard.onlineNowSub')"
         />
         <StatCard :label="t('dashboard.totalUsers')" :value="loading ? '' : users.length" :loading="loading" :icon="Users" />
-        <StatCard :label="t('dashboard.activeSessions')" :value="loading ? '' : sessions.length" :loading="loading" :icon="MonitorSmartphone" :sub="t('dashboard.lastRefreshed') + ' ' + lastRefreshed.toLocaleTimeString()" />
+        <StatCard :label="t('dashboard.activeSessions')" :value="sessionsLoading ? '' : sessionTotal" :loading="sessionsLoading" :icon="MonitorSmartphone" :sub="t('dashboard.lastRefreshed') + ' ' + lastRefreshed.toLocaleTimeString()" />
         <StatCard :label="t('dashboard.totalApplications')" :value="loading ? '' : applications.length" :loading="loading" :icon="AppWindow" :sub="`${activeApplications} ${t('common.active')}`" />
         <StatCard :label="t('dashboard.totalOrganizations')" :value="loading ? '' : organizations.length" :loading="loading" :icon="Building2" />
       </div>

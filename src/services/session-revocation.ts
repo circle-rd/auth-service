@@ -18,8 +18,13 @@ import {
 export async function revokeUserSessionsAndTokens(
   userId: string,
 ): Promise<void> {
+  // First pass stops tokens that already exist. The second pass, after the
+  // sessions are gone, catches refresh rows minted in the window between the
+  // first update and the session deletion (their `sessionId` is detached by
+  // `onDelete: "set null"` and they would otherwise survive).
   await revokeUserRefreshTokens(userId);
   const authCtx = await auth.$context;
   await authCtx.internalAdapter.deleteUserSessions(userId);
+  await revokeUserRefreshTokens(userId);
   await deleteUserAccessTokens(userId);
 }

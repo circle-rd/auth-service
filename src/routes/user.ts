@@ -412,14 +412,15 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     const ctx = await requireFullSession(req, reply);
     if (!ctx) return;
 
-    // The provider revokes access tokens and non-offline refresh tokens tied
-    // to the deleted sessions. Offline refresh tokens deliberately survive
-    // that path, so revoke them here first; keeping the rows lets the
-    // provider's back-channel plan still discover the affected clients.
-    await revokeOtherUserRefreshTokens(ctx.userId, ctx.sessionId);
+    // The provider validates the authoritative session, deletes the other
+    // sessions, and runs the back-channel plan (which still sees the tokens
+    // before the rows are detached). Offline refresh tokens deliberately
+    // survive that path, so revoke them afterwards: their sessionId is now
+    // null and the current session's tokens remain untouched.
     await auth.api.revokeOtherSessions({
       headers: fromNodeHeaders(req.headers),
     });
+    await revokeOtherUserRefreshTokens(ctx.userId, ctx.sessionId);
 
     await reply.status(204).send();
   });

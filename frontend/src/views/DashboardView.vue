@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useServicesStore } from '@/stores/services';
 import { listUsers } from '@/api/users';
+import { USE_MOCK } from '@/api/client';
 import { listSessions, revokeAdminSession } from '@/api/sessions';
 import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
@@ -349,6 +350,15 @@ async function handleRevoke(session: Session) {
   await revokeAdminSession(session.id);
   sessions.value = sessions.value.filter(s => s.id !== session.id);
   sessionTotal.value = Math.max(0, sessionTotal.value - 1);
+  if (USE_MOCK) return;
+  // The table is server-paginated: refetch so the next row fills the gap and
+  // the total stays authoritative. If the page is now empty, step back one
+  // page and let the page watcher reload it.
+  if (sessions.value.length === 0 && sessionPage.value > 1) {
+    sessionPage.value -= 1;
+    return;
+  }
+  await loadSessions();
 }
 
 function formatDate(iso: string): string {

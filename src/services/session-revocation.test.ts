@@ -35,12 +35,20 @@ describe("revokeUserSessionsAndTokens", () => {
       expect(deleteUserSessions).toHaveBeenCalledWith("user-1"),
     );
 
+    expect(revokeUserRefreshTokens).toHaveBeenCalledTimes(1);
     expect(revokeUserRefreshTokens).toHaveBeenCalledWith("user-1");
     expect(deleteUserAccessTokens).not.toHaveBeenCalled();
 
     resolveDelete();
     await operation;
 
+    expect(revokeUserRefreshTokens).toHaveBeenCalledTimes(2);
     expect(deleteUserAccessTokens).toHaveBeenCalledWith("user-1");
+    const refreshOrder = revokeUserRefreshTokens.mock.invocationCallOrder;
+    const deleteOrder = deleteUserSessions.mock.invocationCallOrder;
+    const accessOrder = deleteUserAccessTokens.mock.invocationCallOrder;
+    expect(refreshOrder[0]).toBeLessThan(deleteOrder[0] ?? Infinity);
+    expect(deleteOrder[0]).toBeLessThan(refreshOrder[1] ?? Infinity);
+    expect(refreshOrder[1]).toBeLessThan(accessOrder[0] ?? Infinity);
   });
 });

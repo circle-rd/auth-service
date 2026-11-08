@@ -7,46 +7,54 @@ import {
   afterAll,
   beforeEach,
 } from "vitest";
-import Fastify from "fastify";
 import { sessionsRoutes } from "./sessions.js";
+import { createTestApp } from "../../tests/helpers/app.js";
 
 vi.mock("better-auth/node", () => ({ fromNodeHeaders: vi.fn(() => ({})) }));
 
-const { mockDb, mockGetSession, makeChain } = vi.hoisted(() => {
-  function makeChain(result: unknown[] = []): Record<string, unknown> {
-    const p = Promise.resolve(result);
-    const c: Record<string, unknown> = {
-      from: () => c,
-      where: () => c,
-      leftJoin: () => c,
-      innerJoin: () => c,
-      orderBy: () => c,
-      limit: () => c,
-      offset: () => c,
-      groupBy: () => c,
-      then: p.then.bind(p),
-      catch: p.catch.bind(p),
-      finally: p.finally.bind(p),
+const { mockDb, mockGetSession, mockRevokeUserSession, makeChain } = vi.hoisted(
+  () => {
+    function makeChain(result: unknown[] = []): Record<string, unknown> {
+      const p = Promise.resolve(result);
+      const c: Record<string, unknown> = {
+        from: () => c,
+        where: () => c,
+        leftJoin: () => c,
+        innerJoin: () => c,
+        orderBy: () => c,
+        limit: () => c,
+        offset: () => c,
+        groupBy: () => c,
+        then: p.then.bind(p),
+        catch: p.catch.bind(p),
+        finally: p.finally.bind(p),
+      };
+      return c;
+    }
+    const mockDb = {
+      select: vi.fn(() => makeChain()),
+      selectDistinct: vi.fn(() => makeChain()),
     };
-    return c;
-  }
-  const mockDb = {
-    select: vi.fn(() => makeChain()),
-    selectDistinct: vi.fn(() => makeChain()),
-  };
-  const mockGetSession = vi.fn();
-  return { mockDb, mockGetSession, makeChain };
-});
+    const mockGetSession = vi.fn();
+    const mockRevokeUserSession = vi.fn();
+    return { mockDb, mockGetSession, mockRevokeUserSession, makeChain };
+  },
+);
 
 vi.mock("../../db/index.js", () => ({ db: mockDb }));
 vi.mock("../../auth.js", () => ({
-  auth: { api: { getSession: mockGetSession } },
+  auth: {
+    api: {
+      getSession: mockGetSession,
+      revokeUserSession: mockRevokeUserSession,
+    },
+  },
 }));
 
 const adminSession = { user: { id: "admin-1", role: "admin" } };
 
 describe("Admin — sessionsRoutes", () => {
-  const app = Fastify();
+  const app = createTestApp();
 
   beforeAll(async () => {
     await app.register(sessionsRoutes);
@@ -58,6 +66,8 @@ describe("Admin — sessionsRoutes", () => {
   beforeEach(() => {
     mockDb.select.mockImplementation(() => makeChain());
     mockDb.selectDistinct.mockImplementation(() => makeChain());
+    mockGetSession.mockReset();
+    mockRevokeUserSession.mockReset();
   });
 
   it("GET / → 401 when not authenticated", async () => {
@@ -142,6 +152,29 @@ describe("Admin — sessionsRoutes", () => {
       },
       { id: "app-1", name: "App 1", slug: "app-1", icon: null },
     ]);
+  });
+
+  it("DELETE /:id → revokes another user's session", async () => {
+    mockGetSession.mockResolvedValue(adminSession);
+    mockDb.select.mockImplementationOnce(() =>
+      makeChain([{ token: "session-token-1", role: "user" }]),
+    );
+    const res = await app.inject({ method: "DELETE", url: "/sess-1" });
+    expect(res.statusCode).toBe(204);
+    expect(mockRevokeUserSession).toHaveBeenCalledWith({
+      headers: {},
+      body: { sessionToken: "session-token-1" },
+    });
+  });
+
+  it("DELETE /:id → 403 when the target outranks the caller", async () => {
+    mockGetSession.mockResolvedValue(adminSession);
+    mockDb.select.mockImplementationOnce(() =>
+      makeChain([{ token: "session-token-1", role: "admin" }]),
+    );
+    const res = await app.inject({ method: "DELETE", url: "/sess-1" });
+    expect(res.statusCode).toBe(403);
+    expect(mockRevokeUserSession).not.toHaveBeenCalled();
   });
 
   it("GET / → always lists Auth Service and hides system applications except LiteLLM", async () => {

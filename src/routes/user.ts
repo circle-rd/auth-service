@@ -27,6 +27,7 @@ import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
+import { revokeOtherUserRefreshTokens } from "../services/oauth-tokens.js";
 import {
   createBillingPortalUrl,
   createSubscriptionCheckout,
@@ -411,6 +412,11 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     const ctx = await requireFullSession(req, reply);
     if (!ctx) return;
 
+    // The provider revokes access tokens and non-offline refresh tokens tied
+    // to the deleted sessions. Offline refresh tokens deliberately survive
+    // that path, so revoke them here first; keeping the rows lets the
+    // provider's back-channel plan still discover the affected clients.
+    await revokeOtherUserRefreshTokens(ctx.userId, ctx.sessionId);
     await auth.api.revokeOtherSessions({
       headers: fromNodeHeaders(req.headers),
     });

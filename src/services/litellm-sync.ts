@@ -139,8 +139,10 @@ async function retireApplicationTeams(
   const teamIds = managedTeamsOfApplication(await listTeams(), slug);
   for (const teamId of teamIds) {
     if (mode === "delete") {
-      await deleteTeam(teamId);
+      // Group first: if the group deletion fails, the team still exists and the
+      // reconciler can discover and retry the cleanup.
       await deleteAccessGroupByName(teamId);
+      await deleteTeam(teamId);
     } else {
       await blockTeam(teamId);
     }
@@ -358,8 +360,10 @@ export async function reconcileLitellmTeams(): Promise<ReconcileReport> {
     const slug = separator > 0 ? team.team_id.slice(0, separator) : null;
     if (slug === null || !applicationSlugs.has(slug)) {
       try {
-        await deleteTeam(team.team_id);
+        // Group first so a transient failure leaves the team discoverable and
+        // the reconciler can retry instead of orphaning the group.
         await deleteAccessGroupByName(team.team_id);
+        await deleteTeam(team.team_id);
         report.deleted.push(team.team_id);
       } catch (err) {
         report.failed.push(team.team_id);

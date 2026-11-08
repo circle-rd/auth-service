@@ -49,6 +49,12 @@ export async function revokeSession(id: string): Promise<void> {
   return apiFetch<void>(`/user/sessions/${id}`, { method: 'DELETE' });
 }
 
+/** Revoke a session shown in the admin dashboard, including another user's. */
+export async function revokeAdminSession(id: string): Promise<void> {
+  if (USE_MOCK) return;
+  return apiFetch<void>(`/admin/sessions/${id}`, { method: 'DELETE' });
+}
+
 /** Revoke every session except the current one. */
 export async function revokeOtherSessions(): Promise<void> {
   if (USE_MOCK) return;

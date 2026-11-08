@@ -1,16 +1,25 @@
 import { auth } from "../auth.js";
-import { revokeAllUserTokens } from "./oauth-tokens.js";
+import {
+  deleteUserAccessTokens,
+  revokeUserRefreshTokens,
+} from "./oauth-tokens.js";
 
 /**
- * Revoke every session and OAuth token a user holds. Sessions go through
- * BetterAuth's internal adapter so its delete hooks revoke session-bound tokens
- * and post back-channel logouts; the refresh tokens it deliberately spares are
- * cleared separately.
+ * Revoke every session and OAuth token a user holds.
+ *
+ * Order matters. The refresh tokens are the long-lived credential, so they are
+ * revoked first (one atomic UPDATE; rows stay in place for the OAuth provider's
+ * back-channel logout plan). The session rows are then deleted through
+ * BetterAuth's internal adapter, which runs its delete hooks and posts the
+ * back-channel logouts. Access tokens are invalid once their session is gone;
+ * deleting their rows last is cleanup. A failure at any step leaves the
+ * critical refresh credential revoked and a retry is safe.
  */
 export async function revokeUserSessionsAndTokens(
   userId: string,
 ): Promise<void> {
+  await revokeUserRefreshTokens(userId);
   const authCtx = await auth.$context;
   await authCtx.internalAdapter.deleteUserSessions(userId);
-  await revokeAllUserTokens(userId);
+  await deleteUserAccessTokens(userId);
 }

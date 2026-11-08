@@ -452,9 +452,10 @@ async function handleRevokeOthers() {
   revokeOthersLoading.value = true;
   try {
     await revokeOtherSessions();
-    const res = await listMySessions();
-    sessions.value = res.sessions;
-    currentSessionId.value = res.currentSessionId;
+    // The current session is the only one left in both the real and mock
+    // backends; drop the others locally instead of refetching an unchanged
+    // mock list.
+    sessions.value = sessions.value.filter(s => s.id === currentSessionId.value);
     toast.success(t('profile.otherSessionsRevoked'));
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('common.error'));

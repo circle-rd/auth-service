@@ -56,7 +56,10 @@ describe("assertNonLocalHost", () => {
     "127.0.0.1",
     "0.0.0.0",
     "169.254.169.254",
+    "100.100.100.200",
     "224.0.0.1",
+    "fd00:ec2::254",
+    "fd00:0ec2:0:0:0:0:0:254",
     "::1",
     "::",
     "fe80::1",
@@ -84,6 +87,13 @@ describe("assertNonLocalHost", () => {
   it("refuses a name that resolves to a loopback or link-local address", async () => {
     resolvesTo("93.184.216.34", "169.254.169.254");
     await expect(assertNonLocalHost("rebind.example.com")).rejects.toThrow(
+      "blocked address",
+    );
+  });
+
+  it("refuses a name that resolves to an IPv6 metadata address", async () => {
+    resolvesTo("fd00:ec2::254");
+    await expect(assertNonLocalHost("metadata.example.com")).rejects.toThrow(
       "blocked address",
     );
   });

@@ -17,7 +17,11 @@ import {
   or,
   type SQL,
 } from "drizzle-orm";
-import { requireAdmin } from "../../middleware.js";
+import { fromNodeHeaders } from "better-auth/node";
+import { auth } from "../../auth.js";
+import { ERR } from "../../errors.js";
+import { getCallerRole, requireAdmin } from "../../middleware.js";
+import { canAdminTargetUser } from "../../services/roles.js";
 import {
   AUTH_SERVICE_SLUG,
   presentUserApplications,
@@ -160,5 +164,31 @@ export async function sessionsRoutes(fastify: FastifyInstance): Promise<void> {
     }));
 
     await reply.send({ total, sessions, page, limit });
+  });
+
+  // DELETE /api/admin/sessions/:id
+  // Revoke any listed session. The native admin endpoint enforces the hierarchy
+  // and runs the same session-delete hook as a sign-out (token revocation and
+  // back-channel logout), so the dashboard can act on every row, not only the
+  // caller's own sessions.
+  fastify.delete<{ Params: { id: string } }>("/:id", async (req, reply) => {
+    const [target] = await db
+      .select({ token: sessionTable.token, role: userTable.role })
+      .from(sessionTable)
+      .innerJoin(userTable, eq(sessionTable.userId, userTable.id))
+      .where(eq(sessionTable.id, req.params.id))
+      .limit(1);
+    if (!target) throw ERR.AUTH_016();
+
+    const callerRole = await getCallerRole(req);
+    if (!canAdminTargetUser(callerRole, target.role)) {
+      throw ERR.AUTH_011("Insufficient permissions to revoke this session");
+    }
+
+    await auth.api.revokeUserSession({
+      headers: fromNodeHeaders(req.headers),
+      body: { sessionToken: target.token },
+    });
+    await reply.status(204).send();
   });
 }

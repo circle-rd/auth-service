@@ -167,6 +167,9 @@ describe("deleteApplicationTeams", () => {
     expect(m.deleteAccessGroupByName.mock.calls.map((c) => c[0])).toEqual([
       "app:free",
     ]);
+    expect(m.deleteAccessGroupByName.mock.invocationCallOrder[0]).toBeLessThan(
+      m.deleteTeam.mock.invocationCallOrder[0] ?? Infinity,
+    );
   });
 
   it("is a no-op without a deployed gateway", async () => {
@@ -314,6 +317,10 @@ describe("reconcileLitellmTeams", () => {
       "gone:free",
       "orphan:free",
     ]);
+    const groupOrder = m.deleteAccessGroupByName.mock.invocationCallOrder;
+    const teamOrder = m.deleteTeam.mock.invocationCallOrder;
+    expect(groupOrder[0]).toBeLessThan(teamOrder[0] ?? Infinity);
+    expect(groupOrder[1]).toBeLessThan(teamOrder[1] ?? Infinity);
   });
 
   it("reports a failed orphan deletion and keeps reconciling", async () => {

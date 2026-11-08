@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useServicesStore } from '@/stores/services';
 import { listUsers } from '@/api/users';
-import { listSessions, revokeSession } from '@/api/sessions';
+import { listSessions, revokeAdminSession } from '@/api/sessions';
 import { listApplications } from '@/api/applications';
 import { listOrganizations } from '@/api/organizations';
 import { getActiveUsers, getLogins, getRegistrations, type DailyCountPoint, type LoginsSeriesPoint } from '@/api/stats';
@@ -346,8 +346,9 @@ const hasNoProviders = computed(() => {
 const hasNoMfa = computed(() => !users.value.some(u => u.twoFactorEnabled || u.isMfaRequired));
 
 async function handleRevoke(session: Session) {
-  await revokeSession(session.id);
-  await loadSessions();
+  await revokeAdminSession(session.id);
+  sessions.value = sessions.value.filter(s => s.id !== session.id);
+  sessionTotal.value = Math.max(0, sessionTotal.value - 1);
 }
 
 function formatDate(iso: string): string {

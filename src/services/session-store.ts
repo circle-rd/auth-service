@@ -28,6 +28,19 @@ async function reachable<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * Increment a counter and arm its TTL in one atomic server-side step, so a
+ * dropped reply can never leave a counter without an expiry. `PTTL < 0`
+ * repairs a key created by an older release or by an expired window.
+ */
+const INCREMENT_WITH_TTL = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 or redis.call('PTTL', KEYS[1]) < 0 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return count
+`;
+
+/**
  * BetterAuth session mirror on Redis (see `session.storeSessionInDatabase`:
  * Postgres stays the system of record; Redis serves reads and deletes sessions
  * on revocation, so a revoked session is refused on its next read on every
@@ -41,23 +54,13 @@ export function createRedisSecondaryStorage(
     getAndDelete: (key) => reachable(() => client.getdel(KEY_PREFIX + key)),
     increment: (key, ttlSeconds) =>
       reachable(async () => {
-        const namespaced = KEY_PREFIX + key;
         const ttlMs = Math.max(1, Math.floor(ttlSeconds * 1000));
-        // Create the counter with its TTL in one command. A lost expiry can no
-        // longer leave a permanent key behind.
-        const created = await client.set(namespaced, "1", "PX", ttlMs, "NX");
-        if (created !== null) return 1;
-        const count = await client.incr(namespaced);
-        // The key can expire between SET NX and INCR; only then re-arm it.
-        if (count === 1) {
-          try {
-            await client.pexpire(namespaced, ttlMs);
-          } catch (err) {
-            await client.del(namespaced).catch(() => {});
-            throw err;
-          }
-        }
-        return count;
+        return (await client.eval(
+          INCREMENT_WITH_TTL,
+          1,
+          KEY_PREFIX + key,
+          ttlMs,
+        )) as number;
       }),
     set: (key, value, ttlSeconds) =>
       reachable(async () => {

@@ -1,4 +1,9 @@
 import { sql } from "drizzle-orm";
+import type { ResourceType } from "../services/resource-uri.js";
+import type {
+  ResourceStatus,
+  ResourceVisibility,
+} from "../services/resource-sharing/types.js";
 import {
   pgTable,
   uuid,
@@ -722,12 +727,15 @@ export const sharedResources = pgTable(
     ownerApplicationId: uuid("owner_application_id")
       .notNull()
       .references(() => applications.id, { onDelete: "cascade" }),
-    resourceType: text("resource_type").notNull(),
+    resourceType: text("resource_type").$type<ResourceType>().notNull(),
     key: text("key").notNull(),
     displayName: text("display_name").notNull(),
     upstreamRef: text("upstream_ref"),
-    status: text("status").notNull().default("draft"),
-    visibility: text("visibility").notNull().default("invited_only"),
+    status: text("status").$type<ResourceStatus>().notNull().default("draft"),
+    visibility: text("visibility")
+      .$type<ResourceVisibility>()
+      .notNull()
+      .default("invited_only"),
     defaultPlanId: uuid("default_plan_id").references(
       () => subscriptionPlans.id,
       { onDelete: "set null" },

@@ -19,6 +19,7 @@ import { parseUserOutput } from "better-auth/db";
 import { and, eq } from "drizzle-orm";
 import * as z from "zod";
 import { config } from "../config.js";
+import { refreshUserSessionSnapshots } from "../services/session-snapshot.js";
 import { db } from "../db/index.js";
 import {
   account as accountTable,
@@ -543,7 +544,13 @@ export function passkeySecondFactor(): BetterAuthPlugin {
           handler: createAuthMiddleware(async (ctx) => {
             const userId =
               ctx.context.session?.user.id ?? ctx.context.newSession?.user.id;
-            if (userId) await reconcileMfaFlag(userId);
+            if (userId) {
+              await reconcileMfaFlag(userId);
+              await refreshUserSessionSnapshots(
+                ctx.context.internalAdapter,
+                userId,
+              );
+            }
             if (
               userId &&
               (ctx.path === "/passkey/delete-passkey" ||

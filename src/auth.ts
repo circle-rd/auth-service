@@ -74,6 +74,8 @@ import {
   syncBillingCustomerBestEffort,
 } from "./services/billing/index.js";
 import { canManageRole } from "./services/roles.js";
+import { getRedisClient } from "./services/redis-client.js";
+import { createRedisSecondaryStorage } from "./services/session-store.js";
 import { createAuthMiddleware } from "better-auth/api";
 import { APIError } from "better-auth";
 import { deleteSessionCookie } from "better-auth/cookies";
@@ -377,6 +379,14 @@ async function enforceApplicationAccessGuard(
   }
 }
 
+// With REDIS_URL set, sessions are mirrored to Redis (Postgres stays the system
+// of record). Revocation then refuses a session on its next read on every
+// instance, instead of after a cached lookup. The Redis session path fails
+// closed: if Redis is unreachable, reads fail and requests are refused.
+const sessionRedis = config.redis.url
+  ? await getRedisClient(config.redis.url)
+  : null;
+
 export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "pg", schema }),
   secret: config.betterAuth.secret,
@@ -384,6 +394,12 @@ export const auth = betterAuth({
   ...(config.betterAuth.rateLimitEnabled === undefined
     ? {}
     : { rateLimit: { enabled: config.betterAuth.rateLimitEnabled } }),
+  ...(sessionRedis
+    ? {
+        secondaryStorage: createRedisSecondaryStorage(sessionRedis),
+        session: { storeSessionInDatabase: true },
+      }
+    : {}),
   // Used as the default TOTP issuer (shown in authenticator apps) and as a
   // display name in other BetterAuth contexts.
   appName: config.appName,

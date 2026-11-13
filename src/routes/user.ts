@@ -27,6 +27,7 @@ import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
+import { refreshUserSessionSnapshots } from "../services/session-snapshot.js";
 import { revokeOtherUserRefreshTokens } from "../services/oauth-tokens.js";
 import {
   createBillingPortalUrl,
@@ -503,6 +504,10 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         updatedAt: new Date(),
       })
       .where(eq(userTable.id, userId));
+    await refreshUserSessionSnapshots(
+      (await auth.$context).internalAdapter,
+      userId,
+    );
 
     // A self-service profile edit is a user write like any other: the admin user
     // list renders these fields, so it must refresh too.

@@ -24,6 +24,7 @@ import { and, count, desc, eq, inArray, like, max, or, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { isMailConfigured } from "../../services/mail/index.js";
+import { refreshUserSessionSnapshots } from "../../services/session-snapshot.js";
 import { revokeUserSessionsAndTokens } from "../../services/session-revocation.js";
 import {
   getActorUserId,
@@ -412,6 +413,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // profile change above are one edit of one user as far as the admin screen
     // is concerned.
     if (role !== undefined || profileChanged || isMfaRequired !== undefined) {
+      await refreshUserSessionSnapshots(
+        (await auth.$context).internalAdapter,
+        req.params.id,
+      );
       publishEvent("user.changed");
     }
     if (profileChanged) {
@@ -639,6 +644,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             .where(eq(userTable.id, req.params.id));
         });
         const mfa = await reconcileMfaFlag(req.params.id);
+        await refreshUserSessionSnapshots(
+          (await auth.$context).internalAdapter,
+          req.params.id,
+        );
         publishEvent("user.changed");
 
         await reply.send({ ok: true, mfa });
@@ -677,6 +686,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .update(userTable)
         .set({ emailVerified: false })
         .where(eq(userTable.id, req.params.id));
+      await refreshUserSessionSnapshots(
+        (await auth.$context).internalAdapter,
+        req.params.id,
+      );
 
       // No session: BetterAuth only allows a mismatched target address on the
       // unauthenticated branch of /send-verification-email.
@@ -692,6 +705,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             .update(userTable)
             .set({ emailVerified: true })
             .where(eq(userTable.id, req.params.id));
+          await refreshUserSessionSnapshots(
+            (await auth.$context).internalAdapter,
+            req.params.id,
+          );
         }
         throw err;
       }
@@ -720,6 +737,10 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         .update(userTable)
         .set({ emailVerified: true })
         .where(eq(userTable.id, req.params.id));
+      await refreshUserSessionSnapshots(
+        (await auth.$context).internalAdapter,
+        req.params.id,
+      );
       publishEvent("user.changed");
       await reply.send({ ok: true });
     },

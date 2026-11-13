@@ -40,7 +40,11 @@ from resource_routing import (
     resource_not_found,
     resource_unavailable,
 )
-from resource_sharing import RESOURCE_SHARING_ENABLED, SHARING_METADATA_KEY
+from resource_sharing import (
+    RESOURCE_SHARING_ENABLED,
+    SHARING_METADATA_KEY,
+    USAGE_METADATA_KEY,
+)
 
 
 def _required_env(name: str) -> str:
@@ -220,10 +224,36 @@ async def _sharing_team(team_id: str):
         raise resource_not_found() from None
 
 
-def _identity(claims: dict, team, *, sharing: bool = False) -> UserAPIKeyAuth:
+def _usage_metadata(context: SharingContext) -> dict:
+    """Owner/plan attribution copied from the verified authorization decision."""
+    return {
+        "subjectId": context.subject_id,
+        "clientId": context.client_id,
+        "resources": [
+            {
+                "key": resource.key,
+                "resourceId": resource.resource_id,
+                "resourceType": resource.resource_type,
+                "ownerApplicationSlug": resource.owner_application_slug,
+                "planName": resource.plan_name,
+            }
+            for resource in context.resources
+        ],
+    }
+
+
+def _identity(
+    claims: dict,
+    team,
+    *,
+    sharing: bool = False,
+    context: SharingContext | None = None,
+) -> UserAPIKeyAuth:
     metadata = {"azp": claims["azp"]}
     if sharing:
         metadata[SHARING_METADATA_KEY] = True
+    if context is not None:
+        metadata[USAGE_METADATA_KEY] = _usage_metadata(context)
     return UserAPIKeyAuth(
         api_key=f"jwt:{claims['sub']}",
         user_id=claims["sub"],
@@ -272,12 +302,12 @@ async def _resource_aware_identity(
         raise resource_not_found()
     identity = _identity(claims, team, sharing=True)
     try:
-        await authorize_team_fallbacks(context, identity)
+        context = await authorize_team_fallbacks(context, identity)
     except ResourceUnavailable:
         raise resource_unavailable() from None
     except ResourceNotFound:
         raise resource_not_found() from None
-    return identity
+    return _identity(claims, team, sharing=True, context=context)
 
 
 async def user_api_key_auth(

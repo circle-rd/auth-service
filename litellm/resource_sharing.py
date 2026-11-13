@@ -24,6 +24,7 @@ import httpx
 RESOURCE_TYPES = ("model", "workflow", "mcp_agent")
 SUPPORTED_TYPES = frozenset(RESOURCE_TYPES)
 SHARING_METADATA_KEY = "resourceSharing"
+USAGE_METADATA_KEY = "resourceUsage"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

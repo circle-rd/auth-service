@@ -29,3 +29,4 @@ litellm_settings:
   callbacks:
     - circle_wallet.wallet_logger
     - resource_discovery.resource_sharing_logger
+    - resource_usage.resource_usage_logger

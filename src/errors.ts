@@ -165,6 +165,11 @@ export const ERR = {
     new ApiError(409, "RES_009", msg),
   RES_010: (msg = "Resource invitation is invalid, expired or already used") =>
     new ApiError(400, "RES_010", msg),
+  RES_011: (
+    msg = "Usage record is not attributable to this subject and plan",
+  ) => new ApiError(400, "RES_011", msg),
+  RES_012: (msg = "Usage record conflicts with an existing event") =>
+    new ApiError(409, "RES_012", msg),
 
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),

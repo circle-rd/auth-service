@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => ({
   acceptResourceInvitation: vi.fn(),
   buildResourceInvitationUrl: vi.fn(),
   toPublicResourceInvitation: vi.fn(),
+  listResourceInvitationsForOwner: vi.fn(),
+  revokeResourceInvitation: vi.fn(),
+  listOwnerApplications: vi.fn(),
+  listOwnerMembers: vi.fn(),
+  getOwnerUsage: vi.fn(),
   sendResourceInvitationEmail: vi.fn(),
   isMailConfigured: vi.fn(),
 }));
@@ -48,6 +53,18 @@ vi.mock("../services/resource-sharing/invitations.js", () => ({
   acceptResourceInvitation: mocks.acceptResourceInvitation,
   buildResourceInvitationUrl: mocks.buildResourceInvitationUrl,
   toPublicResourceInvitation: mocks.toPublicResourceInvitation,
+  listResourceInvitationsForOwner: mocks.listResourceInvitationsForOwner,
+  revokeResourceInvitation: mocks.revokeResourceInvitation,
+}));
+vi.mock("../services/resource-sharing/delegation.js", () => ({
+  listOwnerApplications: mocks.listOwnerApplications,
+}));
+vi.mock("../services/resource-sharing/members.js", () => ({
+  listOwnerMembers: mocks.listOwnerMembers,
+}));
+vi.mock("../services/resource-sharing/usage.js", () => ({
+  getOwnerUsage: mocks.getOwnerUsage,
+  USAGE_GROUP_BY: ["user", "resource"],
 }));
 vi.mock("../services/email.js", () => ({
   sendResourceInvitationEmail: mocks.sendResourceInvitationEmail,
@@ -368,5 +385,102 @@ describe("invitation routes", () => {
         emailVerified: true,
       }),
     );
+  });
+});
+
+describe("owner discovery, members and invitations", () => {
+  it("lists owner applications for the session user", async () => {
+    mocks.listOwnerApplications.mockResolvedValue([{ id: APP }]);
+    const res = await app.inject({ method: "GET", url: "/apps" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ apps: [{ id: APP }] });
+    expect(mocks.listOwnerApplications).toHaveBeenCalledWith(USER);
+  });
+
+  it("lists members behind resources:read", async () => {
+    mocks.listOwnerMembers.mockResolvedValue([]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/apps/${APP}/members`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.requireAppDelegation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      APP,
+      "resources:read",
+    );
+    expect(mocks.listOwnerMembers).toHaveBeenCalledWith(APP);
+  });
+
+  it("lists and revokes invitations behind grants:manage", async () => {
+    mocks.listResourceInvitationsForOwner.mockResolvedValue([]);
+    let res = await app.inject({
+      method: "GET",
+      url: `/apps/${APP}/invitations`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.listResourceInvitationsForOwner).toHaveBeenCalledWith(APP);
+
+    mocks.revokeResourceInvitation.mockResolvedValue({ id: GRANT });
+    res = await app.inject({
+      method: "DELETE",
+      url: `/apps/${APP}/invitations/${GRANT}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.revokeResourceInvitation).toHaveBeenCalledWith(GRANT, APP);
+  });
+});
+
+describe("GET /apps/:appId/usage", () => {
+  it("defaults to a 30-day user grouping", async () => {
+    mocks.getOwnerUsage.mockResolvedValue({
+      groupBy: "user",
+      items: [],
+      totals: {},
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/apps/${APP}/usage`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.requireAppDelegation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      APP,
+      "resources:read",
+    );
+    const input = mocks.getOwnerUsage.mock.calls[0][0];
+    expect(input.ownerApplicationId).toBe(APP);
+    expect(input.groupBy).toBe("user");
+    expect(input.to.getTime() - input.from.getTime()).toBe(
+      30 * 24 * 60 * 60 * 1000,
+    );
+  });
+
+  it("accepts resource grouping and pagination", async () => {
+    mocks.getOwnerUsage.mockResolvedValue({ groupBy: "resource", items: [] });
+    const res = await app.inject({
+      method: "GET",
+      url: `/apps/${APP}/usage?groupBy=resource&limit=10&offset=5`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.getOwnerUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ groupBy: "resource", limit: 10, offset: 5 }),
+    );
+  });
+
+  it("rejects an inverted or invalid range and unknown grouping", async () => {
+    const inverted = await app.inject({
+      method: "GET",
+      url: `/apps/${APP}/usage?from=2030-01-02T00:00:00.000Z&to=2030-01-01T00:00:00.000Z`,
+    });
+    expect(inverted.statusCode).toBe(400);
+
+    const unknown = await app.inject({
+      method: "GET",
+      url: `/apps/${APP}/usage?groupBy=plan`,
+    });
+    expect(unknown.statusCode).toBe(400);
   });
 });

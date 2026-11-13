@@ -24,6 +24,7 @@ export async function cleanDb(): Promise<void> {
       user_subscription_events,
       user_subscriptions,
       app_delegation,
+      usage_record,
       resource_invitation,
       resource_grant,
       shared_resource,

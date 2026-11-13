@@ -13,6 +13,7 @@ export const MACHINE_SCOPES = [
   "consumption:read",
   "consumption:write",
   "resources:authorize",
+  "resources:usage:write",
 ] as const;
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 

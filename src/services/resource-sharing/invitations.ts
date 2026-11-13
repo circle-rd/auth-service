@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../db/index.js";
 import {
@@ -233,4 +233,69 @@ export async function revokeResourceInvitation(
     .returning();
   if (!revoked) throw ERR.RES_010();
   return revoked;
+}
+
+export interface OwnerResourceInvitationView {
+  id: string;
+  email: string;
+  planId: string;
+  planName: string;
+  resourceId: string | null;
+  resourceName: string | null;
+  allowedClientIds: string[] | null;
+  expiresAt: Date;
+  consumedAt: Date | null;
+  revokedAt: Date | null;
+  createdBy: string;
+  createdAt: Date;
+  state: ResourceInvitationState;
+}
+
+/**
+ * Pending and historical invitations of one owner application. The token hash
+ * never leaves the database. Foreign or missing application ids never reach
+ * this query because the route resolves the owner through the delegated guard.
+ */
+export async function listResourceInvitationsForOwner(
+  ownerApplicationId: string,
+  now: Date = new Date(),
+): Promise<OwnerResourceInvitationView[]> {
+  const rows = await db
+    .select({
+      id: resourceInvitations.id,
+      email: resourceInvitations.email,
+      planId: resourceInvitations.planId,
+      planName: subscriptionPlans.name,
+      resourceId: resourceInvitations.resourceId,
+      resourceName: sharedResources.displayName,
+      allowedClientIds: resourceInvitations.allowedClientIds,
+      expiresAt: resourceInvitations.expiresAt,
+      consumedAt: resourceInvitations.consumedAt,
+      revokedAt: resourceInvitations.revokedAt,
+      createdBy: resourceInvitations.createdBy,
+      createdAt: resourceInvitations.createdAt,
+    })
+    .from(resourceInvitations)
+    .innerJoin(
+      subscriptionPlans,
+      eq(resourceInvitations.planId, subscriptionPlans.id),
+    )
+    .leftJoin(
+      sharedResources,
+      eq(resourceInvitations.resourceId, sharedResources.id),
+    )
+    .where(eq(resourceInvitations.ownerApplicationId, ownerApplicationId))
+    .orderBy(desc(resourceInvitations.createdAt));
+
+  return rows.map((row) => ({
+    ...row,
+    state: resourceInvitationState(
+      {
+        ...row,
+        tokenHash: "",
+        ownerApplicationId,
+      },
+      now,
+    ),
+  }));
 }

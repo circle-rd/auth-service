@@ -1,6 +1,11 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { appDelegations, appRoles, userAppRoles } from "../../db/schema.js";
+import {
+  appDelegations,
+  appRoles,
+  applications,
+  userAppRoles,
+} from "../../db/schema.js";
 import { ERR } from "../../errors.js";
 
 export const APP_DELEGATION_PERMISSIONS = [
@@ -10,6 +15,12 @@ export const APP_DELEGATION_PERMISSIONS = [
 ] as const;
 export type AppDelegationPermission =
   (typeof APP_DELEGATION_PERMISSIONS)[number];
+
+export function isAppDelegationPermission(
+  value: string,
+): value is AppDelegationPermission {
+  return (APP_DELEGATION_PERMISSIONS as readonly string[]).includes(value);
+}
 
 export type AppDelegation = typeof appDelegations.$inferSelect;
 
@@ -86,4 +97,94 @@ export async function assertAppDelegation(
   if (await isApplicationOwner(userId, applicationId)) return;
   if (await hasDelegatedPermission(userId, applicationId, permission)) return;
   throw ERR.RES_004();
+}
+
+export interface OwnerApplicationSummary {
+  id: string;
+  name: string;
+  slug: string;
+  url: string | null;
+  icon: string | null;
+  permissions: AppDelegationPermission[];
+}
+
+/**
+ * Applications the session user may administer, with the least-privilege
+ * permissions they hold. Built-in app admins hold every owner permission;
+ * delegated users hold exactly their active rows. This is the owner-side
+ * discovery surface the portal needs, so no platform-admin route is involved.
+ */
+export async function listOwnerApplications(
+  userId: string,
+): Promise<OwnerApplicationSummary[]> {
+  const adminRows = await db
+    .selectDistinct({
+      id: applications.id,
+      name: applications.name,
+      slug: applications.slug,
+      url: applications.url,
+      icon: applications.icon,
+    })
+    .from(userAppRoles)
+    .innerJoin(appRoles, eq(userAppRoles.roleId, appRoles.id))
+    .innerJoin(applications, eq(appRoles.applicationId, applications.id))
+    .where(
+      and(
+        eq(userAppRoles.userId, userId),
+        eq(applications.isActive, true),
+        eq(appRoles.name, "admin"),
+      ),
+    )
+    .orderBy(asc(applications.name));
+
+  const delegatedRows = await db
+    .selectDistinct({
+      id: applications.id,
+      name: applications.name,
+      slug: applications.slug,
+      url: applications.url,
+      icon: applications.icon,
+      permission: appDelegations.permission,
+    })
+    .from(appDelegations)
+    .innerJoin(applications, eq(appDelegations.applicationId, applications.id))
+    .where(
+      and(
+        eq(appDelegations.userId, userId),
+        eq(appDelegations.status, "active"),
+        eq(applications.isActive, true),
+        inArray(appDelegations.permission, APP_DELEGATION_PERMISSIONS),
+      ),
+    );
+
+  const byId = new Map<string, OwnerApplicationSummary>();
+  for (const row of adminRows) {
+    byId.set(row.id, {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      url: row.url,
+      icon: row.icon,
+      permissions: [...APP_DELEGATION_PERMISSIONS],
+    });
+  }
+  for (const row of delegatedRows) {
+    if (!isAppDelegationPermission(row.permission)) continue;
+    const existing = byId.get(row.id);
+    if (existing) {
+      if (!existing.permissions.includes(row.permission)) {
+        existing.permissions.push(row.permission);
+      }
+      continue;
+    }
+    byId.set(row.id, {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      url: row.url,
+      icon: row.icon,
+      permissions: [row.permission],
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -10,11 +10,13 @@ import {
 import { createTestApp } from "../tests/helpers/app.js";
 import { ERR } from "../errors.js";
 
-const { mockRequireScope, mockAuthorize, mockAccessible } = vi.hoisted(() => ({
-  mockRequireScope: vi.fn(),
-  mockAuthorize: vi.fn(),
-  mockAccessible: vi.fn(),
-}));
+const { mockRequireScope, mockAuthorize, mockAccessible, mockRecordUsage } =
+  vi.hoisted(() => ({
+    mockRequireScope: vi.fn(),
+    mockAuthorize: vi.fn(),
+    mockAccessible: vi.fn(),
+    mockRecordUsage: vi.fn(),
+  }));
 
 vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../services/machine-auth.js", () => ({
@@ -25,6 +27,10 @@ vi.mock("../services/resource-sharing/policy.js", () => ({
 }));
 vi.mock("../services/resource-sharing/accessible.js", () => ({
   listAccessibleResources: mockAccessible,
+}));
+vi.mock("../services/resource-sharing/usage.js", () => ({
+  recordUsageEvent: mockRecordUsage,
+  USAGE_SOURCES: ["provider", "unsupported"],
 }));
 
 const { gatewayResourceRoutes } = await import("./gateway-resources.js");
@@ -42,6 +48,18 @@ beforeEach(() => {
   mockRequireScope.mockReset().mockResolvedValue({ clientId: "gateway" });
   mockAuthorize.mockReset();
   mockAccessible.mockReset().mockResolvedValue([]);
+  mockRecordUsage.mockReset().mockResolvedValue({
+    record: {
+      id: "usage-1",
+      ownerApplicationId: "owner-app",
+      resourceId: "11111111-1111-4111-8111-111111111111",
+      resourceType: "model",
+      usageSource: "provider",
+      requestId: "a".repeat(64),
+      occurredAt: new Date("2026-11-13T00:00:00.000Z"),
+    },
+    replayed: false,
+  });
 });
 
 const body = {
@@ -203,4 +221,125 @@ describe("GET /resources/accessible", () => {
       expect(res.statusCode).toBe(400);
     },
   );
+});
+
+describe("POST /usage", () => {
+  const resourceId = "11111111-1111-4111-8111-111111111111";
+  const usage = (overrides: Record<string, unknown> = {}) => ({
+    subjectId: "subject-a",
+    clientId: "app-b",
+    resourceId,
+    resourceType: "model",
+    resourceKey: "app-a/model-a",
+    planName: "Team",
+    requestId: "a".repeat(64),
+    occurredAt: new Date().toISOString(),
+    usageSource: "provider",
+    costUsd: "0.01",
+    promptTokens: 6,
+    completionTokens: 4,
+    totalTokens: 10,
+    ...overrides,
+  });
+
+  const postUsage = (payload: Record<string, unknown> = usage()) =>
+    app.inject({
+      method: "POST",
+      url: "/usage",
+      headers: {
+        authorization: "Bearer token",
+        "content-type": "application/json",
+      },
+      payload,
+    });
+
+  it("requires the resources:usage:write machine scope", async () => {
+    await postUsage();
+    expect(mockRequireScope).toHaveBeenCalledWith(
+      "Bearer token",
+      "resources:usage:write",
+    );
+  });
+
+  it("passes the validated event to the ledger", async () => {
+    const res = await postUsage();
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({
+      usage: { id: "usage-1", requestId: "a".repeat(64) },
+      replayed: false,
+    });
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: "subject-a",
+        clientId: "app-b",
+        resourceType: "model",
+        resourceKey: "app-a/model-a",
+        planName: "Team",
+        requestId: "a".repeat(64),
+        costUsd: "0.01",
+        totalTokens: 10,
+      }),
+    );
+  });
+
+  it("returns 200 for an idempotent replay", async () => {
+    mockRecordUsage.mockResolvedValueOnce({
+      record: {
+        id: "usage-1",
+        ownerApplicationId: "owner-app",
+        resourceId,
+        resourceType: "model",
+        usageSource: "provider",
+        requestId: "a".repeat(64),
+        occurredAt: new Date("2026-11-13T00:00:00.000Z"),
+      },
+      replayed: true,
+    });
+    const res = await postUsage();
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { replayed: boolean }).replayed).toBe(true);
+  });
+
+  it("accepts an explicit unsupported non-model event", async () => {
+    const res = await postUsage(
+      usage({
+        resourceType: "mcp_agent",
+        resourceKey: "app-a/agent-a",
+        usageSource: "unsupported",
+        costUsd: null,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+      }),
+    );
+    expect(res.statusCode).toBe(201);
+  });
+
+  it.each([
+    ["requestId", "short"],
+    ["costUsd", null],
+    ["usageSource", "guessed"],
+    ["totalTokens", -1],
+    ["resourceId", "not-a-uuid"],
+  ])("rejects an invalid %s with 400", async (field, value) => {
+    const res = await postUsage(usage({ [field]: value }));
+    expect(res.statusCode).toBe(400);
+    expect(mockRecordUsage).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported usage carrying cost or tokens", async () => {
+    const res = await postUsage(
+      usage({ usageSource: "unsupported", costUsd: "0.01" }),
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects an occurrence outside the accounting window", async () => {
+    const res = await postUsage(
+      usage({
+        occurredAt: new Date(Date.now() - 60 * 24 * 3600_000).toISOString(),
+      }),
+    );
+    expect(res.statusCode).toBe(400);
+  });
 });

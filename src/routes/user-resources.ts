@@ -15,10 +15,14 @@ import {
   revokeResourceGrant,
   updateResourceGrant,
 } from "../services/resource-sharing/grants.js";
+import { listOwnerApplications } from "../services/resource-sharing/delegation.js";
+import { listOwnerMembers } from "../services/resource-sharing/members.js";
 import {
   acceptResourceInvitation,
   buildResourceInvitationUrl,
   createResourceInvitation,
+  listResourceInvitationsForOwner,
+  revokeResourceInvitation,
   toPublicResourceInvitation,
 } from "../services/resource-sharing/invitations.js";
 import {
@@ -32,6 +36,10 @@ import {
   RESOURCE_VISIBILITIES,
   type SharedResource,
 } from "../services/resource-sharing/types.js";
+import {
+  getOwnerUsage,
+  USAGE_GROUP_BY,
+} from "../services/resource-sharing/usage.js";
 import { sendResourceInvitationEmail } from "../services/email.js";
 import { isMailConfigured } from "../services/mail/index.js";
 
@@ -47,6 +55,19 @@ const grantParamsSchema = appParamsSchema.extend({
   grantId: z.string().uuid(),
 });
 const invitationParamsSchema = z.object({ token: z.string().min(1).max(200) });
+const ownerInvitationParamsSchema = appParamsSchema.extend({
+  invitationId: z.string().uuid(),
+});
+
+const usageQuerySchema = z
+  .object({
+    groupBy: z.enum(USAGE_GROUP_BY).default("user"),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .strict();
 
 const accessibleQuerySchema = z
   .object({
@@ -164,6 +185,57 @@ export async function userResourceRoutes(
     },
   );
 
+  fastify.get("/apps", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const apps = await listOwnerApplications(userId);
+    await reply.send({ apps });
+  });
+
+  fastify.get("/apps/:appId/members", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireAppDelegation(
+      req,
+      reply,
+      appId,
+      "resources:read",
+    );
+    if (!userId) return;
+    const members = await listOwnerMembers(appId);
+    await reply.send({ members });
+  });
+
+  fastify.get("/apps/:appId/invitations", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireAppDelegation(
+      req,
+      reply,
+      appId,
+      "grants:manage",
+    );
+    if (!userId) return;
+    const invitations = await listResourceInvitationsForOwner(appId);
+    await reply.send({ invitations });
+  });
+
+  fastify.delete(
+    "/apps/:appId/invitations/:invitationId",
+    async (req, reply) => {
+      const { appId, invitationId } = ownerInvitationParamsSchema.parse(
+        req.params,
+      );
+      const userId = await requireAppDelegation(
+        req,
+        reply,
+        appId,
+        "grants:manage",
+      );
+      if (!userId) return;
+      const invitation = await revokeResourceInvitation(invitationId, appId);
+      await reply.send({ invitation: toPublicResourceInvitation(invitation) });
+    },
+  );
+
   fastify.get("/apps/:appId/shared-resources", async (req, reply) => {
     const { appId } = appParamsSchema.parse(req.params);
     const userId = await requireAppDelegation(
@@ -252,6 +324,34 @@ export async function userResourceRoutes(
       await reply.send({ resource });
     },
   );
+
+  fastify.get("/apps/:appId/usage", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireAppDelegation(
+      req,
+      reply,
+      appId,
+      "resources:read",
+    );
+    if (!userId) return;
+    const query = usageQuerySchema.parse(req.query);
+    const to = query.to ? new Date(query.to) : new Date();
+    const from = query.from
+      ? new Date(query.from)
+      : new Date(to.getTime() - 30 * 24 * 60 * 60 * 1000);
+    if (from.getTime() >= to.getTime()) {
+      throw ERR.RES_001("from must be before to");
+    }
+    const usage = await getOwnerUsage({
+      ownerApplicationId: appId,
+      groupBy: query.groupBy,
+      from,
+      to,
+      limit: query.limit,
+      offset: query.offset,
+    });
+    await reply.send(usage);
+  });
 
   fastify.get("/apps/:appId/grants", async (req, reply) => {
     const { appId } = appParamsSchema.parse(req.params);

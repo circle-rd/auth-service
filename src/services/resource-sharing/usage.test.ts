@@ -246,6 +246,7 @@ describe("getOwnerUsage", () => {
       [
         {
           calls: 3,
+          unsupportedCalls: "1",
           promptTokens: "15",
           completionTokens: "15",
           totalTokens: "30",
@@ -256,6 +257,7 @@ describe("getOwnerUsage", () => {
         {
           subjectId: "subject-a",
           calls: 2,
+          unsupportedCalls: "0",
           promptTokens: "10",
           completionTokens: "10",
           totalTokens: "20",
@@ -264,6 +266,7 @@ describe("getOwnerUsage", () => {
         {
           subjectId: "subject-b",
           calls: 1,
+          unsupportedCalls: "0",
           promptTokens: "5",
           completionTokens: "5",
           totalTokens: "10",
@@ -272,6 +275,7 @@ describe("getOwnerUsage", () => {
         {
           subjectId: "subject-c",
           calls: 1,
+          unsupportedCalls: "0",
           promptTokens: "5",
           completionTokens: "5",
           totalTokens: "10",
@@ -286,6 +290,7 @@ describe("getOwnerUsage", () => {
     expect(result.nextOffset).toBe(2);
     expect(result.totals).toEqual({
       calls: 3,
+      unsupportedCalls: 1,
       promptTokens: 15,
       completionTokens: 15,
       totalTokens: 30,
@@ -303,6 +308,7 @@ describe("getOwnerUsage", () => {
           resourceKey: "app-a/model-a",
           displayName: "Model A",
           calls: 1,
+          unsupportedCalls: "0",
           promptTokens: "6",
           completionTokens: "4",
           totalTokens: "10",
@@ -315,6 +321,7 @@ describe("getOwnerUsage", () => {
     expect(result.items).toHaveLength(1);
     expect(result.totals).toEqual({
       calls: 0,
+      unsupportedCalls: 0,
       promptTokens: 0,
       completionTokens: 0,
       totalTokens: 0,

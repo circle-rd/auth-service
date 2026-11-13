@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   revokeResourceInvitation: vi.fn(),
   listOwnerApplications: vi.fn(),
   listOwnerMembers: vi.fn(),
+  listOwnerPlans: vi.fn(),
   getOwnerUsage: vi.fn(),
   sendResourceInvitationEmail: vi.fn(),
   isMailConfigured: vi.fn(),
@@ -61,6 +62,9 @@ vi.mock("../services/resource-sharing/delegation.js", () => ({
 }));
 vi.mock("../services/resource-sharing/members.js", () => ({
   listOwnerMembers: mocks.listOwnerMembers,
+}));
+vi.mock("../services/resource-sharing/owner-plans.js", () => ({
+  listOwnerPlans: mocks.listOwnerPlans,
 }));
 vi.mock("../services/resource-sharing/usage.js", () => ({
   getOwnerUsage: mocks.getOwnerUsage,
@@ -395,6 +399,23 @@ describe("owner discovery, members and invitations", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ apps: [{ id: APP }] });
     expect(mocks.listOwnerApplications).toHaveBeenCalledWith(USER);
+  });
+
+  it("lists plans behind grants:manage", async () => {
+    mocks.listOwnerPlans.mockResolvedValue([{ id: PLAN }]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/apps/${APP}/plans`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ plans: [{ id: PLAN }] });
+    expect(mocks.requireAppDelegation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      APP,
+      "grants:manage",
+    );
+    expect(mocks.listOwnerPlans).toHaveBeenCalledWith(APP);
   });
 
   it("lists members behind resources:read", async () => {

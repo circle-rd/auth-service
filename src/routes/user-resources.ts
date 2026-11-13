@@ -17,6 +17,7 @@ import {
 } from "../services/resource-sharing/grants.js";
 import { listOwnerApplications } from "../services/resource-sharing/delegation.js";
 import { listOwnerMembers } from "../services/resource-sharing/members.js";
+import { listOwnerPlans } from "../services/resource-sharing/owner-plans.js";
 import {
   acceptResourceInvitation,
   buildResourceInvitationUrl,
@@ -203,6 +204,19 @@ export async function userResourceRoutes(
     if (!userId) return;
     const members = await listOwnerMembers(appId);
     await reply.send({ members });
+  });
+
+  fastify.get("/apps/:appId/plans", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireAppDelegation(
+      req,
+      reply,
+      appId,
+      "grants:manage",
+    );
+    if (!userId) return;
+    const plans = await listOwnerPlans(appId);
+    await reply.send({ plans });
   });
 
   fastify.get("/apps/:appId/invitations", async (req, reply) => {

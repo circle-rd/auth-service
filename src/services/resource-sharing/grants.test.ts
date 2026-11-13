@@ -42,8 +42,11 @@ vi.mock("../../db/index.js", () => ({ db: mockDb }));
 const {
   createResourceGrant,
   findLatestGrant,
+  getGrantForOwner,
   hasActiveMembership,
+  listGrantsForOwner,
   revokeResourceGrant,
+  updateResourceGrant,
 } = await import("./grants.js");
 
 const OWNER = "owner-app";
@@ -247,5 +250,83 @@ describe("hasActiveMembership", () => {
   it("is false without a row", async () => {
     state.results = [[]];
     expect(await hasActiveMembership("subject-a", OWNER)).toBe(false);
+  });
+});
+
+describe("owner grant administration", () => {
+  it("scopes a grant lookup to the owner application", async () => {
+    state.results = [[grant()]];
+    await expect(getGrantForOwner("grant-1", OWNER)).resolves.toMatchObject({
+      id: "grant-1",
+      ownerApplicationId: OWNER,
+    });
+  });
+
+  it("answers RES_007 when the grant belongs to another owner", async () => {
+    state.results = [[]];
+    const error = await rejection(getGrantForOwner("grant-1", OWNER));
+    expect(error.code).toBe("RES_007");
+  });
+
+  it("lists grants with plan names", async () => {
+    state.results = [[{ ...grant(), planName: "Team" }]];
+    await expect(listGrantsForOwner(OWNER)).resolves.toEqual([
+      expect.objectContaining({ id: "grant-1", planName: "Team" }),
+    ]);
+  });
+
+  it("validates a replacement resource and plan against the owner", async () => {
+    state.results = [
+      [grant()],
+      [{ id: PLAN }],
+      [{ id: "resource-1" }],
+      [grant({ resourceId: "resource-1" })],
+    ];
+    const updated = await updateResourceGrant("grant-1", OWNER, {
+      planId: PLAN,
+      resourceId: "resource-1",
+      allowedClientIds: ["client-a", "client-a"],
+      expiresAt: NOW,
+    });
+    expect(updated.resourceId).toBe("resource-1");
+    expect(state.lastValues).toMatchObject({
+      planId: PLAN,
+      resourceId: "resource-1",
+      allowedClientIds: ["client-a"],
+      expiresAt: NOW,
+    });
+  });
+
+  it("clears narrowing and expiry", async () => {
+    state.results = [
+      [grant({ resourceId: "resource-1", expiresAt: NOW })],
+      [grant()],
+    ];
+    await updateResourceGrant("grant-1", OWNER, {
+      resourceId: null,
+      allowedClientIds: null,
+      expiresAt: null,
+    });
+    expect(state.lastValues).toMatchObject({
+      resourceId: null,
+      allowedClientIds: null,
+      expiresAt: null,
+    });
+  });
+
+  it("rejects updates to a revoked grant", async () => {
+    state.results = [[grant({ revokedAt: NOW })]];
+    const error = await rejection(
+      updateResourceGrant("grant-1", OWNER, { planId: PLAN }),
+    );
+    expect(error.code).toBe("RES_001");
+  });
+
+  it("rejects an empty client allow-list", async () => {
+    state.results = [[grant()]];
+    const error = await rejection(
+      updateResourceGrant("grant-1", OWNER, { allowedClientIds: [] }),
+    );
+    expect(error.code).toBe("RES_001");
   });
 });

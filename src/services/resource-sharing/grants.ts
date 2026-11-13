@@ -8,6 +8,7 @@ import {
   userApplications,
 } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
+import type { DbExecutor } from "../credential-user.js";
 
 export type ResourceGrant = typeof resourceGrants.$inferSelect;
 
@@ -25,8 +26,11 @@ export interface CreateResourceGrantInput {
   createdBy: string;
 }
 
-async function assertApplicationExists(applicationId: string): Promise<void> {
-  const [app] = await db
+export async function assertApplicationExists(
+  applicationId: string,
+  exec: DbExecutor = db,
+): Promise<void> {
+  const [app] = await exec
     .select({ id: applications.id })
     .from(applications)
     .where(eq(applications.id, applicationId))
@@ -34,11 +38,12 @@ async function assertApplicationExists(applicationId: string): Promise<void> {
   if (!app) throw ERR.APP_002();
 }
 
-async function assertPlanBelongsToOwner(
+export async function assertPlanBelongsToOwner(
   planId: string,
   ownerApplicationId: string,
+  exec: DbExecutor = db,
 ): Promise<void> {
-  const [plan] = await db
+  const [plan] = await exec
     .select({ id: subscriptionPlans.id })
     .from(subscriptionPlans)
     .where(
@@ -53,11 +58,12 @@ async function assertPlanBelongsToOwner(
   }
 }
 
-async function assertResourceBelongsToOwner(
+export async function assertResourceBelongsToOwner(
   resourceId: string,
   ownerApplicationId: string,
+  exec: DbExecutor = db,
 ): Promise<void> {
-  const [resource] = await db
+  const [resource] = await exec
     .select({ id: sharedResources.id })
     .from(sharedResources)
     .where(
@@ -72,13 +78,15 @@ async function assertResourceBelongsToOwner(
 
 export async function createResourceGrant(
   input: CreateResourceGrantInput,
+  exec: DbExecutor = db,
 ): Promise<ResourceGrant> {
-  await assertApplicationExists(input.ownerApplicationId);
-  await assertPlanBelongsToOwner(input.planId, input.ownerApplicationId);
+  await assertApplicationExists(input.ownerApplicationId, exec);
+  await assertPlanBelongsToOwner(input.planId, input.ownerApplicationId, exec);
   if (input.resourceId) {
     await assertResourceBelongsToOwner(
       input.resourceId,
       input.ownerApplicationId,
+      exec,
     );
   }
   if (input.allowedClientIds !== undefined && input.allowedClientIds !== null) {
@@ -88,7 +96,7 @@ export async function createResourceGrant(
   }
 
   const now = new Date();
-  const [existing] = await db
+  const [existing] = await exec
     .select({ id: resourceGrants.id })
     .from(resourceGrants)
     .where(
@@ -108,7 +116,7 @@ export async function createResourceGrant(
   const allowedClientIds = input.allowedClientIds
     ? [...new Set(input.allowedClientIds)]
     : null;
-  const [row] = await db
+  const [row] = await exec
     .insert(resourceGrants)
     .values({
       subjectId: input.subjectId,
@@ -150,6 +158,101 @@ export async function revokeResourceGrant(
   const [row] = await db
     .update(resourceGrants)
     .set({ revokedAt })
+    .where(eq(resourceGrants.id, id))
+    .returning();
+  if (!row) throw ERR.RES_007();
+  return row;
+}
+
+/** A grant scoped to its owner application; foreign and missing ids both 404. */
+export async function getGrantForOwner(
+  id: string,
+  ownerApplicationId: string,
+): Promise<ResourceGrant> {
+  const [row] = await db
+    .select()
+    .from(resourceGrants)
+    .where(
+      and(
+        eq(resourceGrants.id, id),
+        eq(resourceGrants.ownerApplicationId, ownerApplicationId),
+      ),
+    )
+    .limit(1);
+  if (!row) throw ERR.RES_007();
+  return row;
+}
+
+export async function listGrantsForOwner(
+  ownerApplicationId: string,
+): Promise<ResourceGrantView[]> {
+  return db
+    .select({
+      id: resourceGrants.id,
+      subjectId: resourceGrants.subjectId,
+      ownerApplicationId: resourceGrants.ownerApplicationId,
+      resourceId: resourceGrants.resourceId,
+      planId: resourceGrants.planId,
+      allowedClientIds: resourceGrants.allowedClientIds,
+      expiresAt: resourceGrants.expiresAt,
+      revokedAt: resourceGrants.revokedAt,
+      createdBy: resourceGrants.createdBy,
+      createdAt: resourceGrants.createdAt,
+      planName: subscriptionPlans.name,
+    })
+    .from(resourceGrants)
+    .innerJoin(
+      subscriptionPlans,
+      eq(resourceGrants.planId, subscriptionPlans.id),
+    )
+    .where(eq(resourceGrants.ownerApplicationId, ownerApplicationId))
+    .orderBy(desc(resourceGrants.createdAt));
+}
+
+export interface UpdateResourceGrantInput {
+  resourceId?: string | null;
+  planId?: string;
+  allowedClientIds?: string[] | null;
+  expiresAt?: Date | null;
+}
+
+export async function updateResourceGrant(
+  id: string,
+  ownerApplicationId: string,
+  patch: UpdateResourceGrantInput,
+): Promise<ResourceGrant> {
+  const current = await getGrantForOwner(id, ownerApplicationId);
+  if (current.revokedAt) {
+    throw ERR.RES_001("A revoked grant cannot be updated");
+  }
+  if (patch.planId !== undefined) {
+    await assertPlanBelongsToOwner(patch.planId, ownerApplicationId);
+  }
+  if (patch.resourceId !== undefined && patch.resourceId !== null) {
+    await assertResourceBelongsToOwner(patch.resourceId, ownerApplicationId);
+  }
+  if (patch.allowedClientIds !== undefined && patch.allowedClientIds !== null) {
+    if (patch.allowedClientIds.length === 0) {
+      throw ERR.RES_001("allowedClientIds must not be empty");
+    }
+  }
+
+  const allowedClientIds =
+    patch.allowedClientIds === undefined
+      ? current.allowedClientIds
+      : patch.allowedClientIds === null
+        ? null
+        : [...new Set(patch.allowedClientIds)];
+  const [row] = await db
+    .update(resourceGrants)
+    .set({
+      resourceId:
+        patch.resourceId === undefined ? current.resourceId : patch.resourceId,
+      planId: patch.planId ?? current.planId,
+      allowedClientIds,
+      expiresAt:
+        patch.expiresAt === undefined ? current.expiresAt : patch.expiresAt,
+    })
     .where(eq(resourceGrants.id, id))
     .returning();
   if (!row) throw ERR.RES_007();

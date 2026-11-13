@@ -11,6 +11,12 @@ export interface RedisClient {
   ): Promise<unknown>;
   incr(key: string): Promise<number>;
   pexpire(key: string, milliseconds: number): Promise<unknown>;
+  pttl(key: string): Promise<number>;
+  eval(
+    script: string,
+    numberOfKeys: number,
+    ...args: (string | number)[]
+  ): Promise<unknown>;
   del(key: string): Promise<unknown>;
   on(event: "error", listener: (err: unknown) => void): unknown;
   quit(): Promise<unknown>;

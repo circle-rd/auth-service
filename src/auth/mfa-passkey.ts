@@ -544,19 +544,19 @@ export function passkeySecondFactor(): BetterAuthPlugin {
           handler: createAuthMiddleware(async (ctx) => {
             const userId =
               ctx.context.session?.user.id ?? ctx.context.newSession?.user.id;
-            if (userId) {
-              await reconcileMfaFlag(userId);
-              await refreshUserSessionSnapshots(
-                ctx.context.internalAdapter,
-                userId,
-              );
-            }
             if (
               userId &&
               (ctx.path === "/passkey/delete-passkey" ||
                 ctx.path === "/two-factor/disable")
             ) {
               releaseUserLock(ctx);
+            }
+            if (userId) {
+              await reconcileMfaFlag(userId);
+              await refreshUserSessionSnapshots(
+                ctx.context.internalAdapter,
+                userId,
+              );
             }
           }),
         },

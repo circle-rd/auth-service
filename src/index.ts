@@ -22,6 +22,7 @@ import {
   assertResourceSyncReady,
   startResourceSync,
 } from "./services/resource-sharing/litellm-sync.js";
+import { closeRedisClient } from "./services/redis-client.js";
 import { startBillingMeterRetry } from "./services/billing/usage.js";
 import { ensureSigningKey } from "./compat/signing-keys.js";
 import { reconcileTokenAuthMethod } from "./compat/token-auth.js";
@@ -87,6 +88,27 @@ async function start(): Promise<void> {
   startLitellmReconciler();
   startResourceSync();
   startBillingMeterRetry();
+
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.once(signal, () => {
+      void (async () => {
+        try {
+          await fastify.close();
+        } catch (err) {
+          logger.error({ err }, "Failed to close the HTTP server");
+          process.exitCode = 1;
+        }
+        try {
+          await closeRedisClient();
+        } catch (err) {
+          logger.error({ err }, "Failed to close the Redis client");
+          process.exitCode = 1;
+        } finally {
+          process.exit();
+        }
+      })();
+    });
+  }
 }
 
 start().catch((err) => {

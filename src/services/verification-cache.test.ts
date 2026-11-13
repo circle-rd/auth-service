@@ -1,7 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { VerificationCache } from "./verification-cache.js";
 
 const fetcher = vi.fn();
+
+beforeEach(() => {
+  fetcher.mockClear();
+});
 
 async function tick(ms = 5): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -86,6 +90,30 @@ describe("VerificationCache", () => {
     cache.invalidate();
     await first;
     await cache.get();
+    expect(calls).toBe(2);
+  });
+
+  it("starts a new fetch instead of joining a pre-invalidation flight", async () => {
+    let calls = 0;
+    let resolveOld!: (value: number) => void;
+    const oldFetch = new Promise<number>((resolve) => {
+      resolveOld = resolve;
+    });
+    const cache = new VerificationCache<number>("test", 60_000, async () => {
+      calls += 1;
+      return calls === 1 ? oldFetch : 2;
+    });
+
+    const oldFlight = cache.get();
+    cache.invalidate();
+    await expect(cache.get()).resolves.toBe(2);
+    expect(calls).toBe(2);
+
+    // The old flight still settles for its original caller, but it must not
+    // replace the entry fetched after the invalidation.
+    resolveOld(1);
+    await expect(oldFlight).resolves.toBe(1);
+    await expect(cache.get()).resolves.toBe(2);
     expect(calls).toBe(2);
   });
 

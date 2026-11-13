@@ -51,18 +51,12 @@ const envSchema = z
       .enum(["development", "production", "test"])
       .default("development"),
     // Echo every Drizzle query to the console. A bench/diagnostic aid: verbose
-    // and statements may carry row values, so never enable it in production.
+    // and statements may carry row values, so production rejects it.
     LOG_SQL: envBoolean(false),
-    // In-process TTL caches for bearer-token verification (JWKS + audiences).
-    // Key rotation and resource changes propagate within the TTL; the
-    // unknown-kid retry picks up a fresh key set within one request. 0 disables
-    // a cache and makes every verification hit the database.
-    JWKS_CACHE_TTL_SECONDS: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(86_400)
-      .default(60),
+    // In-process TTL cache for the bearer-token audience list.
+    // Resource changes propagate within the TTL; the unknown-kid retry picks
+    // up a fresh key set within one request. 0 disables the cache and makes
+    // every verification hit the database.
     RESOURCE_CACHE_TTL_SECONDS: z.coerce
       .number()
       .int()
@@ -293,6 +287,14 @@ const envSchema = z
     APPLE_CLIENT_SECRET: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.NODE_ENV === "production" && data.LOG_SQL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOG_SQL"],
+        message:
+          "must not be enabled in production (query parameters may contain credentials)",
+      });
+    }
     if (data.TRUST_PROXY_HOPS !== undefined) {
       ctx.addIssue({
         code: "custom",

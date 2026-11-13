@@ -1,6 +1,7 @@
 import { APIError, type SecondaryStorage } from "better-auth";
 import { logger } from "../logger.js";
 import type { RedisClient } from "./redis-client.js";
+import { incrementWithTtl } from "./redis-counter.js";
 
 /**
  * Keys written by BetterAuth into `secondaryStorage` — raw session tokens and
@@ -40,14 +41,9 @@ export function createRedisSecondaryStorage(
     get: (key) => reachable(() => client.get(KEY_PREFIX + key)),
     getAndDelete: (key) => reachable(() => client.getdel(KEY_PREFIX + key)),
     increment: (key, ttlSeconds) =>
-      reachable(async () => {
-        const count = await client.incr(KEY_PREFIX + key);
-        // The window starts on creation only; later increments never extend it.
-        if (count === 1) {
-          await client.pexpire(KEY_PREFIX + key, ttlSeconds * 1000);
-        }
-        return count;
-      }),
+      reachable(() =>
+        incrementWithTtl(client, KEY_PREFIX + key, ttlSeconds * 1000),
+      ),
     set: (key, value, ttlSeconds) =>
       reachable(async () => {
         if (ttlSeconds && ttlSeconds > 0) {

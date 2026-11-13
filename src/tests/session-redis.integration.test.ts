@@ -12,41 +12,130 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
+import { createServer, connect, type Server } from "node:net";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { APIError } from "better-auth";
 import type { auth as AuthApi } from "../auth.js";
 import type { db as Db } from "../db/index.js";
 import type { user as UserTable } from "../db/auth-schema.js";
-import type { refreshUserSessionSnapshots as RefreshSnapshots } from "../services/session-snapshot.js";
+import type { RedisClient } from "../services/redis-client.js";
+import { incrementWithTtl } from "../services/redis-counter.js";
+import type {
+  mutateUserAndRefreshSnapshots as Mutate,
+  refreshUserSessionSnapshots as RefreshSnapshots,
+} from "../services/session-snapshot.js";
+
+interface RedisProxy {
+  url: string;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  close(): Promise<void>;
+}
 
 let redisContainer: StartedTestContainer;
+let proxy: RedisProxy;
 let auth: typeof AuthApi;
 let db: typeof Db;
 let userTable: typeof UserTable;
 let refreshUserSessionSnapshots: typeof RefreshSnapshots;
+let mutateUserAndRefreshSnapshots: typeof Mutate;
 let redisValue: (key: string) => Promise<string | null>;
+let redisClient: RedisClient;
+
+async function startRedisProxy(
+  targetHost: string,
+  targetPort: number,
+): Promise<RedisProxy> {
+  const sockets = new Set<ReturnType<typeof connect>>();
+  let server: Server | null = null;
+  let port = 0;
+
+  const listen = (): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const next = createServer((client) => {
+        const upstream = connect(targetPort, targetHost);
+        sockets.add(client);
+        sockets.add(upstream);
+        const close = (): void => {
+          sockets.delete(client);
+          sockets.delete(upstream);
+          client.destroy();
+          upstream.destroy();
+        };
+        client.on("error", close);
+        upstream.on("error", close);
+        client.on("close", close);
+        upstream.on("close", close);
+        client.pipe(upstream);
+        upstream.pipe(client);
+      });
+      next.once("error", reject);
+      next.listen(port, "127.0.0.1", () => {
+        const address = next.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("proxy did not bind a TCP port"));
+          return;
+        }
+        port = address.port;
+        server = next;
+        resolve();
+      });
+    });
+
+  await listen();
+  return {
+    get url() {
+      return `redis://127.0.0.1:${port}`;
+    },
+    async pause() {
+      for (const socket of sockets) socket.destroy();
+      sockets.clear();
+      const current = server;
+      server = null;
+      if (current) {
+        await new Promise<void>((resolve) => current.close(() => resolve()));
+      }
+    },
+    async resume() {
+      await listen();
+    },
+    async close() {
+      for (const socket of sockets) socket.destroy();
+      sockets.clear();
+      const current = server;
+      server = null;
+      if (current) {
+        await new Promise<void>((resolve) => current.close(() => resolve()));
+      }
+    },
+  };
+}
 
 beforeAll(async () => {
   redisContainer = await new GenericContainer("redis:7-alpine")
     .withExposedPorts(6379)
     .start();
-  const url = `redis://${redisContainer.getHost()}:${redisContainer.getMappedPort(6379)}`;
-  process.env.REDIS_URL = url;
+  proxy = await startRedisProxy(
+    redisContainer.getHost(),
+    redisContainer.getMappedPort(6379),
+  );
+  process.env.REDIS_URL = proxy.url;
 
   ({ auth } = await import("../auth.js"));
   ({ db } = await import("../db/index.js"));
   ({ user: userTable } = await import("../db/auth-schema.js"));
-  ({ refreshUserSessionSnapshots } = await import(
-    "../services/session-snapshot.js"
-  ));
+  ({ refreshUserSessionSnapshots, mutateUserAndRefreshSnapshots } =
+    await import("../services/session-snapshot.js"));
   const { getRedisClient } = await import("../services/redis-client.js");
-  const client = await getRedisClient(url);
-  redisValue = (key) => client.get(key);
+  redisClient = await getRedisClient(proxy.url);
+  redisValue = (key) => redisClient.get(key);
 }, 120_000);
 
 afterAll(async () => {
   const { closeRedisClient } = await import("../services/redis-client.js");
   await closeRedisClient();
+  await proxy?.close();
   await redisContainer?.stop();
   delete process.env.REDIS_URL;
 });
@@ -64,6 +153,53 @@ async function createUser(label: string): Promise<string> {
   });
   return id;
 }
+
+async function waitForRedis<T>(operation: () => Promise<T>): Promise<T> {
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    try {
+      return await operation();
+    } catch (err) {
+      if (Date.now() > deadline) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
+describe("atomic counter on Redis", () => {
+  const keyFor = (label: string) => `counter-${label}-${randomUUID()}`;
+
+  it("creates a new key together with its window", async () => {
+    const key = keyFor("new");
+    await expect(incrementWithTtl(redisClient, key, 60_000)).resolves.toBe(1);
+    const ttl = await redisClient.pttl(key);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(60_000);
+  });
+
+  it("preserves the existing window on later increments", async () => {
+    const key = keyFor("existing");
+    await expect(incrementWithTtl(redisClient, key, 10_000)).resolves.toBe(1);
+    const firstTtl = await redisClient.pttl(key);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await expect(incrementWithTtl(redisClient, key, 10_000)).resolves.toBe(2);
+    const secondTtl = await redisClient.pttl(key);
+    expect(secondTtl).toBeGreaterThan(0);
+    expect(secondTtl).toBeLessThan(firstTtl);
+  });
+
+  it("arms a legacy key that exists without an expiry", async () => {
+    const key = keyFor("legacy");
+    await redisClient.set(key, "5");
+    await expect(redisClient.pttl(key)).resolves.toBe(-1);
+
+    await expect(incrementWithTtl(redisClient, key, 30_000)).resolves.toBe(6);
+    const ttl = await redisClient.pttl(key);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(30_000);
+  });
+});
 
 describe("session mirror on Redis", () => {
   it("stores the session copy under the auth namespace", async () => {
@@ -133,6 +269,97 @@ describe("session mirror on Redis", () => {
       (await ctx.internalAdapter.findSession(session!.token))?.user.banned,
     ).toBe(true);
   });
+
+  it("refuses a role/verification demotion while Redis is down instead of committing a stale snapshot", async () => {
+    const ctx = await auth.$context;
+    const userId = await createUser("mutation-outage");
+    await db
+      .update(userTable)
+      .set({ role: "admin" })
+      .where(eq(userTable.id, userId));
+    const session = await ctx.internalAdapter.createSession(userId, false);
+    expect(
+      (await ctx.internalAdapter.findSession(session!.token))?.user,
+    ).toMatchObject({ role: "admin", emailVerified: true });
+
+    await proxy.pause();
+    const err = await mutateUserAndRefreshSnapshots(
+      ctx.internalAdapter,
+      userId,
+      async (tx) => {
+        await tx
+          .update(userTable)
+          .set({ role: "user", emailVerified: false })
+          .where(eq(userTable.id, userId));
+      },
+    ).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    expect(err).toBeInstanceOf(APIError);
+    expect((err as APIError).statusCode).toBe(503);
+
+    // The mutation is rolled back: a demotion the snapshot refresh could not
+    // publish never reaches the database, so the admin can retry safely.
+    const [row] = await db
+      .select({
+        role: userTable.role,
+        emailVerified: userTable.emailVerified,
+      })
+      .from(userTable)
+      .where(eq(userTable.id, userId));
+    expect(row).toMatchObject({ role: "admin", emailVerified: true });
+
+    await proxy.resume();
+    const restored = await waitForRedis(() =>
+      ctx.internalAdapter.findSession(session!.token),
+    );
+    expect(restored?.user).toMatchObject({
+      role: "admin",
+      emailVerified: true,
+    });
+  }, 60_000);
+
+  it("serialises concurrent snapshot refreshes to the committed row", async () => {
+    const ctx = await auth.$context;
+    const userId = await createUser("concurrent");
+    const session = await ctx.internalAdapter.createSession(userId, false);
+
+    const setRole = (role: string) =>
+      mutateUserAndRefreshSnapshots(
+        ctx.internalAdapter,
+        userId,
+        async (tx) => {
+          await tx
+            .update(userTable)
+            .set({ role })
+            .where(eq(userTable.id, userId));
+        },
+      );
+    await Promise.all([setRole("admin"), setRole("user")]);
+
+    const [row] = await db
+      .select({ role: userTable.role })
+      .from(userTable)
+      .where(eq(userTable.id, userId));
+    const live = await ctx.internalAdapter.findSession(session!.token);
+    expect(live?.user.role).toBe(row!.role);
+  }, 60_000);
+
+  it("keeps the shared Redis session store alive across server rebuilds", async () => {
+    const { buildServer } = await import("../server.js");
+    const ctx = await auth.$context;
+    const userId = await createUser("rebuild");
+    const session = await ctx.internalAdapter.createSession(userId, false);
+
+    const first = await buildServer();
+    await first.close();
+    expect(await ctx.internalAdapter.findSession(session!.token)).not.toBeNull();
+
+    const second = await buildServer();
+    expect(await ctx.internalAdapter.findSession(session!.token)).not.toBeNull();
+    await second.close();
+  }, 60_000);
 
   it("answers 503 SRV_002 when Redis is unreachable, and grants nothing", async () => {
     const ctx = await auth.$context;

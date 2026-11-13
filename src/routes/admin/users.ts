@@ -24,7 +24,10 @@ import { and, count, desc, eq, inArray, like, max, or, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { auth } from "../../auth.js";
 import { isMailConfigured } from "../../services/mail/index.js";
-import { refreshUserSessionSnapshots } from "../../services/session-snapshot.js";
+import {
+  mutateUserAndRefreshSnapshots,
+  refreshUserSessionSnapshots,
+} from "../../services/session-snapshot.js";
 import { revokeUserSessionsAndTokens } from "../../services/session-revocation.js";
 import {
   getActorUserId,
@@ -372,51 +375,59 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // Never allow the last superadmin to be demoted — that would lock the
     // platform out of its highest privilege level. The count is enforced in the
     // same statement as the update so concurrent demotions cannot both pass.
-    if (role) {
-      // Direct DB update — set-role was removed from admin's BetterAuth permissions
-      // to prevent native API abuse; all role changes go through this controlled path.
-      if (targetRole === "superadmin") {
-        const demoted = await db
-          .update(userTable)
-          .set({ role })
-          .where(
-            and(
-              eq(userTable.id, req.params.id),
-              sql`(SELECT count(*) FROM ${userTable} WHERE ${userTable.role} = 'superadmin') > 1`,
-            ),
-          )
-          .returning({ id: userTable.id });
-        if (demoted.length === 0) throw ERR.USR_002();
-      } else {
-        await db
-          .update(userTable)
-          .set({ role })
-          .where(eq(userTable.id, req.params.id));
-      }
-    }
-
     const profileChanged = hasProfileChanges(parsed.data);
+    const changed =
+      role !== undefined || profileChanged || isMfaRequired !== undefined;
 
-    if (profileChanged || isMfaRequired !== undefined) {
-      await db
-        .update(userTable)
-        .set({
-          ...profileUpdateSet(parsed.data),
-          ...(isMfaRequired !== undefined ? { isMfaRequired } : {}),
-          updatedAt: new Date(),
-        })
-        .where(eq(userTable.id, req.params.id));
+    if (changed) {
+      const adapter = (await auth.$context).internalAdapter;
+      await mutateUserAndRefreshSnapshots(
+        adapter,
+        req.params.id,
+        async (tx) => {
+          if (role) {
+            // Direct DB update — set-role was removed from admin's BetterAuth
+            // permissions to prevent native API abuse; all role changes go
+            // through this controlled path.
+            if (targetRole === "superadmin") {
+              const demoted = await tx
+                .update(userTable)
+                .set({ role })
+                .where(
+                  and(
+                    eq(userTable.id, req.params.id),
+                    sql`(SELECT count(*) FROM ${userTable} WHERE ${userTable.role} = 'superadmin') > 1`,
+                  ),
+                )
+                .returning({ id: userTable.id });
+              if (demoted.length === 0) throw ERR.USR_002();
+            } else {
+              await tx
+                .update(userTable)
+                .set({ role })
+                .where(eq(userTable.id, req.params.id));
+            }
+          }
+
+          if (profileChanged || isMfaRequired !== undefined) {
+            await tx
+              .update(userTable)
+              .set({
+                ...profileUpdateSet(parsed.data),
+                ...(isMfaRequired !== undefined ? { isMfaRequired } : {}),
+                updatedAt: new Date(),
+              })
+              .where(eq(userTable.id, req.params.id));
+          }
+        },
+      );
     }
 
     // One announcement per completed request, and only when something was
     // actually written: an empty PATCH is not a change. The role change and the
     // profile change above are one edit of one user as far as the admin screen
     // is concerned.
-    if (role !== undefined || profileChanged || isMfaRequired !== undefined) {
-      await refreshUserSessionSnapshots(
-        (await auth.$context).internalAdapter,
-        req.params.id,
-      );
+    if (changed) {
       publishEvent("user.changed");
     }
     if (profileChanged) {
@@ -682,13 +693,16 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
 
       // Re-sending also reverts the account to unverified: the new link must
       // prove ownership again, exactly like a fresh sign-up.
-      await db
-        .update(userTable)
-        .set({ emailVerified: false })
-        .where(eq(userTable.id, req.params.id));
-      await refreshUserSessionSnapshots(
-        (await auth.$context).internalAdapter,
+      const adapter = (await auth.$context).internalAdapter;
+      await mutateUserAndRefreshSnapshots(
+        adapter,
         req.params.id,
+        async (tx) => {
+          await tx
+            .update(userTable)
+            .set({ emailVerified: false })
+            .where(eq(userTable.id, req.params.id));
+        },
       );
 
       // No session: BetterAuth only allows a mismatched target address on the
@@ -699,16 +713,22 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         });
       } catch (err) {
         // Do not leave a previously-verified account locked out (with
-        // REQUIRE_EMAIL_VERIFICATION) when the send fails.
+        // REQUIRE_EMAIL_VERIFICATION) when the send fails. The flag restore is
+        // a plain DB write so a Redis outage cannot roll it back and mask the
+        // original mail error; the mirror refresh is best-effort.
         if (targetRow.emailVerified) {
-          await db
-            .update(userTable)
-            .set({ emailVerified: true })
-            .where(eq(userTable.id, req.params.id));
-          await refreshUserSessionSnapshots(
-            (await auth.$context).internalAdapter,
-            req.params.id,
-          );
+          try {
+            await db
+              .update(userTable)
+              .set({ emailVerified: true })
+              .where(eq(userTable.id, req.params.id));
+            await refreshUserSessionSnapshots(adapter, req.params.id);
+          } catch (revertErr) {
+            req.log.error(
+              { err: revertErr },
+              "failed to restore email verification after a failed send",
+            );
+          }
         }
         throw err;
       }
@@ -733,13 +753,15 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         throw ERR.AUTH_011("Insufficient permissions to verify this user");
       }
 
-      await db
-        .update(userTable)
-        .set({ emailVerified: true })
-        .where(eq(userTable.id, req.params.id));
-      await refreshUserSessionSnapshots(
+      await mutateUserAndRefreshSnapshots(
         (await auth.$context).internalAdapter,
         req.params.id,
+        async (tx) => {
+          await tx
+            .update(userTable)
+            .set({ emailVerified: true })
+            .where(eq(userTable.id, req.params.id));
+        },
       );
       publishEvent("user.changed");
       await reply.send({ ok: true });

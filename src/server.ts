@@ -74,7 +74,6 @@ import {
   renderAuthPage,
   type PageName,
 } from "./services/templates.js";
-import { closeRedisClient } from "./services/redis-client.js";
 import { createRateLimitStore } from "./services/rate-limit-store.js";
 import { createEventBus, setEventBus } from "./services/event-bus.js";
 import {
@@ -270,7 +269,6 @@ export async function buildServer(
   const rateLimitStore = await createRateLimitStore(config.redis.url);
   fastify.addHook("onClose", async () => {
     await rateLimitStore.close();
-    await closeRedisClient();
   });
 
   // ── Admin event bus ─────────────────────────────────────────────

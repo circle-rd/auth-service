@@ -7,9 +7,20 @@ function fakeClient() {
   return {
     get: vi.fn<(key: string) => Promise<string | null>>(async () => "value"),
     getdel: vi.fn<(key: string) => Promise<string | null>>(async () => "value"),
-    set: vi.fn(async () => "OK"),
-    incr: vi.fn<(key: string) => Promise<number>>(async () => 1),
-    pexpire: vi.fn(async () => 1),
+    set: vi.fn<
+      (
+        key: string,
+        value: string,
+        ...args: (string | number)[]
+      ) => Promise<unknown>
+    >(async () => "OK"),
+    eval: vi.fn<
+      (
+        script: string,
+        numberOfKeys: number,
+        ...args: (string | number)[]
+      ) => Promise<unknown>
+    >(async () => 1),
     del: vi.fn(async () => 1),
     on: vi.fn(),
     quit: vi.fn(async () => "OK"),
@@ -53,19 +64,43 @@ describe("createRedisSecondaryStorage", () => {
     expect(client.set).toHaveBeenNthCalledWith(3, "auth:session:token-b", "v");
   });
 
-  it("starts the window on the first increment only", async () => {
+  it("increments and arms the TTL in one atomic script", async () => {
     const client = fakeClient();
     const storage = createRedisSecondaryStorage(
       client as unknown as RedisClient,
     );
 
-    client.incr.mockResolvedValueOnce(1);
     await expect(storage.increment("rl", 60)).resolves.toBe(1);
-    expect(client.pexpire).toHaveBeenCalledWith("auth:session:rl", 60_000);
 
-    client.incr.mockResolvedValueOnce(2);
-    await expect(storage.increment("rl", 60)).resolves.toBe(2);
-    expect(client.pexpire).toHaveBeenCalledTimes(1);
+    const [script, numberOfKeys, key, ttlMs] = client.eval.mock.calls[0]!;
+    expect(script).toContain("INCR");
+    expect(script).toContain("PEXPIRE");
+    expect(numberOfKeys).toBe(1);
+    expect(key).toBe("auth:session:rl");
+    expect(ttlMs).toBe(60_000);
+  });
+
+  it("returns the counter value reported by the script", async () => {
+    const client = fakeClient();
+    client.eval.mockResolvedValueOnce(7);
+    const storage = createRedisSecondaryStorage(
+      client as unknown as RedisClient,
+    );
+
+    await expect(storage.increment("rl", 60)).resolves.toBe(7);
+    expect(client.eval).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers an increment failure with a 503 SRV_002 API error", async () => {
+    const client = fakeClient();
+    client.eval.mockRejectedValueOnce(new Error("ECONNRESET"));
+    const storage = createRedisSecondaryStorage(
+      client as unknown as RedisClient,
+    );
+
+    await expect(storage.increment("rl", 60)).rejects.toMatchObject({
+      statusCode: 503,
+    });
   });
 
   it("answers a Redis failure with a 503 SRV_002 API error", async () => {

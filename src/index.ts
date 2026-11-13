@@ -17,7 +17,7 @@ import { applications } from "./db/schema.js";
 import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
-import { startLitellmReconciler } from "./services/litellm-sync.js";
+import { gatewayUrl, startLitellmReconciler } from "./services/litellm-sync.js";
 import {
   assertResourceSyncReady,
   startResourceSync,
@@ -43,7 +43,7 @@ async function start(): Promise<void> {
   }
 
   const fastify = await buildServer();
-  assertResourceSyncReady();
+  if ((await gatewayUrl()) !== null) assertResourceSyncReady();
 
   // ── Verify outbound mail transport ────────────────────────────────────
   // In production a failed SMTP check is fatal: every email-dependent flow

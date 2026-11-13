@@ -76,13 +76,19 @@ const payload = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-type VerifyOpts = { jwksFetch?: () => Promise<unknown> };
+type VerifyOpts = {
+  jwksFetch?: () => Promise<unknown>;
+  verifyOptions?: { audience?: string[] };
+};
 
 // The real BetterAuth verifier fetches the key set on every call (its own
-// process-level cache sits behind the mock), so the mock must do the same.
+// process-level cache sits behind the mock) and rejects a token whose audience
+// is not admitted by `verifyOptions.audience`.
 const signedSucceeds = (): void => {
   verifyImpl.mockImplementation(async (_token: unknown, opts?: VerifyOpts) => {
     await opts?.jwksFetch?.();
+    const audience = opts?.verifyOptions?.audience ?? [];
+    expect(audience).toContain(RESOURCE.identifier);
     return payload();
   });
 };
@@ -125,6 +131,28 @@ describe("verifyBearerAccessToken audience caching", () => {
     await verifyBearerAccessToken("tok.a.jwt");
     await verifyBearerAccessToken("tok.a.jwt");
     expect(callsFor("resources")).toBe(1);
+  });
+
+  it("passes the accepted audiences to the verifier", async () => {
+    await verifyBearerAccessToken("tok.a.jwt");
+
+    const [, opts] = verifyImpl.mock.calls[0] as [unknown, VerifyOpts];
+    expect(opts.verifyOptions?.audience).toContain(RESOURCE.identifier);
+  });
+
+  it("rejects a token whose audience is not in the cached list", async () => {
+    verifyImpl.mockImplementation(
+      async (_token: unknown, opts?: VerifyOpts) => {
+        const accepted = opts?.verifyOptions?.audience ?? [];
+        const audience = ["https://other.example"];
+        if (audience.some((value) => !accepted.includes(value))) {
+          throw new Error("audience mismatch");
+        }
+        return payload({ aud: audience });
+      },
+    );
+
+    await expect(verifyBearerAccessToken("tok.a.jwt")).resolves.toBeNull();
   });
 
   it("still treats opaque tokens live and fails closed on DB misses", async () => {

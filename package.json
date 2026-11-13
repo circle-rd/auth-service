@@ -41,6 +41,7 @@
         "migrate:auth0": "tsx src/scripts/migrate.ts auth0",
         "migrate:keycloak": "tsx src/scripts/migrate.ts keycloak",
         "lint": "eslint .",
+        "bench": "tsx bench/bench.ts",
         "lint:fix": "eslint . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check .",

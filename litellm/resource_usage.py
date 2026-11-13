@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import time
 import uuid
@@ -128,7 +129,9 @@ def _usage_values(payload: Mapping[str, Any], resource_type: str, failed: bool):
     total = payload.get("total_tokens")
     prompt = payload.get("prompt_tokens")
     completion = payload.get("completion_tokens")
-    has_cost = isinstance(cost, (int, float)) and cost > 0
+    has_cost = (
+        isinstance(cost, (int, float)) and math.isfinite(cost) and cost > 0
+    )
     has_tokens = isinstance(total, int) and total > 0
     has_usage = has_cost or has_tokens
 
@@ -241,6 +244,8 @@ class ResourceUsageLogger(CustomLogger):
         self._token_lock = asyncio.Lock()
         self._retry_task: asyncio.Task[None] | None = None
         self._directories_ready = False
+        if not RESOURCE_SHARING_ENABLED:
+            return
         try:
             asyncio.get_running_loop()
             self._ensure_retry_loop()

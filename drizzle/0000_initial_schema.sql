@@ -236,6 +236,37 @@ CREATE TABLE "subscription_plans" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "usage_record" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"subject_id" text NOT NULL,
+	"client_id" text NOT NULL,
+	"owner_application_id" uuid NOT NULL,
+	"resource_id" uuid NOT NULL,
+	"resource_type" text NOT NULL,
+	"resource_key" text NOT NULL,
+	"plan_id" uuid NOT NULL,
+	"request_id" text NOT NULL,
+	"prompt_tokens" bigint,
+	"completion_tokens" bigint,
+	"total_tokens" bigint,
+	"cost_usd" numeric,
+	"usage_source" text DEFAULT 'provider' NOT NULL,
+	"occurred_at" timestamp with time zone NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "usage_record_type_check" CHECK ("usage_record"."resource_type" IN ('model', 'workflow', 'mcp_agent', 'https_endpoint')),
+	CONSTRAINT "usage_record_source_check" CHECK ("usage_record"."usage_source" IN ('provider', 'unsupported')),
+	CONSTRAINT "usage_record_tokens_check" CHECK (("usage_record"."prompt_tokens" IS NULL OR "usage_record"."prompt_tokens" >= 0)
+        AND ("usage_record"."completion_tokens" IS NULL OR "usage_record"."completion_tokens" >= 0)
+        AND ("usage_record"."total_tokens" IS NULL OR "usage_record"."total_tokens" >= 0)),
+	CONSTRAINT "usage_record_cost_check" CHECK ("usage_record"."cost_usd" IS NULL OR "usage_record"."cost_usd" >= 0),
+	CONSTRAINT "usage_record_unsupported_check" CHECK ("usage_record"."usage_source" <> 'unsupported' OR (
+        "usage_record"."cost_usd" IS NULL
+        AND "usage_record"."prompt_tokens" IS NULL
+        AND "usage_record"."completion_tokens" IS NULL
+        AND "usage_record"."total_tokens" IS NULL
+      ))
+);
+--> statement-breakpoint
 CREATE TABLE "user_app_roles" (
 	"user_id" text NOT NULL,
 	"application_id" uuid NOT NULL,
@@ -634,6 +665,9 @@ ALTER TABLE "shared_resource" ADD CONSTRAINT "shared_resource_default_plan_id_su
 ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plan_prices" ADD CONSTRAINT "subscription_plan_prices_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plans" ADD CONSTRAINT "subscription_plans_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "usage_record" ADD CONSTRAINT "usage_record_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "usage_record" ADD CONSTRAINT "usage_record_resource_id_shared_resource_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."shared_resource"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "usage_record" ADD CONSTRAINT "usage_record_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_applications" ADD CONSTRAINT "user_applications_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -693,6 +727,10 @@ CREATE UNIQUE INDEX "stripe_invoices_stripe_idx" ON "stripe_invoices" USING btre
 CREATE INDEX "stripe_invoices_owner_idx" ON "stripe_invoices" USING btree ("user_id","application_id","stripe_created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plan_prices_plan_feature_idx" ON "subscription_plan_prices" USING btree ("plan_id","feature_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
+CREATE UNIQUE INDEX "usage_record_resource_request_idx" ON "usage_record" USING btree ("resource_id","request_id");--> statement-breakpoint
+CREATE INDEX "usage_record_owner_occurred_idx" ON "usage_record" USING btree ("owner_application_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "usage_record_owner_subject_occurred_idx" ON "usage_record" USING btree ("owner_application_id","subject_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "usage_record_owner_resource_occurred_idx" ON "usage_record" USING btree ("owner_application_id","resource_id","occurred_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_user_app_created_idx" ON "user_subscription_events" USING btree ("user_id","application_id","created_at");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_app_created_idx" ON "user_subscription_events" USING btree ("application_id","created_at");--> statement-breakpoint

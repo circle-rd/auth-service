@@ -14,7 +14,7 @@ export interface AccessibleResource {
 }
 
 export async function listAccessibleResources(
-  input: AuthorizeInput,
+  input: Omit<AuthorizeInput, "key">,
 ): Promise<AccessibleResource[]> {
   const candidates = await listPublishedResourcesByType(input.resourceType);
   const accessible: AccessibleResource[] = [];

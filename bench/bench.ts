@@ -51,6 +51,7 @@ interface Stats {
 interface MachineCredentials {
   slug: string;
   secret: string;
+  resource: string;
   userId: string;
 }
 
@@ -343,6 +344,10 @@ async function seedInstance(target: string): Promise<Seed> {
       description: "bench, safe to delete",
       isPublic: false,
       skipConsent: true,
+      // Registering the instance URL as the application's protected resource
+      // makes client_credentials tokens RFC 8707 JWTs — the same shape the
+      // LiteLLM gateway verifies in production.
+      url: target,
     }),
   });
   if (create.status !== 200 && create.status !== 201) {
@@ -378,6 +383,7 @@ async function seedInstance(target: string): Promise<Seed> {
     machine: {
       slug: created.clientId,
       secret: created.clientSecret,
+      resource: target,
       userId: session.user.id,
     },
   };
@@ -489,7 +495,7 @@ async function issueMachineToken(
       "content-type": "application/x-www-form-urlencoded",
       origin: target,
     },
-    body: "grant_type=client_credentials",
+    body: `grant_type=client_credentials&resource=${encodeURIComponent(machine.resource)}`,
   });
   if (res.status !== 200) throw new Error(`token grant failed (${res.status})`);
   const body = JSON.parse(res.body) as { access_token: string };

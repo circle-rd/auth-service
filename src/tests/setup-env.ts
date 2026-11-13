@@ -26,6 +26,9 @@ process.env.EMAIL_OTP_ENABLED = "true";
 // Gate session issuance on verified email so the verification flow can be
 // exercised end-to-end (sign-up returns no session; user must click the link).
 process.env.REQUIRE_EMAIL_VERIFICATION = "true";
+// Mount the resource-sharing gateway routes for the integration suite. Unit
+// tests leave the flag unset, so they exercise the flag-off default.
+process.env.RESOURCE_SHARING_ENABLED = "true";
 
 // Fake credentials so the GitHub provider is mounted regardless of the
 // developer's local `.env` (CI has none). The OAuth flow is never completed.

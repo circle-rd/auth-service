@@ -50,6 +50,7 @@ import { userRoutes } from "./routes/user.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
+import { gatewayResourceRoutes } from "./routes/gateway-resources.js";
 import { appBillingRoutes } from "./routes/app-billing.js";
 import { appConsumptionRoutes } from "./routes/app-consumption.js";
 import { billingPageRoutes } from "./routes/billing-pages.js";
@@ -797,6 +798,11 @@ export async function buildServer(
   await fastify.register(gatewayInternalRoutes, {
     prefix: "/api/internal/gateway",
   });
+  if (config.features.resourceSharing) {
+    await fastify.register(gatewayResourceRoutes, {
+      prefix: "/api/internal/gateway",
+    });
+  }
   await fastify.register(appBillingRoutes, { prefix: "/api/app/billing" });
   await fastify.register(appConsumptionRoutes, {
     prefix: "/api/app/consumption",

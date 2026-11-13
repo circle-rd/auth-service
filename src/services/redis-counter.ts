@@ -19,10 +19,10 @@ export async function incrementWithTtl(
   key: string,
   ttlMs: number,
 ): Promise<number> {
-  return (await client.eval(
-    INCREMENT_WITH_TTL,
-    1,
-    key,
-    Math.max(1, Math.floor(ttlMs)),
-  )) as number;
+  if (!Number.isInteger(ttlMs) || ttlMs <= 0) {
+    throw new RangeError(
+      `incrementWithTtl: ttlMs must be a positive integer, received ${ttlMs}`,
+    );
+  }
+  return (await client.eval(INCREMENT_WITH_TTL, 1, key, ttlMs)) as number;
 }

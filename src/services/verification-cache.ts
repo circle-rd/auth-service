@@ -17,7 +17,7 @@ export class VerificationCache<T> {
     freshUntil: number;
     generation: number;
   } | null = null;
-  private inflight: Promise<T> | null = null;
+  private inflight: { generation: number; promise: Promise<T> } | null = null;
   private generation = 0;
   private lastForcedAt = 0;
 
@@ -40,24 +40,30 @@ export class VerificationCache<T> {
     // The generation is captured when the fetch starts: a flight that raced
     // an invalidation stays stale even though it lands afterwards.
     const generation = this.generation;
-    this.inflight ??= this.fetch().then(
+    if (this.inflight?.generation === generation) {
+      return this.inflight.promise;
+    }
+    const promise = this.fetch().then(
       (value) => {
-        this.entry = {
-          value,
-          fetchedAt: Date.now(),
-          // A zero TTL disables caching: the entry never counts as fresh.
-          freshUntil: this.ttlMs > 0 ? Date.now() + this.ttlMs : 0,
-          generation,
-        };
-        this.inflight = null;
+        if (generation === this.generation) {
+          this.entry = {
+            value,
+            fetchedAt: Date.now(),
+            // A zero TTL disables caching: the entry never counts as fresh.
+            freshUntil: this.ttlMs > 0 ? Date.now() + this.ttlMs : 0,
+            generation,
+          };
+        }
+        if (this.inflight?.promise === promise) this.inflight = null;
         return value;
       },
       (err: unknown) => {
-        this.inflight = null;
+        if (this.inflight?.promise === promise) this.inflight = null;
         throw err;
       },
     );
-    return this.inflight;
+    this.inflight = { generation, promise };
+    return promise;
   }
 
   /** Drop the entry; the next `get` refetches from the source. */

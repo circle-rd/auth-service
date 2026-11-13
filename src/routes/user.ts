@@ -27,7 +27,7 @@ import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
-import { refreshUserSessionSnapshots } from "../services/session-snapshot.js";
+import { mutateUserAndRefreshSnapshots } from "../services/session-snapshot.js";
 import { revokeOtherUserRefreshTokens } from "../services/oauth-tokens.js";
 import {
   createBillingPortalUrl,
@@ -497,16 +497,18 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       throw ERR.USR_003("Invalid profile data", parsed.error.flatten());
     }
 
-    await db
-      .update(userTable)
-      .set({
-        ...profileUpdateSet(parsed.data),
-        updatedAt: new Date(),
-      })
-      .where(eq(userTable.id, userId));
-    await refreshUserSessionSnapshots(
+    await mutateUserAndRefreshSnapshots(
       (await auth.$context).internalAdapter,
       userId,
+      async (tx) => {
+        await tx
+          .update(userTable)
+          .set({
+            ...profileUpdateSet(parsed.data),
+            updatedAt: new Date(),
+          })
+          .where(eq(userTable.id, userId));
+      },
     );
 
     // A self-service profile edit is a user write like any other: the admin user

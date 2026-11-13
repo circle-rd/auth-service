@@ -41,10 +41,21 @@ export function createRedisSecondaryStorage(
     getAndDelete: (key) => reachable(() => client.getdel(KEY_PREFIX + key)),
     increment: (key, ttlSeconds) =>
       reachable(async () => {
-        const count = await client.incr(KEY_PREFIX + key);
-        // The window starts on creation only; later increments never extend it.
+        const namespaced = KEY_PREFIX + key;
+        const ttlMs = Math.max(1, Math.floor(ttlSeconds * 1000));
+        // Create the counter with its TTL in one command. A lost expiry can no
+        // longer leave a permanent key behind.
+        const created = await client.set(namespaced, "1", "PX", ttlMs, "NX");
+        if (created !== null) return 1;
+        const count = await client.incr(namespaced);
+        // The key can expire between SET NX and INCR; only then re-arm it.
         if (count === 1) {
-          await client.pexpire(KEY_PREFIX + key, ttlSeconds * 1000);
+          try {
+            await client.pexpire(namespaced, ttlMs);
+          } catch (err) {
+            await client.del(namespaced).catch(() => {});
+            throw err;
+          }
         }
         return count;
       }),

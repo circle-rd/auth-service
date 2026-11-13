@@ -1,18 +1,39 @@
 import { describe, expect, it, vi } from "vitest";
 import { refreshUserSessionSnapshots } from "./session-snapshot.js";
 
+const user = {
+  id: "user-1",
+  name: "User One",
+  email: "user-1@example.com",
+  emailVerified: true,
+  image: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
 describe("refreshUserSessionSnapshots", () => {
-  it("writes the user through the adapter so live session copies are refreshed", async () => {
-    const updateUser = vi.fn(async () => undefined);
+  it("refreshes live session copies without running user update hooks", async () => {
+    const findUserById = vi.fn(async () => user);
+    const refreshUserSessions = vi.fn(async () => undefined);
 
-    await refreshUserSessionSnapshots({ updateUser }, "user-1");
+    await refreshUserSessionSnapshots(
+      { findUserById, refreshUserSessions },
+      "user-1",
+    );
 
-    expect(updateUser).toHaveBeenCalledTimes(1);
-    const [id, data] = updateUser.mock.calls[0] as unknown as [
-      string,
-      Record<string, unknown>,
-    ];
-    expect(id).toBe("user-1");
-    expect(data.updatedAt).toBeInstanceOf(Date);
+    expect(findUserById).toHaveBeenCalledWith("user-1");
+    expect(refreshUserSessions).toHaveBeenCalledWith(user);
+  });
+
+  it("fails when the user no longer exists", async () => {
+    const refreshUserSessions = vi.fn(async () => undefined);
+
+    await expect(
+      refreshUserSessionSnapshots(
+        { findUserById: async () => null, refreshUserSessions },
+        "missing",
+      ),
+    ).rejects.toThrow(/missing user/);
+    expect(refreshUserSessions).not.toHaveBeenCalled();
   });
 });

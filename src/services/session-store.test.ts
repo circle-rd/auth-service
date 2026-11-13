@@ -7,7 +7,13 @@ function fakeClient() {
   return {
     get: vi.fn<(key: string) => Promise<string | null>>(async () => "value"),
     getdel: vi.fn<(key: string) => Promise<string | null>>(async () => "value"),
-    set: vi.fn(async () => "OK"),
+    set: vi.fn<
+      (
+        key: string,
+        value: string,
+        ...args: (string | number)[]
+      ) => Promise<unknown>
+    >(async () => "OK"),
     incr: vi.fn<(key: string) => Promise<number>>(async () => 1),
     pexpire: vi.fn(async () => 1),
     del: vi.fn(async () => 1),
@@ -53,19 +59,64 @@ describe("createRedisSecondaryStorage", () => {
     expect(client.set).toHaveBeenNthCalledWith(3, "auth:session:token-b", "v");
   });
 
-  it("starts the window on the first increment only", async () => {
+  it("creates the counter with its expiry atomically", async () => {
     const client = fakeClient();
     const storage = createRedisSecondaryStorage(
       client as unknown as RedisClient,
     );
 
+    await expect(storage.increment("rl", 60)).resolves.toBe(1);
+
+    expect(client.set).toHaveBeenCalledWith(
+      "auth:session:rl",
+      "1",
+      "PX",
+      60_000,
+      "NX",
+    );
+    expect(client.incr).not.toHaveBeenCalled();
+    expect(client.pexpire).not.toHaveBeenCalled();
+  });
+
+  it("increments an existing counter without extending its window", async () => {
+    const client = fakeClient();
+    client.set.mockResolvedValueOnce(null);
+    client.incr.mockResolvedValueOnce(2);
+    const storage = createRedisSecondaryStorage(
+      client as unknown as RedisClient,
+    );
+
+    await expect(storage.increment("rl", 60)).resolves.toBe(2);
+
+    expect(client.incr).toHaveBeenCalledWith("auth:session:rl");
+    expect(client.pexpire).not.toHaveBeenCalled();
+  });
+
+  it("re-arms the expiry when the key expires between SET NX and INCR", async () => {
+    const client = fakeClient();
+    client.set.mockResolvedValueOnce(null);
     client.incr.mockResolvedValueOnce(1);
+    const storage = createRedisSecondaryStorage(
+      client as unknown as RedisClient,
+    );
+
     await expect(storage.increment("rl", 60)).resolves.toBe(1);
     expect(client.pexpire).toHaveBeenCalledWith("auth:session:rl", 60_000);
+  });
 
-    client.incr.mockResolvedValueOnce(2);
-    await expect(storage.increment("rl", 60)).resolves.toBe(2);
-    expect(client.pexpire).toHaveBeenCalledTimes(1);
+  it("deletes the counter when the race-window expiry cannot be set", async () => {
+    const client = fakeClient();
+    client.set.mockResolvedValueOnce(null);
+    client.incr.mockResolvedValueOnce(1);
+    client.pexpire.mockRejectedValueOnce(new Error("ECONNRESET"));
+    const storage = createRedisSecondaryStorage(
+      client as unknown as RedisClient,
+    );
+
+    await expect(storage.increment("rl", 60)).rejects.toMatchObject({
+      statusCode: 503,
+    });
+    expect(client.del).toHaveBeenCalledWith("auth:session:rl");
   });
 
   it("answers a Redis failure with a 503 SRV_002 API error", async () => {

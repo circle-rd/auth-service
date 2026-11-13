@@ -1,6 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { RESOURCE_SYNC_ROUTES } from "../services/resource-sharing/litellm-scope.js";
+
+export { RESOURCE_SYNC_ROUTES };
 
 /** Gateway user that owns the team key, and the key's alias. */
 export const PROVISIONER_USER_ID = "auth-service-provisioner";
@@ -31,7 +34,6 @@ export const PROVISIONER_ROUTES = [
  * Routes of the shared-resource sync key. It reads access groups and updates
  * their membership, nothing else: no team, model, key or LLM route.
  */
-export const RESOURCE_SYNC_ROUTES = ["/v1/access_group", "/v1/access_group/*"];
 
 const provisionEnvSchema = z.object({
   LITELLM_URL: z.string().url(),

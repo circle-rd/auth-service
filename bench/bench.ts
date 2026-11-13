@@ -114,7 +114,7 @@ async function main(): Promise<void> {
     ? null
     : spawnServer(join(resultsDir, "server-perf.log"), false);
   try {
-    await waitReady(base);
+    await waitReady(base, server ?? undefined);
     if (perfScenarios.length > 0 || (runCounting && !live)) {
       seed = await seedInstance(base);
     }
@@ -135,7 +135,7 @@ async function main(): Promise<void> {
   if (runCounting) {
     const server = spawnServer(join(resultsDir, "server-count.log"), true);
     try {
-      await waitReady(base);
+      await waitReady(base, server ?? undefined);
       seed = await seedInstance(base);
       if (options.scenarios.includes("session")) {
         counts.session = await countScenario(server, "session", seed);
@@ -223,8 +223,10 @@ assertNoStrayServer();
 
 function assertNoStrayServer(): void {
   if (!existsSync("/proc/net/tcp") && !existsSync("/proc/net/tcp6")) return;
+  // /proc/net/tcp prints the port in upper-case hexadecimal.
   const portBytes = Number(process.env.PORT ?? 3001)
     .toString(16)
+    .toUpperCase()
     .padStart(4, "0");
   for (const path of ["/proc/net/tcp", "/proc/net/tcp6"]) {
     const lines = readFileSync(path, "utf8").split("\n").slice(1);
@@ -239,9 +241,17 @@ function assertNoStrayServer(): void {
   }
 }
 
-async function waitReady(target: string): Promise<void> {
+// Readiness is only meaningful for the process we spawned: if it exited (for
+// example EADDRINUSE because another server holds the port), fail instead of
+// measuring whatever answers on that port.
+async function waitReady(target: string, server?: ServerHandle): Promise<void> {
   const deadline = Date.now() + 90_000;
   for (;;) {
+    if (server && server.child.exitCode !== null) {
+      throw new Error(
+        `spawned server exited with code ${server.child.exitCode}; see its log`,
+      );
+    }
     try {
       const res = await fetch(`${target}/health`, {
         signal: AbortSignal.timeout(2_000),

@@ -185,6 +185,16 @@ describe("reconcileSharedResources", () => {
     });
   });
 
+  it("leaves an operator entry alone when the matching resource is still a draft", async () => {
+    m.results = [[resource({ status: "draft" })], [plans[0]]];
+    m.groups = [group("app-a:free", { modelNames: ["app-a/model-a"] })];
+
+    const report = await reconcileSharedResources();
+
+    expect(report.unchanged).toBe(1);
+    expect(m.updateAccessGroupMembers).not.toHaveBeenCalled();
+  });
+
   it("never touches a group that is not the owner plan group", async () => {
     m.results = [[resource()], [plans[0]]];
     m.groups = [group("other-app:free"), group("manual-group")];

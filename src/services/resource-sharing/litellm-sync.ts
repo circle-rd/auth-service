@@ -223,7 +223,7 @@ async function syncOwner(
       );
       continue;
     }
-    addRefs(managed, refs);
+    if (resource.status !== "draft") addRefs(managed, refs);
     if (resource.status === "published") addRefs(desired, refs);
   }
 

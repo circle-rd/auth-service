@@ -13,11 +13,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
 import { createServer, connect, type Server } from "node:net";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { APIError } from "better-auth";
 import type { auth as AuthApi } from "../auth.js";
 import type { db as Db } from "../db/index.js";
 import type { user as UserTable } from "../db/auth-schema.js";
+import type { RedisClient } from "../services/redis-client.js";
+import { incrementWithTtl } from "../services/redis-counter.js";
 import type {
   mutateUserAndRefreshSnapshots as Mutate,
   refreshUserSessionSnapshots as RefreshSnapshots,
@@ -38,6 +41,7 @@ let userTable: typeof UserTable;
 let refreshUserSessionSnapshots: typeof RefreshSnapshots;
 let mutateUserAndRefreshSnapshots: typeof Mutate;
 let redisValue: (key: string) => Promise<string | null>;
+let redisClient: RedisClient;
 
 async function startRedisProxy(
   targetHost: string,
@@ -124,8 +128,8 @@ beforeAll(async () => {
   ({ refreshUserSessionSnapshots, mutateUserAndRefreshSnapshots } =
     await import("../services/session-snapshot.js"));
   const { getRedisClient } = await import("../services/redis-client.js");
-  const client = await getRedisClient(proxy.url);
-  redisValue = (key) => client.get(key);
+  redisClient = await getRedisClient(proxy.url);
+  redisValue = (key) => redisClient.get(key);
 }, 120_000);
 
 afterAll(async () => {
@@ -161,6 +165,41 @@ async function waitForRedis<T>(operation: () => Promise<T>): Promise<T> {
     }
   }
 }
+
+describe("atomic counter on Redis", () => {
+  const keyFor = (label: string) => `counter-${label}-${randomUUID()}`;
+
+  it("creates a new key together with its window", async () => {
+    const key = keyFor("new");
+    await expect(incrementWithTtl(redisClient, key, 60_000)).resolves.toBe(1);
+    const ttl = await redisClient.pttl(key);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(60_000);
+  });
+
+  it("preserves the existing window on later increments", async () => {
+    const key = keyFor("existing");
+    await expect(incrementWithTtl(redisClient, key, 10_000)).resolves.toBe(1);
+    const firstTtl = await redisClient.pttl(key);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    await expect(incrementWithTtl(redisClient, key, 10_000)).resolves.toBe(2);
+    const secondTtl = await redisClient.pttl(key);
+    expect(secondTtl).toBeGreaterThan(0);
+    expect(secondTtl).toBeLessThan(firstTtl);
+  });
+
+  it("arms a legacy key that exists without an expiry", async () => {
+    const key = keyFor("legacy");
+    await redisClient.set(key, "5");
+    await expect(redisClient.pttl(key)).resolves.toBe(-1);
+
+    await expect(incrementWithTtl(redisClient, key, 30_000)).resolves.toBe(6);
+    const ttl = await redisClient.pttl(key);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(30_000);
+  });
+});
 
 describe("session mirror on Redis", () => {
   it("stores the session copy under the auth namespace", async () => {

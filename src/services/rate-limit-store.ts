@@ -9,6 +9,7 @@
  */
 
 import { logger } from "../logger.js";
+import { getRedisClient, type RedisClient } from "./redis-client.js";
 
 export interface RateLimitStore {
   /**
@@ -56,13 +57,6 @@ export class MemoryRateLimitStore implements RateLimitStore {
   }
 }
 
-/** Minimal subset of the ioredis client the store relies on. */
-interface RedisLike {
-  incr(key: string): Promise<number>;
-  pexpire(key: string, milliseconds: number): Promise<unknown>;
-  quit(): Promise<unknown>;
-}
-
 export class RedisRateLimitStore implements RateLimitStore {
   readonly name = "redis";
 
@@ -71,7 +65,7 @@ export class RedisRateLimitStore implements RateLimitStore {
   // (which would block all authentication).
   private readonly fallback = new MemoryRateLimitStore();
 
-  constructor(private readonly client: RedisLike) {}
+  constructor(private readonly client: RedisClient) {}
 
   async hit(key: string, max: number, windowMs: number): Promise<boolean> {
     try {
@@ -91,7 +85,6 @@ export class RedisRateLimitStore implements RateLimitStore {
   }
 
   async close(): Promise<void> {
-    await this.client.quit().catch(() => {});
     await this.fallback.close();
   }
 }
@@ -100,21 +93,5 @@ export async function createRateLimitStore(
   redisUrl?: string,
 ): Promise<RateLimitStore> {
   if (!redisUrl) return new MemoryRateLimitStore();
-
-  // Non-literal specifier so TypeScript does not require ioredis to be
-  // installed for the default build.
-  const specifier = "ioredis";
-  let mod: {
-    default: new (url: string, options?: Record<string, unknown>) => RedisLike;
-  };
-  try {
-    mod = (await import(specifier)) as typeof mod;
-  } catch {
-    throw new Error(
-      "REDIS_URL is set but the optional 'ioredis' package is not installed. " +
-        "Run `pnpm add ioredis` or unset REDIS_URL.",
-    );
-  }
-  const client = new mod.default(redisUrl, { maxRetriesPerRequest: 1 });
-  return new RedisRateLimitStore(client);
+  return new RedisRateLimitStore(await getRedisClient(redisUrl));
 }

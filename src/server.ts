@@ -47,6 +47,7 @@ import { eventsRoutes } from "./routes/admin/events.js";
 import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
+import { userResourceRoutes } from "./routes/user-resources.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
@@ -133,6 +134,9 @@ const EMAIL_SEND_PATHS = [
   "/api/auth/email-otp/send-verification-otp",
   "/api/auth/email-otp/request-password-reset",
 ];
+// Dynamic owner paths cannot be listed as static prefixes without throttling
+// unrelated owner APIs, so the invitation endpoint is matched exactly.
+const EMAIL_SEND_PATH_PATTERNS = [/^\/api\/user\/apps\/[^/]+\/invitations$/];
 const EMAIL_SEND_MAX = 5;
 const EMAIL_SEND_WINDOW = 60_000;
 
@@ -611,6 +615,29 @@ export async function buildServer(
   // ── BetterAuth handler — intercept before Fastify body-parsing ──
   const betterAuthHandler = toNodeHandler(auth);
   fastify.addHook("onRequest", async (req, reply) => {
+    const urlPath = req.url.split("?")[0] ?? "";
+    const ip = req.ip ?? "unknown";
+
+    // The email bucket also covers owner routes outside /api/auth (resource
+    // invitations), so it is evaluated before the BetterAuth-only branch.
+    if (
+      EMAIL_SEND_PATHS.some(
+        (p) => urlPath === p || urlPath.startsWith(p + "/"),
+      ) ||
+      EMAIL_SEND_PATH_PATTERNS.some((pattern) => pattern.test(urlPath))
+    ) {
+      const allowed = await rateLimitStore.hit(
+        `email:${ip}`,
+        EMAIL_SEND_MAX,
+        EMAIL_SEND_WINDOW,
+      );
+      if (!allowed) {
+        reply.raw.writeHead(429, { "Content-Type": "application/json" });
+        reply.raw.end(JSON.stringify(ERR.MAIL_003().toJSON()));
+        return;
+      }
+    }
+
     if (!req.url?.startsWith("/api/auth/")) return;
 
     const origin = req.headers.origin;
@@ -632,8 +659,6 @@ export async function buildServer(
       return;
     }
 
-    const urlPath = req.url.split("?")[0] ?? "";
-    const ip = req.ip ?? "unknown";
     if (
       AUTH_RATE_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))
     ) {
@@ -659,20 +684,6 @@ export async function buildServer(
       if (!allowed) {
         reply.raw.writeHead(429, { "Content-Type": "application/json" });
         reply.raw.end(JSON.stringify(ERR.RATE_001().toJSON()));
-        return;
-      }
-    }
-    if (
-      EMAIL_SEND_PATHS.some((p) => urlPath === p || urlPath.startsWith(p + "/"))
-    ) {
-      const allowed = await rateLimitStore.hit(
-        `email:${ip}`,
-        EMAIL_SEND_MAX,
-        EMAIL_SEND_WINDOW,
-      );
-      if (!allowed) {
-        reply.raw.writeHead(429, { "Content-Type": "application/json" });
-        reply.raw.end(JSON.stringify(ERR.MAIL_003().toJSON()));
         return;
       }
     }
@@ -791,6 +802,9 @@ export async function buildServer(
   await fastify.register(registrationRoutes, { prefix: "/api/registration" });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });
+  if (config.features.resourceSharing) {
+    await fastify.register(userResourceRoutes, { prefix: "/api/user" });
+  }
   await fastify.register(walletRoutes, { prefix: "/api/user/wallet" });
   await fastify.register(walletInternalRoutes, {
     prefix: "/api/internal/wallet",

@@ -273,6 +273,12 @@ const envSchema = z
       .string()
       .min(1)
       .default("/run/litellm-provisioner/key"),
+    // Separate key for shared-resource access-group sync: access-group routes
+    // only, issued by `litellm-provision`. Never reuse the team provisioner key.
+    LITELLM_RESOURCE_SYNC_KEY_FILE: z
+      .string()
+      .min(1)
+      .default("/run/litellm-provisioner/resource-sync-key"),
 
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
     GOOGLE_CLIENT_ID: z.string().optional(),
@@ -460,6 +466,7 @@ export const config = {
   litellm: {
     url: parsed.data.LITELLM_URL?.replace(/\/+$/, ""),
     provisionerKeyFile: parsed.data.LITELLM_PROVISIONER_KEY_FILE,
+    resourceSyncKeyFile: parsed.data.LITELLM_RESOURCE_SYNC_KEY_FILE,
   },
   templatesDir: parsed.data.TEMPLATES_DIR || null,
   providers: {

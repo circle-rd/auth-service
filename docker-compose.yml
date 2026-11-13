@@ -140,6 +140,7 @@ services:
       # application with LiteLLM support, with the key litellm-provision delivers.
       LITELLM_URL: http://litellm:4000
       LITELLM_PROVISIONER_KEY_FILE: /run/litellm-provisioner/key
+      LITELLM_RESOURCE_SYNC_KEY_FILE: /run/litellm-provisioner/resource-sync-key
       # Cross-app shared resources (M2). The gateway reads the same flag.
       RESOURCE_SHARING_ENABLED: ${RESOURCE_SHARING_ENABLED:-false}
     volumes:
@@ -240,6 +241,7 @@ services:
       LITELLM_URL: http://litellm:4000
       LITELLM_STATE_FILE: /config/secrets.env
       LITELLM_PROVISIONER_KEY_FILE: /run/litellm-provisioner/key
+      LITELLM_RESOURCE_SYNC_KEY_FILE: /run/litellm-provisioner/resource-sync-key
     volumes:
       - litellm_config:/config:ro
       - litellm_provisioner:/run/litellm-provisioner

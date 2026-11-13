@@ -722,6 +722,11 @@ export async function buildServer(
     }
 
     reply.hijack();
+    if (urlPath === "/api/auth/jwks") {
+      // Public signing keys: safe to cache briefly everywhere, and the short
+      // TTL keeps a rotated key set from lingering in intermediaries.
+      reply.raw.setHeader("cache-control", "public, max-age=60");
+    }
     if (sessionState) {
       const original = reply.raw.setHeader.bind(reply.raw);
       const patched = (

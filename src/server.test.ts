@@ -216,6 +216,39 @@ describe("OIDC discovery CORS", () => {
   });
 });
 
+describe("JWKS response headers", () => {
+  let app: Awaited<ReturnType<typeof buildServer>>;
+
+  beforeAll(async () => {
+    app = await buildServer();
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it("serves the key set with a short public cache policy", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/auth/jwks",
+    });
+
+    // BetterAuth is stubbed in this file: assert the policy the hook sets,
+    // independent of the handler's body.
+    expect(res.headers["cache-control"]).toBe("public, max-age=60");
+  });
+
+  it("leaves unrelated auth routes alone", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/auth/get-session",
+    });
+
+    expect(res.headers["cache-control"]).toBeUndefined();
+  });
+});
+
 describe("response compression", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   const DOCUMENT_PATH = "/.well-known/openid-configuration";

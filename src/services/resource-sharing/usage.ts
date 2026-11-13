@@ -204,6 +204,8 @@ export interface UsageGroupTotals {
   calls: number;
   /** Calls whose executed attempt exposed no cost or token telemetry. */
   unsupportedCalls: number;
+  /** Calls missing at least one token field, including unsupported calls. */
+  tokenlessCalls: number;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -242,6 +244,7 @@ function toNumber(value: string | number | bigint | null): number {
 const totalsSelection = {
   calls: count(),
   unsupportedCalls: sql<string>`count(*) filter (where ${usageRecords.usageSource} = 'unsupported')`,
+  tokenlessCalls: sql<string>`count(*) filter (where ${usageRecords.promptTokens} is null or ${usageRecords.completionTokens} is null or ${usageRecords.totalTokens} is null)`,
   promptTokens: tokenSum(usageRecords.promptTokens),
   completionTokens: tokenSum(usageRecords.completionTokens),
   totalTokens: tokenSum(usageRecords.totalTokens),
@@ -251,6 +254,7 @@ const totalsSelection = {
 function toTotals(row: {
   calls: number;
   unsupportedCalls: string;
+  tokenlessCalls: string;
   promptTokens: string;
   completionTokens: string;
   totalTokens: string;
@@ -259,6 +263,7 @@ function toTotals(row: {
   return {
     calls: Number(row.calls),
     unsupportedCalls: toNumber(row.unsupportedCalls),
+    tokenlessCalls: toNumber(row.tokenlessCalls),
     promptTokens: toNumber(row.promptTokens),
     completionTokens: toNumber(row.completionTokens),
     totalTokens: toNumber(row.totalTokens),
@@ -313,6 +318,7 @@ export async function getOwnerUsage(
         totalsRow ?? {
           calls: 0,
           unsupportedCalls: "0",
+          tokenlessCalls: "0",
           promptTokens: "0",
           completionTokens: "0",
           totalTokens: "0",
@@ -364,6 +370,7 @@ export async function getOwnerUsage(
       totalsRow ?? {
         calls: 0,
         unsupportedCalls: "0",
+        tokenlessCalls: "0",
         promptTokens: "0",
         completionTokens: "0",
         totalTokens: "0",

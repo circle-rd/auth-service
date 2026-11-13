@@ -63,21 +63,28 @@ function rowDetail(row: UsageUserRow | UsageResourceRow): string | null {
   return isUserRow(row) ? null : row.resourceKey;
 }
 
-function telemetryAvailable(row: UsageTotals): boolean {
+function costAvailable(row: UsageTotals): boolean {
   return row.calls === 0 || row.unsupportedCalls < row.calls;
 }
 
+function tokensAvailable(row: UsageTotals): boolean {
+  return row.calls === 0 || row.tokenlessCalls < row.calls;
+}
+
 function telemetryPartial(row: UsageTotals): boolean {
-  return row.unsupportedCalls > 0 && row.unsupportedCalls < row.calls;
+  return row.unsupportedCalls > 0 || row.tokenlessCalls > 0;
+}
+
+function partialCount(row: UsageTotals): number {
+  return Math.max(row.unsupportedCalls, row.tokenlessCalls);
 }
 
 function costLabel(row: UsageTotals): string {
-  return telemetryAvailable(row) ? row.costUsd : t('share.usage.notAvailable');
+  return costAvailable(row) ? row.costUsd : t('share.usage.notAvailable');
 }
 
-function numberLabel(row: UsageTotals, value: number | null | undefined, field: 'totalTokens' | 'promptTokens' | 'completionTokens'): string {
-  if (!telemetryAvailable(row) || value === null || value === undefined) return t('share.usage.notAvailable');
-  if (field === 'totalTokens') return String(value);
+function numberLabel(row: UsageTotals, value: number | null | undefined): string {
+  if (!tokensAvailable(row) || value === null || value === undefined) return t('share.usage.notAvailable');
   return String(value);
 }
 
@@ -132,7 +139,7 @@ onMounted(() => void load());
       <div class="rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3">
         <p class="text-xs text-surface-500 uppercase tracking-wide">{{ t('share.usage.tokens') }}</p>
         <p class="text-lg font-semibold text-surface-200">
-          {{ numberLabel(totals, totals.totalTokens, 'totalTokens') }}
+          {{ numberLabel(totals, totals.totalTokens) }}
         </p>
       </div>
       <div class="rounded-xl border border-surface-700/40 bg-surface-900/40 px-4 py-3">
@@ -179,21 +186,21 @@ onMounted(() => void load());
             </td>
             <td class="px-4 py-3 text-right text-surface-300">{{ row.calls }}</td>
             <td class="px-4 py-3 text-right text-surface-400 hidden md:table-cell">
-              {{ numberLabel(row, row.promptTokens, 'promptTokens') }}
+              {{ numberLabel(row, row.promptTokens) }}
             </td>
             <td class="px-4 py-3 text-right text-surface-400 hidden md:table-cell">
-              {{ numberLabel(row, row.completionTokens, 'completionTokens') }}
+              {{ numberLabel(row, row.completionTokens) }}
             </td>
             <td class="px-4 py-3 text-right text-surface-300">
-              {{ numberLabel(row, row.totalTokens, 'totalTokens') }}
+              {{ numberLabel(row, row.totalTokens) }}
             </td>
             <td class="px-4 py-3 text-right text-surface-300">{{ costLabel(row) }}</td>
             <td class="px-4 py-3">
-              <BaseBadge v-if="!telemetryAvailable(row)" variant="neutral">
+              <BaseBadge v-if="!costAvailable(row) && !tokensAvailable(row)" variant="neutral">
                 {{ t('share.usage.notAvailable') }}
               </BaseBadge>
               <BaseBadge v-else-if="telemetryPartial(row)" variant="warning">
-                {{ t('share.usage.partial', { count: row.unsupportedCalls }) }}
+                {{ t('share.usage.partial', { count: partialCount(row) }) }}
               </BaseBadge>
               <BaseBadge v-else variant="success" dot>{{ t('share.usage.reported') }}</BaseBadge>
             </td>

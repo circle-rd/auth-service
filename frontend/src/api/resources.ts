@@ -83,6 +83,7 @@ export interface OwnerMember {
 export interface UsageTotals {
   calls: number;
   unsupportedCalls: number;
+  tokenlessCalls: number;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;

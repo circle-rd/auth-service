@@ -713,18 +713,22 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         });
       } catch (err) {
         // Do not leave a previously-verified account locked out (with
-        // REQUIRE_EMAIL_VERIFICATION) when the send fails.
+        // REQUIRE_EMAIL_VERIFICATION) when the send fails. The flag restore is
+        // a plain DB write so a Redis outage cannot roll it back and mask the
+        // original mail error; the mirror refresh is best-effort.
         if (targetRow.emailVerified) {
-          await mutateUserAndRefreshSnapshots(
-            adapter,
-            req.params.id,
-            async (tx) => {
-              await tx
-                .update(userTable)
-                .set({ emailVerified: true })
-                .where(eq(userTable.id, req.params.id));
-            },
-          );
+          try {
+            await db
+              .update(userTable)
+              .set({ emailVerified: true })
+              .where(eq(userTable.id, req.params.id));
+            await refreshUserSessionSnapshots(adapter, req.params.id);
+          } catch (revertErr) {
+            req.log.error(
+              { err: revertErr },
+              "failed to restore email verification after a failed send",
+            );
+          }
         }
         throw err;
       }

@@ -281,6 +281,32 @@ describe("session mirror on Redis", () => {
     });
   }, 60_000);
 
+  it("serialises concurrent snapshot refreshes to the committed row", async () => {
+    const ctx = await auth.$context;
+    const userId = await createUser("concurrent");
+    const session = await ctx.internalAdapter.createSession(userId, false);
+
+    const setRole = (role: string) =>
+      mutateUserAndRefreshSnapshots(
+        ctx.internalAdapter,
+        userId,
+        async (tx) => {
+          await tx
+            .update(userTable)
+            .set({ role })
+            .where(eq(userTable.id, userId));
+        },
+      );
+    await Promise.all([setRole("admin"), setRole("user")]);
+
+    const [row] = await db
+      .select({ role: userTable.role })
+      .from(userTable)
+      .where(eq(userTable.id, userId));
+    const live = await ctx.internalAdapter.findSession(session!.token);
+    expect(live?.user.role).toBe(row!.role);
+  }, 60_000);
+
   it("keeps the shared Redis session store alive across server rebuilds", async () => {
     const { buildServer } = await import("../server.js");
     const ctx = await auth.$context;

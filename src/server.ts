@@ -243,7 +243,7 @@ export async function buildServer(
   // ── Generic global rate-limit ───────────────────────────────────
   await fastify.register(rateLimit, {
     global: true,
-    max: 600,
+    max: config.rateLimit.globalMax,
     timeWindow: "1 minute",
     keyGenerator: (req) => req.ip,
     allowList: (req) => {

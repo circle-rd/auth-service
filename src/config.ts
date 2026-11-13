@@ -169,6 +169,10 @@ const envSchema = z
     // One-shot reconciliation of `two_factor_enabled` for pre-existing MFA
     // factors. Off by default because it scans the historical user table.
     MFA_BACKFILL_ENABLED: envBoolean(false),
+    // Cross-application resource sharing. Off by default: when unset the
+    // gateway authorize/accessible routes are not mounted at all, so existing
+    // azp→team behaviour is untouched.
+    RESOURCE_SHARING_ENABLED: envBoolean(false),
 
     // CAPTCHA on credential endpoints. Deliberately opt-in via CAPTCHA_ENABLED
     // (not merely by setting keys): enabling it rejects sign-in, sign-up and
@@ -413,6 +417,7 @@ export const config = {
     lastLoginMethod: parsed.data.LAST_LOGIN_METHOD_ENABLED,
     deviceAuthorization: parsed.data.DEVICE_AUTHORIZATION_ENABLED,
     mfaBackfill: parsed.data.MFA_BACKFILL_ENABLED,
+    resourceSharing: parsed.data.RESOURCE_SHARING_ENABLED,
   },
   captcha: {
     enabled: !!(

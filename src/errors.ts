@@ -145,6 +145,23 @@ export const ERR = {
     new ApiError(404, "ORG_004", msg),
   ORG_005: (msg = "User is already a member of this organization") =>
     new ApiError(409, "ORG_005", msg),
+  // ── RES ───────────────────────────────────────────────────────────────────
+  RES_001: (msg = "Invalid resource data", details?: unknown) =>
+    new ApiError(400, "RES_001", msg, details),
+  // Uniform denial: never distinguishes unknown, unpublished or disabled.
+  RES_002: (msg = "Resource not found") => new ApiError(404, "RES_002", msg),
+  RES_003: (msg = "Resource key already exists") =>
+    new ApiError(409, "RES_003", msg),
+  RES_004: (msg = "Resource not available") =>
+    new ApiError(404, "RES_004", msg),
+  RES_005: (msg = "Invalid resource URI") => new ApiError(400, "RES_005", msg),
+  RES_006: (msg = "Resource key is immutable once published") =>
+    new ApiError(409, "RES_006", msg),
+  RES_007: (msg = "Resource grant not found") =>
+    new ApiError(404, "RES_007", msg),
+  RES_008: (msg = "An active grant already exists for this subject") =>
+    new ApiError(409, "RES_008", msg),
+
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),
   SRV_002: (msg = "Service temporarily unavailable") =>

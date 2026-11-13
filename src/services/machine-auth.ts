@@ -12,6 +12,7 @@ export const MACHINE_SCOPES = [
   "billing:read",
   "consumption:read",
   "consumption:write",
+  "resources:authorize",
 ] as const;
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 

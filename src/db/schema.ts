@@ -172,6 +172,46 @@ export const userAppRoles = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.applicationId, t.roleId] })],
 );
 
+// ── App Delegations ───────────────────────────────────────────────────────────
+// Explicit, least-privilege owner administration for users who are not members
+// of the application's built-in `admin` role. An `admin` role membership is the
+// application's initial owner representation and implies every permission; a
+// delegation row grants exactly one owner permission.
+export const appDelegations = pgTable(
+  "app_delegation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    permission: text("permission").notNull(),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("app_delegation_user_app_permission_idx").on(
+      t.userId,
+      t.applicationId,
+      t.permission,
+    ),
+    index("app_delegation_lookup_idx").on(t.userId, t.applicationId, t.status),
+    check(
+      "app_delegation_permission_check",
+      sql`${t.permission} IN ('resources:read', 'resources:manage', 'grants:manage')`,
+    ),
+    check(
+      "app_delegation_status_check",
+      sql`${t.status} IN ('active', 'revoked')`,
+    ),
+  ],
+);
+
 // ── Subscription Plans ────────────────────────────────────────────────────────
 export const subscriptionPlans = pgTable(
   "subscription_plans",
@@ -801,6 +841,41 @@ export const resourceGrants = pgTable(
       t.ownerApplicationId,
     ),
     index("resource_grants_resource_idx").on(t.resourceId),
+  ],
+);
+
+// ── Resource Invitations ──────────────────────────────────────────────────────
+// One-shot invitation to an owner application's plan or resource. Only the
+// SHA-256 hash of the emailed token is stored. Redemption creates the explicit
+// `resource_grant` for the authenticated account whose email matches.
+export const resourceInvitations = pgTable(
+  "resource_invitation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tokenHash: text("token_hash").notNull(),
+    email: text("email").notNull(),
+    ownerApplicationId: uuid("owner_application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    resourceId: uuid("resource_id").references(() => sharedResources.id, {
+      onDelete: "cascade",
+    }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => subscriptionPlans.id, { onDelete: "restrict" }),
+    allowedClientIds: text("allowed_client_ids").array(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("resource_invitations_token_hash_idx").on(t.tokenHash),
+    index("resource_invitations_email_idx").on(t.email),
+    index("resource_invitations_owner_idx").on(t.ownerApplicationId),
   ],
 );
 

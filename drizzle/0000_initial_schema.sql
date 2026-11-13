@@ -1,3 +1,15 @@
+CREATE TABLE "app_delegation" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" text NOT NULL,
+	"application_id" uuid NOT NULL,
+	"permission" text NOT NULL,
+	"status" text DEFAULT 'active' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "app_delegation_permission_check" CHECK ("app_delegation"."permission" IN ('resources:read', 'resources:manage', 'grants:manage')),
+	CONSTRAINT "app_delegation_status_check" CHECK ("app_delegation"."status" IN ('active', 'revoked'))
+);
+--> statement-breakpoint
 CREATE TABLE "app_permissions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"application_id" uuid NOT NULL,
@@ -125,6 +137,21 @@ CREATE TABLE "resource_grant" (
 	"plan_id" uuid NOT NULL,
 	"allowed_client_ids" text[],
 	"expires_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"created_by" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "resource_invitation" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"token_hash" text NOT NULL,
+	"email" text NOT NULL,
+	"owner_application_id" uuid NOT NULL,
+	"resource_id" uuid,
+	"plan_id" uuid NOT NULL,
+	"allowed_client_ids" text[],
+	"expires_at" timestamp with time zone NOT NULL,
+	"consumed_at" timestamp with time zone,
 	"revoked_at" timestamp with time zone,
 	"created_by" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -585,6 +612,7 @@ CREATE TABLE "verification" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+ALTER TABLE "app_delegation" ADD CONSTRAINT "app_delegation_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_permissions" ADD CONSTRAINT "app_permissions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_role_permissions" ADD CONSTRAINT "app_role_permissions_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_role_permissions" ADD CONSTRAINT "app_role_permissions_permission_id_app_permissions_id_fk" FOREIGN KEY ("permission_id") REFERENCES "public"."app_permissions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -598,6 +626,9 @@ ALTER TABLE "registration_invitations" ADD CONSTRAINT "registration_invitations_
 ALTER TABLE "resource_grant" ADD CONSTRAINT "resource_grant_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_grant" ADD CONSTRAINT "resource_grant_resource_id_shared_resource_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."shared_resource"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_grant" ADD CONSTRAINT "resource_grant_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_invitation" ADD CONSTRAINT "resource_invitation_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_invitation" ADD CONSTRAINT "resource_invitation_resource_id_shared_resource_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."shared_resource"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_invitation" ADD CONSTRAINT "resource_invitation_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shared_resource" ADD CONSTRAINT "shared_resource_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shared_resource" ADD CONSTRAINT "shared_resource_default_plan_id_subscription_plans_id_fk" FOREIGN KEY ("default_plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -636,6 +667,8 @@ ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_user_id_us
 ALTER TABLE "passkey" ADD CONSTRAINT "passkey_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "app_delegation_user_app_permission_idx" ON "app_delegation" USING btree ("user_id","application_id","permission");--> statement-breakpoint
+CREATE INDEX "app_delegation_lookup_idx" ON "app_delegation" USING btree ("user_id","application_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "app_permissions_app_resource_action_idx" ON "app_permissions" USING btree ("application_id","resource","action");--> statement-breakpoint
 CREATE UNIQUE INDEX "app_roles_app_name_idx" ON "app_roles" USING btree ("application_id","name");--> statement-breakpoint
 CREATE UNIQUE INDEX "applications_slug_idx" ON "applications" USING btree ("slug");--> statement-breakpoint
@@ -651,6 +684,9 @@ CREATE INDEX "registration_invitations_email_idx" ON "registration_invitations" 
 CREATE INDEX "registration_invitations_app_idx" ON "registration_invitations" USING btree ("application_id");--> statement-breakpoint
 CREATE INDEX "resource_grants_subject_owner_idx" ON "resource_grant" USING btree ("subject_id","owner_application_id");--> statement-breakpoint
 CREATE INDEX "resource_grants_resource_idx" ON "resource_grant" USING btree ("resource_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "resource_invitations_token_hash_idx" ON "resource_invitation" USING btree ("token_hash");--> statement-breakpoint
+CREATE INDEX "resource_invitations_email_idx" ON "resource_invitation" USING btree ("email");--> statement-breakpoint
+CREATE INDEX "resource_invitations_owner_idx" ON "resource_invitation" USING btree ("owner_application_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "shared_resources_key_idx" ON "shared_resource" USING btree ("key");--> statement-breakpoint
 CREATE INDEX "shared_resources_owner_status_idx" ON "shared_resource" USING btree ("owner_application_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "stripe_invoices_stripe_idx" ON "stripe_invoices" USING btree ("stripe_invoice_id");--> statement-breakpoint

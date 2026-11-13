@@ -163,6 +163,8 @@ export const ERR = {
     new ApiError(409, "RES_008", msg),
   RES_009: (msg = "Resource upstream reference is immutable once published") =>
     new ApiError(409, "RES_009", msg),
+  RES_010: (msg = "Resource invitation is invalid, expired or already used") =>
+    new ApiError(400, "RES_010", msg),
 
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),

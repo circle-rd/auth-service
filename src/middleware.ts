@@ -5,6 +5,10 @@ import { config } from "./config.js";
 import type { ApiError } from "./errors.js";
 import { ERR } from "./errors.js";
 import { verifyBearerAccessToken } from "./services/oauth-tokens.js";
+import {
+  assertAppDelegation,
+  type AppDelegationPermission,
+} from "./services/resource-sharing/delegation.js";
 
 /**
  * Shared Fastify authentication guards. Every admin route plugin attaches
@@ -54,6 +58,36 @@ export async function requireAdmin(
       .send(ERR.AUTH_011("Insufficient permissions").toJSON());
     return;
   }
+}
+
+/**
+ * Require an authenticated session that may administer the given application.
+ *
+ * The application's built-in `admin` role is the original owner; explicit
+ * `app_delegation` rows add one least-privilege permission at a time. Unknown,
+ * foreign and unauthorised applications share the same 404 response.
+ * Returns "" after sending 401/404, so callers can `if (!userId) return;`.
+ */
+export async function requireAppDelegation(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  applicationId: string,
+  permission: AppDelegationPermission,
+): Promise<string> {
+  const session = await getRequestSession(req);
+  if (!session) {
+    return sendAuthError(reply, ERR.AUTH_001());
+  }
+  try {
+    await assertAppDelegation(session.user.id, applicationId, permission);
+  } catch (error) {
+    if (error instanceof Error && "toJSON" in error) {
+      const apiError = error as ApiError;
+      return sendAuthError(reply, apiError);
+    }
+    throw error;
+  }
+  return session.user.id;
 }
 
 /**

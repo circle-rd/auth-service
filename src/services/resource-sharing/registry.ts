@@ -11,6 +11,7 @@ import {
   normalizeResourceSlug,
   type ResourceType,
 } from "../resource-uri.js";
+import { queueOwnerResourceSync } from "./litellm-sync.js";
 import {
   isResourceStatus,
   isResourceVisibility,
@@ -121,6 +122,7 @@ export async function createSharedResource(
     .onConflictDoNothing({ target: sharedResources.key })
     .returning();
   if (!row) throw ERR.RES_003();
+  queueOwnerResourceSync(row.ownerApplicationId);
   return row;
 }
 
@@ -229,15 +231,22 @@ export async function updateSharedResource(
     );
   }
 
+  const nextUpstreamRef =
+    patch.upstreamRef === undefined ? current.upstreamRef : patch.upstreamRef;
+  if (
+    patch.upstreamRef !== undefined &&
+    patch.upstreamRef !== current.upstreamRef &&
+    current.status !== "draft"
+  ) {
+    throw ERR.RES_009();
+  }
+
   const [row] = await db
     .update(sharedResources)
     .set({
       key,
       displayName: patch.displayName ?? current.displayName,
-      upstreamRef:
-        patch.upstreamRef === undefined
-          ? current.upstreamRef
-          : patch.upstreamRef,
+      upstreamRef: nextUpstreamRef,
       status,
       visibility,
       defaultPlanId:
@@ -249,5 +258,6 @@ export async function updateSharedResource(
     .where(eq(sharedResources.id, id))
     .returning();
   if (!row) throw ERR.RES_002();
+  queueOwnerResourceSync(row.ownerApplicationId);
   return row;
 }

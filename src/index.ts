@@ -18,6 +18,10 @@ import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
 import { startLitellmReconciler } from "./services/litellm-sync.js";
+import {
+  assertResourceSyncReady,
+  startResourceSync,
+} from "./services/resource-sharing/litellm-sync.js";
 import { startBillingMeterRetry } from "./services/billing/usage.js";
 import { ensureSigningKey } from "./compat/signing-keys.js";
 import { reconcileTokenAuthMethod } from "./compat/token-auth.js";
@@ -39,6 +43,7 @@ async function start(): Promise<void> {
   }
 
   const fastify = await buildServer();
+  assertResourceSyncReady();
 
   // ── Verify outbound mail transport ────────────────────────────────────
   // In production a failed SMTP check is fatal: every email-dependent flow
@@ -80,6 +85,7 @@ async function start(): Promise<void> {
   await fastify.listen({ port: config.port, host: config.host });
   fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
   startLitellmReconciler();
+  startResourceSync();
   startBillingMeterRetry();
 }
 

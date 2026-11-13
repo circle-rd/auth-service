@@ -340,6 +340,27 @@ describe("updateSharedResource", () => {
     expect(state.lastValues).toMatchObject({ upstreamRef: null });
   });
 
+  it("refuses to change the upstream reference once published", async () => {
+    state.results = [
+      [resource({ upstreamRef: "old", status: "published" })],
+      [{ slug: "app-a" }],
+    ];
+    const error = await rejection(
+      updateSharedResource("resource-1", { upstreamRef: "new" }),
+    );
+    expect(error.code).toBe("RES_009");
+  });
+
+  it("allows changing the upstream reference while still a draft", async () => {
+    state.results = [
+      [resource({ upstreamRef: "old" })],
+      [{ slug: "app-a" }],
+      [resource({ upstreamRef: "new" })],
+    ];
+    await updateSharedResource("resource-1", { upstreamRef: "new" });
+    expect(state.lastValues).toMatchObject({ upstreamRef: "new" });
+  });
+
   it("rejects a missing resource", async () => {
     state.results = [[]];
     const error = await rejection(updateSharedResource("ghost", {}));

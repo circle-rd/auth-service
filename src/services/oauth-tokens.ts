@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { verifyJwsAccessToken } from "better-auth/oauth2";
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { VerificationCache } from "./verification-cache.js";
 import {
   jwks as jwksTable,
   oauthAccessToken,
@@ -13,6 +14,26 @@ import { config } from "../config.js";
 type JwksFetchOptions = Parameters<typeof verifyJwsAccessToken>[1];
 type JwksFetchFn = Exclude<JwksFetchOptions["jwksFetch"], string>;
 type Jwks = Awaited<ReturnType<JwksFetchFn>>;
+
+// The audience list is read on every JWT verification: BetterAuth caches the
+// JWKS itself (5 min TTL, 30 s refetch cooldown, unknown-`kid` refetch) but
+// only when the caller supplies a stable `jwksCacheKey`, so one is provided
+// below. The resource list has no upstream cache, so it is cached here
+// (RESOURCE_CACHE_TTL_SECONDS; 0 disables) and invalidated on
+// protected-resource changes. A change is visible to every instance within
+// the TTL — the locked phase-1 decision.
+// A constant object: its identity is the BetterAuth cache key.
+const jwksCacheKey: object = { source: "auth-service/local-jwks" };
+const audiencesCache = new VerificationCache<string[]>(
+  "audiences",
+  config.verificationCache.resourcesTtlSeconds * 1_000,
+  async () => await acceptedAudiences(),
+);
+
+/** Invalidate the cached audience set: called on protected-resource changes. */
+export function invalidateAudiencesCache(): void {
+  audiencesCache.invalidate();
+}
 
 /**
  * Load the verification key set straight from the local `jwks` table instead
@@ -101,9 +122,10 @@ export async function verifyBearerAccessToken(
     try {
       const payload = await verifyJwsAccessToken(token, {
         jwksFetch: loadLocalJwks,
+        jwksCacheKey,
         verifyOptions: {
           issuer: config.betterAuth.url,
-          audience: await acceptedAudiences(),
+          audience: await audiencesCache.get(),
         },
       });
       const clientId = typeof payload.azp === "string" ? payload.azp : null;

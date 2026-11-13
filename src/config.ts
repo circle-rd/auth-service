@@ -53,6 +53,22 @@ const envSchema = z
     // Echo every Drizzle query to the console. A bench/diagnostic aid: verbose
     // and statements may carry row values, so never enable it in production.
     LOG_SQL: envBoolean(false),
+    // In-process TTL caches for bearer-token verification (JWKS + audiences).
+    // Key rotation and resource changes propagate within the TTL; the
+    // unknown-kid retry picks up a fresh key set within one request. 0 disables
+    // a cache and makes every verification hit the database.
+    JWKS_CACHE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(86_400)
+      .default(60),
+    RESOURCE_CACHE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(86_400)
+      .default(30),
 
     BETTER_AUTH_SECRET: z.string().min(16),
     BETTER_AUTH_URL: z.string().url(),
@@ -356,6 +372,9 @@ export const config = {
   },
   rateLimit: {
     globalMax: parsed.data.RATE_LIMIT_GLOBAL_MAX,
+  },
+  verificationCache: {
+    resourcesTtlSeconds: parsed.data.RESOURCE_CACHE_TTL_SECONDS,
   },
   isDev: parsed.data.NODE_ENV === "development",
   appName: parsed.data.APP_NAME,

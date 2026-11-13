@@ -12,6 +12,7 @@ vi.mock("../../db/index.js", () => ({ db: {} }));
 vi.mock("../../config.js", () => ({
   config: {
     stripe: { secretKey: "sk_test" },
+    verificationCache: { resourcesTtlSeconds: 30 },
     compat: {
       profile: "okta",
       tokenAuthMethod: "basic",

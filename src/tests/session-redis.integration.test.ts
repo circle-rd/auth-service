@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GenericContainer, type StartedTestContainer } from "testcontainers";
 import { eq } from "drizzle-orm";
+import { APIError } from "better-auth";
 import type { auth as AuthApi } from "../auth.js";
 import type { db as Db } from "../db/index.js";
 import type { user as UserTable } from "../db/auth-schema.js";
@@ -132,4 +133,21 @@ describe("session mirror on Redis", () => {
       (await ctx.internalAdapter.findSession(session!.token))?.user.banned,
     ).toBe(true);
   });
+
+  it("answers 503 SRV_002 when Redis is unreachable, and grants nothing", async () => {
+    const ctx = await auth.$context;
+    const userId = await createUser("outage");
+    const session = await ctx.internalAdapter.createSession(userId, false);
+    expect(await ctx.internalAdapter.findSession(session!.token)).not.toBeNull();
+
+    await redisContainer.stop();
+
+    const err = await ctx.internalAdapter.findSession(session!.token).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(APIError);
+    expect((err as APIError).statusCode).toBe(503);
+    expect((err as APIError).body).toMatchObject({ code: "SRV_002" });
+  }, 60_000);
 });

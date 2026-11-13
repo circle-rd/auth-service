@@ -1,3 +1,4 @@
+import { APIError } from "better-auth";
 import { describe, expect, it, vi } from "vitest";
 import type { RedisClient } from "./redis-client.js";
 import { createRedisSecondaryStorage } from "./session-store.js";
@@ -65,5 +66,24 @@ describe("createRedisSecondaryStorage", () => {
     client.incr.mockResolvedValueOnce(2);
     await expect(storage.increment("rl", 60)).resolves.toBe(2);
     expect(client.pexpire).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers a Redis failure with a 503 SRV_002 API error", async () => {
+    const client = fakeClient();
+    client.get.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const storage = createRedisSecondaryStorage(
+      client as unknown as RedisClient,
+    );
+
+    let err: APIError | undefined;
+    try {
+      await storage.get("token-a");
+    } catch (caught) {
+      err = caught as APIError;
+    }
+
+    expect(err).toBeInstanceOf(APIError);
+    expect(err?.statusCode).toBe(503);
+    expect(err?.body).toMatchObject({ code: "SRV_002" });
   });
 });

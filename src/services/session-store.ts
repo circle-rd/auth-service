@@ -1,4 +1,5 @@
-import type { SecondaryStorage } from "better-auth";
+import { APIError, type SecondaryStorage } from "better-auth";
+import { logger } from "../logger.js";
 import type { RedisClient } from "./redis-client.js";
 
 /**
@@ -7,6 +8,24 @@ import type { RedisClient } from "./redis-client.js";
  * never collide with rate-limit counters sharing the same Redis.
  */
 const KEY_PREFIX = "auth:session:";
+
+/**
+ * Run one Redis operation. A failure is raised as a 503 `SRV_002`, not as the
+ * generic session error: BetterAuth rethrows API errors unchanged, so the
+ * status reaches both the Fastify routes and the BetterAuth endpoints. The
+ * caller still fails closed; only the answer becomes honest about the cause.
+ */
+async function reachable<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (err) {
+    logger.error({ err: String(err) }, "[session-store] redis unavailable");
+    throw new APIError("SERVICE_UNAVAILABLE", {
+      code: "SRV_002",
+      message: "Service temporarily unavailable",
+    });
+  }
+}
 
 /**
  * BetterAuth session mirror on Redis (see `session.storeSessionInDatabase`:
@@ -18,24 +37,28 @@ export function createRedisSecondaryStorage(
   client: RedisClient,
 ): SecondaryStorage {
   return {
-    get: (key) => client.get(KEY_PREFIX + key),
-    getAndDelete: (key) => client.getdel(KEY_PREFIX + key),
-    increment: async (key, ttlSeconds) => {
-      const count = await client.incr(KEY_PREFIX + key);
-      // The window starts on creation only; later increments never extend it.
-      if (count === 1)
-        await client.pexpire(KEY_PREFIX + key, ttlSeconds * 1000);
-      return count;
-    },
-    set: async (key, value, ttlSeconds) => {
-      if (ttlSeconds && ttlSeconds > 0) {
-        await client.set(KEY_PREFIX + key, value, "EX", ttlSeconds);
-        return;
-      }
-      await client.set(KEY_PREFIX + key, value);
-    },
-    delete: async (key) => {
-      await client.del(KEY_PREFIX + key);
-    },
+    get: (key) => reachable(() => client.get(KEY_PREFIX + key)),
+    getAndDelete: (key) => reachable(() => client.getdel(KEY_PREFIX + key)),
+    increment: (key, ttlSeconds) =>
+      reachable(async () => {
+        const count = await client.incr(KEY_PREFIX + key);
+        // The window starts on creation only; later increments never extend it.
+        if (count === 1) {
+          await client.pexpire(KEY_PREFIX + key, ttlSeconds * 1000);
+        }
+        return count;
+      }),
+    set: (key, value, ttlSeconds) =>
+      reachable(async () => {
+        if (ttlSeconds && ttlSeconds > 0) {
+          await client.set(KEY_PREFIX + key, value, "EX", ttlSeconds);
+          return;
+        }
+        await client.set(KEY_PREFIX + key, value);
+      }),
+    delete: (key) =>
+      reachable(async () => {
+        await client.del(KEY_PREFIX + key);
+      }),
   };
 }

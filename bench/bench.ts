@@ -11,7 +11,8 @@
 //              [--scenarios health,jwks,session,machine]
 //              [--perf-only | --count-only]
 //              [--base-url URL] — targets an already-running instance and only
-//              exercises the read-only scenarios there (no machine minting).
+//              exercises the public read-only scenarios (health, jwks). No
+//              sign-in, session creation, credential minting or cleanup.
 //
 // Results land in bench/results/report.json (untracked).
 
@@ -53,6 +54,7 @@ interface MachineCredentials {
   secret: string;
   resource: string;
   userId: string;
+  applicationId: string;
 }
 
 interface Seed {
@@ -91,59 +93,75 @@ async function main(): Promise<void> {
   const resultsDir = "bench/results";
   mkdirSync(resultsDir, { recursive: true });
 
+  // A live target is inspected, never mutated: only the public scenarios are
+  // safe because they need no session and write nothing.
+  const publicLiveScenarios = options.scenarios.filter(
+    (name) => name === "health" || name === "jwks",
+  );
   const perfScenarios = options.countOnly
     ? []
     : live
-      ? options.scenarios.filter((name) => name !== "machine")
+      ? publicLiveScenarios
       : options.scenarios;
-  if (live && options.scenarios.includes("machine")) {
-    console.warn(
-      "[bench] machine scenario skipped against a live instance: minting machine credentials would write there",
+  if (live) {
+    const skipped = options.scenarios.filter(
+      (name) => !publicLiveScenarios.includes(name),
     );
+    if (skipped.length > 0) {
+      console.warn(
+        `[bench] skipped against a live instance (would write): ${skipped.join(", ")}`,
+      );
+    }
   }
   const runCounting = !options.perfOnly && !live;
-  if (live && (runCounting === false) === options.perfOnly) {
+  if (live && !options.perfOnly) {
     console.warn(
       "[bench] SQL counting runs only against the locally spawned build",
     );
   }
 
   const perf: Record<string, Stats> = {};
-  let seed: Seed | null = null;
-  const server = live
-    ? null
-    : spawnServer(join(resultsDir, "server-perf.log"), false);
-  try {
-    await waitReady(base, server ?? undefined);
-    if (perfScenarios.length > 0 || (runCounting && !live)) {
-      seed = await seedInstance(base);
+  if (perfScenarios.length > 0) {
+    const server = live
+      ? null
+      : spawnServer(join(resultsDir, "server-perf.log"), false);
+    let seed: Seed | null = null;
+    try {
+      await waitReady(base, server ?? undefined);
+      seed = await seedInstance(base, scenariosNeedingSeed(perfScenarios));
+      for (const name of perfScenarios) {
+        perf[name] = await runScenario(
+          name,
+          seed,
+          options.concurrency,
+          options.reps,
+        );
+        console.warn(`[bench] ${name}: done`);
+      }
+    } finally {
+      if (!live && seed) await cleanupSeed(base, seed);
+      if (server) await stopServer(server);
     }
-    for (const name of perfScenarios) {
-      perf[name] = await runScenario(
-        name,
-        seed!,
-        options.concurrency,
-        options.reps,
-      );
-      console.warn(`[bench] ${name}: done`);
-    }
-  } finally {
-    if (server) await stopServer(server);
   }
 
   const counts: Record<string, number> = {};
-  if (runCounting) {
+  const countScenarios = options.scenarios.filter(
+    (name) => name === "session" || name === "machine",
+  );
+  if (runCounting && countScenarios.length > 0) {
     const server = spawnServer(join(resultsDir, "server-count.log"), true);
+    let seed: Seed | null = null;
     try {
-      await waitReady(base, server ?? undefined);
-      seed = await seedInstance(base);
-      if (options.scenarios.includes("session")) {
-        counts.session = await countScenario(server, "session", seed);
-      }
-      if (options.scenarios.includes("machine") && seed.machine) {
-        counts.machine = await countScenario(server, "machine", seed);
+      await waitReady(base, server);
+      seed = await seedInstance(base, scenariosNeedingSeed(countScenarios));
+      if (seed) {
+        for (const name of countScenarios) {
+          if (name === "machine" && !seed.machine) continue;
+          counts[name] = await countScenario(server, name, seed);
+        }
       }
     } finally {
+      if (!live && seed) await cleanupSeed(base, seed);
       await stopServer(server);
     }
   }
@@ -179,6 +197,7 @@ function parseFlags(): Options {
 }
 
 function spawnServer(logFile: string, logSql: boolean): ServerHandle {
+  assertNoStrayServer();
   const logLines: string[] = [];
   const child = spawn(process.execPath, ["dist/index.js"], {
     // The per-IP global guard (600/min by default) would truncate the
@@ -219,8 +238,6 @@ async function stopServer(server: ServerHandle): Promise<void> {
 
 // A server that never binds (port taken by a stray instance) makes every
 // measurement hit the wrong process, so this must fail loudly.
-assertNoStrayServer();
-
 function assertNoStrayServer(): void {
   if (!existsSync("/proc/net/tcp") && !existsSync("/proc/net/tcp6")) return;
   // /proc/net/tcp prints the port in upper-case hexadecimal.
@@ -308,7 +325,22 @@ function readCookies(headers: Headers): string {
     .join("; ");
 }
 
-async function seedInstance(target: string): Promise<Seed> {
+function scenariosNeedingSeed(names: string[]): {
+  adminSession: boolean;
+  machine: boolean;
+} {
+  return {
+    adminSession: names.includes("session") || names.includes("machine"),
+    machine: names.includes("machine"),
+  };
+}
+
+async function seedInstance(
+  target: string,
+  needs: { adminSession: boolean; machine: boolean },
+): Promise<Seed | null> {
+  if (!needs.adminSession && !needs.machine) return null;
+
   const email = process.env.ADMIN_EMAIL;
   const password = process.env.ADMIN_PASSWORD;
   if (!email || !password) {
@@ -336,10 +368,6 @@ async function seedInstance(target: string): Promise<Seed> {
     throw new Error(`get-session failed (${sessionRes.status})`);
   }
   const session = JSON.parse(sessionRes.body) as { user: { id: string } };
-
-  // The instance stays read-only under a --base-url run: machine credentials
-  // cannot be minted there, so its machine scenario is skipped.
-  if (live) return { adminCookie, machine: null };
 
   const create = await request(target, "/api/admin/applications", {
     method: "POST",
@@ -384,8 +412,12 @@ async function seedInstance(target: string): Promise<Seed> {
       },
       body: JSON.stringify({ scopes: MACHINE_SCOPES }),
     },
-  );
+  ).catch(async (err: unknown) => {
+    await deleteApplication(target, adminCookie, created.application.id);
+    throw err;
+  });
   if (scopes.status !== 200) {
+    await deleteApplication(target, adminCookie, created.application.id);
     throw new Error(`machine-scopes update failed (${scopes.status})`);
   }
   return {
@@ -395,24 +427,57 @@ async function seedInstance(target: string): Promise<Seed> {
       secret: created.clientSecret,
       resource: target,
       userId: session.user.id,
+      applicationId: created.application.id,
     },
   };
 }
 
+async function deleteApplication(
+  target: string,
+  adminCookie: string,
+  applicationId: string,
+): Promise<void> {
+  const res = await request(
+    target,
+    `/api/admin/applications/${applicationId}`,
+    {
+      method: "DELETE",
+      headers: {
+        cookie: adminCookie,
+        origin: target,
+      },
+    },
+  ).catch((err: unknown) => {
+    console.warn(`[bench] application cleanup failed: ${String(err)}`);
+    return null;
+  });
+  if (res && res.status !== 200 && res.status !== 204) {
+    console.warn(
+      `[bench] application cleanup failed (${res.status}): ${res.body}`,
+    );
+  }
+}
+
+async function cleanupSeed(target: string, seed: Seed): Promise<void> {
+  if (!seed.machine) return;
+  await deleteApplication(target, seed.adminCookie, seed.machine.applicationId);
+}
+
 function scenarioRequest(
   name: string,
-  seed: Seed,
+  seed: Seed | null,
 ): { init: RequestInit; url: string } {
   if (name === "health") return { url: `${base}/health`, init: {} };
   if (name === "jwks") return { url: `${base}/api/auth/jwks`, init: {} };
   if (name === "session") {
+    if (!seed) throw new Error("session scenario needs an admin session");
     return {
       url: `${base}/api/user/sessions`,
       init: { headers: { cookie: seed.adminCookie } },
     };
   }
   if (name === "machine") {
-    if (!seed.machine) {
+    if (!seed?.machine) {
       throw new Error("machine scenario needs machine credentials");
     }
     const { userId, slug } = seed.machine;
@@ -426,13 +491,13 @@ function scenarioRequest(
 
 async function runScenario(
   name: string,
-  seed: Seed,
+  seed: Seed | null,
   concurrency: number,
   reps: number,
 ): Promise<Stats> {
   let authorization: string | null = null;
   if (name === "machine") {
-    if (!seed.machine) {
+    if (!seed?.machine) {
       throw new Error("machine scenario needs machine credentials");
     }
     authorization = await issueMachineToken(base, seed.machine);
@@ -444,7 +509,9 @@ async function runScenario(
   // The internal gateway bucket caps at 6000/min/IP: keep the machine
   // scenario under it even without an explicit --max-rps.
   const perWorkerPaceMs =
-    name === "machine" ? (concurrency * 1000) / MACHINE_MAX_RPS : globalPaceMs;
+    name === "machine"
+      ? Math.max(globalPaceMs, (concurrency * 1000) / MACHINE_MAX_RPS)
+      : globalPaceMs;
 
   const durations: number[] = [];
   let errors = 0;
@@ -474,13 +541,12 @@ async function runScenario(
           ...init,
           keepalive: true,
           signal: AbortSignal.timeout(15_000),
-        }).then(
-          async (res) => {
+        })
+          .then(async (res) => {
             await res.arrayBuffer();
             return res.status;
-          },
-          () => -1,
-        );
+          })
+          .catch(() => -1);
         const durationMs = msSince(before);
         tally(status);
         if (status === 200) durations.push(durationMs);

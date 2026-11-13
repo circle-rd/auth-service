@@ -17,6 +17,7 @@ import { applications } from "./db/schema.js";
 import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
+import { closeRedisClient } from "./services/redis-client.js";
 import { startLitellmReconciler } from "./services/litellm-sync.js";
 import { startBillingMeterRetry } from "./services/billing/usage.js";
 import { ensureSigningKey } from "./compat/signing-keys.js";
@@ -81,6 +82,27 @@ async function start(): Promise<void> {
   fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
   startLitellmReconciler();
   startBillingMeterRetry();
+
+  for (const signal of ["SIGTERM", "SIGINT"] as const) {
+    process.once(signal, () => {
+      void (async () => {
+        try {
+          await fastify.close();
+        } catch (err) {
+          logger.error({ err }, "Failed to close the HTTP server");
+          process.exitCode = 1;
+        }
+        try {
+          await closeRedisClient();
+        } catch (err) {
+          logger.error({ err }, "Failed to close the Redis client");
+          process.exitCode = 1;
+        } finally {
+          process.exit();
+        }
+      })();
+    });
+  }
 }
 
 start().catch((err) => {

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { ServerResponse } from "node:http";
 import { requireAdmin } from "../../middleware.js";
 import { getEventBus, type DomainEvent } from "../../services/event-bus.js";
 
@@ -34,12 +35,26 @@ export async function eventsRoutes(
   fastify.addHook("preHandler", requireAdmin);
 
   const keepAliveMs = opts.keepAliveMs ?? DEFAULT_KEEP_ALIVE_MS;
+  const openStreams = new Set<ServerResponse>();
+
+  // Hijacked SSE responses are not tracked by Fastify's request lifecycle, so
+  // `close()` would otherwise wait forever for a client connection that never
+  // ends. End and destroy each live stream before Fastify starts waiting.
+  fastify.addHook("preClose", async () => {
+    for (const stream of openStreams) {
+      if (!stream.writableEnded) stream.end();
+      stream.destroy();
+    }
+    openStreams.clear();
+  });
 
   // GET /api/admin/events
   // Long-lived text/event-stream. The response is hijacked: Fastify is not
   // allowed to end or serialise it, and nothing here touches the database.
   fastify.get("/", async (req, reply) => {
     reply.hijack();
+    const stream = reply.raw;
+    openStreams.add(stream);
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
@@ -50,8 +65,8 @@ export async function eventsRoutes(
     });
 
     const write = (chunk: string) => {
-      if (reply.raw.writableEnded) return;
-      reply.raw.write(chunk);
+      if (stream.writableEnded) return;
+      stream.write(chunk);
     };
 
     const onEvent = (event: DomainEvent) => {
@@ -70,6 +85,7 @@ export async function eventsRoutes(
     const release = () => {
       clearInterval(keepAlive);
       unsubscribe();
+      openStreams.delete(stream);
     };
     req.raw.on("close", release);
     req.raw.on("error", release);

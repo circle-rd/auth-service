@@ -4,11 +4,13 @@
  * The default is an in-process counter (single instance). When `REDIS_URL` is
  * set, `createRateLimitStore` lazily loads `ioredis` so the client is only
  * instantiated (and a socket only opened) when Redis is actually configured,
- * and uses an atomic INCR + PEXPIRE pair so the limit is shared across
- * instances.
+ * and uses the shared atomic increment-with-TTL script so the limit is shared
+ * across instances.
  */
 
 import { logger } from "../logger.js";
+import { getRedisClient, type RedisClient } from "./redis-client.js";
+import { incrementWithTtl } from "./redis-counter.js";
 
 export interface RateLimitStore {
   /**
@@ -56,13 +58,6 @@ export class MemoryRateLimitStore implements RateLimitStore {
   }
 }
 
-/** Minimal subset of the ioredis client the store relies on. */
-interface RedisLike {
-  incr(key: string): Promise<number>;
-  pexpire(key: string, milliseconds: number): Promise<unknown>;
-  quit(): Promise<unknown>;
-}
-
 export class RedisRateLimitStore implements RateLimitStore {
   readonly name = "redis";
 
@@ -71,14 +66,11 @@ export class RedisRateLimitStore implements RateLimitStore {
   // (which would block all authentication).
   private readonly fallback = new MemoryRateLimitStore();
 
-  constructor(private readonly client: RedisLike) {}
+  constructor(private readonly client: RedisClient) {}
 
   async hit(key: string, max: number, windowMs: number): Promise<boolean> {
     try {
-      const count = await this.client.incr(key);
-      // Set the TTL only on the first hit of the window; subsequent INCRs
-      // must not extend the window.
-      if (count === 1) await this.client.pexpire(key, windowMs);
+      const count = await incrementWithTtl(this.client, key, windowMs);
       return count <= max;
     } catch (err) {
       // Degrade to the in-process limiter; still bounded, no total lockout.
@@ -91,7 +83,6 @@ export class RedisRateLimitStore implements RateLimitStore {
   }
 
   async close(): Promise<void> {
-    await this.client.quit().catch(() => {});
     await this.fallback.close();
   }
 }
@@ -100,21 +91,5 @@ export async function createRateLimitStore(
   redisUrl?: string,
 ): Promise<RateLimitStore> {
   if (!redisUrl) return new MemoryRateLimitStore();
-
-  // Non-literal specifier so TypeScript does not require ioredis to be
-  // installed for the default build.
-  const specifier = "ioredis";
-  let mod: {
-    default: new (url: string, options?: Record<string, unknown>) => RedisLike;
-  };
-  try {
-    mod = (await import(specifier)) as typeof mod;
-  } catch {
-    throw new Error(
-      "REDIS_URL is set but the optional 'ioredis' package is not installed. " +
-        "Run `pnpm add ioredis` or unset REDIS_URL.",
-    );
-  }
-  const client = new mod.default(redisUrl, { maxRetriesPerRequest: 1 });
-  return new RedisRateLimitStore(client);
+  return new RedisRateLimitStore(await getRedisClient(redisUrl));
 }

@@ -3,6 +3,7 @@ import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { oauthClientResource, oauthResource } from "../db/auth-schema.js";
 import { ERR } from "../errors.js";
+import { invalidateAudiencesCache } from "./oauth-tokens.js";
 
 /**
  * Keep the BetterAuth 1.7 protected-resource tables in sync with an
@@ -63,6 +64,9 @@ export async function replaceClientResource(opts: {
     .insert(oauthClientResource)
     .values({ id: generateId(), clientId, resourceId: identifier })
     .onConflictDoNothing();
+
+  // The resource list feeds the cached audience check of bearer verification.
+  invalidateAudiencesCache();
 }
 
 /**

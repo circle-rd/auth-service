@@ -243,7 +243,7 @@ export async function buildServer(
   // ── Generic global rate-limit ───────────────────────────────────
   await fastify.register(rateLimit, {
     global: true,
-    max: 600,
+    max: config.rateLimit.globalMax,
     timeWindow: "1 minute",
     keyGenerator: (req) => req.ip,
     allowList: (req) => {
@@ -722,6 +722,11 @@ export async function buildServer(
     }
 
     reply.hijack();
+    if (urlPath === "/api/auth/jwks") {
+      // Public signing keys: safe to cache briefly everywhere, and the short
+      // TTL keeps a rotated key set from lingering in intermediaries.
+      reply.raw.setHeader("cache-control", "public, max-age=60");
+    }
     if (sessionState) {
       const original = reply.raw.setHeader.bind(reply.raw);
       const patched = (

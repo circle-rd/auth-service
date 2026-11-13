@@ -50,6 +50,19 @@ const envSchema = z
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
+    // Echo every Drizzle query to the console. A bench/diagnostic aid: verbose
+    // and statements may carry row values, so production rejects it.
+    LOG_SQL: envBoolean(false),
+    // In-process TTL cache for the bearer-token audience list.
+    // Resource changes propagate within the TTL; the unknown-kid retry picks
+    // up a fresh key set within one request. 0 disables the cache and makes
+    // every verification hit the database.
+    RESOURCE_CACHE_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(86_400)
+      .default(30),
 
     BETTER_AUTH_SECRET: z.string().min(16),
     BETTER_AUTH_URL: z.string().url(),
@@ -58,6 +71,10 @@ const envSchema = z
     // environments where a shared egress IP makes the default limit unusable
     // (for example, a conformance-suite deployment).
     BETTER_AUTH_RATE_LIMIT_ENABLED: optionalEnvBoolean,
+    // Global per-IP request ceiling for every non-exempt route. The default
+    // matches a conservative single instance; bigger deployments raise it
+    // behind a reverse proxy or load balancer that spreads source IPs.
+    RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(600),
 
     // Display name used as TOTP issuer in authenticator apps and as BetterAuth
     // appName. Falls back to a sensible default when unset.
@@ -260,6 +277,14 @@ const envSchema = z
     APPLE_CLIENT_SECRET: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.NODE_ENV === "production" && data.LOG_SQL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOG_SQL"],
+        message:
+          "must not be enabled in production (query parameters may contain credentials)",
+      });
+    }
     if (data.TRUST_PROXY_HOPS !== undefined) {
       ctx.addIssue({
         code: "custom",
@@ -341,12 +366,19 @@ export const config = {
   port: parsed.data.PORT,
   host: parsed.data.HOST,
   nodeEnv: parsed.data.NODE_ENV,
-  isDev: parsed.data.NODE_ENV === "development",
+  logSql: parsed.data.LOG_SQL,
   betterAuth: {
     secret: parsed.data.BETTER_AUTH_SECRET,
     url: parsed.data.BETTER_AUTH_URL,
     rateLimitEnabled: parsed.data.BETTER_AUTH_RATE_LIMIT_ENABLED,
   },
+  rateLimit: {
+    globalMax: parsed.data.RATE_LIMIT_GLOBAL_MAX,
+  },
+  verificationCache: {
+    resourcesTtlSeconds: parsed.data.RESOURCE_CACHE_TTL_SECONDS,
+  },
+  isDev: parsed.data.NODE_ENV === "development",
   appName: parsed.data.APP_NAME,
   appLogoUrl: parsed.data.APP_LOGO_URL,
   appLogoDarkUrl: parsed.data.APP_LOGO_DARK_URL,

@@ -711,6 +711,91 @@ export const walletAccountEvents = pgTable(
   ],
 );
 
+// ── Shared Resources ──────────────────────────────────────────────────────────
+// Typed registry of resources an owner application publishes for other
+// applications. `key` is the canonical `<ownerSlug>/<slug>` identity, unique
+// across every type; transport URLs live in `upstream_ref` and never identity.
+export const sharedResources = pgTable(
+  "shared_resource",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerApplicationId: uuid("owner_application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    resourceType: text("resource_type").notNull(),
+    key: text("key").notNull(),
+    displayName: text("display_name").notNull(),
+    upstreamRef: text("upstream_ref"),
+    status: text("status").notNull().default("draft"),
+    visibility: text("visibility").notNull().default("invited_only"),
+    defaultPlanId: uuid("default_plan_id").references(
+      () => subscriptionPlans.id,
+      { onDelete: "set null" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("shared_resources_key_idx").on(t.key),
+    index("shared_resources_owner_status_idx").on(
+      t.ownerApplicationId,
+      t.status,
+    ),
+    check(
+      "shared_resources_type_check",
+      sql`${t.resourceType} IN ('model', 'workflow', 'mcp_agent', 'https_endpoint')`,
+    ),
+    check(
+      "shared_resources_status_check",
+      sql`${t.status} IN ('draft', 'published', 'disabled')`,
+    ),
+    check(
+      "shared_resources_visibility_check",
+      sql`${t.visibility} IN ('invited_only', 'public_catalog')`,
+    ),
+  ],
+);
+
+// ── Resource Grants ───────────────────────────────────────────────────────────
+// Explicit invitations for subjects that are not members of the owner
+// application. `subject_id` is opaque so an API-key subject can be added without
+// a schema change; `resource_id` null scopes the grant to the whole owner
+// application. `allowed_client_ids` null means every client of the subject.
+export const resourceGrants = pgTable(
+  "resource_grant",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subjectId: text("subject_id").notNull(),
+    ownerApplicationId: uuid("owner_application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    resourceId: uuid("resource_id").references(() => sharedResources.id, {
+      onDelete: "cascade",
+    }),
+    planId: uuid("plan_id")
+      .notNull()
+      .references(() => subscriptionPlans.id, { onDelete: "restrict" }),
+    allowedClientIds: text("allowed_client_ids").array(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("resource_grants_subject_owner_idx").on(
+      t.subjectId,
+      t.ownerApplicationId,
+    ),
+    index("resource_grants_resource_idx").on(t.resourceId),
+  ],
+);
+
 // ── Wallet Pricing Settings ───────────────────────────────────────────────────
 // Append-only: the current pricing is the newest row, so every change keeps its
 // author and reason, and the ledger metadata of past charges stays explainable.

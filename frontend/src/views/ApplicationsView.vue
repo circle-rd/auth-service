@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   Activity,
   Layers,
+  Share2,
 } from '@lucide/vue';
 
 const { t } = useI18n();
@@ -169,6 +170,10 @@ function formatDate(iso: string) {
           <BaseSelect v-model="filterType" :options="typeFilterOptions" class="w-44" />
         </div>
         <div class="flex items-center gap-4">
+        <BaseButton variant="outline" @click="router.push('/share')">
+          <Share2 class="w-4 h-4" />
+          {{ t('share.openPortal') }}
+        </BaseButton>
         <BaseToggle v-model="showSystem" :label="t('applications.showSystem')" />
         <BaseButton @click="openCreate">
           <Plus class="w-4 h-4" />

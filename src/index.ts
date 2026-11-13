@@ -85,16 +85,22 @@ async function start(): Promise<void> {
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.once(signal, () => {
-      void fastify
-        .close()
-        .catch((err: unknown) => {
+      void (async () => {
+        try {
+          await fastify.close();
+        } catch (err) {
           logger.error({ err }, "Failed to close the HTTP server");
-        })
-        .then(() => closeRedisClient())
-        .catch((err: unknown) => {
+          process.exitCode = 1;
+        }
+        try {
+          await closeRedisClient();
+        } catch (err) {
           logger.error({ err }, "Failed to close the Redis client");
-        })
-        .finally(() => process.exit(0));
+          process.exitCode = 1;
+        } finally {
+          process.exit();
+        }
+      })();
     });
   }
 }

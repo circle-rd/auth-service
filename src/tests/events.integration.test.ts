@@ -33,6 +33,7 @@ import { eq } from "drizzle-orm";
 
 let handle: AuthServerHandle;
 let sseApp: FastifyInstance;
+let sseAppClosed = false;
 let baseUrl: string;
 
 beforeAll(async () => {
@@ -47,10 +48,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Hijacked SSE sockets outlive `close()`; tear them down first so the hook
-  // does not wait on a connection no client will ever end.
-  sseApp.server.closeAllConnections();
-  await sseApp.close();
+  if (!sseAppClosed) {
+    // Hijacked SSE sockets outlive `close()`; tear them down first so the hook
+    // does not wait on a connection no client will ever end.
+    sseApp.server.closeAllConnections();
+    await sseApp.close();
+  }
   await handle.cleanup();
 });
 
@@ -475,4 +478,23 @@ describe("GET /api/admin/events — the widened vocabulary", () => {
     );
     await closeStream(stream);
   });
+});
+
+describe("GET /api/admin/events — shutdown", () => {
+  it("preClose ends live streams so server close resolves", async () => {
+    const { stream } = await openAdminStream("shutdown@example.com");
+    expect(await waitForSubscribers(1)).toBe(1);
+
+    sseAppClosed = true;
+    const timeout = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), 5_000);
+      timer.unref();
+    });
+    await expect(
+      Promise.race([sseApp.close().then(() => "closed" as const), timeout]),
+    ).resolves.toBe("closed");
+
+    stream.close();
+    expect(await waitForSubscribers(0)).toBe(0);
+  }, 15_000);
 });

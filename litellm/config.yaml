@@ -24,5 +24,8 @@ general_settings:
     - 192.168.0.0/16
 
 litellm_settings:
-  # Credit check before each call and billing after it (see circle_wallet.py).
-  callbacks: circle_wallet.wallet_logger
+  # Credit check before each call and billing after it (see circle_wallet.py),
+  # plus the shared-resource catalogue filter for /v1/models (flag-gated).
+  callbacks:
+    - circle_wallet.wallet_logger
+    - resource_discovery.resource_sharing_logger

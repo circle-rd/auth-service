@@ -30,6 +30,18 @@ from litellm.proxy._types import (
 )
 from litellm.proxy.auth.route_checks import RouteChecks
 
+from resource_routing import (
+    ResourceNotFound,
+    ResourceUnavailable,
+    SharingContext,
+    _read_body,
+    authorize_team_fallbacks,
+    enforce_resource_access,
+    resource_not_found,
+    resource_unavailable,
+)
+from resource_sharing import RESOURCE_SHARING_ENABLED, SHARING_METADATA_KEY
+
 
 def _required_env(name: str) -> str:
     value = os.environ.get(name, "")
@@ -201,6 +213,73 @@ async def _application_team(team_id: str, app_slug: str):
         ) from None
 
 
+async def _sharing_team(team_id: str):
+    try:
+        return await _application_team(team_id, "")
+    except Exception:
+        raise resource_not_found() from None
+
+
+def _identity(claims: dict, team, *, sharing: bool = False) -> UserAPIKeyAuth:
+    metadata = {"azp": claims["azp"]}
+    if sharing:
+        metadata[SHARING_METADATA_KEY] = True
+    return UserAPIKeyAuth(
+        api_key=f"jwt:{claims['sub']}",
+        user_id=claims["sub"],
+        user_role=LitellmUserRoles.CUSTOMER,
+        team_id=team.team_id,
+        team_blocked=team.blocked,
+        team_models=team.models,
+        team_rpm_limit=team.rpm_limit,
+        team_tpm_limit=team.tpm_limit,
+        team_max_budget=team.max_budget,
+        team_spend=team.spend,
+        team_metadata=team.metadata,
+        team_object_permission_id=team.object_permission_id,
+        team_object_permission=getattr(team, "object_permission", None),
+        metadata=metadata,
+    )
+
+
+async def _resource_aware_identity(
+    request: Request, claims: dict
+) -> UserAPIKeyAuth:
+    body = await _read_body(request)
+    try:
+        context: SharingContext | None = await enforce_resource_access(
+            request,
+            subject_id=claims["sub"],
+            client_id=claims["azp"],
+            audience=AUDIENCE,
+            body=body,
+        )
+    except ResourceUnavailable:
+        raise resource_unavailable() from None
+    except ResourceNotFound:
+        raise resource_not_found() from None
+    if context is None:
+        # Discovery routes carry no team: their response is filtered against
+        # the M1 accessible list before it leaves the gateway.
+        return UserAPIKeyAuth(
+            api_key=f"jwt:{claims['sub']}",
+            user_id=claims["sub"],
+            user_role=LitellmUserRoles.CUSTOMER,
+            metadata={"azp": claims["azp"], SHARING_METADATA_KEY: True},
+        )
+    team = await _sharing_team(context.team_id)
+    if getattr(team, "model_aliases", None):
+        raise resource_not_found()
+    identity = _identity(claims, team, sharing=True)
+    try:
+        await authorize_team_fallbacks(context, identity)
+    except ResourceUnavailable:
+        raise resource_unavailable() from None
+    except ResourceNotFound:
+        raise resource_not_found() from None
+    return identity
+
+
 async def user_api_key_auth(
     request: Request, api_key: str
 ) -> UserAPIKeyAuth | None:
@@ -249,6 +328,9 @@ async def user_api_key_auth(
             code=403,
         )
 
+    if RESOURCE_SHARING_ENABLED:
+        return await _resource_aware_identity(request, claims)
+
     try:
         team_id = await _plans.team_id(claims["sub"], claims["azp"])
     except Exception:
@@ -260,20 +342,4 @@ async def user_api_key_auth(
             f"Application '{claims['azp']}' grants this user no plan", "team"
         )
 
-    team = await _application_team(team_id, claims["azp"])
-    return UserAPIKeyAuth(
-        api_key=f"jwt:{claims['sub']}",
-        user_id=claims["sub"],
-        user_role=LitellmUserRoles.CUSTOMER,
-        team_id=team.team_id,
-        team_blocked=team.blocked,
-        team_models=team.models,
-        team_rpm_limit=team.rpm_limit,
-        team_tpm_limit=team.tpm_limit,
-        team_max_budget=team.max_budget,
-        team_spend=team.spend,
-        team_metadata=team.metadata,
-        team_object_permission_id=team.object_permission_id,
-        team_object_permission=getattr(team, "object_permission", None),
-        metadata={"azp": claims["azp"]},
-    )
+    return _identity(claims, await _application_team(team_id, claims["azp"]))

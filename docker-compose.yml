@@ -140,6 +140,8 @@ services:
       # application with LiteLLM support, with the key litellm-provision delivers.
       LITELLM_URL: http://litellm:4000
       LITELLM_PROVISIONER_KEY_FILE: /run/litellm-provisioner/key
+      # Cross-app shared resources (M2). The gateway reads the same flag.
+      RESOURCE_SHARING_ENABLED: ${RESOURCE_SHARING_ENABLED:-false}
     volumes:
       - litellm_provisioner:/run/litellm-provisioner:ro
       - ./templates:/templates:ro
@@ -281,6 +283,16 @@ services:
       # call and bills the cost afterwards, through the wallet API of auth-service.
       WALLET_AUTH_URL: http://auth-service:${PORT:-3001}
       WALLET_CLIENT_ID: litellm-wallet
+      # Shared-resource policy (M2, litellm/resource_sharing.py). Flag off keeps
+      # the plan/team path unchanged. When on, the dedicated machine client
+      # below must hold `resources:authorize`; the gateway fails closed if the
+      # secret is absent. Never print these values.
+      RESOURCE_SHARING_ENABLED: ${RESOURCE_SHARING_ENABLED:-false}
+      RESOURCE_AUTH_URL: http://auth-service:${PORT:-3001}
+      RESOURCE_CLIENT_ID: ${RESOURCE_CLIENT_ID:-}
+      RESOURCE_CLIENT_SECRET: ${RESOURCE_CLIENT_SECRET:-}
+      RESOURCE_CACHE_TTL_S: ${RESOURCE_CACHE_TTL_S:-30}
+      RESOURCE_CACHE_MAX_ENTRIES: ${RESOURCE_CACHE_MAX_ENTRIES:-4096}
       WALLET_SPOOL_DIR: /var/lib/circle-wallet
       # Per-user ceilings of the wallet hook: billable calls per minute, spend
       # per minute (provider dollars) and model calls in progress at once.

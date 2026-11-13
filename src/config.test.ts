@@ -29,6 +29,7 @@ const FLAG_KEYS = [
   "COMPAT_ALIASES",
   "TRUST_PROXY",
   "TRUST_PROXY_HOPS",
+  "LOG_SQL",
 ];
 
 async function loadConfig(overrides: Record<string, string>) {
@@ -83,6 +84,21 @@ describe("config environment flags", () => {
       REQUIRE_EMAIL_VERIFICATION: "",
     });
     expect(config.email.requireVerification).toBe(true);
+  });
+
+  it("rejects LOG_SQL in production", async () => {
+    const error = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+
+    await expect(
+      loadConfig({ NODE_ENV: "production", LOG_SQL: "true" }),
+    ).rejects.toThrow("exit");
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(error.mock.calls.flat().join(" ")).toContain("LOG_SQL");
   });
 });
 

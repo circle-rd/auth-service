@@ -9,9 +9,16 @@ const { mockDb, state, grants } = vi.hoisted(() => {
   const terminal = () => Promise.resolve(state.results.shift() ?? []);
   const chain: Record<string, unknown> = {
     from: () => chain,
+    innerJoin: () => chain,
+    leftJoin: () => chain,
     where: () => chain,
+    orderBy: () => terminal(),
     limit: () => terminal(),
     returning: () => terminal(),
+    then: (
+      resolve: (rows: unknown[]) => unknown,
+      reject: (error: unknown) => unknown,
+    ) => terminal().then(resolve, reject),
     values: (values: unknown) => {
       state.lastValues = values;
       return chain;
@@ -52,6 +59,7 @@ const {
   buildResourceInvitationUrl,
   createResourceInvitation,
   hashResourceInvitationToken,
+  listResourceInvitationsForOwner,
   resourceInvitationState,
   revokeResourceInvitation,
   toPublicResourceInvitation,
@@ -279,5 +287,54 @@ describe("revokeResourceInvitation", () => {
     expect(
       (await rejection(revokeResourceInvitation("invitation-1", OWNER))).code,
     ).toBe("RES_010");
+  });
+});
+
+describe("listResourceInvitationsForOwner", () => {
+  it("returns invitation state without the token hash", async () => {
+    state.results = [
+      [
+        {
+          id: "invitation-1",
+          email: "invitee@example.test",
+          planId: "plan-1",
+          planName: "Team",
+          resourceId: null,
+          resourceName: null,
+          allowedClientIds: null,
+          expiresAt: new Date("2026-11-14T12:00:00Z"),
+          consumedAt: null,
+          revokedAt: null,
+          createdBy: "owner",
+          createdAt: NOW,
+        },
+        {
+          id: "invitation-2",
+          email: "old@example.test",
+          planId: "plan-1",
+          planName: "Team",
+          resourceId: "resource-1",
+          resourceName: "Model",
+          allowedClientIds: ["client-a"],
+          expiresAt: new Date("2026-11-12T12:00:00Z"),
+          consumedAt: null,
+          revokedAt: null,
+          createdBy: "owner",
+          createdAt: NOW,
+        },
+      ],
+    ];
+    const invitations = await listResourceInvitationsForOwner("app-a", NOW);
+    expect(invitations).toHaveLength(2);
+    expect(invitations[0]).toMatchObject({
+      id: "invitation-1",
+      state: "pending",
+    });
+    expect(invitations[1]).toMatchObject({
+      id: "invitation-2",
+      state: "expired",
+      resourceName: "Model",
+    });
+    expect(JSON.stringify(invitations)).not.toContain("tokenHash");
   });
 });

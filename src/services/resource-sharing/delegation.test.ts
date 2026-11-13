@@ -8,18 +8,27 @@ const { mockDb, state } = vi.hoisted(() => {
     from: () => chain,
     innerJoin: () => chain,
     where: () => chain,
+    orderBy: () => terminal(),
     limit: () => terminal(),
+    then: (
+      resolve: (rows: unknown[]) => unknown,
+      reject: (error: unknown) => unknown,
+    ) => terminal().then(resolve, reject),
   };
   return {
     state,
-    mockDb: { select: () => chain },
+    mockDb: { select: () => chain, selectDistinct: () => chain },
   };
 });
 
 vi.mock("../../db/index.js", () => ({ db: mockDb }));
 
-const { assertAppDelegation, hasDelegatedPermission, isApplicationOwner } =
-  await import("./delegation.js");
+const {
+  assertAppDelegation,
+  hasDelegatedPermission,
+  isApplicationOwner,
+  listOwnerApplications,
+} = await import("./delegation.js");
 
 const APP = "app-a-id";
 const USER = "user-a";
@@ -74,5 +83,60 @@ describe("application owner authority", () => {
     await expect(
       assertAppDelegation("platform-admin", APP, "resources:read"),
     ).rejects.toMatchObject({ code: "RES_004" });
+  });
+});
+
+describe("listOwnerApplications", () => {
+  it("merges admin and delegated permissions by application", async () => {
+    state.results = [
+      [
+        {
+          id: "app-a",
+          name: "App A",
+          slug: "app-a",
+          url: "https://app-a.test",
+          icon: null,
+        },
+      ],
+      [
+        {
+          id: "app-a",
+          name: "App A",
+          slug: "app-a",
+          url: "https://app-a.test",
+          icon: null,
+          permission: "grants:manage",
+        },
+        {
+          id: "app-b",
+          name: "App B",
+          slug: "app-b",
+          url: null,
+          icon: "icon-b",
+          permission: "resources:read",
+        },
+        {
+          id: "app-c",
+          name: "App C",
+          slug: "app-c",
+          url: null,
+          icon: null,
+          permission: "unknown:permission",
+        },
+      ],
+    ];
+    const apps = await listOwnerApplications(USER);
+    expect(apps.map((app) => app.id)).toEqual(["app-a", "app-b"]);
+    expect(apps[0]?.permissions).toEqual([
+      "resources:read",
+      "resources:manage",
+      "grants:manage",
+    ]);
+    expect(apps[1]?.permissions).toEqual(["resources:read"]);
+  });
+
+  it("returns no permissions when the caller administers nothing", async () => {
+    state.results = [[], []];
+    await expect(listOwnerApplications(USER)).resolves.toEqual([]);
   });
 });

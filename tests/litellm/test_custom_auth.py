@@ -41,6 +41,8 @@ class ClientRoutePolicy(unittest.TestCase):
             ("GET", "/mcp/"),
             ("POST", "/docs-server/mcp"),
             ("POST", "/docs-server/mcp/sse"),
+            ("POST", "/a2a/owner-agent/message/send"),
+            ("POST", "/v1/a2a/owner-agent/message/send"),
         ]:
             with self.subTest(method=method, path=path):
                 self.assertTrue(self.allowed(method, path))
@@ -90,6 +92,18 @@ class ClientRoutePolicy(unittest.TestCase):
             ("GET", "/spend/logs"),
             ("GET", "/user/list"),
             ("POST", "/model/new"),
+            ("POST", "/model/update"),
+            ("POST", "/model/delete"),
+            ("POST", "/key/update"),
+            ("POST", "/key/delete"),
+            ("POST", "/user/update"),
+            ("POST", "/user/delete"),
+            ("POST", "/team/update"),
+            ("POST", "/team/delete"),
+            ("POST", "/organization/new"),
+            ("POST", "/config/update"),
+            ("POST", "/cache/flush"),
+            ("POST", "/v1/a2a/discover"),
         ]:
             with self.subTest(method=method, path=path):
                 self.assertFalse(self.allowed(method, path))

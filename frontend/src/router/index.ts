@@ -61,6 +61,12 @@ const routes = [
     meta: { requiresAdmin: true },
   },
   {
+    path: '/share/catalogue',
+    name: 'share-catalogue',
+    component: () => import('@/views/share/SubjectCatalogueView.vue'),
+    meta: { requiresAdmin: false },
+  },
+  {
     path: '/share',
     name: 'share',
     component: () => import('@/views/share/ShareView.vue'),

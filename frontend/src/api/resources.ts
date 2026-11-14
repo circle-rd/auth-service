@@ -72,6 +72,17 @@ export interface ResourceInvitation {
   state: 'pending' | 'consumed' | 'revoked' | 'expired';
 }
 
+export interface ResourceCatalogueItem {
+  resourceId: string;
+  resourceKey: string;
+  resourceUri: string;
+  resourceType: ResourceType;
+  displayName: string;
+  ownerApplicationSlug: string;
+  planName: string;
+  restrictedToClientIds: string[] | null;
+}
+
 export interface OwnerMember {
   userId: string;
   name: string;
@@ -158,6 +169,10 @@ function queryString(params: Record<string, string | number | undefined>): strin
   }
   const encoded = search.toString();
   return encoded ? `?${encoded}` : '';
+}
+
+export async function listResourceCatalogue(): Promise<{ resources: ResourceCatalogueItem[] }> {
+  return apiFetch<{ resources: ResourceCatalogueItem[] }>('/user/resource-catalogue');
 }
 
 export async function listOwnerApplications(): Promise<{ apps: OwnerApplication[] }> {

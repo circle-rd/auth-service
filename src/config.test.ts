@@ -88,8 +88,8 @@ describe("config environment flags", () => {
 
   it("rejects LOG_SQL in production", async () => {
     const error = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
+      .spyOn(process.stderr, "write")
+      .mockImplementation((() => true) as never);
     const exit = vi.spyOn(process, "exit").mockImplementation((() => {
       throw new Error("exit");
     }) as never);

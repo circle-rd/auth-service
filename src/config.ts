@@ -76,6 +76,11 @@ const envSchema = z
     // behind a reverse proxy or load balancer that spreads source IPs.
     RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(600),
 
+    // Per-IP ceiling for the strict sign-in/sign-up/password-reset bucket. The
+    // default protects credential endpoints; automated suites raise it instead
+    // of disabling the bucket.
+    RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
+
     // Display name used as TOTP issuer in authenticator apps and as BetterAuth
     // appName. Falls back to a sensible default when unset.
     APP_NAME: z.string().min(1).default("CIRCLE Auth"),
@@ -344,9 +349,9 @@ const rawEnv = Object.fromEntries(
 const parsed = envSchema.safeParse(rawEnv);
 
 if (!parsed.success) {
-  console.error("Invalid environment variables:");
+  process.stderr.write("Invalid environment variables:\n");
   for (const issue of parsed.error.issues) {
-    console.error(`  ${issue.path.join(".")}: ${issue.message}`);
+    process.stderr.write(`  ${issue.path.join(".")}: ${issue.message}\n`);
   }
   process.exit(1);
 }
@@ -363,11 +368,11 @@ const anyEmailFlowEnabled =
   parsed.data.EMAIL_OTP_ENABLED;
 
 if (isProduction && anyEmailFlowEnabled && !parsed.data.SMTP_HOST) {
-  console.error(
+  process.stderr.write(
     "Invalid environment configuration:\n" +
       "  SMTP_HOST is required in production when REQUIRE_EMAIL_VERIFICATION, " +
       "MAGIC_LINK_ENABLED, or EMAIL_OTP_ENABLED is on.\n" +
-      "  Either set SMTP_HOST, or disable the email-dependent flows.",
+      "  Either set SMTP_HOST, or disable the email-dependent flows.\n",
   );
   process.exit(1);
 }
@@ -384,6 +389,7 @@ export const config = {
   },
   rateLimit: {
     globalMax: parsed.data.RATE_LIMIT_GLOBAL_MAX,
+    authMax: parsed.data.RATE_LIMIT_AUTH_MAX,
   },
   verificationCache: {
     resourcesTtlSeconds: parsed.data.RESOURCE_CACHE_TTL_SECONDS,

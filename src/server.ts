@@ -106,7 +106,6 @@ const AUTH_RATE_PATHS = [
   "/api/auth/passkey/generate-authenticate-options",
   "/api/auth/passkey/verify-authentication",
 ];
-const AUTH_RATE_MAX = 10;
 const AUTH_RATE_WINDOW = 60_000;
 
 // A passkey sign-in performs a method lookup, an options request and a
@@ -662,7 +661,7 @@ export async function buildServer(
     ) {
       const allowed = await rateLimitStore.hit(
         `auth:${ip}`,
-        AUTH_RATE_MAX,
+        config.rateLimit.authMax,
         AUTH_RATE_WINDOW,
       );
       if (!allowed) {

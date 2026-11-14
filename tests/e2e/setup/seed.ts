@@ -11,6 +11,8 @@
  *     - alice@test.local  → has explicit access to test-app + restricted-app
  *     - bob@test.local    → no access to any app
  *     - charlie@test.local → access to test-app revoked (isActive: false)
+ *     - dana@test.local   → explicit grants on one published model from each of
+ *                           test-app and restricted-app for the catalogue smoke
  *
  * Credentials are written to /shared/credentials.json for the testapp service.
  * Application IDs are written to /shared/fixtures.json for use in Playwright tests.
@@ -158,6 +160,84 @@ async function upsertUser(headers: Headers, name: string, email: string): Promis
   throw new Error(`Unexpected response creating user ${email}: ${createRes.status}`);
 }
 
+async function appPlanId(headers: Headers, appId: string): Promise<string> {
+  const res = await fetch(`${AUTH_INTERNAL}/api/admin/applications/${appId}/plans`, { headers });
+  if (!res.ok) throw new Error(`Plan lookup failed for ${appId}: ${res.status}`);
+  const { plans } = (await res.json()) as { plans: Array<{ id: string; isDefault: boolean }> };
+  const plan = plans.find((p) => p.isDefault) ?? plans[0];
+  if (!plan) throw new Error(`No plan found for ${appId}`);
+  return plan.id;
+}
+
+async function publishResource(
+  headers: Headers,
+  appId: string,
+  slug: string,
+  displayName: string,
+): Promise<string> {
+  const res = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/shared-resources`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      resourceType: "model",
+      slug,
+      displayName,
+      status: "published",
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Resource create failed (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as { resource: { id: string } };
+  console.log(`  Published resource: ${displayName}`);
+  return data.resource.id;
+}
+
+async function inviteAndAccept(
+  headers: Headers,
+  subjectCookie: string,
+  appId: string,
+  planId: string,
+  resourceId: string,
+  email: string,
+): Promise<void> {
+  const created = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/invitations`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ email, planId, resourceId }),
+  });
+  if (!created.ok) {
+    const body = await created.text();
+    throw new Error(`Invitation create failed (${created.status}): ${body}`);
+  }
+  const { inviteUrl } = (await created.json()) as { inviteUrl: string };
+  const token = new URL(inviteUrl).searchParams.get("token");
+  if (!token) throw new Error("Invitation URL has no token");
+
+  const accepted = await fetch(`${AUTH_INTERNAL}/api/user/resource-invitations/accept`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: APP_ORIGIN,
+      Cookie: subjectCookie,
+    },
+    body: JSON.stringify({ token }),
+  });
+  if (!accepted.ok) {
+    const body = await accepted.text();
+    throw new Error(`Invitation accept failed (${accepted.status}): ${body}`);
+  }
+}
+
+async function verifyEmail(headers: Headers, userId: string): Promise<void> {
+  const res = await fetch(`${AUTH_INTERNAL}/api/admin/users/${userId}/verify-email`, {
+    method: "POST",
+    headers,
+  });
+  if (!res.ok) throw new Error(`Email verification failed (${res.status})`);
+}
+
 async function grantAccess(headers: Headers, userId: string, appId: string, isActive = true): Promise<void> {
   // Step 1: grant access (always creates with isActive=true)
   const res = await fetch(`${AUTH_INTERNAL}/api/admin/applications/${appId}/users`, {
@@ -199,6 +279,7 @@ async function main(): Promise<void> {
   const alice = await upsertUser(authHeaders, "Alice Test", "alice@test.local");
   const bob = await upsertUser(authHeaders, "Bob Test", "bob@test.local");
   const charlie = await upsertUser(authHeaders, "Charlie Test", "charlie@test.local");
+  const dana = await upsertUser(authHeaders, "Dana Catalogue", "dana@test.local");
 
   console.log("Granting access…");
   // Alice has active access to test-app and restricted-app
@@ -207,6 +288,25 @@ async function main(): Promise<void> {
   // Bob has no access to anything
   // Charlie had access to test-app but it was revoked
   await grantAccess(authHeaders, charlie.id, testApp.id, false);
+
+  console.log("Publishing catalogue resources…");
+  const testAppPlan = await appPlanId(authHeaders, testApp.id);
+  const restrictedAppPlan = await appPlanId(authHeaders, restrictedApp.id);
+  const sharedA = await publishResource(authHeaders, testApp.id, "catalogue-a", "Shared Model A");
+  const sharedB = await publishResource(authHeaders, restrictedApp.id, "catalogue-b", "Shared Model B");
+
+  console.log("Granting catalogue resources to Dana…");
+  await verifyEmail(authHeaders, dana.id);
+  const danaCookie = await signIn("dana@test.local", TEST_PASSWORD);
+  await inviteAndAccept(authHeaders, danaCookie, testApp.id, testAppPlan, sharedA, "dana@test.local");
+  await inviteAndAccept(
+    authHeaders,
+    danaCookie,
+    restrictedApp.id,
+    restrictedAppPlan,
+    sharedB,
+    "dana@test.local",
+  );
 
   // Write credentials for testapp container
   fs.mkdirSync("/shared", { recursive: true });
@@ -226,6 +326,13 @@ async function main(): Promise<void> {
           alice: { id: alice.id, email: "alice@test.local", password: TEST_PASSWORD },
           bob: { id: bob.id, email: "bob@test.local", password: TEST_PASSWORD },
           charlie: { id: charlie.id, email: "charlie@test.local", password: TEST_PASSWORD },
+          dana: { id: dana.id, email: "dana@test.local", password: TEST_PASSWORD },
+        },
+        catalogue: {
+          resources: [
+            { id: sharedA, owner: "test-app", displayName: "Shared Model A" },
+            { id: sharedB, owner: "restricted-app", displayName: "Shared Model B" },
+          ],
         },
       },
       null,

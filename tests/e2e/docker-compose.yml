@@ -40,6 +40,7 @@ services:
       ADMIN_EMAIL: "admin@test.local"
       ADMIN_PASSWORD: "AdminPass123!"
       CORS_ORIGINS: "http://localhost:3000,http://testapp:3000"
+      RESOURCE_SHARING_ENABLED: "true"
     ports:
       - "3001:3001"
     depends_on:

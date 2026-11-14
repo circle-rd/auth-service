@@ -269,6 +269,9 @@ services:
       - litellm
     command: ["--config", "/app/gateway/config.yaml", "--port", "4000"]
     environment:
+      # Callbacks and custom_auth import their sibling modules by bare name; the
+      # config directory must be importable before LiteLLM loads them.
+      PYTHONPATH: /app/gateway
       # The admin interface sign-in through auth-service (PROXY_BASE_URL and the
       # GENERIC_* settings, AUTO_REDIRECT_UI_LOGIN_TO_SSO included) is written by
       # litellm-setup into secrets.env, next to the client id and secret: nothing to

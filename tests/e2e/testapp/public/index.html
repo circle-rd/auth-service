@@ -104,6 +104,7 @@
       const state = randomBase64url(16);
       sessionStorage.setItem('pkce_verifier', verifier);
       sessionStorage.setItem('pkce_state', state);
+      sessionStorage.setItem('oauth_client_id', APP_SLUG);
 
       const params = new URLSearchParams({
         response_type: 'code',
@@ -134,10 +135,12 @@
       sessionStorage.removeItem('pkce_verifier');
       sessionStorage.removeItem('pkce_state');
 
+      const clientId = sessionStorage.getItem('oauth_client_id') || APP_SLUG;
+      sessionStorage.removeItem('oauth_client_id');
       const res = await fetch('/api/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, code_verifier: verifier, redirect_uri: REDIRECT_URI }),
+        body: JSON.stringify({ code, code_verifier: verifier, redirect_uri: REDIRECT_URI, client_id: clientId }),
       });
       const data = await res.json();
 
@@ -156,9 +159,10 @@
         });
       }
 
-      // Clean up URL and show claims
-      history.replaceState(null, '', '/');
-      await checkSession();
+      // Full navigation so the freshly set session cookie is present on the
+      // next document load before /api/me runs.
+      window.location.replace('/');
+      return;
     }
 
     document.getElementById('login-btn').addEventListener('click', startLogin);

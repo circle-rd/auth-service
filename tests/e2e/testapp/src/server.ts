@@ -39,7 +39,8 @@ if (!AUTH_SERVICE_URL || !APP_SLUG || !REDIRECT_URI) {
 }
 
 // ── OAuth Credentials ─────────────────────────────────────────────────────────
-interface Credentials { clientId: string; clientSecret: string; }
+interface AppCredential { clientId: string; clientSecret: string | null; }
+interface Credentials extends AppCredential { apps?: Record<string, AppCredential>; }
 
 function loadCredentials(): Credentials {
   try {
@@ -110,9 +111,11 @@ app.get("/logout", (req, res) => {
 
 // Server-side code exchange — client_secret never leaves the server
 app.post("/api/token", async (req, res) => {
-  const { code, code_verifier, redirect_uri } = req.body as {
-    code?: string; code_verifier?: string; redirect_uri?: string;
+  const { code, code_verifier, redirect_uri, client_id } = req.body as {
+    code?: string; code_verifier?: string; redirect_uri?: string; client_id?: string;
   };
+  const appCredentials =
+    (client_id ? credentials.apps?.[client_id] : undefined) ?? credentials;
 
   if (!code || !code_verifier || !redirect_uri) {
     res.status(400).json({ error: "Missing: code, code_verifier, redirect_uri" });
@@ -124,14 +127,27 @@ app.post("/api/token", async (req, res) => {
     code,
     code_verifier,
     redirect_uri,
-    client_id: credentials.clientId,
-    client_secret: credentials.clientSecret,
   });
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  if (appCredentials.clientSecret) {
+    // Confidential clients are registered for client_secret_basic (RFC 6749
+    // §2.3.1), so the credentials travel in the Authorization header.
+    const basic = Buffer.from(
+      `${encodeURIComponent(appCredentials.clientId)}:${encodeURIComponent(appCredentials.clientSecret)}`,
+    ).toString("base64");
+    headers["Authorization"] = `Basic ${basic}`;
+  } else {
+    // Public clients authenticate with the client id only.
+    form.set("client_id", appCredentials.clientId);
+  }
 
   try {
     const tokenRes = await fetch(`${AUTH_SERVICE_INTERNAL_URL}/api/auth/oauth2/token`, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers,
       body: form,
     });
     const data = (await tokenRes.json()) as Record<string, unknown>;
@@ -167,6 +183,7 @@ app.post("/api/session", (req, res) => {
 
 // /api/me — returns claims; accepts Bearer token or session cookie
 app.get("/api/me", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   let token: string | undefined;
 
   const authHeader = req.headers["authorization"];

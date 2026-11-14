@@ -82,11 +82,12 @@ async function upsertApp(
   headers: Headers,
   name: string,
   slug: string,
-  opts: { allowRegister?: boolean; isPublic?: boolean } = {},
+  opts: { allowRegister?: boolean; isPublic?: boolean; url?: string } = {},
 ): Promise<AppResult> {
   const body = {
     name,
     slug,
+    url: opts.url ?? null,
     redirectUris: [REDIRECT_URI],
     allowedScopes: ["openid", "profile", "email", "roles"],
     skipConsent: true,
@@ -112,6 +113,20 @@ async function upsertApp(
     const { applications } = (await listRes.json()) as { applications: Array<{ id: string; slug: string }> };
     const existing = applications.find((a) => a.slug === slug);
     if (!existing) throw new Error(`Cannot find existing app: ${slug}`);
+
+    // Keep the audience URL current on re-runs: the token is only a JWT when
+    // the client has a resolvable application URL.
+    const patchRes = await fetch(
+      `${AUTH_INTERNAL}/api/admin/applications/${existing.id}`,
+      {
+        method: "PATCH",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ url: opts.url ?? null }),
+      },
+    );
+    if (!patchRes.ok) {
+      throw new Error(`Application update failed for ${slug}: ${patchRes.status}`);
+    }
 
     // Public apps have no client secret — skip rotation
     if (opts.isPublic) {
@@ -147,17 +162,26 @@ async function upsertUser(headers: Headers, name: string, email: string): Promis
     return { id: data.user.id };
   }
 
-  if (createRes.status === 409 || createRes.status === 422) {
-    // Already exists — list users to find the ID
-    const listRes = await fetch(`${AUTH_INTERNAL}/api/admin/users?limit=100`, { headers });
-    const { users } = (await listRes.json()) as { users: Array<{ id: string; email: string }> };
+  // A re-run against a seeded database is expected: resolve the existing user
+  // by email instead of failing the whole setup.
+  const listRes = await fetch(`${AUTH_INTERNAL}/api/admin/users?limit=100`, {
+    headers,
+  });
+  if (listRes.ok) {
+    const { users } = (await listRes.json()) as {
+      users: Array<{ id: string; email: string }>;
+    };
     const existing = users.find((u) => u.email === email);
-    if (!existing) throw new Error(`Cannot find existing user: ${email}`);
-    console.log(`  Reused user: ${email}`);
-    return { id: existing.id };
+    if (existing) {
+      console.log(`  Reused user: ${email}`);
+      return { id: existing.id };
+    }
   }
 
-  throw new Error(`Unexpected response creating user ${email}: ${createRes.status}`);
+  const body = await createRes.text();
+  throw new Error(
+    `Unexpected response creating user ${email}: ${createRes.status} ${body}`,
+  );
 }
 
 async function appPlanId(headers: Headers, appId: string): Promise<string> {
@@ -186,6 +210,22 @@ async function publishResource(
     }),
   });
   if (!res.ok) {
+    const listRes = await fetch(
+      `${AUTH_INTERNAL}/api/user/apps/${appId}/shared-resources`,
+      { headers },
+    );
+    if (listRes.ok) {
+      const { resources } = (await listRes.json()) as {
+        resources: Array<{ id: string; key: string }>;
+      };
+      const existing = resources.find(
+        (r) => r.key.split("/").pop() === slug,
+      );
+      if (existing) {
+        console.log(`  Reused resource: ${displayName}`);
+        return existing.id;
+      }
+    }
     const body = await res.text();
     throw new Error(`Resource create failed (${res.status}): ${body}`);
   }
@@ -226,6 +266,12 @@ async function inviteAndAccept(
   });
   if (!accepted.ok) {
     const body = await accepted.text();
+    // A re-run against a seeded database already has the grant this invitation
+    // would create; the invitation still exists, so only reject real failures.
+    if (accepted.status === 409 && body.includes("RES_008")) {
+      console.log("  Reused existing grant");
+      return;
+    }
     throw new Error(`Invitation accept failed (${accepted.status}): ${body}`);
   }
 }
@@ -271,9 +317,21 @@ async function main(): Promise<void> {
   const authHeaders: Headers = { Cookie: cookie, Origin: APP_ORIGIN };
 
   console.log("Provisioning applications…");
-  const testApp = await upsertApp(authHeaders, "Test App", APP_SLUG, { allowRegister: true, isPublic: false });
-  const restrictedApp = await upsertApp(authHeaders, "Restricted App", "restricted-app", { allowRegister: false, isPublic: false });
-  const publicApp = await upsertApp(authHeaders, "Public App", "public-app", { allowRegister: false, isPublic: true });
+  const testApp = await upsertApp(authHeaders, "Test App", APP_SLUG, {
+    allowRegister: true,
+    isPublic: false,
+    url: APP_ORIGIN,
+  });
+  const restrictedApp = await upsertApp(authHeaders, "Restricted App", "restricted-app", {
+    allowRegister: false,
+    isPublic: false,
+    url: "https://restricted-app.example.test",
+  });
+  const publicApp = await upsertApp(authHeaders, "Public App", "public-app", {
+    allowRegister: false,
+    isPublic: true,
+    url: "https://public-app.example.test",
+  });
 
   console.log("Provisioning users…");
   const alice = await upsertUser(authHeaders, "Alice Test", "alice@test.local");
@@ -310,7 +368,27 @@ async function main(): Promise<void> {
 
   // Write credentials for testapp container
   fs.mkdirSync("/shared", { recursive: true });
-  fs.writeFileSync(CREDENTIALS_PATH, JSON.stringify({ clientId: testApp.clientId, clientSecret: testApp.clientSecret }, null, 2));
+  // Per-client credentials so the testapp can complete a code exchange for
+  // any seeded application, not only test-app.
+  const appCredentials: Record<string, { clientId: string; clientSecret: string | null }> = {};
+  for (const app of [testApp, restrictedApp, publicApp]) {
+    appCredentials[app.clientId] = {
+      clientId: app.clientId,
+      clientSecret: app.clientSecret,
+    };
+  }
+  fs.writeFileSync(
+    CREDENTIALS_PATH,
+    JSON.stringify(
+      {
+        clientId: testApp.clientId,
+        clientSecret: testApp.clientSecret,
+        apps: appCredentials,
+      },
+      null,
+      2,
+    ),
+  );
 
   // Write fixture metadata for Playwright tests
   fs.writeFileSync(

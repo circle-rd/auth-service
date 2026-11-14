@@ -89,14 +89,19 @@ async function fillLoginForm(page: Page, email: string, password: string): Promi
  *
  * NOTE: sessionStorage is origin-scoped, so we need to navigate to testapp first.
  */
-async function injectPkceIntoTestappSession(page: Page, pkce: PkceSession): Promise<void> {
+async function injectPkceIntoTestappSession(
+  page: Page,
+  pkce: PkceSession,
+  appSlug: string,
+): Promise<void> {
   await page.goto(TESTAPP_URL);
   await page.evaluate(
-    ({ verifier, state }) => {
+    ({ verifier, state, slug }) => {
       sessionStorage.setItem("pkce_verifier", verifier);
       sessionStorage.setItem("pkce_state", state);
+      sessionStorage.setItem("oauth_client_id", slug);
     },
-    { verifier: pkce.verifier, state: pkce.state },
+    { verifier: pkce.verifier, state: pkce.state, slug: appSlug },
   );
 }
 
@@ -112,7 +117,7 @@ async function performOAuthFlow(
 ): Promise<Record<string, unknown> | null> {
   const pkce = await buildPkce();
   // Store PKCE values in testapp's sessionStorage so callback can exchange the code
-  await injectPkceIntoTestappSession(page, pkce);
+  await injectPkceIntoTestappSession(page, pkce, appSlug);
 
   // Start the OAuth authorize flow
   await goToAuthorizePage(page, appSlug, pkce);
@@ -173,7 +178,7 @@ test.describe("restricted app (restricted-app — allowRegister: false, isPublic
 
   test("bob (no access) is denied (FORBIDDEN)", async ({ page }) => {
     const pkce = await buildPkce();
-    await injectPkceIntoTestappSession(page, pkce);
+    await injectPkceIntoTestappSession(page, pkce, "restricted-app");
     await goToAuthorizePage(page, "restricted-app", pkce);
     await expect(page.locator("#email")).toBeVisible({ timeout: 8_000 });
 
@@ -203,7 +208,7 @@ test.describe("restricted app (restricted-app — allowRegister: false, isPublic
 
   test("charlie (revoked access, isActive: false) is denied (FORBIDDEN)", async ({ page }) => {
     const pkce = await buildPkce();
-    await injectPkceIntoTestappSession(page, pkce);
+    await injectPkceIntoTestappSession(page, pkce, "test-app");
     await goToAuthorizePage(page, "test-app", pkce);
     await expect(page.locator("#email")).toBeVisible({ timeout: 8_000 });
 

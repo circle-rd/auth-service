@@ -38,6 +38,12 @@ export const applications = pgTable(
     // default). `delegated`: the service serves the subscribe, invoices and
     // billing-usage pages for it. The application keeps its own UI otherwise.
     billingMode: text("billing_mode").notNull().default("none"),
+    // Owner-side sharing is effective only when the global
+    // RESOURCE_SHARING_ENABLED flag is also on. Toggling this off hides the
+    // feature and refuses owner access without touching existing rows.
+    resourceSharingEnabled: boolean("resource_sharing_enabled")
+      .notNull()
+      .default(false),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()

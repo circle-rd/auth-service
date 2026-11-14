@@ -43,6 +43,7 @@ CREATE TABLE "applications" (
 	"is_mfa_required" boolean DEFAULT false NOT NULL,
 	"allow_register" boolean DEFAULT false NOT NULL,
 	"billing_mode" text DEFAULT 'none' NOT NULL,
+	"resource_sharing_enabled" boolean DEFAULT false NOT NULL,
 	"allowed_scopes" text[] DEFAULT '{"openid","profile","email"}' NOT NULL,
 	"redirect_uris" text[] DEFAULT '{}' NOT NULL,
 	"is_public" boolean DEFAULT false NOT NULL,

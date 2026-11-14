@@ -107,6 +107,8 @@ export interface Application {
   allowRegister: boolean
   /** `delegated`: Auth Service serves the subscribe, invoices and usage pages of the app. */
   billingMode: 'none' | 'delegated'
+  /** Per-application owner sharing switch; effective only with the global flag. */
+  resourceSharingEnabled: boolean
   allowedScopes: string[]
   redirectUris: string[]
   isPublic: boolean

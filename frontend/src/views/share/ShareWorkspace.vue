@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Share2 } from '@lucide/vue';
-import BaseBadge from '@/components/ui/BaseBadge.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { listOwnerApplications, type OwnerApplication } from '@/api/resources';
@@ -67,12 +66,6 @@ onMounted(async () => {
     </EmptyState>
 
     <template v-else>
-      <div class="flex flex-wrap gap-1.5">
-        <BaseBadge v-for="permission in ownerApp.permissions" :key="permission" variant="neutral">
-          {{ permission }}
-        </BaseBadge>
-      </div>
-
       <div class="flex flex-wrap gap-1 border-b border-surface-700/50">
         <button
           v-for="tab in visibleTabs"

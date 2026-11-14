@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getRequestSession: vi.fn(),
   listAccessibleResources: vi.fn(),
   listResourceCatalogue: vi.fn(),
+  listSharingApplications: vi.fn(),
   listSharedResources: vi.fn(),
   getSharedResource: vi.fn(),
   createSharedResource: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("../services/resource-sharing/accessible.js", () => ({
 }));
 vi.mock("../services/resource-sharing/catalogue.js", () => ({
   listResourceCatalogue: mocks.listResourceCatalogue,
+  listSharingApplications: mocks.listSharingApplications,
 }));
 vi.mock("../services/resource-sharing/registry.js", () => ({
   listSharedResources: mocks.listSharedResources,
@@ -130,15 +132,20 @@ describe("GET /resource-catalogue", () => {
         resourceType: "model",
         displayName: "Model A",
         ownerApplicationSlug: "app-a",
+        ownerApplicationName: "App A",
         planName: "Team",
         restrictedToClientIds: null,
       },
+    ]);
+    mocks.listSharingApplications.mockResolvedValue([
+      { slug: "app-a", name: "App A" },
     ]);
 
     const res = await app.inject({ method: "GET", url: "/resource-catalogue" });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
+      applications: [{ slug: "app-a", name: "App A" }],
       resources: [
         expect.objectContaining({
           resourceId: "resource-1",

@@ -55,6 +55,7 @@ async function createConfidentialApp(opts: {
       url: opts.url,
       redirectUris: [`${opts.url}/callback`],
       isPublic: false,
+      resourceSharingEnabled: true,
       allowedScopes: ["openid", "profile", "email"],
     },
   });

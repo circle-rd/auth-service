@@ -93,6 +93,7 @@ async function upsertApp(
     skipConsent: true,
     allowRegister: opts.allowRegister ?? true,
     isPublic: opts.isPublic ?? false,
+    resourceSharingEnabled: true,
   };
 
   const createRes = await fetch(`${AUTH_INTERNAL}/api/admin/applications`, {

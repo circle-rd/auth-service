@@ -16,6 +16,7 @@ import { cleanDb } from "./helpers/db.js";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 import {
+  applications,
   resourceGrants,
   sharedResources,
   subscriptionPlans,
@@ -55,6 +56,7 @@ async function createApp(slug: string): Promise<{ id: string; planId: string }> 
       url: `https://${slug}.example.test`,
       redirectUris: [`https://${slug}.example.test/callback`],
       isPublic: false,
+      resourceSharingEnabled: true,
       allowedScopes: ["openid", "profile", "email"],
     },
   });
@@ -182,7 +184,7 @@ describe("GET /api/user/resource-catalogue", () => {
     await createResource(appA.id, "model-a");
     const res = await catalogue(subjectCookie);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ resources: [] });
+    expect(res.json()).toMatchObject({ resources: [] });
   });
 
   it("omits revoked, expired, draft and disabled resources", async () => {
@@ -200,7 +202,7 @@ describe("GET /api/user/resource-catalogue", () => {
 
     const res = await catalogue(subjectCookie);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ resources: [] });
+    expect(res.json()).toMatchObject({ resources: [] });
   });
 
   it("omits membership access when no plan resolves", async () => {
@@ -215,7 +217,7 @@ describe("GET /api/user/resource-catalogue", () => {
 
     const res = await catalogue(subjectCookie);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ resources: [] });
+    expect(res.json()).toMatchObject({ resources: [] });
   });
 
   it("returns two owners' resources in one session with plan and client metadata", async () => {
@@ -232,29 +234,79 @@ describe("GET /api/user/resource-catalogue", () => {
     const res = await catalogue(subjectCookie);
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
+      applications: Array<{ slug: string; name: string }>;
       resources: Array<{
         resourceId: string;
         ownerApplicationSlug: string;
+        ownerApplicationName: string;
         planName: string;
         restrictedToClientIds: string[] | null;
       }>;
     };
     expect(body.resources).toHaveLength(2);
+    expect(body.applications).toEqual(
+      expect.arrayContaining([
+        { slug: "catalogue-app-a", name: "catalogue-app-a" },
+        { slug: "catalogue-app-b", name: "catalogue-app-b" },
+      ]),
+    );
     expect(body.resources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           resourceId: a,
           ownerApplicationSlug: "catalogue-app-a",
+          ownerApplicationName: "catalogue-app-a",
           planName: expect.any(String),
           restrictedToClientIds: null,
         }),
         expect.objectContaining({
           resourceId: b,
           ownerApplicationSlug: "catalogue-app-b",
+          ownerApplicationName: "catalogue-app-b",
           planName: expect.any(String),
           restrictedToClientIds: ["client-b"],
         }),
       ]),
+    );
+  });
+
+  it("excludes an application whose sharing flag is off and restores it on re-enable", async () => {
+    const a = await createResource(appA.id, "model-a");
+    const b = await createResource(appB.id, "model-b");
+    await grant({ subjectId, app: appA, resourceId: a });
+    await grant({ subjectId, app: appB, resourceId: b });
+
+    await db
+      .update(applications)
+      .set({ resourceSharingEnabled: false })
+      .where(eq(applications.id, appA.id));
+
+    const disabled = await catalogue(subjectCookie);
+    const disabledBody = disabled.json() as {
+      applications: Array<{ slug: string }>;
+      resources: Array<{ resourceId: string }>;
+    };
+    expect(disabledBody.resources.map((item) => item.resourceId)).toEqual([b]);
+    expect(disabledBody.applications.map((app) => app.slug)).not.toContain(
+      "catalogue-app-a",
+    );
+
+    // The data is preserved, so re-enabling restores it exactly.
+    await db
+      .update(applications)
+      .set({ resourceSharingEnabled: true })
+      .where(eq(applications.id, appA.id));
+
+    const enabled = await catalogue(subjectCookie);
+    const enabledBody = enabled.json() as {
+      applications: Array<{ slug: string }>;
+      resources: Array<{ resourceId: string }>;
+    };
+    expect(enabledBody.resources.map((item) => item.resourceId).sort()).toEqual(
+      [a, b].sort(),
+    );
+    expect(enabledBody.applications.map((app) => app.slug)).toEqual(
+      expect.arrayContaining(["catalogue-app-a", "catalogue-app-b"]),
     );
   });
 

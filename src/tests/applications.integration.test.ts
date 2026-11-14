@@ -183,6 +183,64 @@ describe("applicationRoutes integration", () => {
     expect(client?.scopes).toEqual([]);
   });
 
+  it("POST and PATCH / round-trip the per-application resource sharing flag", async () => {
+    asAdmin();
+    const created = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: {
+        name: "Sharing App",
+        slug: "sharing-app",
+        isPublic: false,
+        resourceSharingEnabled: true,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const createdBody = created.json<{
+      application: { id: string; resourceSharingEnabled: boolean };
+    }>();
+    expect(createdBody.application.resourceSharingEnabled).toBe(true);
+
+    const id = createdBody.application.id;
+    const read = await app.inject({ method: "GET", url: `/${id}` });
+    expect(
+      read.json<{ application: { resourceSharingEnabled: boolean } }>()
+        .application.resourceSharingEnabled,
+    ).toBe(true);
+
+    const disabled = await app.inject({
+      method: "PATCH",
+      url: `/${id}`,
+      payload: { resourceSharingEnabled: false },
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(
+      disabled.json<{ application: { resourceSharingEnabled: boolean } }>()
+        .application.resourceSharingEnabled,
+    ).toBe(false);
+
+    // A patch omitting the flag must not reset it to the create-time default.
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/${id}`,
+      payload: { name: "Renamed Sharing App" },
+    });
+    expect(
+      renamed.json<{ application: { resourceSharingEnabled: boolean } }>()
+        .application.resourceSharingEnabled,
+    ).toBe(false);
+
+    const defaulted = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: { name: "Plain App", slug: "plain-app", isPublic: false },
+    });
+    expect(
+      defaulted.json<{ application: { resourceSharingEnabled: boolean } }>()
+        .application.resourceSharingEnabled,
+    ).toBe(false);
+  });
+
   it("POST / → 409 on duplicate slug", async () => {
     await createApp("dup-slug");
     asAdmin();

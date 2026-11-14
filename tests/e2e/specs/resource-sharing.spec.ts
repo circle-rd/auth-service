@@ -18,23 +18,29 @@ test.describe("Resource-sharing catalogue (AC-01 portal chain)", () => {
     await page.goto(`${AUTH_URL}/share/catalogue`);
     await expect(page.getByTestId("subject-catalogue")).toBeVisible();
 
-    const items = page.getByTestId("catalogue-item");
-    await expect(items).toHaveCount(2);
+    // Every sharing application is listed even before a selection.
+    const applications = page.getByTestId("catalogue-applications").getByRole("button");
+    await expect(applications).toHaveCount(3);
+    await expect(page.getByTestId("catalogue-app-test-app")).toContainText("Test App");
+    await expect(page.getByTestId("catalogue-app-restricted-app")).toContainText("Restricted App");
 
-    const modelA = items.filter({ hasText: "Shared Model A" });
-    const modelB = items.filter({ hasText: "Shared Model B" });
+    await page.getByTestId("catalogue-app-test-app").click();
+    const testAppItems = page.getByTestId("catalogue-item");
+    await expect(testAppItems).toHaveCount(1);
+    const modelA = testAppItems.filter({ hasText: "Shared Model A" });
     await expect(modelA).toHaveCount(1);
+    await expect(modelA).toContainText("Test App");
+    await expect(page.getByTestId("selected-model")).toContainText("Shared Model A");
+
+    await page.getByTestId("catalogue-app-restricted-app").click();
+    const restrictedItems = page.getByTestId("catalogue-item");
+    await expect(restrictedItems).toHaveCount(1);
+    const modelB = restrictedItems.filter({ hasText: "Shared Model B" });
     await expect(modelB).toHaveCount(1);
-    await expect(modelA).toContainText("test-app");
-    await expect(modelB).toContainText("restricted-app");
+    await expect(modelB).toContainText("Restricted App");
 
     // Both seeded grants are unrestricted, so the client dimension is absent.
     await expect(page.getByText("Restricted clients")).toHaveCount(0);
-
-    await expect(page.getByTestId("selected-model")).toContainText("Shared Model A");
-    const selector = page.getByTestId("model-selector").getByRole("combobox");
-    await selector.click();
-    await page.getByRole("option", { name: /Shared Model B/ }).click();
     await expect(page.getByTestId("selected-model")).toContainText("Shared Model B");
   });
 });

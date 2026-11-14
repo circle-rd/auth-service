@@ -73,6 +73,7 @@ async function createApp(slug: string): Promise<{
       url,
       redirectUris: [`${url}/callback`],
       isPublic: false,
+      resourceSharingEnabled: true,
       allowedScopes: ["openid", "profile", "email"],
     },
   });

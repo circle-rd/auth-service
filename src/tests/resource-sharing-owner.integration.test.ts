@@ -18,6 +18,7 @@ import { user as userTable } from "../db/auth-schema.js";
 import {
   appDelegations,
   appRoles,
+  applications,
   resourceGrants,
   resourceInvitations,
   sharedResources,
@@ -64,6 +65,7 @@ async function createApp(opts: {
       url: opts.url,
       redirectUris: [`${opts.url}/callback`],
       isPublic: false,
+      resourceSharingEnabled: true,
       allowedScopes: ["openid", "profile", "email"],
     },
   });
@@ -607,5 +609,71 @@ describe("feature flag", () => {
       await disabled.cleanup();
       (config.features as { resourceSharing: boolean }).resourceSharing = previous;
     }
+  });
+});
+
+describe("per-application sharing flag", () => {
+  async function setSharing(appId: string, enabled: boolean): Promise<void> {
+    await db
+      .update(applications)
+      .set({ resourceSharingEnabled: enabled })
+      .where(eq(applications.id, appId));
+  }
+
+  it("refuses owner routes with the uniform 404 and preserves data across off/on", async () => {
+    const resource = await createResource(ownerACookie, appA.id, {});
+    await setSharing(appA.id, false);
+
+    const list = await req(
+      ownerACookie,
+      "GET",
+      `/api/user/apps/${appA.id}/shared-resources`,
+    );
+    expect(list.statusCode).toBe(404);
+    expect(list.json()).toMatchObject({ error: { code: "RES_004" } });
+
+    const create = await req(
+      ownerACookie,
+      "POST",
+      `/api/user/apps/${appA.id}/shared-resources`,
+      { resourceType: "model", slug: "model-b", displayName: "Model B" },
+    );
+    expect(create.statusCode).toBe(404);
+    expect(create.json()).toEqual(list.json());
+
+    const apps = await req(ownerACookie, "GET", "/api/user/apps");
+    expect(apps.statusCode).toBe(200);
+    expect(
+      (apps.json() as { apps: Array<{ id: string }> }).apps.map((app) => app.id),
+    ).not.toContain(appA.id);
+
+    const accessible = await handle.app.inject({
+      method: "GET",
+      url: `/api/user/accessible-resources?clientId=app-c`,
+      headers: { cookie: ownerACookie },
+    });
+    expect(accessible.statusCode).toBe(200);
+    expect(
+      (accessible.json() as { resources: Array<{ resourceId: string }> })
+        .resources,
+    ).not.toContainEqual(expect.objectContaining({ resourceId: resource.id }));
+
+    const [stored] = await db
+      .select({ id: sharedResources.id })
+      .from(sharedResources)
+      .where(eq(sharedResources.id, resource.id));
+    expect(stored?.id).toBe(resource.id);
+
+    await setSharing(appA.id, true);
+    const restored = await req(
+      ownerACookie,
+      "GET",
+      `/api/user/apps/${appA.id}/shared-resources`,
+    );
+    expect(restored.statusCode).toBe(200);
+    expect(
+      (restored.json() as { resources: Array<{ id: string }> }).resources,
+    ).toEqual([expect.objectContaining({ id: resource.id })]);
+    await db.delete(sharedResources).where(eq(sharedResources.id, resource.id));
   });
 });

@@ -41,7 +41,7 @@ describe("application owner authority", () => {
   it("treats the application admin role as the initial owner", async () => {
     state.results = [[{ roleId: "role-admin" }]];
     await expect(isApplicationOwner(USER, APP)).resolves.toBe(true);
-    state.results = [[{ roleId: "role-admin" }]];
+    state.results = [[{ enabled: true }], [{ roleId: "role-admin" }]];
     await expect(assertAppDelegation(USER, APP, "grants:manage")).resolves.toBe(
       undefined,
     );
@@ -52,7 +52,7 @@ describe("application owner authority", () => {
     await expect(
       hasDelegatedPermission(USER, APP, "resources:manage"),
     ).resolves.toBe(true);
-    state.results = [[], [{ id: "delegation-1" }]];
+    state.results = [[{ enabled: true }], [], [{ id: "delegation-1" }]];
     await expect(
       assertAppDelegation(USER, APP, "resources:manage"),
     ).resolves.toBeUndefined();
@@ -63,6 +63,19 @@ describe("application owner authority", () => {
     await expect(
       hasDelegatedPermission(USER, APP, "resources:read"),
     ).resolves.toBe(true);
+  });
+
+  it("answers an application whose sharing flag is off with the same 404", async () => {
+    state.results = [[{ enabled: false }]];
+    const error = await assertAppDelegation(USER, APP, "grants:manage").then(
+      () => {
+        throw new Error("expected rejection");
+      },
+      (err: unknown) => err,
+    );
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).statusCode).toBe(404);
+    expect((error as ApiError).code).toBe("RES_004");
   });
 
   it("answers foreign or missing applications with the same 404", async () => {

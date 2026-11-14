@@ -24,6 +24,7 @@ const resource = (overrides: Record<string, unknown> = {}) => ({
   status: "published",
   ownerApplicationId: "app-a-id",
   ownerApplicationSlug: "app-a",
+  ownerApplicationName: "App A",
   ...overrides,
 });
 
@@ -65,6 +66,7 @@ describe("listResourceCatalogue", () => {
         resourceType: "model",
         displayName: "Model A",
         ownerApplicationSlug: "app-a",
+        ownerApplicationName: "App A",
         planName: "Team",
         restrictedToClientIds: null,
       },

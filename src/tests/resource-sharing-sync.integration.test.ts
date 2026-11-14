@@ -38,6 +38,7 @@ async function seed(): Promise<void> {
       name: "Owner",
       slug: "owner-app",
       url: "https://owner.example.test",
+      resourceSharingEnabled: true,
       allowedResources: [GW],
     })
     .returning({ id: applications.id });

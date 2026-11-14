@@ -9,7 +9,10 @@ import {
 } from "../middleware.js";
 import { RESOURCE_TYPES } from "../services/resource-uri.js";
 import { listAccessibleResources } from "../services/resource-sharing/accessible.js";
-import { listResourceCatalogue } from "../services/resource-sharing/catalogue.js";
+import {
+  listResourceCatalogue,
+  listSharingApplications,
+} from "../services/resource-sharing/catalogue.js";
 import {
   getGrantForOwner,
   listGrantsForOwner,
@@ -194,7 +197,8 @@ export async function userResourceRoutes(
       const userId = await requireSession(req, reply);
       if (!userId) return;
       const resources = await listResourceCatalogue({ subjectId: userId });
-      await reply.send({ resources });
+      const apps = await listSharingApplications();
+      await reply.send({ applications: apps, resources });
     },
   );
 

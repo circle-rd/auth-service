@@ -94,6 +94,14 @@ export async function assertAppDelegation(
   applicationId: string,
   permission: AppDelegationPermission,
 ): Promise<void> {
+  // A missing application, a foreign application and an application whose
+  // sharing flag is off all answer the same 404. Existing rows are untouched.
+  const [app] = await db
+    .select({ enabled: applications.resourceSharingEnabled })
+    .from(applications)
+    .where(eq(applications.id, applicationId))
+    .limit(1);
+  if (!app || !app.enabled) throw ERR.RES_004();
   if (await isApplicationOwner(userId, applicationId)) return;
   if (await hasDelegatedPermission(userId, applicationId, permission)) return;
   throw ERR.RES_004();
@@ -132,6 +140,7 @@ export async function listOwnerApplications(
       and(
         eq(userAppRoles.userId, userId),
         eq(applications.isActive, true),
+        eq(applications.resourceSharingEnabled, true),
         eq(appRoles.name, "admin"),
       ),
     )
@@ -153,6 +162,7 @@ export async function listOwnerApplications(
         eq(appDelegations.userId, userId),
         eq(appDelegations.status, "active"),
         eq(applications.isActive, true),
+        eq(applications.resourceSharingEnabled, true),
         inArray(appDelegations.permission, APP_DELEGATION_PERMISSIONS),
       ),
     );

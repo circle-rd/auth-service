@@ -1,3 +1,6 @@
+import { asc, eq } from "drizzle-orm";
+import { db } from "../../db/index.js";
+import { applications } from "../../db/schema.js";
 import {
   formatResourceUri,
   RESOURCE_TYPES,
@@ -6,6 +9,11 @@ import {
 import { evaluateSubjectAccess, loadPolicyGrant } from "./policy.js";
 import { listPublishedResourcesByType } from "./registry.js";
 
+export interface CatalogueApplication {
+  slug: string;
+  name: string;
+}
+
 export interface ResourceCatalogueItem {
   resourceId: string;
   resourceKey: string;
@@ -13,8 +21,24 @@ export interface ResourceCatalogueItem {
   resourceType: ResourceType;
   displayName: string;
   ownerApplicationSlug: string;
+  ownerApplicationName: string;
   planName: string;
   restrictedToClientIds: string[] | null;
+}
+
+/**
+ * Applications that offer sharing, including those where the subject has no
+ * accessible resource. The page groups the catalogue by application without a
+ * second endpoint.
+ */
+export async function listSharingApplications(): Promise<
+  CatalogueApplication[]
+> {
+  return db
+    .select({ slug: applications.slug, name: applications.name })
+    .from(applications)
+    .where(eq(applications.resourceSharingEnabled, true))
+    .orderBy(asc(applications.name));
 }
 
 /**
@@ -47,6 +71,7 @@ export async function listResourceCatalogue(input: {
         resourceType: resource.resourceType,
         displayName: resource.displayName,
         ownerApplicationSlug: resource.ownerApplicationSlug,
+        ownerApplicationName: resource.ownerApplicationName,
         planName: access.planName,
         restrictedToClientIds: access.grant.allowedClientIds,
       });

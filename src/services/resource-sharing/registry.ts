@@ -36,6 +36,7 @@ const resourceColumns = {
 
 export interface SharedResourceView extends SharedResource {
   ownerApplicationSlug: string;
+  ownerApplicationName: string;
 }
 
 async function ownerSlug(ownerApplicationId: string): Promise<string> {
@@ -154,13 +155,19 @@ export async function findResourceByKey(
     .select({
       ...resourceColumns,
       ownerApplicationSlug: applications.slug,
+      ownerApplicationName: applications.name,
     })
     .from(sharedResources)
     .innerJoin(
       applications,
       eq(sharedResources.ownerApplicationId, applications.id),
     )
-    .where(eq(sharedResources.key, normalized.key))
+    .where(
+      and(
+        eq(sharedResources.key, normalized.key),
+        eq(applications.resourceSharingEnabled, true),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
@@ -172,6 +179,7 @@ export async function listPublishedResourcesByType(
     .select({
       ...resourceColumns,
       ownerApplicationSlug: applications.slug,
+      ownerApplicationName: applications.name,
     })
     .from(sharedResources)
     .innerJoin(
@@ -182,6 +190,7 @@ export async function listPublishedResourcesByType(
       and(
         eq(sharedResources.resourceType, resourceType),
         eq(sharedResources.status, "published"),
+        eq(applications.resourceSharingEnabled, true),
       ),
     );
 }

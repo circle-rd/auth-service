@@ -176,6 +176,6 @@ test.describe("Cross-link OAuth param preservation (Bug A regression)", () => {
     const href = await registerLink.getAttribute("href");
 
     // The old bug: link was always /register?redirectTo={{REDIRECT_TO}} regardless of OAuth context
-    expect(href).not.toMatch(/^\\/register\\?redirectTo=/);
+    expect(href).not.toMatch(/^\/register\?redirectTo=/);
   });
 });

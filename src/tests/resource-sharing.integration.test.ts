@@ -12,6 +12,7 @@ import {
   signUpAndSignIn,
   type AuthServerHandle,
 } from "./helpers/server.js";
+import { cleanDb } from "./helpers/db.js";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 import { resourceGrants, sharedResources, userApplications } from "../db/schema.js";
@@ -169,6 +170,7 @@ const authorizeBody = (overrides: Record<string, unknown> = {}) => ({
 let gatewayToken: string;
 
 beforeAll(async () => {
+  await cleanDb();
   handle = await makeAuthServer();
   adminCookie = await signInAdmin();
   ownerApp = {

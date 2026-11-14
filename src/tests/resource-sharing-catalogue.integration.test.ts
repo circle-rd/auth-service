@@ -12,6 +12,7 @@ import {
   signUpAndSignIn,
   type AuthServerHandle,
 } from "./helpers/server.js";
+import { cleanDb } from "./helpers/db.js";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 import {
@@ -127,6 +128,7 @@ async function catalogue(cookie: string) {
 }
 
 beforeAll(async () => {
+  await cleanDb();
   handle = await makeAuthServer();
   adminCookie = await signInAdmin();
   appA = await createApp("catalogue-app-a");

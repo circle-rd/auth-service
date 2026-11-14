@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   requireAppDelegation: vi.fn(),
   getRequestSession: vi.fn(),
   listAccessibleResources: vi.fn(),
+  listResourceCatalogue: vi.fn(),
   listSharedResources: vi.fn(),
   getSharedResource: vi.fn(),
   createSharedResource: vi.fn(),
@@ -36,6 +37,9 @@ vi.mock("../middleware.js", () => ({
 }));
 vi.mock("../services/resource-sharing/accessible.js", () => ({
   listAccessibleResources: mocks.listAccessibleResources,
+}));
+vi.mock("../services/resource-sharing/catalogue.js", () => ({
+  listResourceCatalogue: mocks.listResourceCatalogue,
 }));
 vi.mock("../services/resource-sharing/registry.js", () => ({
   listSharedResources: mocks.listSharedResources,
@@ -113,6 +117,39 @@ beforeEach(async () => {
   });
   await app.register(userResourceRoutes);
   await app.ready();
+});
+
+describe("GET /resource-catalogue", () => {
+  it("lists subject resources without a client id", async () => {
+    mocks.requireSession.mockResolvedValue("subject-1");
+    mocks.listResourceCatalogue.mockResolvedValue([
+      {
+        resourceId: "resource-1",
+        resourceKey: "app-a/model-a",
+        resourceUri: "authservice://model/app-a/model-a",
+        resourceType: "model",
+        displayName: "Model A",
+        ownerApplicationSlug: "app-a",
+        planName: "Team",
+        restrictedToClientIds: null,
+      },
+    ]);
+
+    const res = await app.inject({ method: "GET", url: "/resource-catalogue" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      resources: [
+        expect.objectContaining({
+          resourceId: "resource-1",
+          restrictedToClientIds: null,
+        }),
+      ],
+    });
+    expect(mocks.listResourceCatalogue).toHaveBeenCalledWith({
+      subjectId: "subject-1",
+    });
+  });
 });
 
 describe("GET /accessible-resources", () => {

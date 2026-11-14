@@ -76,6 +76,38 @@ function isNonEmpty(value: string): boolean {
   return value.trim() !== "";
 }
 
+export type SubjectAccess =
+  | { allowed: true; planName: string; grant: PolicyGrant }
+  | { allowed: false; reason: DenialReason };
+
+/**
+ * The client-independent part of policy evaluation. Catalogue discovery uses
+ * this so it never re-implements resource/grant/plan rules; admission still
+ * applies the client and request checks below.
+ */
+export function evaluateSubjectAccess(
+  resource: PolicyResource | null,
+  grant: PolicyGrant | null,
+  now: Date = new Date(),
+): SubjectAccess {
+  if (!resource) return { allowed: false, reason: "not_found" };
+  if (resource.status === "disabled") {
+    return { allowed: false, reason: "disabled" };
+  }
+  if (resource.status !== "published") {
+    return { allowed: false, reason: "not_published" };
+  }
+  if (!grant) return { allowed: false, reason: "no_grant" };
+  if (grant.revokedAt !== null) {
+    return { allowed: false, reason: "revoked" };
+  }
+  if (grant.expiresAt !== null && grant.expiresAt.getTime() <= now.getTime()) {
+    return { allowed: false, reason: "expired" };
+  }
+  if (grant.planName === null) return { allowed: false, reason: "no_plan" };
+  return { allowed: true, planName: grant.planName, grant };
+}
+
 export function evaluatePolicy(
   input: AuthorizeInput,
   facts: PolicyFacts,
@@ -95,20 +127,15 @@ export function evaluatePolicy(
   if (resource.resourceType !== input.resourceType)
     return deny("type_mismatch");
   if (resource.key !== input.key) return deny("key_mismatch");
-  if (resource.status === "disabled") return deny("disabled");
-  if (resource.status !== "published") return deny("not_published");
-  if (!grant) return deny("no_grant");
-  if (grant.revokedAt !== null) return deny("revoked");
-  if (grant.expiresAt !== null && grant.expiresAt.getTime() <= now.getTime()) {
-    return deny("expired");
-  }
+
+  const access = evaluateSubjectAccess(resource, grant, now);
+  if (!access.allowed) return deny(access.reason);
   if (
-    grant.allowedClientIds !== null &&
-    !grant.allowedClientIds.includes(input.clientId)
+    access.grant.allowedClientIds !== null &&
+    !access.grant.allowedClientIds.includes(input.clientId)
   ) {
     return deny("client_not_allowed");
   }
-  if (grant.planName === null) return deny("no_plan");
 
   return {
     decision: "allow",
@@ -116,16 +143,16 @@ export function evaluatePolicy(
     resourceKey: resource.key,
     ownerApplicationId: resource.ownerApplicationId,
     ownerApplicationSlug: resource.ownerApplicationSlug,
-    planName: grant.planName,
-    teamId: planTeamId(resource.ownerApplicationSlug, grant.planName),
+    planName: access.planName,
+    teamId: planTeamId(resource.ownerApplicationSlug, access.planName),
     subjectId: input.subjectId,
     clientId: input.clientId,
     resourceType: resource.resourceType,
-    grantKind: grant.kind,
+    grantKind: access.grant.kind,
   };
 }
 
-async function loadGrant(
+export async function loadPolicyGrant(
   resource: PolicyResource,
   subjectId: string,
 ): Promise<PolicyGrant | null> {
@@ -164,7 +191,7 @@ export async function authorizeResource(
   now: Date = new Date(),
 ): Promise<AuthorizationDecision> {
   if (!resource) return deny("not_found");
-  const grant = await loadGrant(resource, input.subjectId);
+  const grant = await loadPolicyGrant(resource, input.subjectId);
   return evaluatePolicy(input, { resource, grant, now });
 }
 

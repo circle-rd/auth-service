@@ -9,6 +9,7 @@ import {
 } from "../middleware.js";
 import { RESOURCE_TYPES } from "../services/resource-uri.js";
 import { listAccessibleResources } from "../services/resource-sharing/accessible.js";
+import { listResourceCatalogue } from "../services/resource-sharing/catalogue.js";
 import {
   getGrantForOwner,
   listGrantsForOwner,
@@ -183,6 +184,17 @@ export async function userResourceRoutes(
         result.push(...accessible);
       }
       await reply.send({ resources: result });
+    },
+  );
+
+  fastify.get(
+    "/resource-catalogue",
+    { config: INTERNAL_RATE_LIMIT },
+    async (req, reply) => {
+      const userId = await requireSession(req, reply);
+      if (!userId) return;
+      const resources = await listResourceCatalogue({ subjectId: userId });
+      await reply.send({ resources });
     },
   );
 

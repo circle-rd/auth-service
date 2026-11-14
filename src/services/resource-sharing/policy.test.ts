@@ -25,7 +25,7 @@ vi.mock("../litellm-plan.js", () => ({
   planTeamId: mockPlanTeamId,
 }));
 
-const { authorize, authorizeResource, evaluatePolicy } =
+const { authorize, authorizeResource, evaluatePolicy, evaluateSubjectAccess } =
   await import("./policy.js");
 
 const NOW = new Date("2026-11-13T12:00:00Z");
@@ -226,6 +226,48 @@ describe("evaluatePolicy", () => {
         now: NOW,
       }),
     ).toEqual({ decision: "deny", reason: "no_plan" });
+  });
+});
+
+describe("evaluateSubjectAccess", () => {
+  it("allows a published resource with a live plan", () => {
+    expect(evaluateSubjectAccess(resource(), membershipGrant(), NOW)).toEqual({
+      allowed: true,
+      planName: "Team",
+      grant: membershipGrant(),
+    });
+  });
+
+  it.each([
+    [
+      "disabled",
+      resource({ status: "disabled" }),
+      membershipGrant(),
+      "disabled",
+    ],
+    [
+      "draft",
+      resource({ status: "draft" }),
+      membershipGrant(),
+      "not_published",
+    ],
+    ["no grant", resource(), null, "no_grant"],
+    ["revoked", resource(), explicitGrant({ revokedAt: NOW }), "revoked"],
+    ["expired", resource(), explicitGrant({ expiresAt: NOW }), "expired"],
+    ["no plan", resource(), explicitGrant({ planName: null }), "no_plan"],
+  ])("denies %s", (_label, candidate, grant, reason) => {
+    expect(evaluateSubjectAccess(candidate, grant, NOW)).toEqual({
+      allowed: false,
+      reason,
+    });
+  });
+
+  it("keeps client-restricted grants visible for catalogue discovery", () => {
+    const grant = explicitGrant({ allowedClientIds: ["client-b"] });
+    expect(evaluateSubjectAccess(resource(), grant, NOW)).toMatchObject({
+      allowed: true,
+      grant,
+    });
   });
 });
 

@@ -3,6 +3,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { useServicesStore } from '@/stores/services';
+import { useAppBranding } from '@/composables/useAppBranding';
 import * as appsApi from '@/api/applications';
 import * as consumptionApi from '@/api/consumption';
 import { listUsers } from '@/api/users';
@@ -10,7 +11,7 @@ import { listOrganizations } from '@/api/organizations';
 import { useToast } from '@/composables/useToast';
 import { useAdminEvents } from '@/composables/useAdminEvents';
 import { rotateSecret } from '@/api/applications';
-import type { Application, AppRole, AppPermission, SubscriptionPlan, SubscriptionPlanPrice, UserApplication, ConsumptionAggregate } from '@/types';
+import type { Application, AppRole, AppPermission, SubscriptionPlan, UserApplication, ConsumptionAggregate } from '@/types';
 import type { AppSubscriptionRow } from '@/api/applications';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
@@ -21,7 +22,6 @@ import SearchSelect from '@/components/ui/SearchSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
-import CodeBlock from '@/components/ui/CodeBlock.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
@@ -29,32 +29,29 @@ import RolesPermissionsTab from '@/components/applications/RolesPermissionsTab.v
 import PlanEditorModal from '@/components/applications/PlanEditorModal.vue';
 import PlanPricesDialog from '@/components/applications/PlanPricesDialog.vue';
 import ApplicationInvitationsTab from '@/components/applications/ApplicationInvitationsTab.vue';
+import ApplicationConsumptionTab from '@/components/applications/ApplicationConsumptionTab.vue';
+import ApplicationFinancialTab from '@/components/applications/ApplicationFinancialTab.vue';
+import ApplicationIntegrationTab from '@/components/applications/ApplicationIntegrationTab.vue';
+import ShareWorkspace from '@/views/share/ShareWorkspace.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
 import type { ColumnDef, DataTablePagination } from '@/types/data-table';
 import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
 import { useDebounce } from '@/composables/useDebounce';
-import { ArrowLeft, Plus, Trash2, RefreshCw, Check, AlertTriangle, Code, TrendingUp, History, Activity, Copy, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from '@lucide/vue';
+import { ArrowLeft, Plus, Trash2, AlertTriangle, TrendingUp, History, Activity, Users, CreditCard, Building2, Shield, Ban, Star, Mail } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
-import { SCOPE_CATALOGUE } from '@/components/applications/form/scopes';
-import {
-  ioserverExample,
-  litellmPythonExample,
-  litellmTypescriptExample,
-  pythonExample,
-  typescriptExample,
-  type LitellmEndpoints,
-} from '@/utils/integrationExamples';
 
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const toast = useToast();
 const services = useServicesStore();
+const { resourceSharing } = useAppBranding();
 
 const appId = route.params.id as string;
-type AppTabKey = 'roles' | 'users' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial';
+const authServiceUrl = computed(() => window.location.origin);
+type AppTabKey = 'roles' | 'users' | 'sharing' | 'plans' | 'invitations' | 'integration' | 'consumption' | 'financial';
 const activeTab = ref<AppTabKey>('roles');
 const invitationsTabRef = ref<InstanceType<typeof ApplicationInvitationsTab> | null>(null);
 
@@ -175,7 +172,6 @@ async function loadAll() {
     appUsers.value = usersRes.users;
     appUsersTotal.value = usersRes.total;
     plans.value = plansRes.plans;
-    await loadLitellmEndpoints();
   } finally {
     loading.value = false;
   }
@@ -407,21 +403,6 @@ async function handleRevokeAccess() {
   }
 }
 
-/** The metered price that bills a feature of a plan, or null. */
-function meteredPriceOf(plan: SubscriptionPlan | undefined, key: string): SubscriptionPlanPrice | null {
-  return plan?.prices.find((p) => p.billingType === 'metered' && p.featureKey === key) ?? null;
-}
-
-/** Share of a metered feature's cap already used, with its colour; null when uncapped. */
-function usageOf(plan: SubscriptionPlan | undefined, key: string, total: string): { ratio: number; cls: string; price: SubscriptionPlanPrice } | null {
-  const price = meteredPriceOf(plan, key);
-  if (!price || price.usageLimit === null || price.usageLimit < 0) return null;
-  const used = Number(total);
-  const ratio = price.usageLimit === 0 ? (used > 0 ? 1 : 0) : used / price.usageLimit;
-  const cls = ratio >= 1 ? 'bg-red-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-primary-500';
-  return { ratio, cls, price };
-}
-
 function openPlanEditor(plan: SubscriptionPlan | null): void {
   planEditor.value = { open: true, plan };
 }
@@ -490,7 +471,6 @@ function formatPrice(amount: string, currency: string) {
   return new Intl.NumberFormat('en', { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 0 }).format(Number(amount) / 100);
 }
 
-function formatDate(iso: string) { return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }); }
 
 async function loadUserOptions(search: string): Promise<SelectOption[]> {
   const res = await listUsers({ search: search || undefined, limit: 10 });
@@ -519,183 +499,32 @@ async function openInviteFromUsers() {
   invitationsTabRef.value?.openModal();
 }
 
-const tabs = [
-  { key: 'roles', label: t('appDetail.rolesPermissions') },
-  { key: 'users', label: t('appDetail.users') },
-  { key: 'plans', label: t('appDetail.plans') },
-  { key: 'invitations', label: t('appDetail.invitations') },
-  { key: 'integration', label: t('appDetail.integration') },
-  { key: 'consumption', label: t('appDetail.consumption') },
-  { key: 'financial', label: t('appDetail.financial') },
-] as const;
+const tabs = computed<Array<{ key: AppTabKey; label: string }>>(() => {
+  const base: Array<{ key: AppTabKey; label: string }> = [
+    { key: 'roles', label: t('appDetail.rolesPermissions') },
+    { key: 'users', label: t('appDetail.users') },
+  ];
+  if (resourceSharing.value && app.value?.resourceSharingEnabled) {
+    base.push({ key: 'sharing', label: t('appDetail.sharing') });
+  }
+  base.push(
+    { key: 'plans', label: t('appDetail.plans') },
+    { key: 'invitations', label: t('appDetail.invitations') },
+    { key: 'integration', label: t('appDetail.integration') },
+    { key: 'consumption', label: t('appDetail.consumption') },
+    { key: 'financial', label: t('appDetail.financial') },
+  );
+  return base;
+});
 
 const tabOptions = computed<SelectOption[]>(() =>
-  tabs.map((tab) => ({ value: tab.key, label: tab.label })),
+  tabs.value.map((tab) => ({ value: tab.key, label: tab.label })),
 );
 
 function setActiveTab(value: string) {
   activeTab.value = value as AppTabKey;
 }
 
-type CodeTab = 'typescript' | 'python' | 'ioserver' | 'litellm-ts' | 'litellm-py';
-const activeCodeTab = ref<CodeTab>('typescript');
-
-// Auth-service URL = origin of this SPA (same server)
-const authServiceUrl = computed(() => window.location.origin);
-
-const codeExampleTS = computed(() =>
-  app.value ? typescriptExample(app.value, authServiceUrl.value) : '',
-);
-const codeExamplePython = computed(() =>
-  app.value ? pythonExample(app.value, authServiceUrl.value) : '',
-);
-const codeExampleIOServer = computed(() =>
-  app.value ? ioserverExample(app.value, authServiceUrl.value) : '',
-);
-
-// The gateway and Auth Service resources of the LiteLLM support option: the
-// `url` of the `litellm` and `auth-service` system applications.
-const litellmEndpoints = ref<LitellmEndpoints | null>(null);
-async function loadLitellmEndpoints() {
-  const current = app.value;
-  try {
-    const { applications } = await appsApi.listApplications();
-    const gatewayUrl = applications.find((a) => a.slug === 'litellm')?.url;
-    const authServiceUrl = applications.find((a) => a.slug === 'auth-service')?.url;
-    litellmEndpoints.value =
-      current && gatewayUrl && authServiceUrl && current.allowedResources.includes(gatewayUrl)
-        ? { gatewayUrl, authServiceUrl }
-        : null;
-  } catch {
-    // The examples are an aid: without the system applications they are simply not offered.
-    litellmEndpoints.value = null;
-  }
-}
-
-const BASE_CODE_TABS: Array<{ key: CodeTab; label: string }> = [
-  { key: 'typescript', label: 'TypeScript' },
-  { key: 'python', label: 'Python' },
-  { key: 'ioserver', label: 'IOServer' },
-];
-const LITELLM_CODE_TABS: Array<{ key: CodeTab; label: string }> = [
-  { key: 'litellm-ts', label: 'LiteLLM · TypeScript' },
-  { key: 'litellm-py', label: 'LiteLLM · Python' },
-];
-const codeTabs = computed(() =>
-  litellmEndpoints.value ? [...BASE_CODE_TABS, ...LITELLM_CODE_TABS] : BASE_CODE_TABS,
-);
-const codeExampleLitellmTS = computed(() =>
-  app.value && litellmEndpoints.value
-    ? litellmTypescriptExample(app.value, authServiceUrl.value, litellmEndpoints.value)
-    : '',
-);
-const codeExampleLitellmPython = computed(() =>
-  app.value && litellmEndpoints.value
-    ? litellmPythonExample(app.value, authServiceUrl.value, litellmEndpoints.value)
-    : '',
-);
-
-const codeCopied = ref(false);
-let codeCopiedTimer: ReturnType<typeof setTimeout> | undefined;
-const activeCodeExample = computed(() => {
-  switch (activeCodeTab.value) {
-    case 'typescript':
-      return codeExampleTS.value;
-    case 'python':
-      return codeExamplePython.value;
-    case 'ioserver':
-      return codeExampleIOServer.value;
-    case 'litellm-ts':
-      return codeExampleLitellmTS.value;
-    case 'litellm-py':
-      return codeExampleLitellmPython.value;
-  }
-});
-const activeCodeLanguage = computed<'typescript' | 'python'>(() =>
-  activeCodeTab.value === 'python' || activeCodeTab.value === 'litellm-py'
-    ? 'python'
-    : 'typescript',
-);
-async function copyActiveCode(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(activeCodeExample.value);
-    codeCopied.value = true;
-    toast.success(t('common.copied'));
-    clearTimeout(codeCopiedTimer);
-    codeCopiedTimer = setTimeout(() => {
-      codeCopied.value = false;
-    }, 1500);
-  } catch {
-    toast.error(t('common.copyError'));
-  }
-}
-
-const PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
-type PKey = typeof PROVIDERS[number];
-
-const consumptionUsers = computed(() => {
-  const byUser = new Map<string, { userId: string; name: string; email: string | null; image: string | null; subscriptionPlanId: string | null }>();
-  for (const entry of consumption.value) {
-    if (byUser.has(entry.userId)) continue;
-    const pageUser = appUsers.value.find((u) => u.userId === entry.userId);
-    byUser.set(entry.userId, {
-      userId: entry.userId,
-      name: entry.userName ?? pageUser?.name ?? entry.userEmail ?? entry.userId,
-      email: entry.userEmail ?? pageUser?.email ?? null,
-      image: pageUser?.image ?? null,
-      subscriptionPlanId: entry.subscriptionPlanId ?? pageUser?.subscriptionPlanId ?? null,
-    });
-  }
-  return [...byUser.values()];
-});
-
-const financialKpis = computed(() => {
-  const subscribedUsers = appSubscriptions.value;
-  const activeSubscribers = subscribedUsers.filter((s) => s.isActive).length;
-
-  let mrr = 0;
-  const planRevenue: Record<string, { name: string; subscribers: number; monthly: number; currency: string }> = {};
-
-  for (const subscription of subscribedUsers) {
-    const plan = plans.value.find(p => p.id === subscription.planId);
-    if (!plan) continue;
-    const price = plan.prices.find(p => p.billingType === 'fixed' && p.interval === 'month');
-    const amount = price ? Number(price.amount) : 0;
-    const currency = price?.currency ?? 'eur';
-    mrr += amount;
-
-    if (!planRevenue[plan.id]) planRevenue[plan.id] = { name: plan.name, subscribers: 0, monthly: 0, currency };
-    planRevenue[plan.id].subscribers += 1;
-    planRevenue[plan.id].monthly += amount;
-  }
-
-  // Metered usage per feature, priced by the metered price rows of each plan
-  const meteredKeys = new Map<string, { unit: string; totalUsage: number; pricePerUnit: number; revenue: number; currency: string }>();
-  for (const plan of plans.value) {
-    for (const price of plan.prices) {
-      const key = price.featureKey;
-      if (price.billingType !== 'metered' || !key) continue;
-      const unitPrice = Number(price.amount);
-      if (!meteredKeys.has(key)) meteredKeys.set(key, { unit: price.unit ?? '', totalUsage: 0, pricePerUnit: unitPrice, revenue: 0, currency: price.currency });
-      for (const subscription of subscribedUsers.filter((s) => s.planId === plan.id)) {
-        const agg = consumption.value.find(c => c.userId === subscription.userId && c.key === key);
-        if (!agg) continue;
-        const entry = meteredKeys.get(key)!;
-        entry.totalUsage += Number(agg.total);
-        entry.revenue += Number(agg.total) * unitPrice;
-      }
-    }
-  }
-
-  return {
-    activeSubscribers,
-    mrr,
-    arr: mrr * 12,
-    currency: Object.values(planRevenue)[0]?.currency ?? 'eur',
-    byPlan: Object.values(planRevenue),
-    meteredUsage: [...meteredKeys.entries()].map(([key, v]) => ({ key, ...v })),
-  };
-});
 </script>
 
 <template>
@@ -762,6 +591,8 @@ const financialKpis = computed(() => {
           :app-id="appId"
           :app-name="app?.name ?? ''"
         />
+
+        <ShareWorkspace v-if="activeTab === 'sharing'" :app-id="appId" />
 
         <div v-if="activeTab === 'users'" class="space-y-4">
           <div class="grid grid-cols-1 gap-2 sm:flex sm:justify-end">
@@ -900,244 +731,28 @@ const financialKpis = computed(() => {
           </div>
         </div>
 
-        <div v-if="activeTab === 'integration' && app" class="grid grid-cols-1 xl:grid-cols-2 gap-5 xl:min-h-[420px]">
+        <ApplicationIntegrationTab
+          v-if="activeTab === 'integration' && app"
+          :app="app"
+          :services-config="services.config"
+          :auth-service-url="authServiceUrl"
+          @rotate="showRotateConfirm = true"
+        />
 
-          <!-- ── Credentials ────────────────────────────────────────────── -->
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 space-y-4">
-            <CopyField :value="app.slug" :label="t('appDetail.clientId')" />
-            <div v-if="!app.isPublic" class="space-y-2">
-              <p class="text-xs font-medium text-surface-400 uppercase tracking-wide">{{ t('appDetail.clientSecret') }}</p>
-              <div class="flex items-center gap-3">
-                <div class="flex-1 px-3 py-2 bg-surface-800/60 border border-surface-700 rounded-lg text-sm font-mono text-surface-500">••••••••••••••••</div>
-                <BaseButton variant="outline" size="sm" @click="showRotateConfirm = true">
-                  <RefreshCw class="w-3.5 h-3.5" />{{ t('applications.rotateSecret') }}
-                </BaseButton>
-              </div>
-            </div>
-            <CopyField
-              v-if="app.url"
-              :value="app.url"
-              label="Resource / Audience"
-            />
-            <div v-else class="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
-              <span class="shrink-0 mt-0.5">⚠</span>
-              <span>No application URL configured — the <code class="font-mono bg-amber-500/10 px-1 rounded">resource</code> parameter (RFC 8707) is required to receive JWT access tokens. Set the URL in the application settings.</span>
-            </div>
-            <CopyField
-              :value="`${authServiceUrl}/api/auth/jwks`"
-              label="JWKS URI"
-            />
-            <CopyField
-              :value="`${authServiceUrl}/api/auth/.well-known/openid-configuration`"
-              label="Discovery Endpoint"
-            />
-            <div>
-              <p class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-2">{{ t('appDetail.redirectUris') }}</p>
-              <div class="space-y-1.5">
-                <div v-for="uri in app.redirectUris" :key="uri" class="px-3 py-1.5 bg-surface-800/60 border border-surface-700/40 rounded-lg font-mono text-xs text-surface-300">{{ uri }}</div>
-              </div>
-            </div>
-            <div>
-              <p class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-2">{{ t('appDetail.allowedScopes') }}</p>
-              <div class="flex flex-wrap gap-1.5">
-                <BaseBadge v-for="scope in app.allowedScopes" :key="scope" variant="neutral" size="sm">{{ scope }}</BaseBadge>
-              </div>
-            </div>
-          </div>
+        <ApplicationConsumptionTab
+          v-if="activeTab === 'consumption'"
+          :consumption="consumption"
+          :plans="plans"
+          :app-users="appUsers"
+          @reset="selectedMetric = $event; showResetMetricConfirm = true"
+        />
 
-          <!-- ── Code Examples ──────────────────────────────────────────── -->
-          <div class="relative">
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 flex flex-col xl:absolute xl:inset-0">
-              <div class="flex items-center gap-2 mb-4">
-                <Code class="w-4 h-4 text-primary-400" />
-                <p class="text-sm font-semibold text-surface-200">{{ t('appDetail.codeSnippet') }}</p>
-                <button
-                  type="button"
-                  class="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-surface-400 hover:text-surface-100 hover:bg-surface-800/60 transition-colors"
-                  :title="t('common.copy')"
-                  @click="copyActiveCode"
-                >
-                  <component :is="codeCopied ? Check : Copy" class="w-3.5 h-3.5" />
-                  {{ codeCopied ? t('common.copied') : t('common.copy') }}
-                </button>
-              </div>
-              <div class="flex gap-1 p-1 bg-surface-950/60 rounded-lg border border-surface-800/50 w-fit mb-4">
-                <button
-                  v-for="tab in codeTabs"
-                  :key="tab.key"
-                  @click="activeCodeTab = tab.key"
-                  :class="['px-3 py-1 rounded-md text-xs font-medium transition-all', activeCodeTab === tab.key ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
-                >{{ tab.label }}</button>
-              </div>
-              <CodeBlock :code="activeCodeExample" :language="activeCodeLanguage" class="flex-1 min-h-0 max-h-[60vh] xl:max-h-none" />
-              <p v-if="activeCodeTab === 'typescript'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> — <code class="font-mono">npm i oauth4webapi</code></p>
-              <p v-else-if="activeCodeTab === 'python'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> — <code class="font-mono">pip install authlib requests</code></p>
-              <p v-else-if="activeCodeTab === 'litellm-ts'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">oauth4webapi</code> and <code class="font-mono">openai</code> — <code class="font-mono">npm i oauth4webapi openai</code></p>
-              <p v-else-if="activeCodeTab === 'litellm-py'" class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">authlib</code> and <code class="font-mono">openai</code> — <code class="font-mono">pip install authlib requests openai</code></p>
-              <p v-else class="mt-2 text-xs text-surface-500">Uses <code class="font-mono">ioserver-oidc</code> — <code class="font-mono">npm i ioserver-oidc</code> — no secret storage needed on the app side</p>
-            </div>
-          </div>
-
-          <!-- ── Scopes & Claims ────────────────────────────────────────── -->
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
-            <p class="text-sm font-semibold text-surface-200 mb-3">Scopes &amp; Claims</p>
-            <div class="overflow-x-auto">
-              <table class="w-full text-xs">
-                <thead>
-                  <tr class="border-b border-surface-800/40">
-                    <th class="text-left py-2 pr-4 text-surface-500 font-medium w-32">Scope</th>
-                    <th class="text-left py-2 pr-4 text-surface-500 font-medium w-24">Type</th>
-                    <th class="text-left py-2 text-surface-500 font-medium">Claims returned</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-surface-800/30">
-                  <tr v-for="info in SCOPE_CATALOGUE" :key="info.scope">
-                    <td class="py-2 pr-4">
-                      <code :class="['font-mono px-1.5 py-0.5 rounded text-xs', app.allowedScopes.includes(info.scope) ? 'bg-primary-600/15 text-primary-300' : 'bg-surface-800/50 text-surface-500']">{{ info.scope }}</code>
-                    </td>
-                    <td class="py-2 pr-4">
-                      <BaseBadge :variant="info.group === 'standard' ? 'success' : 'neutral'" size="sm">{{ info.group === 'standard' ? 'Standard OIDC' : 'Custom' }}</BaseBadge>
-                    </td>
-                    <td class="py-2 text-surface-400 font-mono">{{ info.claims }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <p class="mt-2 text-xs text-surface-600">* <code class="font-mono">company</code> is a proprietary claim inside the standard <code class="font-mono">profile</code> scope.</p>
-            </div>
-          </div>
-
-          <!-- ── Social Providers ───────────────────────────────────────── -->
-          <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
-            <p class="text-sm font-semibold text-surface-200 mb-3">{{ t('appDetail.socialProviders') }}</p>
-            <div class="space-y-2">
-              <div v-for="key in PROVIDERS" :key="key" class="flex items-center justify-between py-2">
-                <p class="text-sm text-surface-300 capitalize">{{ key }}</p>
-                <div class="flex items-center gap-2">
-                  <BaseBadge
-                    v-if="app.enabledSocialProviders === null"
-                    :variant="services.config?.providers[key as PKey]?.enabled ? 'success' : 'neutral'"
-                    size="sm"
-                  >
-                    {{ services.config?.providers[key as PKey]?.enabled ? 'Inherited (on)' : 'Inherited (off)' }}
-                  </BaseBadge>
-                  <BaseBadge
-                    v-else
-                    :variant="app.enabledSocialProviders?.includes(key) ? 'success' : 'neutral'"
-                    size="sm"
-                  >
-                    {{ app.enabledSocialProviders?.includes(key) ? t('common.enabled') : t('common.disabled') }}
-                  </BaseBadge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="activeTab === 'consumption'" class="space-y-4">
-          <div v-if="!consumption.length" class="text-center text-sm text-surface-500 py-8">{{ t('appDetail.noConsumption') }}</div>
-          <template v-else>
-            <!-- Group by user -->
-            <div v-for="ua in consumptionUsers" :key="ua.userId" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-              <div class="px-5 py-3 border-b border-surface-700/40 flex items-center gap-3 bg-surface-800/30">
-                <UserAvatar :name="ua.name" :image="ua.image" size="xs" />
-                <span class="text-sm font-medium text-surface-200">{{ ua.name }}</span>
-                <BaseBadge v-if="ua.subscriptionPlanId" variant="primary" size="sm">{{ getPlanName(ua.subscriptionPlanId) }}</BaseBadge>
-              </div>
-              <div class="divide-y divide-surface-800/40">
-                <div v-for="agg in consumption.filter(c => c.userId === ua.userId)" :key="agg.key" class="px-5 py-3">
-                  <div class="flex items-center justify-between mb-1.5">
-                    <div class="flex items-center gap-2">
-                      <code class="text-xs font-mono text-surface-400 bg-surface-800/50 px-1.5 py-0.5 rounded">{{ agg.key }}</code>
-                      <!-- Unit when this key is a metered price of the user's plan -->
-                      <template v-if="ua.subscriptionPlanId">
-                        <template v-for="plan in plans.filter(p => p.id === ua.subscriptionPlanId)" :key="plan.id">
-                          <template v-if="meteredPriceOf(plan, agg.key)">
-                            <span class="text-xs text-surface-500">{{ meteredPriceOf(plan, agg.key)?.unit }}</span>
-                            <BaseBadge variant="warning" size="sm">{{ t('appDetail.metered') }}</BaseBadge>
-                          </template>
-                        </template>
-                      </template>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      <span class="text-sm font-semibold text-surface-100 tabular-nums">{{ Number(agg.total).toLocaleString() }}</span>
-                      <span class="text-xs text-surface-500">{{ formatDate(agg.updatedAt) }}</span>
-                      <button @click="selectedMetric = { userId: agg.userId, key: agg.key }; showResetMetricConfirm = true" class="text-xs text-red-500 hover:text-red-400 transition-colors">{{ t('appDetail.resetMetric') }}</button>
-                    </div>
-                  </div>
-                  <!-- Progress bar against the cap of the metered price -->
-                  <template v-if="ua.subscriptionPlanId">
-                    <template v-for="plan in plans.filter(p => p.id === ua.subscriptionPlanId)" :key="plan.id">
-                      <template v-if="usageOf(plan, agg.key, agg.total)">
-                        <div class="h-1.5 rounded-full bg-surface-800 overflow-hidden">
-                          <div
-                            :class="['h-full rounded-full transition-all', usageOf(plan, agg.key, agg.total)?.cls]"
-                            :style="{ width: Math.min(100, (usageOf(plan, agg.key, agg.total)?.ratio ?? 0) * 100) + '%' }"
-                          />
-                        </div>
-                        <div class="flex justify-between text-xs text-surface-500 mt-0.5">
-                          <span>{{ Number(agg.total).toLocaleString() }} / {{ usageOf(plan, agg.key, agg.total)?.price.usageLimit?.toLocaleString() }} {{ usageOf(plan, agg.key, agg.total)?.price.unit }}</span>
-                          <span>{{ Math.round((usageOf(plan, agg.key, agg.total)?.ratio ?? 0) * 100) }}%</span>
-                        </div>
-                      </template>
-                    </template>
-                  </template>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
-
-        <div v-if="activeTab === 'financial'" class="space-y-5">
-          <!-- KPI row -->
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
-              <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.activeSubscribers') }}</p>
-              <p class="text-2xl font-bold text-surface-100">{{ financialKpis.activeSubscribers }}</p>
-            </div>
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
-              <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.mrr') }}</p>
-              <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.mrr), financialKpis.currency) }}</p>
-            </div>
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-5">
-              <p class="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-1">{{ t('appDetail.arr') }}</p>
-              <p class="text-2xl font-bold text-surface-100">{{ formatPrice(String(financialKpis.arr), financialKpis.currency) }}</p>
-            </div>
-          </div>
-
-          <div v-if="!financialKpis.activeSubscribers && !plans.length" class="text-center text-sm text-surface-500 py-8">{{ t('appDetail.noFinancialData') }}</div>
-          <template v-else>
-            <!-- Revenue by plan -->
-            <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-              <div class="px-5 py-3 border-b border-surface-700/40 flex items-center gap-2">
-                <TrendingUp class="w-4 h-4 text-surface-400" />
-                <h3 class="text-sm font-semibold text-surface-300">{{ t('appDetail.revenueByPlan') }}</h3>
-              </div>
-              <div v-if="!financialKpis.byPlan.length" class="px-5 py-5 text-sm text-surface-500 text-center">{{ t('appDetail.noFinancialData') }}</div>
-              <div v-else class="divide-y divide-surface-800/40">
-                <div v-for="row in financialKpis.byPlan" :key="row.name" class="px-5 py-3 flex items-center gap-4">
-                  <span class="flex-1 text-sm font-medium text-surface-200">{{ row.name }}</span>
-                  <span class="text-xs text-surface-500">{{ row.subscribers }} {{ t('appDetail.subscribers') }}</span>
-                  <span class="text-sm font-semibold text-surface-100 tabular-nums">{{ formatPrice(String(row.monthly), row.currency) }}/mo</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Metered usage aggregate -->
-            <div v-if="financialKpis.meteredUsage.length" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-              <div class="px-5 py-3 border-b border-surface-700/40">
-                <h3 class="text-sm font-semibold text-surface-300">{{ t('appDetail.meteredUsage') }}</h3>
-              </div>
-              <div class="divide-y divide-surface-800/40">
-                <div v-for="row in financialKpis.meteredUsage" :key="row.key" class="px-5 py-3 flex items-center gap-4">
-                  <code class="text-xs font-mono text-surface-400 bg-surface-800/50 px-2 py-0.5 rounded w-36 shrink-0">{{ row.key }}</code>
-                  <span class="text-sm text-surface-300 flex-1">{{ row.totalUsage.toLocaleString() }} {{ row.unit }}</span>
-                  <span class="text-xs text-surface-500">{{ formatPrice(String(row.pricePerUnit), row.currency) }}/{{ row.unit }}</span>
-                  <span class="text-sm font-semibold text-surface-100 tabular-nums">{{ formatPrice(String(row.revenue), row.currency) }}</span>
-                </div>
-              </div>
-            </div>
-          </template>
-        </div>
+        <ApplicationFinancialTab
+          v-if="activeTab === 'financial'"
+          :subscriptions="appSubscriptions"
+          :plans="plans"
+          :consumption="consumption"
+        />
       </template>
     </div>
 

@@ -72,6 +72,11 @@ export interface ResourceInvitation {
   state: 'pending' | 'consumed' | 'revoked' | 'expired';
 }
 
+export interface CatalogueApplication {
+  slug: string;
+  name: string;
+}
+
 export interface ResourceCatalogueItem {
   resourceId: string;
   resourceKey: string;
@@ -79,6 +84,7 @@ export interface ResourceCatalogueItem {
   resourceType: ResourceType;
   displayName: string;
   ownerApplicationSlug: string;
+  ownerApplicationName: string;
   planName: string;
   restrictedToClientIds: string[] | null;
 }
@@ -171,8 +177,14 @@ function queryString(params: Record<string, string | number | undefined>): strin
   return encoded ? `?${encoded}` : '';
 }
 
-export async function listResourceCatalogue(): Promise<{ resources: ResourceCatalogueItem[] }> {
-  return apiFetch<{ resources: ResourceCatalogueItem[] }>('/user/resource-catalogue');
+export async function listResourceCatalogue(): Promise<{
+  applications: CatalogueApplication[];
+  resources: ResourceCatalogueItem[];
+}> {
+  return apiFetch<{
+    applications: CatalogueApplication[];
+    resources: ResourceCatalogueItem[];
+  }>('/user/resource-catalogue');
 }
 
 export async function listOwnerApplications(): Promise<{ apps: OwnerApplication[] }> {

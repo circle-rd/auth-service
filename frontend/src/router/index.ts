@@ -67,12 +67,6 @@ const routes = [
     meta: { requiresAdmin: false },
   },
   {
-    path: '/share',
-    name: 'share',
-    component: () => import('@/views/share/ShareView.vue'),
-    meta: { requiresAdmin: false },
-  },
-  {
     path: '/resource-invitation',
     name: 'resource-invitation',
     component: () => import('@/views/share/ResourceInvitationView.vue'),

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { BookOpen } from '@lucide/vue';
+import { BookOpen, Layers } from '@lucide/vue';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
@@ -10,6 +10,7 @@ import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { useToast } from '@/composables/useToast';
 import {
   listResourceCatalogue,
+  type CatalogueApplication,
   type ResourceCatalogueItem,
 } from '@/api/resources';
 import type { SelectOption } from '@/types/select';
@@ -17,12 +18,17 @@ import type { SelectOption } from '@/types/select';
 const { t } = useI18n();
 const toast = useToast();
 
+const applications = ref<CatalogueApplication[]>([]);
 const resources = ref<ResourceCatalogueItem[]>([]);
-const loading = ref(true);
+const selectedAppSlug = ref('');
 const selectedModelId = ref('');
+const loading = ref(true);
 
+const selectedResources = computed(() =>
+  resources.value.filter((item) => item.ownerApplicationSlug === selectedAppSlug.value),
+);
 const models = computed(() =>
-  resources.value.filter((item) => item.resourceType === 'model'),
+  selectedResources.value.filter((item) => item.resourceType === 'model'),
 );
 const modelOptions = computed<SelectOption[]>(() =>
   models.value.map((item) => ({
@@ -35,15 +41,25 @@ const selectedModel = computed(
   () => models.value.find((item) => item.resourceId === selectedModelId.value) ?? null,
 );
 const hasClientRestrictions = computed(() =>
-  resources.value.some((item) => item.restrictedToClientIds !== null),
+  selectedResources.value.some((item) => item.restrictedToClientIds !== null),
 );
+
+function countFor(slug: string): number {
+  return resources.value.filter((item) => item.ownerApplicationSlug === slug).length;
+}
+
+watch(selectedAppSlug, () => {
+  selectedModelId.value = models.value[0]?.resourceId ?? '';
+});
 
 async function load() {
   loading.value = true;
   try {
     const res = await listResourceCatalogue();
+    applications.value = res.applications;
     resources.value = res.resources;
-    selectedModelId.value = res.resources.find((item) => item.resourceType === 'model')?.resourceId ?? '';
+    selectedAppSlug.value = res.applications[0]?.slug ?? '';
+    selectedModelId.value = models.value[0]?.resourceId ?? '';
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
@@ -65,7 +81,7 @@ onMounted(() => void load());
       </div>
 
       <EmptyState
-        v-else-if="resources.length === 0"
+        v-else-if="applications.length === 0"
         :title="t('share.catalogue.empty')"
         :message="t('share.catalogue.emptyHint')"
       >
@@ -73,6 +89,33 @@ onMounted(() => void load());
       </EmptyState>
 
       <template v-else>
+        <section class="rounded-2xl border border-surface-700/40 bg-surface-900/40 p-4 sm:p-5">
+          <div class="flex items-center gap-2 mb-3">
+            <Layers class="w-4 h-4 text-surface-400" />
+            <h2 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">
+              {{ t('share.catalogue.applications') }}
+            </h2>
+          </div>
+          <div class="flex flex-wrap gap-2" data-testid="catalogue-applications">
+            <button
+              v-for="app in applications"
+              :key="app.slug"
+              type="button"
+              :data-testid="`catalogue-app-${app.slug}`"
+              :class="[
+                'flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-colors',
+                selectedAppSlug === app.slug
+                  ? 'bg-primary-600/20 border-primary-500/50 text-primary-300'
+                  : 'border-surface-700/50 text-surface-300 hover:bg-surface-800/60',
+              ]"
+              @click="selectedAppSlug = app.slug"
+            >
+              <span class="font-medium">{{ app.name }}</span>
+              <BaseBadge variant="neutral" size="sm">{{ countFor(app.slug) }}</BaseBadge>
+            </button>
+          </div>
+        </section>
+
         <section
           v-if="models.length > 0"
           class="rounded-2xl border border-surface-700/40 bg-surface-900/40 p-5 space-y-4"
@@ -93,7 +136,7 @@ onMounted(() => void load());
             <p class="text-lg font-semibold text-surface-100">{{ selectedModel.displayName }}</p>
             <p class="font-mono text-xs text-surface-500 mt-1 break-all">{{ selectedModel.resourceUri }}</p>
             <div class="flex flex-wrap gap-2 mt-3">
-              <BaseBadge variant="neutral">{{ selectedModel.ownerApplicationSlug }}</BaseBadge>
+              <BaseBadge variant="neutral">{{ selectedModel.ownerApplicationName }}</BaseBadge>
               <BaseBadge variant="success">{{ selectedModel.planName }}</BaseBadge>
             </div>
           </div>
@@ -117,7 +160,7 @@ onMounted(() => void load());
             </thead>
             <tbody>
               <tr
-                v-for="item in resources"
+                v-for="item in selectedResources"
                 :key="item.resourceId"
                 data-testid="catalogue-item"
                 class="border-t border-surface-800/60"
@@ -129,13 +172,18 @@ onMounted(() => void load());
                 <td class="px-4 py-3 text-surface-400 hidden md:table-cell">
                   {{ t(`share.resourceTypes.${item.resourceType}`) }}
                 </td>
-                <td class="px-4 py-3 text-surface-300">{{ item.ownerApplicationSlug }}</td>
+                <td class="px-4 py-3 text-surface-300">{{ item.ownerApplicationName }}</td>
                 <td class="px-4 py-3 text-surface-400 hidden lg:table-cell">{{ item.planName }}</td>
                 <td
                   v-if="hasClientRestrictions"
                   class="px-4 py-3 text-xs text-surface-500"
                 >
                   {{ item.restrictedToClientIds?.join(', ') ?? t('share.catalogue.anyClient') }}
+                </td>
+              </tr>
+              <tr v-if="selectedResources.length === 0">
+                <td colspan="5" class="px-4 py-8 text-center text-sm text-surface-500">
+                  {{ t('share.catalogue.noResources') }}
                 </td>
               </tr>
             </tbody>

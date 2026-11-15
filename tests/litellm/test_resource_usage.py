@@ -202,10 +202,11 @@ class BuildEvent(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event["resourceId"], "resource-tool")
 
-    def test_ambiguous_mcp_server_without_tool_is_skipped(self) -> None:
+    def test_ambiguous_mcp_server_falls_back_to_the_server_resource(self) -> None:
         event = resource_usage.build_event(
             payload(
                 resources=[
+                    resource("server-x", "resource-server", "mcp_server"),
                     resource("search", "resource-a", "mcp_tool", "server-x"),
                     resource("fetch", "resource-b", "mcp_tool", "server-x"),
                 ],
@@ -219,7 +220,8 @@ class BuildEvent(unittest.TestCase):
             ),
             failed=False,
         )
-        self.assertIsNone(event)
+        self.assertIsNotNone(event)
+        self.assertEqual(event["resourceId"], "resource-server")
 
     def test_unverified_identity_creates_no_event(self) -> None:
         raw = payload()

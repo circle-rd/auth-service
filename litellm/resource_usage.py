@@ -345,7 +345,8 @@ class ResourceUsageLogger(CustomLogger):
             tmp = path.with_suffix(".tmp")
             tmp.write_text(json.dumps(item))
             os.replace(tmp, path)
-            self._ensure_retry_loop()
+            if BACKGROUND_RETRY:
+                self._ensure_retry_loop()
         except Exception as err:  # noqa: BLE001 - accounting must not fail a response
             log.error("resource usage: could not spool an event: %s", type(err).__name__)
 

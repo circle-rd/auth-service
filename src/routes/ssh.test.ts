@@ -20,6 +20,7 @@ const {
   mockResolveTarget,
   mockGatewayDetail,
   mockRecordSession,
+  mockAssertSchemeValidator,
   mockListKeys,
   mockRegisterKey,
   mockRevokeKey,
@@ -36,6 +37,7 @@ const {
   mockResolveTarget: vi.fn(),
   mockGatewayDetail: vi.fn(),
   mockRecordSession: vi.fn(),
+  mockAssertSchemeValidator: vi.fn(),
   mockListKeys: vi.fn(),
   mockRegisterKey: vi.fn(),
   mockRevokeKey: vi.fn(),
@@ -46,6 +48,9 @@ const {
 vi.mock("../middleware.js", () => ({ requireSession: mockRequireSession }));
 vi.mock("../services/machine-auth.js", () => ({
   requireMachineScope: mockRequireMachineScope,
+}));
+vi.mock("../services/resources/scheme-service.js", () => ({
+  assertSchemeValidator: mockAssertSchemeValidator,
 }));
 vi.mock("../services/ssh/targets.js", () => ({
   setupSshTarget: mockSetupTarget,
@@ -108,6 +113,7 @@ beforeEach(() => {
     mockResolveTarget,
     mockGatewayDetail,
     mockRecordSession,
+    mockAssertSchemeValidator,
     mockListKeys,
     mockRegisterKey,
     mockRevokeKey,
@@ -121,6 +127,7 @@ beforeEach(() => {
     clientId: "ssh-gateway",
     scopes: [],
   });
+  mockAssertSchemeValidator.mockResolvedValue(undefined);
   mockSetupTarget.mockResolvedValue(detail);
   mockOwnerDetail.mockResolvedValue(detail);
   mockCreateMetaUser.mockResolvedValue({ id: "m1", metaUser: "team-a" });
@@ -261,6 +268,32 @@ describe("gateway SSH routes", () => {
     expect(mockRecordSession).toHaveBeenCalledWith(
       expect.objectContaining({ resourceId: RESOURCE, sessionId: "session-1" }),
     );
+    expect(mockAssertSchemeValidator).toHaveBeenCalledWith(
+      "ssh",
+      "ssh-gateway",
+    );
+  });
+
+  it("rejects a session report whose client id differs from the token", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/internal/gateway/ssh/sessions",
+      payload: {
+        resourceId: RESOURCE,
+        resourceUri: "ssh://x",
+        subjectId: "user-1",
+        clientId: "litellm-wallet",
+        sessionId: "session-2",
+        startedAt: "2026-11-15T12:00:00.000Z",
+        endedAt: "2026-11-15T12:01:00.000Z",
+        bytesIn: 1,
+        bytesOut: 2,
+        endReason: "client",
+      },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("AUTH_011");
+    expect(mockRecordSession).not.toHaveBeenCalled();
   });
 
   it("validates a device session", async () => {

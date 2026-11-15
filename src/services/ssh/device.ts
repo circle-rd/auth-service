@@ -1,3 +1,4 @@
+import { APIError } from "better-auth";
 import { auth } from "../../auth.js";
 import { ERR } from "../../errors.js";
 
@@ -26,7 +27,8 @@ export async function validateDeviceSession(
   try {
     const ctx = await auth.$context;
     found = await ctx.internalAdapter.findSession(value);
-  } catch {
+  } catch (err) {
+    if (err instanceof APIError) throw err;
     throw ERR.AUTH_001();
   }
   if (!found || found.session.expiresAt.getTime() <= Date.now()) {

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ERR } from "../errors.js";
+import { assertSchemeValidator } from "../services/resources/scheme-service.js";
 import { requireMachineScope } from "../services/machine-auth.js";
 import { validateDeviceSession } from "../services/ssh/device.js";
 import { resolveRecipientKeyUserId } from "../services/ssh/keys.js";
@@ -97,6 +98,7 @@ export async function gatewaySshRoutes(
       if (body.clientId !== clientId) {
         throw ERR.AUTH_011("Session client id does not match the token");
       }
+      await assertSchemeValidator("ssh", clientId);
       const result = await recordSshSession(body);
       await reply.status(result.replayed ? 200 : 201).send(result);
     },

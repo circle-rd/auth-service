@@ -308,7 +308,10 @@ const envSchema = z
       (v) => (v === "" ? undefined : v),
       z
         .string()
-        .regex(/^[0-9A-Fa-f:.]+(?:\/\d{1,3})?$/, "must be an IP or CIDR")
+        .refine(
+          (v) => isTrustedProxyEntry(v) && !TRUST_PROXY_KEYWORDS.includes(v),
+          "must be an IP or CIDR",
+        )
         .optional(),
     ),
     SSH_GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(2222),

@@ -138,6 +138,13 @@ export async function setupSshTarget(
   const resource = await assertSshResource(resourceId);
   await assertCanManageResource(actorUserId, resource);
   const target = validateTarget(input);
+  // Fail before any write: authorized_keys cannot be generated without the
+  // gateway egress address, and a committed target would leave a broken setup.
+  if (!config.sshGateway.egressIp) {
+    throw ERR.SRV_001(
+      "SSH_GATEWAY_EGRESS_IP is not configured; SSH targets cannot be saved",
+    );
+  }
 
   await db.transaction(async (tx) => {
     const [existingDetail] = await tx

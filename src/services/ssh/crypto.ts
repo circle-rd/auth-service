@@ -103,7 +103,11 @@ function envelopeKey(): Buffer {
     );
   }
   const key = Buffer.from(value, "base64");
-  if (key.length !== 32) {
+  if (
+    key.length !== 32 ||
+    key.toString("base64") !== value ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(value)
+  ) {
     throw ERR.SRV_001("SSH_GATEWAY_ENVELOPE_KEY must be a base64 32-byte key");
   }
   return key;
@@ -125,5 +129,11 @@ export function authorizedKeysLine(
   publicKey: string,
   resourceId: string,
 ): string {
-  return `restrict,pty ${publicKey} auth-service:${resourceId}`;
+  const egressIp = config.sshGateway.egressIp;
+  if (!egressIp) {
+    throw ERR.SRV_001(
+      "SSH_GATEWAY_EGRESS_IP is not configured; SSH authorized_keys cannot be generated",
+    );
+  }
+  return `restrict,pty,from=${egressIp} ${publicKey} auth-service:${resourceId}`;
 }

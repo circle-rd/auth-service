@@ -42,9 +42,27 @@ export async function registerRecipientKey(
       fingerprint: parsed.fingerprint,
       label: label?.trim() || null,
     })
+    .onConflictDoNothing()
     .returning();
-  if (!row) throw ERR.RES_001("Could not register the SSH key");
-  return row;
+  if (row) return row;
+
+  // Another request may have registered the same key between the read and the
+  // insert: re-read the active row and apply the same ownership rule.
+  const [race] = await db
+    .select()
+    .from(sshRecipientKeys)
+    .where(
+      and(
+        eq(sshRecipientKeys.fingerprint, parsed.fingerprint),
+        isNull(sshRecipientKeys.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (!race) throw ERR.RES_001("Could not register the SSH key");
+  if (race.userId !== userId) {
+    throw ERR.RES_003("This SSH key is already registered");
+  }
+  return race;
 }
 
 export async function listRecipientKeys(

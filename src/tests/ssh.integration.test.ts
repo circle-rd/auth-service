@@ -120,7 +120,7 @@ describe("SSH resource contract", () => {
     expect(detail.account).toBe("test");
     expect(detail.publicKey.startsWith("ssh-ed25519 ")).toBe(true);
     expect(detail.authorizedKeysLine).toContain(`auth-service:${resource.id}`);
-    expect(detail.authorizedKeysLine.startsWith("restrict,pty ")).toBe(true);
+    expect(detail.authorizedKeysLine.startsWith("restrict,pty,from=")).toBe(true);
     expect(detail.validationCommand).toBe(
       `ssh -p 2222 validate-${resource.id}@gateway.test`,
     );
@@ -225,6 +225,7 @@ describe("SSH resource contract", () => {
     const endedAt = new Date("2026-11-15T12:05:00Z");
     const result = await recordSshSession({
       resourceId: resource.id,
+      resourceUri: resource.uri,
       subjectId: seedData.memberId,
       clientId: "ssh-gateway",
       sessionId,
@@ -251,6 +252,7 @@ describe("SSH resource contract", () => {
 
     const replay = await recordSshSession({
       resourceId: resource.id,
+      resourceUri: resource.uri,
       subjectId: seedData.memberId,
       clientId: "ssh-gateway",
       sessionId,

@@ -1,6 +1,4 @@
-import { and, eq, gt } from "drizzle-orm";
-import { db } from "../../db/index.js";
-import { session, user } from "../../db/auth-schema.js";
+import { auth } from "../../auth.js";
 import { ERR } from "../../errors.js";
 
 export interface DeviceSession {
@@ -21,16 +19,22 @@ export async function validateDeviceSession(
   if (value.length === 0 || value.length > 512) {
     throw ERR.AUTH_001();
   }
-  const [row] = await db
-    .select({
-      userId: session.userId,
-      expiresAt: session.expiresAt,
-      email: user.email,
-    })
-    .from(session)
-    .innerJoin(user, eq(session.userId, user.id))
-    .where(and(eq(session.token, value), gt(session.expiresAt, new Date())))
-    .limit(1);
-  if (!row) throw ERR.AUTH_001();
-  return { userId: row.userId, email: row.email, expiresAt: row.expiresAt };
+  // Go through BetterAuth's adapter so a Redis-backed session store is
+  // consulted and an unavailable store fails closed instead of silently
+  // approving the token from Postgres.
+  let found;
+  try {
+    const ctx = await auth.$context;
+    found = await ctx.internalAdapter.findSession(value);
+  } catch {
+    throw ERR.AUTH_001();
+  }
+  if (!found || found.session.expiresAt.getTime() <= Date.now()) {
+    throw ERR.AUTH_001();
+  }
+  return {
+    userId: found.user.id,
+    email: found.user.email,
+    expiresAt: found.session.expiresAt,
+  };
 }

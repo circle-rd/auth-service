@@ -142,11 +142,17 @@ services:
       LITELLM_URL: http://litellm:4000
       LITELLM_INVENTORY_KEY_FILE: /run/litellm-provisioner/inventory-key
       RESOURCE_SHARING_ENABLED: ${RESOURCE_SHARING_ENABLED:-false}
+      RESOURCE_SCHEMES_ENABLED: ${RESOURCE_SCHEMES_ENABLED:-}
       # SSH profile: envelope key for resource identity keys, and the public
-      # host/port used to build the owner validation command.
+      # host/port used to build the owner validation command. The host stays
+      # unset unless the operator supplies the public gateway hostname.
       SSH_GATEWAY_ENVELOPE_KEY: ${SSH_GATEWAY_ENVELOPE_KEY:-}
-      SSH_GATEWAY_VALIDATION_HOST: ${SSH_GATEWAY_VALIDATION_HOST:-localhost}
+      SSH_GATEWAY_VALIDATION_HOST: ${SSH_GATEWAY_VALIDATION_HOST:-}
+      SSH_GATEWAY_EGRESS_IP: ${SSH_GATEWAY_EGRESS_IP:-}
       SSH_GATEWAY_PORT: ${SSH_GATEWAY_PORT:-2222}
+    networks:
+      - default
+      - ssh_gateway_net
     volumes:
       - litellm_provisioner:/run/litellm-provisioner:ro
       - ./templates:/templates:ro
@@ -269,6 +275,8 @@ services:
       SSH_LISTEN_PORT: "2222"
       SSH_HOST_KEY_PATH: /data/ssh_host_key
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    networks:
+      - ssh_gateway_net
     volumes:
       - ssh_gateway_data:/data
     ports:
@@ -329,6 +337,9 @@ services:
       GATEWAY_ENTITLEMENTS_TTL_S: ${GATEWAY_ENTITLEMENTS_TTL_S:-30}
       RESOURCE_USAGE_SCOPE: resources:usage:write
       WALLET_SPOOL_DIR: /var/lib/circle-wallet
+      # Keep usage events inside the same persistent volume, without sharing the
+      # wallet's pending/dead directories.
+      RESOURCE_USAGE_SPOOL_DIR: /var/lib/circle-wallet/resource-usage
       # Per-user ceilings of the wallet hook: billable calls per minute, spend
       # per minute (provider dollars) and model calls in progress at once.
       WALLET_MAX_REQUESTS_PER_MINUTE: ${WALLET_MAX_REQUESTS_PER_MINUTE:-120}
@@ -359,6 +370,10 @@ services:
       retries: 10
       start_period: 60s
     restart: unless-stopped
+
+networks:
+  # The external gateway can reach auth-service only, never Postgres or LiteLLM.
+  ssh_gateway_net:
 
 volumes:
   ssh_gateway_data:

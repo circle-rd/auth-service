@@ -140,6 +140,16 @@ export async function setupSshTarget(
   const target = validateTarget(input);
 
   await db.transaction(async (tx) => {
+    const [existingDetail] = await tx
+      .select()
+      .from(sshResourceDetails)
+      .where(eq(sshResourceDetails.resourceId, resourceId))
+      .limit(1);
+    const targetChanged =
+      existingDetail !== undefined &&
+      (existingDetail.host !== target.host ||
+        existingDetail.port !== target.port ||
+        existingDetail.account !== target.account);
     await tx
       .insert(sshResourceDetails)
       .values({
@@ -154,9 +164,25 @@ export async function setupSshTarget(
           host: target.host,
           port: target.port,
           account: target.account,
+          ...(targetChanged
+            ? { hostKeyFingerprint: null, validatedAt: null }
+            : {}),
           updatedAt: new Date(),
         },
       });
+    if (targetChanged) {
+      // The old host-key pin no longer describes this target: existing grants
+      // must wait for a fresh validation.
+      await tx
+        .update(resources)
+        .set({
+          status: "pending_validation",
+          validatedAt: null,
+          validationError: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(resources.id, resourceId));
+    }
     const [identity] = await tx
       .select({ resourceId: sshResourceIdentities.resourceId })
       .from(sshResourceIdentities)
@@ -193,6 +219,7 @@ export async function getSshGatewayDetail(
   subjectId?: string,
 ): Promise<SshGatewayDetail> {
   const resource = await assertSshResource(resourceId);
+  if (resource.status === "disabled") throw ERR.RES_004();
   if (subjectId) await assertCanManageResource(subjectId, resource);
   const [detail] = await db
     .select()
@@ -328,6 +355,7 @@ export async function resolveSshTargetByMetaUser(
 
 export interface SshSessionInput {
   resourceId: string;
+  resourceUri: string;
   subjectId: string;
   clientId: string;
   sessionId: string;
@@ -351,10 +379,37 @@ export async function recordSshSession(
   input: SshSessionInput,
 ): Promise<SshSessionResult> {
   const resource = await assertSshResource(input.resourceId);
+  if (input.resourceUri !== resource.uri) {
+    throw ERR.RES_001("Session resource URI does not match the resource");
+  }
   if (input.endedAt.getTime() < input.startedAt.getTime()) {
     throw ERR.RES_001("Session end precedes its start");
   }
+  const matches = (row: typeof sshSessions.$inferSelect): boolean =>
+    row.resourceId === resource.id &&
+    row.subjectId === input.subjectId &&
+    row.clientId === input.clientId &&
+    row.startedAt.getTime() === input.startedAt.getTime() &&
+    row.endedAt.getTime() === input.endedAt.getTime() &&
+    row.bytesIn === input.bytesIn &&
+    row.bytesOut === input.bytesOut &&
+    row.endReason === input.endReason;
+
   return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(sshSessions)
+      .where(eq(sshSessions.sessionId, input.sessionId))
+      .limit(1);
+    if (existing) {
+      if (!matches(existing)) {
+        throw ERR.RES_001(
+          "This session id was already reported with different data",
+        );
+      }
+      return { sessionId: input.sessionId, replayed: true };
+    }
+
     const [session] = await tx
       .insert(sshSessions)
       .values({
@@ -370,7 +425,19 @@ export async function recordSshSession(
       })
       .onConflictDoNothing({ target: sshSessions.sessionId })
       .returning({ sessionId: sshSessions.sessionId });
-    if (!session) return { sessionId: input.sessionId, replayed: true };
+    if (!session) {
+      const [raced] = await tx
+        .select()
+        .from(sshSessions)
+        .where(eq(sshSessions.sessionId, input.sessionId))
+        .limit(1);
+      if (!raced || !matches(raced)) {
+        throw ERR.RES_001(
+          "This session id was already reported with different data",
+        );
+      }
+      return { sessionId: input.sessionId, replayed: true };
+    }
 
     await tx
       .insert(resourceUsageRecords)

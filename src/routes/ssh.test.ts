@@ -246,6 +246,7 @@ describe("gateway SSH routes", () => {
       url: "/api/internal/gateway/ssh/sessions",
       payload: {
         resourceId: RESOURCE,
+        resourceUri: "ssh://x",
         subjectId: "user-1",
         clientId: "ssh-gateway",
         sessionId: "session-1",

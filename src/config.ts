@@ -300,7 +300,17 @@ const envSchema = z
     // it is only required when the ssh scheme is enabled and a resource is set
     // up. The public host/port build the validation command shown to owners.
     SSH_GATEWAY_ENVELOPE_KEY: z.string().min(1).optional(),
-    SSH_GATEWAY_VALIDATION_HOST: z.string().min(1).max(255).optional(),
+    SSH_GATEWAY_VALIDATION_HOST: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().min(1).max(255).optional(),
+    ),
+    SSH_GATEWAY_EGRESS_IP: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z
+        .string()
+        .regex(/^[0-9A-Fa-f:.]+(?:\/\d{1,3})?$/, "must be an IP or CIDR")
+        .optional(),
+    ),
     SSH_GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(2222),
 
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
@@ -510,6 +520,7 @@ export const config = {
   sshGateway: {
     envelopeKey: parsed.data.SSH_GATEWAY_ENVELOPE_KEY,
     validationHost: parsed.data.SSH_GATEWAY_VALIDATION_HOST,
+    egressIp: parsed.data.SSH_GATEWAY_EGRESS_IP,
     port: parsed.data.SSH_GATEWAY_PORT,
   },
   templatesDir: parsed.data.TEMPLATES_DIR || null,

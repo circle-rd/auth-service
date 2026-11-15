@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { ERR } from "../errors.js";
 import { requireMachineScope } from "../services/machine-auth.js";
 import { validateDeviceSession } from "../services/ssh/device.js";
 import { resolveRecipientKeyUserId } from "../services/ssh/keys.js";
@@ -30,6 +31,7 @@ const deviceSessionBodySchema = z
 const sessionBodySchema = z
   .object({
     resourceId: z.string().uuid(),
+    resourceUri: z.string().trim().min(1).max(512),
     subjectId: z.string().trim().min(1).max(256),
     clientId: z.string().trim().min(1).max(256),
     sessionId: z.string().trim().min(1).max(256),
@@ -87,11 +89,14 @@ export async function gatewaySshRoutes(
     "/ssh/sessions",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      await requireMachineScope(
+      const { clientId } = await requireMachineScope(
         req.headers.authorization,
         "resources:usage:write",
       );
       const body = sessionBodySchema.parse(req.body);
+      if (body.clientId !== clientId) {
+        throw ERR.AUTH_011("Session client id does not match the token");
+      }
       const result = await recordSshSession(body);
       await reply.status(result.replayed ? 200 : 201).send(result);
     },

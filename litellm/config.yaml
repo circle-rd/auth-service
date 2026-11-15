@@ -3,9 +3,13 @@
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   custom_auth: custom_auth.user_api_key_auth
-  # Apply the team's model list and budget to requests authenticated by
-  # custom_auth (its block, limits and MCP permissions are copied by that hook).
+  # Apply the key-level model allowlist and budget to requests authenticated by
+  # custom_auth. The hook attaches the entitlement lists as a key object
+  # permission; no team exists.
   custom_auth_run_common_checks: true
+  # A custom-auth key with no agent object permission must not inherit "all
+  # agents". Empty entitlement lists become an explicit deny.
+  agent_access_default_deny: true
   store_model_in_db: true
   # With the sign-in through auth-service configured, no username/password login
   # reaches the Admin UI, the shared master-key one included: an auth-service
@@ -25,7 +29,7 @@ general_settings:
 
 litellm_settings:
   # Credit check before each call and billing after it (see circle_wallet.py),
-  # plus the shared-resource catalogue filter for /v1/models (flag-gated).
+  # plus the model catalogue filter for the custom-auth entitlement list.
   callbacks:
     - circle_wallet.wallet_logger
     - resource_discovery.resource_sharing_logger

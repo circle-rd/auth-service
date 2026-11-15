@@ -23,12 +23,6 @@ import {
   ensureApp,
   updatePlanSchema,
 } from "./plan-shared.js";
-import {
-  ensurePlanTeamBeforeSave,
-  retirePlanTeam,
-  retireRenamedPlanTeam,
-} from "../../services/litellm-sync.js";
-import { planSlugConflict } from "../../services/litellm-plan.js";
 
 const assignSubscriptionSchema = z.object({
   planId: z.string().uuid(),
@@ -87,16 +81,6 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
       if (!parsed.success)
         throw ERR.APP_001("Invalid plan data", parsed.error.flatten());
 
-      // The gateway team (and its access group) is named after the plan's slug,
-      // so two plans of one application must not slugify to the same name.
-      if (await planSlugConflict(app.id, parsed.data.name))
-        throw ERR.APP_001("A plan with a similar name already exists", {
-          field: "name",
-        });
-
-      // The plan's gateway team must exist before the plan can grant access.
-      await ensurePlanTeamBeforeSave(app.id, parsed.data.name);
-
       // The operator never opens the Stripe dashboard: the Product is created here.
       const stripeProductId = await provisionPlanProduct({
         applicationId: app.id,
@@ -152,22 +136,6 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
         .limit(1);
       if (!before) throw ERR.SUB_001();
 
-      // A renamed plan is a different plan as far as the gateway is concerned:
-      // its new team must exist before the rename, and the old one is retired after.
-      const renamedTo =
-        parsed.data.name && parsed.data.name !== before.name
-          ? parsed.data.name
-          : null;
-      if (renamedTo) {
-        if (
-          await planSlugConflict(req.params.appId, renamedTo, req.params.planId)
-        )
-          throw ERR.APP_001("A plan with a similar name already exists", {
-            field: "name",
-          });
-        await ensurePlanTeamBeforeSave(req.params.appId, renamedTo);
-      }
-
       const [plan] = await db.transaction(async (tx) => {
         // Ensure only one default plan per app
         if (parsed.data.isDefault) {
@@ -193,9 +161,6 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
           .returning();
       });
       if (!plan) throw ERR.SUB_001();
-
-      if (renamedTo)
-        await retireRenamedPlanTeam(req.params.appId, before.name, renamedTo);
 
       // Keep the Stripe Product name/description aligned with the plan row.
       if (plan.stripeProductId) {
@@ -283,8 +248,6 @@ export async function plansRoutes(fastify: FastifyInstance): Promise<void> {
           });
         }
       }
-
-      await retirePlanTeam(req.params.appId, plan.name);
 
       await reply.status(204).send();
     },

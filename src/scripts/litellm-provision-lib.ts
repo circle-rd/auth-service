@@ -1,53 +1,30 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { z } from "zod";
-/** Temporary legacy resource-sync key scope, removed with the ACL cutover. */
-export const RESOURCE_SYNC_ROUTES = [
-  "/v1/access_group",
-  "/v1/access_group/*",
+
+/**
+ * Gateway user that owns the inventory key. It is a read-only administrator:
+ * auth-service mirrors models, agents and MCP servers, never writes to them.
+ */
+export const INVENTORY_USER_ID = "auth-service-inventory";
+export const INVENTORY_KEY_ALIAS = "auth-service-inventory";
+
+/** Path-only allowlist (LiteLLM does not filter allowed_routes by method). */
+export const INVENTORY_ROUTES = [
+  "/v1/models",
+  "/v1/agents",
+  "/v1/mcp/server",
 ] as const;
-
-/** Gateway user that owns the team key, and the key's alias. */
-export const PROVISIONER_USER_ID = "auth-service-provisioner";
-export const PROVISIONER_KEY_ALIAS = "auth-service-provisioner";
-
-/** Gateway user that owns the shared-resource access-group key. */
-export const RESOURCE_SYNC_USER_ID = "auth-service-resource-sync";
-export const RESOURCE_SYNC_KEY_ALIAS = "auth-service-resource-sync";
-
-/**
- * Routes of the team provisioner: one team per application plan plus the
- * access groups those teams carry. It cannot add models, mint keys or call LLMs.
- * `allowed_routes` matches the path only (LiteLLM v1.108.3), never the method.
- */
-export const PROVISIONER_ROUTES = [
-  "/team/new",
-  "/team/info",
-  "/team/list",
-  "/team/update",
-  "/team/block",
-  "/team/unblock",
-  "/team/delete",
-  "/v1/access_group",
-  "/v1/access_group/*",
-];
-
-/**
- * Routes of the shared-resource sync key. It reads access groups and updates
- * their membership, nothing else: no team, model, key or LLM route.
- */
 
 const provisionEnvSchema = z.object({
   LITELLM_URL: z.string().url(),
-  LITELLM_PROVISIONER_KEY_FILE: z.string().min(1),
-  LITELLM_RESOURCE_SYNC_KEY_FILE: z.string().min(1).optional(),
+  LITELLM_INVENTORY_KEY_FILE: z.string().min(1),
   LITELLM_STATE_FILE: z.string().min(1),
 });
 
 export interface ProvisionEnv {
   gatewayUrl: string;
-  keyFile: string;
-  resourceSyncKeyFile: string;
+  inventoryKeyFile: string;
   stateFile: string;
 }
 
@@ -59,13 +36,10 @@ export function loadProvisionEnv(
     const fields = parsed.error.issues.map((i) => i.path.join(".")).join(", ");
     throw new Error(`Missing or invalid environment variables: ${fields}`);
   }
-  const keyFile = parsed.data.LITELLM_PROVISIONER_KEY_FILE;
+  const keyFile = parsed.data.LITELLM_INVENTORY_KEY_FILE;
   return {
     gatewayUrl: parsed.data.LITELLM_URL.replace(/\/+$/, ""),
-    keyFile,
-    resourceSyncKeyFile:
-      parsed.data.LITELLM_RESOURCE_SYNC_KEY_FILE ??
-      join(dirname(keyFile), "resource-sync-key"),
+    inventoryKeyFile: keyFile,
     stateFile: parsed.data.LITELLM_STATE_FILE,
   };
 }
@@ -101,41 +75,41 @@ function readFileOrNull(path: string): string | null {
 
 export type ProvisionOutcome = "kept" | "created";
 
-interface KeySpec {
-  userId: string;
-  keyAlias: string;
-  routes: readonly string[];
-  keyFile: string;
-  /** A working, correctly scoped key must answer each probe with this status. */
-  probes: ReadonlyArray<{ path: string; status: number }>;
+interface Probe {
+  method: "GET" | "POST";
+  path: string;
+  status: number;
+  body?: unknown;
 }
 
-const TEAM_KEY: Omit<KeySpec, "keyFile"> = {
-  userId: PROVISIONER_USER_ID,
-  keyAlias: PROVISIONER_KEY_ALIAS,
-  routes: PROVISIONER_ROUTES,
-  probes: [{ path: "/v1/access_group", status: 200 }],
-};
+const INVENTORY_PROBES: readonly Probe[] = [
+  { method: "GET", path: "/v1/models", status: 200 },
+  { method: "GET", path: "/v1/agents", status: 200 },
+  { method: "GET", path: "/v1/mcp/server", status: 200 },
+  {
+    method: "POST",
+    path: "/v1/mcp/server",
+    status: 403,
+    body: { server_name: "probe", url: "http://127.0.0.1" },
+  },
+  {
+    method: "POST",
+    path: "/team/new",
+    status: 403,
+    body: { team_alias: "probe" },
+  },
+  { method: "POST", path: "/key/generate", status: 403, body: {} },
+];
 
-const RESOURCE_SYNC_KEY: Omit<KeySpec, "keyFile"> = {
-  userId: RESOURCE_SYNC_USER_ID,
-  keyAlias: RESOURCE_SYNC_KEY_ALIAS,
-  routes: RESOURCE_SYNC_ROUTES,
-  probes: [
-    { path: "/v1/access_group", status: 200 },
-    // Negative probes: this key must not reach team or model administration.
-    { path: "/team/list", status: 403 },
-    { path: "/model/info", status: 403 },
-  ],
-};
-
-async function scopeMatches(
-  env: ProvisionEnv,
-  key: string,
-  spec: Omit<KeySpec, "keyFile">,
-): Promise<boolean> {
-  for (const probe of spec.probes) {
-    const answer = await gatewayCall(env, key, "GET", probe.path);
+async function scopeMatches(env: ProvisionEnv, key: string): Promise<boolean> {
+  for (const probe of INVENTORY_PROBES) {
+    const answer = await gatewayCall(
+      env,
+      key,
+      probe.method,
+      probe.path,
+      probe.body,
+    );
     if (answer.status !== probe.status) return false;
   }
   return true;
@@ -154,16 +128,15 @@ function masterKeyOf(env: ProvisionEnv): string {
   return masterKey;
 }
 
-async function ensureAdministrator(
+async function ensureInventoryViewer(
   env: ProvisionEnv,
   masterKey: string,
-  userId: string,
 ): Promise<void> {
-  // LiteLLM denies access-group writes to a key whose owner is not an
-  // administrator. Creating an existing user fails: that is fine.
+  // A read-only proxy administrator can read the full inventory but cannot
+  // mutate it, even though allowed_routes only matches paths.
   const user = await gatewayCall(env, masterKey, "POST", "/user/new", {
-    user_id: userId,
-    user_role: "proxy_admin",
+    user_id: INVENTORY_USER_ID,
+    user_role: "proxy_admin_viewer",
     auto_create_key: false,
   });
   if (
@@ -174,23 +147,18 @@ async function ensureAdministrator(
   }
 }
 
-async function issueKey(
-  env: ProvisionEnv,
-  masterKey: string,
-  spec: Omit<KeySpec, "keyFile">,
-): Promise<string> {
-  await ensureAdministrator(env, masterKey, spec.userId);
+async function issueKey(env: ProvisionEnv, masterKey: string): Promise<string> {
+  await ensureInventoryViewer(env, masterKey);
 
-  // Revoke what an earlier run left (an unusable file, or a lost one). Nothing
-  // to revoke is not an error.
+  // Revoke what an earlier run left (an unusable file, or a lost one).
   await gatewayCall(env, masterKey, "POST", "/key/delete", {
-    key_aliases: [spec.keyAlias],
+    key_aliases: [INVENTORY_KEY_ALIAS],
   });
 
   const issued = await gatewayCall(env, masterKey, "POST", "/key/generate", {
-    user_id: spec.userId,
-    key_alias: spec.keyAlias,
-    allowed_routes: spec.routes,
+    user_id: INVENTORY_USER_ID,
+    key_alias: INVENTORY_KEY_ALIAS,
+    allowed_routes: INVENTORY_ROUTES,
   });
   if (issued.status >= 300) {
     throw new Error(
@@ -201,50 +169,35 @@ async function issueKey(
 }
 
 /**
- * Make sure the key file holds a working, correctly scoped gateway key. A key
+ * Make sure the inventory key file holds a working, read-only gateway key. A key
  * that still works is kept; otherwise the previous alias is revoked and a new
- * key is issued, so a single key with this alias ever exists. Idempotent.
+ * key is issued. Idempotent.
  */
-async function provisionScopedKey(
+export async function provisionInventoryKey(
   env: ProvisionEnv,
-  spec: Omit<KeySpec, "keyFile">,
-  keyFile: string,
 ): Promise<ProvisionOutcome> {
-  const existing = readFileOrNull(keyFile)?.trim();
-  if (existing && (await scopeMatches(env, existing, spec))) return "kept";
+  const existing = readFileOrNull(env.inventoryKeyFile)?.trim();
+  if (existing && (await scopeMatches(env, existing))) return "kept";
 
   const masterKey = masterKeyOf(env);
-  const key = await issueKey(env, masterKey, spec);
-  if (!(await scopeMatches(env, key, spec))) {
+  const key = await issueKey(env, masterKey);
+  if (!(await scopeMatches(env, key))) {
     // Fail closed: a key wider than its requested allowlist must not be kept.
     await gatewayCall(env, masterKey, "POST", "/key/delete", {
-      key_aliases: [spec.keyAlias],
+      key_aliases: [INVENTORY_KEY_ALIAS],
     });
     throw new Error(
-      `key '${spec.keyAlias}' does not enforce its access-group scope`,
+      `key '${INVENTORY_KEY_ALIAS}' does not enforce its read-only inventory scope`,
     );
   }
 
-  mkdirSync(dirname(keyFile), { recursive: true });
-  writeFileSync(keyFile, `${key}\n`, { mode: 0o644 });
+  mkdirSync(dirname(env.inventoryKeyFile), { recursive: true });
+  writeFileSync(env.inventoryKeyFile, `${key}\n`, { mode: 0o644 });
   return "created";
-}
-
-export function provisionKey(env: ProvisionEnv): Promise<ProvisionOutcome> {
-  return provisionScopedKey(env, TEAM_KEY, env.keyFile);
-}
-
-export function provisionResourceSyncKey(
-  env: ProvisionEnv,
-): Promise<ProvisionOutcome> {
-  return provisionScopedKey(env, RESOURCE_SYNC_KEY, env.resourceSyncKeyFile);
 }
 
 export async function provisionKeys(
   env: ProvisionEnv,
-): Promise<{ team: ProvisionOutcome; resourceSync: ProvisionOutcome }> {
-  return {
-    team: await provisionKey(env),
-    resourceSync: await provisionResourceSyncKey(env),
-  };
+): Promise<{ inventory: ProvisionOutcome }> {
+  return { inventory: await provisionInventoryKey(env) };
 }

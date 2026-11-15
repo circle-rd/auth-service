@@ -1,19 +1,16 @@
 import { loadProvisionEnv, provisionKeys } from "./litellm-provision-lib.js";
 
 /**
- * One-shot: gives auth-service the two gateway keys it uses — one for plan
- * teams, one restricted to shared-resource access groups. Runs after the
- * gateway is up (it needs the master key from the setup state file) and is safe
- * to run at every start.
+ * One-shot: gives auth-service a read-only gateway inventory key. Runs after
+ * the gateway is up (it needs the master key from the setup state file) and is
+ * safe to run at every start.
  */
 async function main(): Promise<void> {
-  const { team, resourceSync } = await provisionKeys(loadProvisionEnv());
-  const line = (label: string, outcome: string): string =>
-    outcome === "kept"
-      ? `✓ gateway ${label} key already in place\n`
-      : `✓ gateway ${label} key issued\n`;
+  const { inventory } = await provisionKeys(loadProvisionEnv());
   process.stdout.write(
-    line("team", team) + line("resource-sync", resourceSync),
+    inventory === "kept"
+      ? "✓ gateway inventory key already in place\n"
+      : "✓ gateway inventory key issued\n",
   );
 }
 

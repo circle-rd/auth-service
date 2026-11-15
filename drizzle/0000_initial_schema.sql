@@ -709,6 +709,30 @@ CREATE TABLE "resources" (
 	CONSTRAINT "resources_owner_id_check" CHECK (length("resources"."owner_id") > 0)
 );
 --> statement-breakpoint
+CREATE TABLE "gateway_objects" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"kind" text NOT NULL,
+	"litellm_id" text NOT NULL,
+	"object_name" text NOT NULL,
+	"parent_name" text DEFAULT '' NOT NULL,
+	"display_name" text NOT NULL,
+	"is_active" boolean DEFAULT true NOT NULL,
+	"last_seen_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "gateway_objects_kind_check" CHECK ("gateway_objects"."kind" IN ('model', 'agent', 'mcp_server', 'mcp_tool')),
+	CONSTRAINT "gateway_objects_name_check" CHECK (length("gateway_objects"."object_name") > 0),
+	CONSTRAINT "gateway_objects_parent_check" CHECK (("gateway_objects"."kind" = 'mcp_tool' AND length("gateway_objects"."parent_name") > 0)
+        OR ("gateway_objects"."kind" <> 'mcp_tool' AND "gateway_objects"."parent_name" = ''))
+);
+--> statement-breakpoint
+CREATE TABLE "resource_gateway_links" (
+	"resource_id" uuid PRIMARY KEY NOT NULL,
+	"gateway_object_id" uuid NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 ALTER TABLE "app_delegation" ADD CONSTRAINT "app_delegation_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_permissions" ADD CONSTRAINT "app_permissions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_role_permissions" ADD CONSTRAINT "app_role_permissions_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -766,6 +790,8 @@ ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_reso
 ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_scheme_resource_schemes_scheme_fk" FOREIGN KEY ("scheme") REFERENCES "public"."resource_schemes"("scheme") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_gateway_links" ADD CONSTRAINT "resource_gateway_links_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_gateway_links" ADD CONSTRAINT "resource_gateway_links_gateway_object_id_gateway_objects_id_fk" FOREIGN KEY ("gateway_object_id") REFERENCES "public"."gateway_objects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "app_delegation_user_app_permission_idx" ON "app_delegation" USING btree ("user_id","application_id","permission");--> statement-breakpoint
 CREATE INDEX "app_delegation_lookup_idx" ON "app_delegation" USING btree ("user_id","application_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "app_permissions_app_resource_action_idx" ON "app_permissions" USING btree ("application_id","resource","action");--> statement-breakpoint
@@ -843,4 +869,8 @@ CREATE UNIQUE INDEX "resources_uri_idx" ON "resources" USING btree ("uri");--> s
 CREATE UNIQUE INDEX "resources_scheme_locator_idx" ON "resources" USING btree ("scheme","locator");--> statement-breakpoint
 CREATE INDEX "resources_application_status_idx" ON "resources" USING btree ("application_id","status");--> statement-breakpoint
 CREATE INDEX "resources_owner_idx" ON "resources" USING btree ("owner_type","owner_id");--> statement-breakpoint
-CREATE INDEX "resources_scheme_status_idx" ON "resources" USING btree ("scheme","status");
+CREATE INDEX "resources_scheme_status_idx" ON "resources" USING btree ("scheme","status");--> statement-breakpoint
+CREATE UNIQUE INDEX "gateway_objects_litellm_idx" ON "gateway_objects" USING btree ("kind","litellm_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "gateway_objects_name_idx" ON "gateway_objects" USING btree ("kind","object_name","parent_name");--> statement-breakpoint
+CREATE INDEX "gateway_objects_active_idx" ON "gateway_objects" USING btree ("kind","is_active");--> statement-breakpoint
+CREATE INDEX "resource_gateway_links_object_idx" ON "resource_gateway_links" USING btree ("gateway_object_id");

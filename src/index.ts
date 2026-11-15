@@ -17,7 +17,7 @@ import { applications } from "./db/schema.js";
 import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
-import { gatewayUrl, startLitellmReconciler } from "./services/litellm-sync.js";
+import { startGatewayInventorySync } from "./services/gateway-inventory.js";
 import { syncBuiltinSchemes } from "./services/resources/scheme-service.js";
 import { startResourceMonitoringRetention } from "./services/resources/usage.js";
 import { closeRedisClient } from "./services/redis-client.js";
@@ -43,11 +43,6 @@ async function start(): Promise<void> {
   }
 
   const fastify = await buildServer();
-  if ((await gatewayUrl()) !== null) {
-    fastify.log.info(
-      "[res] legacy LiteLLM team reconciliation is active until the entitlement cutover",
-    );
-  }
 
   // ── Verify outbound mail transport ────────────────────────────────────
   // In production a failed SMTP check is fatal: every email-dependent flow
@@ -88,7 +83,7 @@ async function start(): Promise<void> {
 
   await fastify.listen({ port: config.port, host: config.host });
   fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
-  startLitellmReconciler();
+  startGatewayInventorySync();
   startResourceMonitoringRetention();
   startBillingMeterRetry();
 

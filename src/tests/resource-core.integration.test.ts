@@ -9,6 +9,7 @@ import {
 } from "../db/schema.js";
 import { member, organization, user as userTable } from "../db/auth-schema.js";
 import { resources } from "../db/resource-schema.js";
+import { gatewayObjects } from "../db/gateway-schema.js";
 import {
   createApplicationScheme,
   disableSchemeForApplication,
@@ -38,6 +39,10 @@ import {
   listAccessEvents,
   sweepResourceMonitoringRetention,
 } from "../services/resources/usage.js";
+import {
+  gatewayTargetForResource,
+  listGatewayEntitlements,
+} from "../services/gateway-inventory.js";
 import { cleanDb } from "./helpers/db.js";
 
 interface Seed {
@@ -400,6 +405,100 @@ describe("generic resource core", () => {
     await expect(
       listAccessibleResources({ subjectId: seedData.outsiderId }),
     ).resolves.toEqual([]);
+  });
+
+  it("resolves LiteLLM entitlements from linked inventory objects", async () => {
+    const seedData = await seed();
+    await db.insert(gatewayObjects).values([
+      {
+        kind: "model",
+        litellmId: "gpt-x",
+        objectName: "gpt-x",
+        parentName: "",
+        displayName: "gpt-x",
+      },
+      {
+        kind: "agent",
+        litellmId: "agent-1",
+        objectName: "analyst",
+        parentName: "",
+        displayName: "analyst",
+      },
+      {
+        kind: "mcp_server",
+        litellmId: "server-1",
+        objectName: "server-x",
+        parentName: "",
+        displayName: "server-x",
+      },
+      {
+        kind: "mcp_tool",
+        litellmId: "server-1:search",
+        objectName: "search",
+        parentName: "server-x",
+        displayName: "server-x/search",
+      },
+    ]);
+
+    for (const [scheme, locator] of [
+      ["llm", "app-a/gpt-x"],
+      ["agent", "app-a/analyst"],
+      ["mcp", "app-a/server-x/tool/search"],
+    ] as const) {
+      const resource = await createResource({
+        applicationId: seedData.appAId,
+        scheme,
+        locator,
+        displayName: locator,
+        ownerType: "user",
+        ownerId: seedData.ownerId,
+      });
+      await completeResourceValidation({
+        resourceId: resource.id,
+        clientId: "litellm",
+        result: "validated",
+      });
+    }
+
+    const entitlements = await listGatewayEntitlements(seedData.ownerId);
+    expect(entitlements.models).toEqual(["gpt-x"]);
+    expect(entitlements.agents).toEqual(["analyst"]);
+    expect(entitlements.mcpServers).toEqual(["server-x"]);
+    expect(entitlements.mcpToolPermissions).toEqual({ "server-x": ["search"] });
+    expect(entitlements.resources).toHaveLength(3);
+    expect(
+      entitlements.resources.map((resource) => resource.uri).sort(),
+    ).toEqual([
+      "agent://app-a/analyst",
+      "llm://app-a/gpt-x",
+      "mcp://app-a/server-x/tool/search",
+    ]);
+  });
+
+  it("parses inventory targets from resource locators", () => {
+    expect(gatewayTargetForResource("llm", "acme/gpt-x")).toEqual({
+      kind: "model",
+      name: "gpt-x",
+      parentName: "",
+    });
+    expect(gatewayTargetForResource("agent", "acme/analyst")).toEqual({
+      kind: "agent",
+      name: "analyst",
+      parentName: "",
+    });
+    expect(gatewayTargetForResource("mcp", "acme/server-x")).toEqual({
+      kind: "mcp_server",
+      name: "server-x",
+      parentName: "",
+    });
+    expect(
+      gatewayTargetForResource("mcp", "acme/server-x/tool/search"),
+    ).toEqual({
+      kind: "mcp_tool",
+      name: "search",
+      parentName: "server-x",
+    });
+    expect(gatewayTargetForResource("gine", "project")).toBeNull();
   });
 
   it("redeems an invitation for an existing AuthService account", async () => {

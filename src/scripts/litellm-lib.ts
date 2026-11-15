@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import type { LedgerEntry } from "./litellm-reconcile-lib.js";
 
 // ── Environment ───────────────────────────────────────────────────────────────
 
@@ -19,12 +18,15 @@ const scriptEnvSchema = z.object({
 
 /** Machine application the gateway uses to call the wallet API. */
 export const WALLET_CLIENT_SLUG = "litellm-wallet";
-// Scopes granted to the gateway's own machine client (`litellm-wallet`): the
-// wallet debit/read the LLM hook uses, and `wallet:read`, which the gateway also
-// uses to resolve a user's plan/team for its custom auth. No dedicated scope:
-// reusing one already granted keeps an in-place upgrade from having to re-grant
-// scopes (which needs an administrator without MFA) before the gateway can serve.
-export const WALLET_SCOPES = ["wallet:debit", "wallet:read"];
+// Scopes granted to the gateway's own machine client (`litellm-wallet`): wallet
+// debit/read, entitlement resolution and gross usage reporting. The hook never
+// calls the generic authorize route: LiteLLM enforces the entitlement lists.
+export const WALLET_SCOPES = [
+  "wallet:debit",
+  "wallet:read",
+  "gateway:entitlements:read",
+  "resources:usage:write",
+];
 
 export type ScriptEnv = z.infer<typeof scriptEnvSchema> & {
   authUrl: string;
@@ -257,19 +259,6 @@ export function isSetupComplete(state: string, ssoEnabled: boolean): boolean {
 const walletAccountSchema = z.object({
   balance: z.string().regex(/^-?[0-9]+$/),
   canSpend: z.boolean(),
-});
-
-const usageLedgerPageSchema = z.object({
-  items: z.array(
-    z.object({
-      requestId: z.string().nullable(),
-      userId: z.string(),
-      amount: z.string(),
-      costUsd: z.string().nullable(),
-      createdAt: z.string(),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
 });
 
 const tokenResponseSchema = z.object({ access_token: z.string() });
@@ -511,30 +500,6 @@ export class AuthAdminClient {
     );
     const account = walletAccountSchema.parse(await res.json());
     return { balance: BigInt(account.balance), canSpend: account.canSpend };
-  }
-
-  /** Gateway usage debits created in `[from, to)`, oldest first. */
-  async usageLedger(from: Date, to: Date): Promise<LedgerEntry[]> {
-    const entries: LedgerEntry[] = [];
-    let cursor: string | null = null;
-    do {
-      const params = new URLSearchParams({
-        from: from.toISOString(),
-        to: to.toISOString(),
-        limit: "1000",
-      });
-      if (cursor) params.set("cursor", cursor);
-      const res = await this.expectOk(
-        await this.send(`/api/admin/wallets/usage-ledger?${params}`),
-        "Read usage ledger",
-      );
-      const page = usageLedgerPageSchema.parse(await res.json());
-      entries.push(
-        ...page.items.map((i) => ({ ...i, createdAt: new Date(i.createdAt) })),
-      );
-      cursor = page.nextCursor;
-    } while (cursor);
-    return entries;
   }
 
   /** Record credit as an administrator would for a manual invoice. */

@@ -1,16 +1,14 @@
-"""Owner-attributed usage reporting for shared resources.
+"""Owner-attributed usage reporting for gateway resources.
 
 This is a distinct pipeline from `circle_wallet.py`: it records gross provider
-usage per owner application, never a wallet debit or balance change. Events are
+usage per resource owner, never a wallet debit or balance change. Events are
 spooled before delivery and retried with a stable, gateway-generated id, so an
 auth-service outage cannot lose accounting data and redelivery cannot duplicate
-a row. The callback never changes the user response: every failure is contained
-and left for the durable retry loop.
+a row.
 
-Attribution comes only from the verified `SharingContext` that
-`custom_auth.py` stores in the internal identity metadata during resource
-authorization. Nothing from the request body, the user's own metadata, or an
-`x-litellm-call-id` header is trusted.
+Attribution comes only from the entitlement context that `custom_auth.py` stores
+on the authenticated identity. Nothing from the request body, the user's own
+metadata, or an `x-litellm-call-id` header is trusted.
 """
 
 from __future__ import annotations
@@ -31,19 +29,12 @@ import httpx
 from litellm._logging import verbose_proxy_logger as log
 from litellm.integrations.custom_logger import CustomLogger
 
-from resource_sharing import (
-    RESOURCE_AUTH_URL,
-    RESOURCE_CLIENT_ID,
-    RESOURCE_CLIENT_SECRET,
-    RESOURCE_SHARING_ENABLED,
-    USAGE_METADATA_KEY,
-)
+from entitlements import USAGE_METADATA_KEY
 
+AUTH_URL = (os.environ.get("WALLET_AUTH_URL") or "").rstrip("/")
+CLIENT_ID = os.environ.get("WALLET_CLIENT_ID") or ""
+CLIENT_SECRET = os.environ.get("WALLET_CLIENT_SECRET") or ""
 USAGE_SCOPE = os.environ.get("RESOURCE_USAGE_SCOPE", "resources:usage:write")
-USAGE_CLIENT_ID = os.environ.get("RESOURCE_USAGE_CLIENT_ID") or RESOURCE_CLIENT_ID
-USAGE_CLIENT_SECRET = (
-    os.environ.get("RESOURCE_USAGE_CLIENT_SECRET") or RESOURCE_CLIENT_SECRET
-)
 SPOOL_DIR = Path(
     os.environ.get("RESOURCE_USAGE_SPOOL_DIR", "/var/lib/circle-resource-usage")
 )
@@ -54,9 +45,12 @@ HTTP_TIMEOUT_S = float(os.environ.get("RESOURCE_USAGE_HTTP_TIMEOUT_S", "5"))
 MAX_ATTEMPT_BACKOFF_S = 300.0
 
 MODEL = "model"
-WORKFLOW = "workflow"
-MCP_AGENT = "mcp_agent"
 MCP_CALL_TYPE = "call_mcp_tool"
+
+if not AUTH_URL or not CLIENT_ID or not CLIENT_SECRET:
+    raise RuntimeError(
+        "WALLET_AUTH_URL, WALLET_CLIENT_ID and WALLET_CLIENT_SECRET are required"
+    )
 
 
 def _decimal(value: Any) -> str:
@@ -74,12 +68,17 @@ def _iso(value: Any) -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _resource_index(resources: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
+def _resource_index(
+    resources: Sequence[Mapping[str, Any]],
+) -> dict[str, Mapping[str, Any]]:
     index: dict[str, Mapping[str, Any]] = {}
     for resource in resources:
-        key = resource.get("key")
-        if isinstance(key, str) and key:
-            index[key] = resource
+        name = resource.get("name")
+        if isinstance(name, str) and name:
+            index[name] = resource
+        parent = resource.get("parentName")
+        if isinstance(parent, str) and parent and parent not in index:
+            index[parent] = resource
     return index
 
 
@@ -88,11 +87,11 @@ def select_executed_resource(
     metadata: Mapping[str, Any],
     resources: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    """The authorized resource this provider call actually executed.
+    """The entitlement resource this provider call actually executed.
 
     `model_group` carries the fallback target on a fallback attempt. MCP calls
-    name their server. Anything ambiguous with more than one authorized
-    resource is skipped rather than attributed to the wrong owner.
+    name their server and optionally their tool. Anything ambiguous with more
+    than one resource is skipped rather than attributed to the wrong owner.
     """
     index = _resource_index(resources)
     if not index:
@@ -104,27 +103,34 @@ def select_executed_resource(
 
     if payload.get("call_type") == MCP_CALL_TYPE:
         tool = metadata.get("mcp_tool_call_metadata") or {}
-        name = tool.get("mcp_server_name") if isinstance(tool, Mapping) else None
-        if isinstance(name, str) and name in index:
-            return index[name]
+        if isinstance(tool, Mapping):
+            name = tool.get("mcp_server_name")
+            if isinstance(name, str) and name in index:
+                candidates = [
+                    resource
+                    for resource in resources
+                    if resource.get("parentName") == name
+                ]
+                tool_name = tool.get("mcp_tool_name")
+                if isinstance(tool_name, str):
+                    for resource in candidates:
+                        if resource.get("name") == tool_name:
+                            return resource
+                if len(candidates) == 1:
+                    return candidates[0]
+                if isinstance(name, str) and name in index:
+                    return index[name]
 
-    if len(index) == 1:
-        return next(iter(index.values()))
+    if len(resources) == 1:
+        return resources[0]
 
     model = payload.get("model")
-    if isinstance(model, str) and model:
-        try:
-            from resource_routing import _router, resolve_model_key
-
-            key = resolve_model_key(_router(), model)
-        except Exception:  # noqa: BLE001 - attribution is best-effort here
-            return None
-        if key in index:
-            return index[key]
+    if isinstance(model, str) and model in index:
+        return index[model]
     return None
 
 
-def _usage_values(payload: Mapping[str, Any], resource_type: str, failed: bool):
+def _usage_values(payload: Mapping[str, Any], kind: str, failed: bool):
     cost = payload.get("response_cost")
     total = payload.get("total_tokens")
     prompt = payload.get("prompt_tokens")
@@ -137,7 +143,7 @@ def _usage_values(payload: Mapping[str, Any], resource_type: str, failed: bool):
 
     if failed and not has_usage:
         return None
-    if not failed and resource_type == MODEL and not has_usage:
+    if not failed and kind == MODEL and not has_usage:
         # A successful model call with no provider cost or tokens is not
         # billable usage; creating a zero row would imply the opposite.
         return None
@@ -195,16 +201,19 @@ def build_event(
     if resource is None:
         return None
     resource_id = resource.get("resourceId")
-    resource_type = resource.get("resourceType")
-    resource_key = resource.get("key")
-    plan_name = resource.get("planName")
+    uri = resource.get("uri")
+    kind = resource.get("kind")
+    name = resource.get("name")
+    parent = resource.get("parentName", "")
     if not all(
         isinstance(value, str) and value
-        for value in (resource_id, resource_type, resource_key, plan_name)
+        for value in (resource_id, uri, kind, name)
     ):
         return None
+    if not isinstance(parent, str):
+        parent = ""
 
-    values = _usage_values(payload, resource_type, failed)
+    values = _usage_values(payload, kind, failed)
     if values is None:
         return None
 
@@ -213,7 +222,7 @@ def build_event(
     if not isinstance(call_id, str) or not call_id:
         call_id = uuid.uuid4().hex
     start = payload.get("startTime")
-    seed = f"{trace_id}|{call_id}|{resource_key}|{start}"
+    seed = f"{trace_id}|{call_id}|{resource_id}|{start}"
     request_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
     moment = now or datetime.now(timezone.utc)
@@ -224,9 +233,7 @@ def build_event(
         "subjectId": subject,
         "clientId": client,
         "resourceId": resource_id,
-        "resourceType": resource_type,
-        "resourceKey": resource_key,
-        "planName": plan_name,
+        "resourceUri": uri,
         "requestId": request_id,
         "occurredAt": _iso(moment),
         **values,
@@ -244,8 +251,6 @@ class ResourceUsageLogger(CustomLogger):
         self._token_lock = asyncio.Lock()
         self._retry_task: asyncio.Task[None] | None = None
         self._directories_ready = False
-        if not RESOURCE_SHARING_ENABLED:
-            return
         try:
             asyncio.get_running_loop()
             self._ensure_retry_loop()
@@ -272,9 +277,9 @@ class ResourceUsageLogger(CustomLogger):
                 or time.monotonic() > self._token_expires_at - 30
             ):
                 resp = await self._http().post(
-                    f"{RESOURCE_AUTH_URL}/api/auth/oauth2/token",
+                    f"{AUTH_URL}/api/auth/oauth2/token",
                     data={"grant_type": "client_credentials", "scope": USAGE_SCOPE},
-                    auth=(USAGE_CLIENT_ID, USAGE_CLIENT_SECRET),
+                    auth=(CLIENT_ID, CLIENT_SECRET),
                 )
                 resp.raise_for_status()
                 body = resp.json()
@@ -288,7 +293,7 @@ class ResourceUsageLogger(CustomLogger):
         for attempt in (0, 1):
             token = await self._access_token(force=attempt == 1)
             resp = await self._http().post(
-                f"{RESOURCE_AUTH_URL}/api/internal/gateway/usage",
+                f"{AUTH_URL}/api/internal/gateway/usage",
                 headers={"Authorization": f"Bearer {token}"},
                 json=body,
             )
@@ -304,8 +309,6 @@ class ResourceUsageLogger(CustomLogger):
 
     def _capture(self, kwargs: Mapping[str, Any], *, failed: bool) -> None:
         """Spool synchronously; never raise into the request path."""
-        if not RESOURCE_SHARING_ENABLED:
-            return
         try:
             event = build_event(kwargs, failed=failed)
             if event is None:
@@ -337,7 +340,11 @@ class ResourceUsageLogger(CustomLogger):
                         continue
                     await self._deliver(path)
                 except Exception as err:  # noqa: BLE001 - one bad file must not stop the loop
-                    log.error("resource usage: retry of %s failed: %s", path.name, type(err).__name__)
+                    log.error(
+                        "resource usage: retry of %s failed: %s",
+                        path.name,
+                        type(err).__name__,
+                    )
             self._report_backlog()
             await asyncio.sleep(RETRY_INTERVAL_S)
 
@@ -394,10 +401,5 @@ class ResourceUsageLogger(CustomLogger):
                 oldest,
             )
 
-
-if RESOURCE_SHARING_ENABLED and not (USAGE_CLIENT_ID and USAGE_CLIENT_SECRET):
-    raise RuntimeError(
-        "RESOURCE_SHARING_ENABLED requires resource usage client credentials"
-    )
 
 resource_usage_logger = ResourceUsageLogger()

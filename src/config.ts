@@ -288,20 +288,14 @@ const envSchema = z
       .optional(),
     WALLET_MARGIN_PERCENT: z.coerce.number().int().min(0).max(1000).default(0),
 
-    // LLM gateway (LiteLLM) administration API, used to keep one gateway team per
-    // application with LiteLLM support. The key is a restricted virtual key (team
-    // routes only) written by `litellm-provision` on a volume this service reads.
+    // LLM gateway (LiteLLM) inventory API. The key is a read-only virtual key
+    // written by `litellm-provision` on a volume this service reads. It is used
+    // only to mirror models, agents and MCP servers for entitlement resolution.
     LITELLM_URL: z.string().url().optional(),
-    LITELLM_PROVISIONER_KEY_FILE: z
+    LITELLM_INVENTORY_KEY_FILE: z
       .string()
       .min(1)
-      .default("/run/litellm-provisioner/key"),
-    // Separate key for shared-resource access-group sync: access-group routes
-    // only, issued by `litellm-provision`. Never reuse the team provisioner key.
-    LITELLM_RESOURCE_SYNC_KEY_FILE: z
-      .string()
-      .min(1)
-      .default("/run/litellm-provisioner/resource-sync-key"),
+      .default("/run/litellm-provisioner/inventory-key"),
 
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
     GOOGLE_CLIENT_ID: z.string().optional(),
@@ -505,8 +499,7 @@ export const config = {
   },
   litellm: {
     url: parsed.data.LITELLM_URL?.replace(/\/+$/, ""),
-    provisionerKeyFile: parsed.data.LITELLM_PROVISIONER_KEY_FILE,
-    resourceSyncKeyFile: parsed.data.LITELLM_RESOURCE_SYNC_KEY_FILE,
+    inventoryKeyFile: parsed.data.LITELLM_INVENTORY_KEY_FILE,
   },
   templatesDir: parsed.data.TEMPLATES_DIR || null,
   providers: {

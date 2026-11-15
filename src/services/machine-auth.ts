@@ -15,6 +15,7 @@ export const MACHINE_SCOPES = [
   "resources:authorize",
   "resources:usage:write",
   "resources:validate",
+  "gateway:entitlements:read",
 ] as const;
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 
@@ -28,6 +29,7 @@ export const APPLICATION_MACHINE_SCOPES = [
   "consumption:read",
   "consumption:write",
   "resources:validate",
+  "gateway:entitlements:read",
 ] as const satisfies readonly MachineScope[];
 
 /** What a new confidential application may request through client_credentials. */

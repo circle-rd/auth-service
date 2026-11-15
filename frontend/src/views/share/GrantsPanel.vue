@@ -14,8 +14,10 @@ import {
   createGrant,
   listAppGrants,
   listAppResources,
+  listOwnerPlans,
   revokeGrant,
   RESOURCE_SUBJECT_TYPES,
+  type OwnerPlan,
   type Resource,
   type ResourceGrant,
   type ResourceSubjectType,
@@ -34,6 +36,7 @@ const toast = useToast();
 
 const grants = ref<ResourceGrant[]>([]);
 const resources = ref<Resource[]>([]);
+const plans = ref<OwnerPlan[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const revoking = ref(false);
@@ -61,6 +64,9 @@ const subjectOptions = computed<SelectOption[]>(() =>
     label: t(`share.subjectTypes.${value}`),
   })),
 );
+const planOptions = computed<SelectOption[]>(() =>
+  plans.value.map((plan) => ({ value: plan.id, label: plan.name, description: plan.description ?? undefined })),
+);
 const needsSubjectId = computed(() => form.subjectType !== 'everyone');
 const canSave = computed(
   () => form.resourceId.length > 0 && (!needsSubjectId.value || form.subjectId.trim().length > 0),
@@ -69,12 +75,14 @@ const canSave = computed(
 async function load() {
   loading.value = true;
   try {
-    const [grantRes, resourceRes] = await Promise.all([
+    const [grantRes, resourceRes, planRes] = await Promise.all([
       listAppGrants(props.appId),
       listAppResources(props.appId),
+      listOwnerPlans(props.appId),
     ]);
     grants.value = grantRes.grants;
     resources.value = resourceRes.resources;
+    plans.value = planRes.plans;
     if (!form.resourceId && resources.value[0]) form.resourceId = resources.value[0].id;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
@@ -199,8 +207,14 @@ onMounted(() => void load());
       <div class="space-y-4">
         <BaseSelect v-model="form.resourceId" :label="t('share.grants.resource')" :options="resourceOptions" />
         <BaseSelect v-model="form.subjectType" :label="t('share.grants.subjectType')" :options="subjectOptions" />
+        <BaseSelect
+          v-if="form.subjectType === 'plan'"
+          v-model="form.subjectId"
+          :label="t('share.subjectTypes.plan')"
+          :options="planOptions"
+        />
         <BaseInput
-          v-if="needsSubjectId"
+          v-else-if="needsSubjectId"
           v-model="form.subjectId"
           :label="t(`share.subjectTypes.${form.subjectType}`)"
           :hint="t('share.grants.subjectHint')"

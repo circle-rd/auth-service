@@ -1,4 +1,5 @@
 import { ERR } from "../../errors.js";
+import { linkResourceToGatewayObject } from "../gateway-inventory.js";
 import {
   getResource,
   markResourceInvalidated,
@@ -39,6 +40,16 @@ export async function completeResourceValidation(
     throw ERR.RES_001("Resource cannot be validated in its current state");
   }
   if (input.result === "validated") {
+    if (
+      resource.scheme === "llm" ||
+      resource.scheme === "agent" ||
+      resource.scheme === "mcp"
+    ) {
+      const linked = await linkResourceToGatewayObject(resource);
+      if (!linked) {
+        throw ERR.RES_011("Resource is not present in the gateway inventory");
+      }
+    }
     return markResourceValidated(resource.id);
   }
   return markResourceValidationFailed(

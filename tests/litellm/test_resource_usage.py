@@ -16,9 +16,7 @@ for name, value in {
     "WALLET_AUTH_URL": "https://auth.test",
     "WALLET_CLIENT_ID": "litellm-wallet",
     "WALLET_CLIENT_SECRET": "secret",
-    "RESOURCE_CLIENT_ID": "litellm-resources",
-    "RESOURCE_CLIENT_SECRET": "resource-secret",
-    "RESOURCE_SHARING_ENABLED": "true",
+    "GATEWAY_ENTITLEMENTS_URL": "https://auth.test",
     "RESOURCE_USAGE_SPOOL_DIR": tempfile.mkdtemp(prefix="resource-usage-test-"),
 }.items():
     os.environ.setdefault(name, value)
@@ -26,16 +24,20 @@ for name, value in {
 sys.path.insert(0, str(Path(os.environ.get("GATEWAY_DIR", "/gateway"))))
 
 import resource_usage  # noqa: E402
-from resource_sharing import USAGE_METADATA_KEY  # noqa: E402
+from entitlements import USAGE_METADATA_KEY  # noqa: E402
 
 
-def resource(key, resource_id, resource_type="model", plan="Team"):
+def resource(name, resource_id, kind="model", parent=""):
     return {
-        "key": key,
         "resourceId": resource_id,
-        "resourceType": resource_type,
-        "ownerApplicationSlug": "owner",
-        "planName": plan,
+        "uri": f"llm://acme/{name}",
+        "scheme": "llm" if kind == "model" else "mcp",
+        "kind": kind,
+        "name": name,
+        "parentName": parent,
+        "applicationSlug": "owner",
+        "ownerType": "user",
+        "ownerId": "owner-1",
     }
 
 
@@ -53,6 +55,7 @@ def payload(
     call_id="call-1",
     end_time=1000.0,
     mcp_server=None,
+    mcp_tool=None,
 ):
     meta = {
         "user_api_key_auth_metadata": {
@@ -67,6 +70,8 @@ def payload(
     }
     if mcp_server:
         meta["mcp_tool_call_metadata"] = {"mcp_server_name": mcp_server}
+        if mcp_tool:
+            meta["mcp_tool_call_metadata"]["mcp_tool_name"] = mcp_tool
     return {
         "standard_logging_object": {
             "id": call_id,
@@ -87,15 +92,13 @@ def payload(
 
 
 class BuildEvent(unittest.TestCase):
-    def test_success_is_attributed_to_the_verified_resource(self) -> None:
+    def test_success_is_attributed_to_the_entitlement_resource(self) -> None:
         event = resource_usage.build_event(payload(), failed=False)
         self.assertIsNotNone(event)
         self.assertEqual(event["subjectId"], "subject-a")
         self.assertEqual(event["clientId"], "client-a")
         self.assertEqual(event["resourceId"], "resource-1")
-        self.assertEqual(event["resourceType"], "model")
-        self.assertEqual(event["resourceKey"], "owner/model")
-        self.assertEqual(event["planName"], "Team")
+        self.assertEqual(event["resourceUri"], "llm://acme/owner/model")
         self.assertEqual(event["usageSource"], "provider")
         self.assertEqual(event["totalTokens"], 10)
         self.assertEqual(event["costUsd"], "0.010000000000000000")
@@ -142,12 +145,16 @@ class BuildEvent(unittest.TestCase):
 
     def test_successful_model_call_without_usage_creates_no_event(self) -> None:
         self.assertIsNone(
-            resource_usage.build_event(payload(cost=0, total=0, prompt=0, completion=0), failed=False)
+            resource_usage.build_event(
+                payload(cost=0, total=0, prompt=0, completion=0), failed=False
+            )
         )
 
     def test_failure_without_usage_creates_no_event(self) -> None:
         self.assertIsNone(
-            resource_usage.build_event(payload(cost=0, total=0, prompt=0, completion=0), failed=True)
+            resource_usage.build_event(
+                payload(cost=0, total=0, prompt=0, completion=0), failed=True
+            )
         )
 
     def test_partial_stream_failure_with_cost_is_recorded(self) -> None:
@@ -156,17 +163,17 @@ class BuildEvent(unittest.TestCase):
         self.assertEqual(event["usageSource"], "provider")
         self.assertEqual(event["totalTokens"], 3)
 
-    def test_mcp_success_without_telemetry_is_marked_unsupported(self) -> None:
+    def test_mcp_server_is_matched_by_name(self) -> None:
         event = resource_usage.build_event(
             payload(
-                resources=[resource("owner/mcp", "resource-mcp", "mcp_agent")],
+                resources=[resource("server-x", "resource-mcp", "mcp_server")],
                 call_type="call_mcp_tool",
                 model_group=None,
                 cost=0,
                 total=0,
                 prompt=0,
                 completion=0,
-                mcp_server="owner/mcp",
+                mcp_server="server-x",
             ),
             failed=False,
         )
@@ -174,7 +181,25 @@ class BuildEvent(unittest.TestCase):
         self.assertEqual(event["resourceId"], "resource-mcp")
         self.assertEqual(event["usageSource"], "unsupported")
         self.assertIsNone(event["costUsd"])
-        self.assertIsNone(event["totalTokens"])
+
+    def test_mcp_tool_is_matched_by_parent_and_tool_name(self) -> None:
+        event = resource_usage.build_event(
+            payload(
+                resources=[
+                    resource("other-tool", "resource-other", "mcp_tool", "other"),
+                    resource("search", "resource-tool", "mcp_tool", "server-x"),
+                ],
+                call_type="call_mcp_tool",
+                model_group=None,
+                cost=0.001,
+                total=2,
+                mcp_server="server-x",
+                mcp_tool="search",
+            ),
+            failed=False,
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event["resourceId"], "resource-tool")
 
     def test_unverified_identity_creates_no_event(self) -> None:
         raw = payload()
@@ -183,7 +208,9 @@ class BuildEvent(unittest.TestCase):
 
     def test_user_supplied_call_id_is_not_the_authority(self) -> None:
         first = resource_usage.build_event(payload(call_id="user-chosen"), failed=False)
-        second = resource_usage.build_event(payload(call_id="user-chosen", trace_id="other"), failed=False)
+        second = resource_usage.build_event(
+            payload(call_id="user-chosen", trace_id="other"), failed=False
+        )
         self.assertNotEqual(first["requestId"], second["requestId"])
 
 
@@ -194,20 +221,17 @@ class Spool(unittest.IsolatedAsyncioTestCase):
         self.previous = (
             resource_usage.PENDING_DIR,
             resource_usage.DEAD_DIR,
-            resource_usage.RESOURCE_SHARING_ENABLED,
         )
         resource_usage.PENDING_DIR = self.pending
         resource_usage.DEAD_DIR = self.dead
-        resource_usage.RESOURCE_SHARING_ENABLED = True
         self.logger = resource_usage.ResourceUsageLogger()
         self.logger._directories_ready = True
-        self.logger._ensure_retry_loop = lambda: None  # no background delivery
+        self.logger._ensure_retry_loop = lambda: None
 
     def tearDown(self) -> None:
         (
             resource_usage.PENDING_DIR,
             resource_usage.DEAD_DIR,
-            resource_usage.RESOURCE_SHARING_ENABLED,
         ) = self.previous
 
     async def test_event_is_spooled_before_delivery(self) -> None:
@@ -219,7 +243,9 @@ class Spool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(item["body"]["resourceId"], "resource-1")
 
     async def test_capture_failure_never_raises(self) -> None:
-        await self.logger.async_log_success_event({"standard_logging_object": "bad"}, None, None, None)
+        await self.logger.async_log_success_event(
+            {"standard_logging_object": "bad"}, None, None, None
+        )
 
     async def test_delivery_success_removes_the_spooled_event(self) -> None:
         await self.logger.async_log_success_event(payload(), None, None, None)

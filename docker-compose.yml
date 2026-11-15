@@ -372,7 +372,8 @@ services:
     restart: unless-stopped
 
 networks:
-  # The external gateway can reach auth-service only, never Postgres or LiteLLM.
+  # The external gateway resolves auth-service but not Postgres or LiteLLM.
+  # Outbound target egress is not restricted by this network.
   ssh_gateway_net:
 
 volumes:

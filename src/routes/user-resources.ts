@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { ERR } from "../errors.js";
 import { getRequestSession, requireSession } from "../middleware.js";
 import {
   listAccessibleResources,
@@ -22,9 +23,11 @@ import {
   disableResource,
   getResource,
   listResourcesForOwner,
+  markResourceValidated,
   requestResourceValidation,
   updateResource,
 } from "../services/resources/registry.js";
+import { linkResourceToGatewayObject } from "../services/gateway-inventory.js";
 import { getResourceScheme } from "../services/resources/scheme-service.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
 import { RESOURCE_SUBJECT_TYPES } from "../services/resources/types.js";
@@ -228,11 +231,24 @@ export async function userResourceRoutes(
       const userId = await requireSession(req, reply);
       if (!userId) return;
       const { resourceId } = resourceParamsSchema.parse(req.params);
-      const resource = await requestResourceValidation(resourceId, userId);
+      let resource = await requestResourceValidation(resourceId, userId);
       const scheme = await getResourceScheme(resource.scheme);
+      if (
+        resource.scheme === "llm" ||
+        resource.scheme === "agent" ||
+        resource.scheme === "mcp"
+      ) {
+        if (!(await linkResourceToGatewayObject(resource))) {
+          throw ERR.RES_011("Resource is not present in the gateway inventory");
+        }
+        resource = await markResourceValidated(resource.id);
+      }
       await reply.send({
         resource: publicResource(resource, scheme),
-        validatorUrl: scheme?.validatorUrl ?? null,
+        validatorUrl:
+          resource.status === "validated"
+            ? null
+            : (scheme?.validatorUrl ?? null),
       });
     },
   );

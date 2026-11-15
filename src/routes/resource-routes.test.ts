@@ -32,6 +32,8 @@ const {
   mockGetResource,
   mockListMyResources,
   mockRequestValidation,
+  mockMarkValidated,
+  mockLinkInventory,
   mockUpdateResource,
   mockListAppResources,
   mockGetScheme,
@@ -71,6 +73,8 @@ const {
   mockGetResource: vi.fn(),
   mockListMyResources: vi.fn(),
   mockRequestValidation: vi.fn(),
+  mockMarkValidated: vi.fn(),
+  mockLinkInventory: vi.fn(),
   mockUpdateResource: vi.fn(),
   mockListAppResources: vi.fn(),
   mockGetScheme: vi.fn(),
@@ -132,8 +136,12 @@ vi.mock("../services/resources/registry.js", () => ({
   getResource: mockGetResource,
   listResourcesForOwner: mockListMyResources,
   listResourcesForApplication: mockListAppResources,
+  markResourceValidated: mockMarkValidated,
   requestResourceValidation: mockRequestValidation,
   updateResource: mockUpdateResource,
+}));
+vi.mock("../services/gateway-inventory.js", () => ({
+  linkResourceToGatewayObject: mockLinkInventory,
 }));
 vi.mock("../services/resources/scheme-service.js", () => ({
   createApplicationScheme: mockCreateScheme,
@@ -216,6 +224,8 @@ beforeEach(() => {
     mockGetResource,
     mockListMyResources,
     mockRequestValidation,
+    mockMarkValidated,
+    mockLinkInventory,
     mockUpdateResource,
     mockListAppResources,
     mockGetScheme,
@@ -257,6 +267,12 @@ beforeEach(() => {
   });
   mockGetGrant.mockResolvedValue({ id: GRANT, resourceId: RESOURCE });
   mockMailConfigured.mockReturnValue(false);
+  mockLinkInventory.mockResolvedValue(true);
+  mockMarkValidated.mockResolvedValue({
+    ...resource,
+    status: "validated",
+    validatedAt: new Date("2026-11-15T12:00:00Z"),
+  });
 });
 
 describe("user resource routes", () => {
@@ -322,6 +338,33 @@ describe("user resource routes", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(mockCreateResource).not.toHaveBeenCalled();
+  });
+
+  it("validates a LiteLLM resource against the inventory without a callback", async () => {
+    mockRequestValidation.mockResolvedValue({
+      ...resource,
+      scheme: "llm",
+      uri: "llm://app-a/gpt-x",
+      locator: "app-a/gpt-x",
+      status: "pending_validation",
+    });
+    mockGetScheme.mockResolvedValue({
+      scheme: "llm",
+      displayName: "Model",
+      enabled: true,
+      validatorUrl: null,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/resources/${RESOURCE}/validation-request`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockLinkInventory).toHaveBeenCalledWith(
+      expect.objectContaining({ scheme: "llm" }),
+    );
+    expect(mockMarkValidated).toHaveBeenCalledWith(RESOURCE);
+    expect(res.json().resource.status).toBe("validated");
+    expect(res.json().validatorUrl).toBeNull();
   });
 
   it("creates a grant through the authority-aware service", async () => {

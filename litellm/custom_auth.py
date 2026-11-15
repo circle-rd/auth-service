@@ -27,9 +27,13 @@ from litellm.proxy._types import (
     LiteLLM_ObjectPermissionTable,
     LitellmUserRoles,
     ProxyException,
+    SpecialModelNames,
     UserAPIKeyAuth,
 )
 from litellm.proxy.auth.route_checks import RouteChecks
+from litellm.proxy._experimental.mcp_server.auth.user_api_key_auth_mcp import (
+    SpecialMCPServerNames,
+)
 
 from entitlements import (
     ENTITLEMENTS_METADATA_KEY,
@@ -61,8 +65,8 @@ REFRESH_COOLDOWN_S = 30
 
 # An empty LiteLLM model allowlist means "all models". A non-existent sentinel
 # turns an empty entitlement into a deny while keeping the list explicit.
-NO_MODEL_SENTINEL = "no-default-models"
-NO_MCP_SENTINEL = "no-default-mcp"
+NO_MODEL_SENTINEL = SpecialModelNames.no_default_models.value
+NO_MCP_SENTINEL = SpecialMCPServerNames.no_mcp_servers.value
 
 MCP_SERVER_ROUTE_RE = re.compile(r"^/(?!(?i:v1)/)[^/]+/mcp(/.*)?$")
 DISCOVERY_ROUTES = frozenset({"/v1/agents", "/v1/mcp/server"})

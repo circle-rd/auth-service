@@ -1,16 +1,27 @@
 import { apiFetch } from './client';
 
-export const RESOURCE_TYPES = ['model', 'workflow', 'mcp_agent', 'https_endpoint'] as const;
-export type ResourceType = typeof RESOURCE_TYPES[number];
-
-export const RESOURCE_STATUSES = ['draft', 'published', 'disabled'] as const;
+export const RESOURCE_STATUSES = [
+  'pending_validation',
+  'validation_failed',
+  'validated',
+  'disabled',
+] as const;
 export type ResourceStatus = typeof RESOURCE_STATUSES[number];
 
-export const RESOURCE_VISIBILITIES = ['invited_only', 'public_catalog'] as const;
-export type ResourceVisibility = typeof RESOURCE_VISIBILITIES[number];
+export const RESOURCE_OWNER_TYPES = ['user', 'application'] as const;
+export type ResourceOwnerType = typeof RESOURCE_OWNER_TYPES[number];
+
+export const RESOURCE_SUBJECT_TYPES = ['user', 'organization', 'plan', 'everyone'] as const;
+export type ResourceSubjectType = typeof RESOURCE_SUBJECT_TYPES[number];
 
 export const OWNER_PERMISSIONS = ['resources:read', 'resources:manage', 'grants:manage'] as const;
 export type OwnerPermission = typeof OWNER_PERMISSIONS[number];
+
+export const RESOURCE_EVENT_DECISIONS = ['allow', 'deny'] as const;
+export type ResourceEventDecision = typeof RESOURCE_EVENT_DECISIONS[number];
+
+export const RESOURCE_EVENT_SOURCES = ['gateway', 'ssh', 'external', 'api'] as const;
+export type ResourceEventSource = typeof RESOURCE_EVENT_SOURCES[number];
 
 export interface OwnerApplication {
   id: string;
@@ -19,6 +30,7 @@ export interface OwnerApplication {
   url: string | null;
   icon: string | null;
   permissions: OwnerPermission[];
+  isAdmin: boolean;
 }
 
 export interface OwnerPlan {
@@ -28,42 +40,68 @@ export interface OwnerPlan {
   isDefault: boolean;
 }
 
-export interface SharedResource {
-  id: string;
-  ownerApplicationId: string;
-  resourceType: ResourceType;
-  key: string;
+export interface OwnerMember {
+  userId: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+  roles: string[];
+}
+
+export interface ResourceScheme {
+  scheme: string;
+  source: 'builtin' | 'application';
+  adapter: 'litellm' | 'ssh' | 'http' | 'file' | 'external';
   displayName: string;
-  upstreamRef: string | null;
+  description: string | null;
+  icon: string | null;
+  validatorUrl: string | null;
+  enabled: boolean;
+  owned?: boolean;
+}
+
+export interface Resource {
+  id: string;
+  applicationId: string;
+  applicationSlug: string;
+  applicationName: string;
+  scheme: string;
+  schemeDisplayName?: string;
+  uri: string;
+  displayName: string;
+  ownerType: ResourceOwnerType;
+  ownerId: string;
   status: ResourceStatus;
-  visibility: ResourceVisibility;
-  defaultPlanId: string | null;
+  listed: boolean;
+  metadata?: Record<string, unknown>;
+  validationRequestedAt: string | null;
+  validatedAt: string | null;
+  validationError: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ResourceGrant {
   id: string;
-  subjectId: string;
-  ownerApplicationId: string;
-  resourceId: string | null;
-  planId: string;
-  planName: string;
-  allowedClientIds: string[] | null;
+  resourceId: string;
+  subjectType: ResourceSubjectType;
+  subjectId: string | null;
+  permission: 'use';
   expiresAt: string | null;
   revokedAt: string | null;
   createdBy: string;
   createdAt: string;
+  resourceUri?: string;
+  resourceDisplayName?: string;
+  applicationId?: string;
 }
 
 export interface ResourceInvitation {
   id: string;
   email: string;
-  planId: string;
-  planName: string;
-  resourceId: string | null;
-  resourceName: string | null;
-  allowedClientIds: string[] | null;
+  resourceId: string;
+  resourceUri?: string;
+  resourceDisplayName?: string;
   expiresAt: string;
   consumedAt: string | null;
   revokedAt: string | null;
@@ -77,24 +115,44 @@ export interface CatalogueApplication {
   name: string;
 }
 
-export interface ResourceCatalogueItem {
-  resourceId: string;
-  resourceKey: string;
-  resourceUri: string;
-  resourceType: ResourceType;
-  displayName: string;
-  ownerApplicationSlug: string;
-  ownerApplicationName: string;
-  planName: string;
-  restrictedToClientIds: string[] | null;
+export interface MemberApplication {
+  id: string;
+  name: string;
+  slug: string;
+  icon: string | null;
 }
 
-export interface OwnerMember {
-  userId: string;
-  name: string;
-  email: string;
-  isActive: boolean;
-  roles: string[];
+export interface AccessibleResource {
+  resourceId: string;
+  resourceUri: string;
+  scheme: string;
+  displayName: string;
+  applicationId: string;
+  applicationSlug: string;
+  applicationName: string;
+  ownerType: ResourceOwnerType;
+  ownerId: string;
+  accessKind: 'owner' | 'admin' | 'grant';
+  grantSubjectType?: ResourceSubjectType;
+}
+
+export interface AccessEvent {
+  id: string;
+  occurredAt: string;
+  resourceId: string | null;
+  uri: string;
+  scheme: string;
+  ownerType: ResourceOwnerType | null;
+  ownerId: string | null;
+  subjectType: ResourceSubjectType | null;
+  subjectId: string | null;
+  actorUserId: string | null;
+  clientId: string;
+  applicationId: string | null;
+  decision: ResourceEventDecision;
+  reasonClass: string | null;
+  requestId: string | null;
+  source: ResourceEventSource;
 }
 
 export interface UsageTotals {
@@ -113,8 +171,8 @@ export interface UsageUserRow extends UsageTotals {
 
 export interface UsageResourceRow extends UsageTotals {
   resourceId: string;
-  resourceType: ResourceType;
-  resourceKey: string;
+  uri: string;
+  scheme: string;
   displayName: string | null;
 }
 
@@ -129,28 +187,35 @@ export interface OwnerUsage {
 }
 
 export interface CreateResourceBody {
-  resourceType: ResourceType;
-  slug: string;
+  applicationId: string;
+  scheme: string;
+  locator?: string;
   displayName: string;
-  upstreamRef?: string | null;
-  status?: ResourceStatus;
-  visibility?: ResourceVisibility;
+  metadata?: Record<string, unknown>;
 }
 
-export type UpdateResourceBody = Partial<CreateResourceBody>;
+export interface CreateAppResourceBody {
+  scheme: string;
+  locator?: string;
+  displayName: string;
+  metadata?: Record<string, unknown>;
+}
 
-export interface UpdateGrantBody {
-  resourceId?: string | null;
-  planId?: string;
-  allowedClientIds?: string[] | null;
+export interface UpdateResourceBody {
+  displayName?: string;
+  listed?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateGrantBody {
+  subjectType: ResourceSubjectType;
+  subjectId?: string | null;
   expiresAt?: string | null;
 }
 
 export interface CreateInvitationBody {
   email: string;
-  planId: string;
-  resourceId?: string | null;
-  allowedClientIds?: string[] | null;
+  resourceId: string;
   ttlHours?: number;
 }
 
@@ -160,10 +225,33 @@ export interface CreateInvitationResult {
   emailSent: boolean;
 }
 
+export interface CreateSchemeBody {
+  scheme: string;
+  displayName: string;
+  description?: string | null;
+  icon?: string | null;
+  validatorUrl?: string | null;
+}
+
+export interface UpdateSchemeBody {
+  displayName?: string;
+  description?: string | null;
+  icon?: string | null;
+  validatorUrl?: string | null;
+}
+
 export interface UsageQuery {
   groupBy: 'user' | 'resource';
   from?: string;
   to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AccessEventQuery {
+  from?: string;
+  to?: string;
+  decision?: ResourceEventDecision;
   limit?: number;
   offset?: number;
 }
@@ -179,94 +267,156 @@ function queryString(params: Record<string, string | number | undefined>): strin
 
 export async function listResourceCatalogue(): Promise<{
   applications: CatalogueApplication[];
-  resources: ResourceCatalogueItem[];
+  resources: AccessibleResource[];
 }> {
-  return apiFetch<{
-    applications: CatalogueApplication[];
-    resources: ResourceCatalogueItem[];
-  }>('/user/resource-catalogue');
+  return apiFetch('/user/resource-catalogue');
+}
+
+export async function listAccessibleResources(query: {
+  applicationId?: string;
+  scheme?: string;
+} = {}): Promise<{ resources: AccessibleResource[] }> {
+  return apiFetch(`/user/accessible-resources${queryString(query)}`);
 }
 
 export async function listOwnerApplications(): Promise<{ apps: OwnerApplication[] }> {
-  return apiFetch<{ apps: OwnerApplication[] }>('/user/apps');
+  return apiFetch('/user/apps');
+}
+
+export async function listMemberApplications(): Promise<{ applications: MemberApplication[] }> {
+  return apiFetch('/user/resource-applications');
 }
 
 export async function listOwnerPlans(appId: string): Promise<{ plans: OwnerPlan[] }> {
-  return apiFetch<{ plans: OwnerPlan[] }>(`/user/apps/${appId}/plans`);
+  return apiFetch(`/user/apps/${appId}/plans`);
 }
 
-export async function listSharedResources(appId: string): Promise<{ resources: SharedResource[] }> {
-  return apiFetch<{ resources: SharedResource[] }>(`/user/apps/${appId}/shared-resources`);
+export async function listOwnerMembers(appId: string): Promise<{ members: OwnerMember[] }> {
+  return apiFetch(`/user/apps/${appId}/members`);
 }
 
-export async function createSharedResource(appId: string, body: CreateResourceBody): Promise<{ resource: SharedResource }> {
-  return apiFetch<{ resource: SharedResource }>(`/user/apps/${appId}/shared-resources`, {
+export async function addOwnerMember(appId: string, email: string): Promise<{ member: OwnerMember & { created: boolean } }> {
+  return apiFetch(`/user/apps/${appId}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function listMemberSchemes(appId: string): Promise<{ schemes: ResourceScheme[] }> {
+  return apiFetch(`/user/apps/${appId}/schemes`);
+}
+
+export async function listSchemeCatalog(appId: string): Promise<{ schemes: ResourceScheme[] }> {
+  return apiFetch(`/user/apps/${appId}/resource-scheme-catalog`);
+}
+
+export async function createScheme(appId: string, body: CreateSchemeBody): Promise<{ scheme: ResourceScheme }> {
+  return apiFetch(`/user/apps/${appId}/schemes`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export async function updateSharedResource(
-  appId: string,
-  resourceId: string,
-  body: UpdateResourceBody,
-): Promise<{ resource: SharedResource }> {
-  return apiFetch<{ resource: SharedResource }>(`/user/apps/${appId}/shared-resources/${resourceId}`, {
+export async function updateScheme(appId: string, scheme: string, body: UpdateSchemeBody): Promise<{ scheme: ResourceScheme }> {
+  return apiFetch(`/user/apps/${appId}/schemes/${scheme}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
 }
 
-export async function disableSharedResource(appId: string, resourceId: string): Promise<{ resource: SharedResource }> {
-  return apiFetch<{ resource: SharedResource }>(`/user/apps/${appId}/shared-resources/${resourceId}`, {
-    method: 'DELETE',
-  });
+export async function enableScheme(appId: string, scheme: string): Promise<void> {
+  await apiFetch(`/user/apps/${appId}/schemes/${scheme}/enable`, { method: 'PUT' });
 }
 
-export async function listGrants(appId: string): Promise<{ grants: ResourceGrant[] }> {
-  return apiFetch<{ grants: ResourceGrant[] }>(`/user/apps/${appId}/grants`);
+export async function disableScheme(appId: string, scheme: string): Promise<void> {
+  await apiFetch(`/user/apps/${appId}/schemes/${scheme}/enable`, { method: 'DELETE' });
 }
 
-export async function updateGrant(appId: string, grantId: string, body: UpdateGrantBody): Promise<{ grant: ResourceGrant }> {
-  return apiFetch<{ grant: ResourceGrant }>(`/user/apps/${appId}/grants/${grantId}`, {
-    method: 'PUT',
+export async function listAppResources(appId: string): Promise<{ resources: Resource[] }> {
+  return apiFetch(`/user/apps/${appId}/resources`);
+}
+
+export async function createAppResource(appId: string, body: CreateAppResourceBody): Promise<{ resource: Resource }> {
+  return apiFetch(`/user/apps/${appId}/resources`, {
+    method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
-export async function revokeGrant(appId: string, grantId: string): Promise<{ grant: ResourceGrant }> {
-  return apiFetch<{ grant: ResourceGrant }>(`/user/apps/${appId}/grants/${grantId}`, {
-    method: 'DELETE',
+export async function listMyResources(): Promise<{ resources: Resource[] }> {
+  return apiFetch('/user/resources');
+}
+
+export async function createResource(body: CreateResourceBody): Promise<{ resource: Resource }> {
+  return apiFetch('/user/resources', {
+    method: 'POST',
+    body: JSON.stringify(body),
   });
 }
 
+export async function getResource(resourceId: string): Promise<{ resource: Resource }> {
+  return apiFetch(`/user/resources/${resourceId}`);
+}
+
+export async function updateResource(resourceId: string, body: UpdateResourceBody): Promise<{ resource: Resource }> {
+  return apiFetch(`/user/resources/${resourceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function disableResource(resourceId: string): Promise<{ resource: Resource }> {
+  return apiFetch(`/user/resources/${resourceId}`, { method: 'DELETE' });
+}
+
+export async function requestValidation(resourceId: string): Promise<{ resource: Resource; validatorUrl: string | null }> {
+  return apiFetch(`/user/resources/${resourceId}/validation-request`, { method: 'POST' });
+}
+
+export async function listResourceGrants(resourceId: string): Promise<{ grants: ResourceGrant[] }> {
+  return apiFetch(`/user/resources/${resourceId}/grants`);
+}
+
+export async function createGrant(resourceId: string, body: CreateGrantBody): Promise<{ grant: ResourceGrant }> {
+  return apiFetch(`/user/resources/${resourceId}/grants`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function revokeGrant(resourceId: string, grantId: string): Promise<{ grant: ResourceGrant }> {
+  return apiFetch(`/user/resources/${resourceId}/grants/${grantId}`, { method: 'DELETE' });
+}
+
+export async function listAppGrants(appId: string): Promise<{ grants: ResourceGrant[] }> {
+  return apiFetch(`/user/apps/${appId}/grants`);
+}
+
 export async function listInvitations(appId: string): Promise<{ invitations: ResourceInvitation[] }> {
-  return apiFetch<{ invitations: ResourceInvitation[] }>(`/user/apps/${appId}/invitations`);
+  return apiFetch(`/user/apps/${appId}/invitations`);
 }
 
 export async function createInvitation(appId: string, body: CreateInvitationBody): Promise<CreateInvitationResult> {
-  return apiFetch<CreateInvitationResult>(`/user/apps/${appId}/invitations`, {
+  return apiFetch(`/user/apps/${appId}/invitations`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
 }
 
 export async function revokeInvitation(appId: string, invitationId: string): Promise<{ invitation: ResourceInvitation }> {
-  return apiFetch<{ invitation: ResourceInvitation }>(`/user/apps/${appId}/invitations/${invitationId}`, {
-    method: 'DELETE',
-  });
-}
-
-export async function listMembers(appId: string): Promise<{ members: OwnerMember[] }> {
-  return apiFetch<{ members: OwnerMember[] }>(`/user/apps/${appId}/members`);
+  return apiFetch(`/user/apps/${appId}/invitations/${invitationId}`, { method: 'DELETE' });
 }
 
 export async function getOwnerUsage(appId: string, query: UsageQuery): Promise<OwnerUsage> {
-  return apiFetch<OwnerUsage>(`/user/apps/${appId}/usage${queryString({ ...query })}`);
+  return apiFetch(`/user/apps/${appId}/usage${queryString({ ...query })}`);
+}
+
+export async function listAccessEvents(appId: string, query: AccessEventQuery = {}): Promise<{ events: AccessEvent[] }> {
+  return apiFetch(`/user/apps/${appId}/access-events${queryString({ ...query })}`);
 }
 
 export async function acceptInvitation(token: string): Promise<{ grant: ResourceGrant }> {
-  return apiFetch<{ grant: ResourceGrant }>('/user/resource-invitations/accept', {
+  return apiFetch('/user/resource-invitations/accept', {
     method: 'POST',
     body: JSON.stringify({ token }),
   });

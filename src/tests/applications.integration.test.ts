@@ -166,6 +166,7 @@ describe("applicationRoutes integration", () => {
       "consumption:read",
       "consumption:write",
       "m2m",
+      "resources:validate",
     ]);
   });
 

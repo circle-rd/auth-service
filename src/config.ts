@@ -172,6 +172,30 @@ const envSchema = z
     // gateway authorize/accessible routes are not mounted at all, so existing
     // azp→team behaviour is untouched.
     RESOURCE_SHARING_ENABLED: envBoolean(false),
+    // Comma-separated built-in resource schemes enabled on this deployment.
+    // A scheme whose dedicated service/profile is absent stays disabled even
+    // when applications enable it.
+    RESOURCE_SCHEMES_ENABLED: z.string().default(""),
+    // Monitoring retention. Startup defaults: 90 days of access events and
+    // 400 days of usage records, purged in batches by the sweeper.
+    RESOURCE_ACCESS_EVENT_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .default(90),
+    RESOURCE_USAGE_RECORD_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .default(400),
+    RESOURCE_RETENTION_SWEEP_HOURS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(168)
+      .default(24),
 
     // CAPTCHA on credential endpoints. Deliberately opt-in via CAPTCHA_ENABLED
     // (not merely by setting keys): enabling it rejects sign-in, sign-up and
@@ -432,6 +456,14 @@ export const config = {
     deviceAuthorization: parsed.data.DEVICE_AUTHORIZATION_ENABLED,
     mfaBackfill: parsed.data.MFA_BACKFILL_ENABLED,
     resourceSharing: parsed.data.RESOURCE_SHARING_ENABLED,
+  },
+  resources: {
+    enabledSchemes: parsed.data.RESOURCE_SCHEMES_ENABLED.split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    accessEventRetentionDays: parsed.data.RESOURCE_ACCESS_EVENT_RETENTION_DAYS,
+    usageRecordRetentionDays: parsed.data.RESOURCE_USAGE_RECORD_RETENTION_DAYS,
+    retentionSweepHours: parsed.data.RESOURCE_RETENTION_SWEEP_HOURS,
   },
   captcha: {
     enabled: !!(

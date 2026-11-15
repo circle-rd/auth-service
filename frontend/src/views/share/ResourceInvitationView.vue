@@ -56,15 +56,15 @@ async function accept() {
         </div>
         <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
-            <dt class="text-xs uppercase tracking-wide text-surface-500">{{ t('share.invitation.plan') }}</dt>
-            <dd class="text-surface-200 mt-0.5">{{ grant.planName }}</dd>
+            <dt class="text-xs uppercase tracking-wide text-surface-500">{{ t('share.invitation.resource') }}</dt>
+            <dd class="text-surface-200 mt-0.5 break-all">{{ grant.resourceId }}</dd>
           </div>
           <div>
             <dt class="text-xs uppercase tracking-wide text-surface-500">{{ t('share.invitation.expires') }}</dt>
             <dd class="text-surface-200 mt-0.5">{{ grant.expiresAt ? new Date(grant.expiresAt).toLocaleString() : '—' }}</dd>
           </div>
         </dl>
-        <BaseButton variant="outline" @click="router.push('/share')">{{ t('share.invitation.back') }}</BaseButton>
+        <BaseButton variant="outline" @click="router.push('/share/catalogue')">{{ t('share.invitation.back') }}</BaseButton>
       </div>
 
       <div v-else-if="error" class="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 space-y-3">

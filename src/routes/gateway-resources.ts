@@ -1,26 +1,45 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireMachineScope } from "../services/machine-auth.js";
-import { RESOURCE_TYPES } from "../services/resource-uri.js";
-import { listAccessibleResources } from "../services/resource-sharing/accessible.js";
-import { authorize } from "../services/resource-sharing/policy.js";
+import { listAccessibleResources } from "../services/resources/access.js";
 import {
+  authorize,
+  type AccessDecision,
+} from "../services/resources/policy.js";
+import {
+  recordAccessEvent,
   recordUsageEvent,
-  USAGE_SOURCES,
-} from "../services/resource-sharing/usage.js";
+} from "../services/resources/usage.js";
+import { RESOURCE_USAGE_SOURCES } from "../services/resources/types.js";
+import {
+  completeResourceValidation,
+  invalidateResource,
+  VALIDATION_RESULTS,
+} from "../services/resources/validation.js";
+import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
 
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
 };
 
-const authorizeBodySchema = z.object({
-  subjectId: z.string().min(1).max(256),
-  clientId: z.string().min(1).max(256),
-  resourceType: z.enum(RESOURCE_TYPES),
-  key: z.string().min(1).max(512),
-  audience: z.string().min(1).max(2048),
-  requestId: z.string().min(1).max(256),
-});
+const resourceParamsSchema = z.object({ resourceId: z.string().uuid() });
+
+const authorizeBodySchema = z
+  .object({
+    subjectId: z.string().min(1).max(256),
+    clientId: z.string().min(1).max(256),
+    resourceUri: z.string().min(3).max(512),
+    audience: z.string().min(1).max(2048),
+    requestId: z.string().min(1).max(256).optional(),
+  })
+  .strict();
+
+const accessibleQuerySchema = z
+  .object({
+    subjectId: z.string().min(1).max(256),
+    scheme: z.string().regex(RESOURCE_SCHEME_RE).optional(),
+  })
+  .strict();
 
 const grossCostSchema = z
   .string()
@@ -31,15 +50,13 @@ const usageBodySchema = z
     subjectId: z.string().min(1).max(256),
     clientId: z.string().min(1).max(256),
     resourceId: z.string().uuid(),
-    resourceType: z.enum(RESOURCE_TYPES),
-    resourceKey: z.string().min(1).max(512),
-    planName: z.string().min(1).max(200),
+    resourceUri: z.string().min(3).max(512),
     requestId: z.string().regex(/^[a-f0-9]{64}$/, "must be a trusted event id"),
     occurredAt: z
       .string()
       .datetime()
       .transform((value) => new Date(value)),
-    usageSource: z.enum(USAGE_SOURCES),
+    usageSource: z.enum(RESOURCE_USAGE_SOURCES),
     costUsd: grossCostSchema.nullable(),
     promptTokens: z.number().int().min(0).nullable(),
     completionTokens: z.number().int().min(0).nullable(),
@@ -81,17 +98,62 @@ const usageBodySchema = z
     }
   });
 
-const accessibleQuerySchema = z.object({
-  subjectId: z.string().min(1).max(256),
-  clientId: z.string().min(1).max(256),
-  resourceType: z.enum(RESOURCE_TYPES),
-  audience: z.string().min(1).max(2048),
-});
+const validateBodySchema = z
+  .object({
+    result: z.enum(VALIDATION_RESULTS),
+    reason: z.string().trim().max(500).nullable().optional(),
+  })
+  .strict();
 
-/**
- * Machine-scoped endpoints the gateway calls per request. Mounted only when
- * RESOURCE_SHARING_ENABLED is on, so the flag-off deployment has no new route.
- */
+const invalidateBodySchema = z
+  .object({ reason: z.string().trim().min(1).max(500) })
+  .strict();
+
+function schemeOf(uri: string): string {
+  const separator = uri.indexOf("://");
+  return separator > 0 ? uri.slice(0, separator).slice(0, 50) : "unknown";
+}
+
+async function logDecision(
+  decision: AccessDecision,
+  input: {
+    uri: string;
+    subjectId: string;
+    clientId: string;
+    requestId?: string;
+  },
+): Promise<void> {
+  if (decision.decision === "allow") {
+    await recordAccessEvent({
+      resourceId: decision.resourceId,
+      uri: decision.resourceUri,
+      scheme: decision.scheme,
+      ownerType: decision.ownerType,
+      ownerId: decision.ownerId,
+      subjectType: "user",
+      subjectId: input.subjectId,
+      clientId: input.clientId,
+      applicationId: decision.applicationId,
+      decision: "allow",
+      reasonClass: decision.accessKind,
+      requestId: input.requestId,
+      source: "gateway",
+    });
+    return;
+  }
+  await recordAccessEvent({
+    uri: input.uri,
+    scheme: schemeOf(input.uri),
+    subjectType: "user",
+    subjectId: input.subjectId,
+    clientId: input.clientId,
+    decision: "deny",
+    reasonClass: decision.reason,
+    requestId: input.requestId,
+    source: "gateway",
+  });
+}
+
 export async function gatewayResourceRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
@@ -107,21 +169,49 @@ export async function gatewayResourceRoutes(
       const decision = await authorize({
         subjectId: body.subjectId,
         clientId: body.clientId,
-        resourceType: body.resourceType,
-        key: body.key,
+        resourceUri: body.resourceUri,
         audience: body.audience,
       });
+      try {
+        await logDecision(decision, {
+          uri: body.resourceUri,
+          subjectId: body.subjectId,
+          clientId: body.clientId,
+          requestId: body.requestId,
+        });
+      } catch (err) {
+        req.log.warn({ err }, "[res] access event could not be recorded");
+      }
       if (decision.decision === "deny") {
         await reply.send({ decision: "deny" });
         return;
       }
       await reply.send({
         decision: "allow",
-        ownerApplicationSlug: decision.ownerApplicationSlug,
-        planName: decision.planName,
-        teamId: decision.teamId,
         resourceId: decision.resourceId,
+        resourceUri: decision.resourceUri,
+        applicationSlug: decision.applicationSlug,
+        ownerType: decision.ownerType,
+        ownerId: decision.ownerId,
+        accessKind: decision.accessKind,
       });
+    },
+  );
+
+  fastify.get(
+    "/resources/accessible",
+    { config: INTERNAL_RATE_LIMIT },
+    async (req, reply) => {
+      await requireMachineScope(
+        req.headers.authorization,
+        "resources:authorize",
+      );
+      const query = accessibleQuerySchema.parse(req.query);
+      const resources = await listAccessibleResources({
+        subjectId: query.subjectId,
+        scheme: query.scheme,
+      });
+      await reply.send({ resources });
     },
   );
 
@@ -138,9 +228,7 @@ export async function gatewayResourceRoutes(
         subjectId: body.subjectId,
         clientId: body.clientId,
         resourceId: body.resourceId,
-        resourceType: body.resourceType,
-        resourceKey: body.resourceKey,
-        planName: body.planName,
+        resourceUri: body.resourceUri,
         requestId: body.requestId,
         occurredAt: body.occurredAt,
         usageSource: body.usageSource,
@@ -151,13 +239,12 @@ export async function gatewayResourceRoutes(
       });
       req.log.info(
         {
-          ownerApplicationId: record.ownerApplicationId,
           resourceId: record.resourceId,
-          resourceType: record.resourceType,
+          scheme: record.scheme,
           usageSource: record.usageSource,
           replayed,
         },
-        "gateway usage recorded",
+        "resource usage recorded",
       );
       await reply.status(replayed ? 200 : 201).send({
         usage: {
@@ -171,17 +258,56 @@ export async function gatewayResourceRoutes(
     },
   );
 
-  fastify.get(
-    "/resources/accessible",
+  fastify.post(
+    "/resources/:resourceId/validate",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      await requireMachineScope(
+      const { clientId } = await requireMachineScope(
         req.headers.authorization,
-        "resources:authorize",
+        "resources:validate",
       );
-      const query = accessibleQuerySchema.parse(req.query);
-      const resources = await listAccessibleResources(query);
-      await reply.send({ resources });
+      const { resourceId } = resourceParamsSchema.parse(req.params);
+      const body = validateBodySchema.parse(req.body);
+      const resource = await completeResourceValidation({
+        resourceId,
+        clientId,
+        result: body.result,
+        reason: body.reason,
+      });
+      await reply.send({
+        resource: {
+          id: resource.id,
+          uri: resource.uri,
+          status: resource.status,
+          validationError: resource.validationError,
+        },
+      });
+    },
+  );
+
+  fastify.post(
+    "/resources/:resourceId/invalidate",
+    { config: INTERNAL_RATE_LIMIT },
+    async (req, reply) => {
+      const { clientId } = await requireMachineScope(
+        req.headers.authorization,
+        "resources:validate",
+      );
+      const { resourceId } = resourceParamsSchema.parse(req.params);
+      const body = invalidateBodySchema.parse(req.body);
+      const resource = await invalidateResource({
+        resourceId,
+        clientId,
+        reason: body.reason,
+      });
+      await reply.send({
+        resource: {
+          id: resource.id,
+          uri: resource.uri,
+          status: resource.status,
+          validationError: resource.validationError,
+        },
+      });
     },
   );
 }

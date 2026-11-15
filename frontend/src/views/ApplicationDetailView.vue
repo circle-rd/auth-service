@@ -32,7 +32,7 @@ import ApplicationInvitationsTab from '@/components/applications/ApplicationInvi
 import ApplicationConsumptionTab from '@/components/applications/ApplicationConsumptionTab.vue';
 import ApplicationFinancialTab from '@/components/applications/ApplicationFinancialTab.vue';
 import ApplicationIntegrationTab from '@/components/applications/ApplicationIntegrationTab.vue';
-import ShareWorkspace from '@/views/share/ShareWorkspace.vue';
+import AppSharingSettings from '@/views/share/AppSharingSettings.vue';
 import { parseUserAgent } from '@/composables/useUserAgent';
 import Sparkline from '@/components/ui/Sparkline.vue';
 import { getApplicationsActivity, getLogins, type AppActivityEntry } from '@/api/stats';
@@ -592,7 +592,7 @@ function setActiveTab(value: string) {
           :app-name="app?.name ?? ''"
         />
 
-        <ShareWorkspace v-if="activeTab === 'sharing'" :app-id="appId" />
+        <AppSharingSettings v-if="activeTab === 'sharing'" :app-id="appId" />
 
         <div v-if="activeTab === 'users'" class="space-y-4">
           <div class="grid grid-cols-1 gap-2 sm:flex sm:justify-end">

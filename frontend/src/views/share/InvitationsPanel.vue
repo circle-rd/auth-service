@@ -1,40 +1,33 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { Plus, Ban } from '@lucide/vue';
+import { Plus, X } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
-import CopyField from '@/components/ui/CopyField.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useToast } from '@/composables/useToast';
 import {
   createInvitation,
+  listAppResources,
   listInvitations,
-  listOwnerPlans,
-  listSharedResources,
   revokeInvitation,
-  type OwnerPlan,
+  type Resource,
   type ResourceInvitation,
-  type SharedResource,
 } from '@/api/resources';
 import type { SelectOption } from '@/types/select';
-import { formatDateTime, splitList, statusVariant } from './format';
+import { formatDateTime } from './format';
 
-const props = defineProps<{
-  appId: string;
-  canManage: boolean;
-}>();
+const props = defineProps<{ appId: string }>();
 
 const { t } = useI18n();
 const toast = useToast();
 
 const invitations = ref<ResourceInvitation[]>([]);
-const plans = ref<OwnerPlan[]>([]);
-const resources = ref<SharedResource[]>([]);
+const resources = ref<Resource[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const revoking = ref(false);
@@ -46,31 +39,37 @@ const emailSent = ref(false);
 
 const form = reactive({
   email: '',
-  planId: '',
   resourceId: '',
-  allowedClientIds: '',
-  ttlHours: '72',
+  ttlHours: 72,
 });
 
-const planOptions = computed<SelectOption[]>(() =>
-  plans.value.map((plan) => ({ value: plan.id, label: plan.name })),
+const resourceOptions = computed<SelectOption[]>(() =>
+  resources.value.map((resource) => ({
+    value: resource.id,
+    label: resource.displayName,
+    description: resource.uri,
+  })),
 );
-const resourceOptions = computed<SelectOption[]>(() => [
-  { value: '', label: t('share.invitations.allResources') },
-  ...resources.value.map((resource) => ({ value: resource.id, label: resource.displayName })),
-]);
+const canSave = computed(
+  () => form.email.trim().length > 0 && form.resourceId.length > 0,
+);
+
+function stateVariant(state: ResourceInvitation['state']): 'success' | 'warning' | 'neutral' {
+  if (state === 'pending') return 'warning';
+  if (state === 'consumed') return 'success';
+  return 'neutral';
+}
 
 async function load() {
   loading.value = true;
   try {
-    const [invitationRes, planRes, resourceRes] = await Promise.all([
+    const [invitationRes, resourceRes] = await Promise.all([
       listInvitations(props.appId),
-      listOwnerPlans(props.appId),
-      listSharedResources(props.appId),
+      listAppResources(props.appId),
     ]);
     invitations.value = invitationRes.invitations;
-    plans.value = planRes.plans;
     resources.value = resourceRes.resources;
+    if (!form.resourceId && resources.value[0]) form.resourceId = resources.value[0].id;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
@@ -81,10 +80,8 @@ async function load() {
 function openCreate() {
   Object.assign(form, {
     email: '',
-    planId: plans.value.find((plan) => plan.isDefault)?.id ?? plans.value[0]?.id ?? '',
-    resourceId: '',
-    allowedClientIds: '',
-    ttlHours: '72',
+    resourceId: resources.value[0]?.id ?? '',
+    ttlHours: 72,
   });
   inviteUrl.value = '';
   emailSent.value = false;
@@ -92,19 +89,16 @@ function openCreate() {
 }
 
 async function save() {
+  if (!canSave.value) return;
   saving.value = true;
   try {
-    const clients = splitList(form.allowedClientIds);
-    const ttl = Number(form.ttlHours);
-    const res = await createInvitation(props.appId, {
+    const result = await createInvitation(props.appId, {
       email: form.email.trim(),
-      planId: form.planId,
-      resourceId: form.resourceId || null,
-      allowedClientIds: clients.length > 0 ? clients : null,
-      ttlHours: Number.isInteger(ttl) && ttl > 0 ? ttl : undefined,
+      resourceId: form.resourceId,
+      ttlHours: form.ttlHours,
     });
-    inviteUrl.value = res.inviteUrl;
-    emailSent.value = res.emailSent;
+    inviteUrl.value = result.inviteUrl;
+    emailSent.value = result.emailSent;
     toast.success(t('share.invitations.created'));
     await load();
   } catch (err) {
@@ -142,7 +136,7 @@ onMounted(() => void load());
   <div class="space-y-4">
     <div class="flex items-center justify-between gap-3">
       <p class="text-sm text-surface-400">{{ t('share.invitations.hint') }}</p>
-      <BaseButton v-if="canManage" size="sm" @click="openCreate">
+      <BaseButton size="sm" @click="openCreate">
         <Plus class="w-3.5 h-3.5" />{{ t('share.invitations.add') }}
       </BaseButton>
     </div>
@@ -160,32 +154,31 @@ onMounted(() => void load());
         <thead class="bg-surface-800/50 text-surface-400">
           <tr>
             <th class="text-left font-medium px-4 py-3">{{ t('share.invitations.email') }}</th>
-            <th class="text-left font-medium px-4 py-3">{{ t('share.invitations.plan') }}</th>
-            <th class="text-left font-medium px-4 py-3 hidden lg:table-cell">{{ t('share.invitations.resource') }}</th>
-            <th class="text-left font-medium px-4 py-3 hidden xl:table-cell">{{ t('share.invitations.expires') }}</th>
+            <th class="text-left font-medium px-4 py-3">{{ t('share.invitations.resource') }}</th>
+            <th class="text-left font-medium px-4 py-3 hidden lg:table-cell">{{ t('share.invitations.expires') }}</th>
             <th class="text-left font-medium px-4 py-3">{{ t('common.status') }}</th>
             <th class="px-4 py-3 text-right">{{ t('common.actions') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="invitation in invitations" :key="invitation.id" class="border-t border-surface-800/60">
-            <td class="px-4 py-3 text-surface-300">{{ invitation.email }}</td>
-            <td class="px-4 py-3 text-surface-300">{{ invitation.planName }}</td>
-            <td class="px-4 py-3 text-xs text-surface-500 hidden lg:table-cell">
-              {{ invitation.resourceName ?? t('share.invitations.allResources') }}
+            <td class="px-4 py-3 text-surface-200">{{ invitation.email }}</td>
+            <td class="px-4 py-3">
+              <p class="text-surface-300">{{ invitation.resourceDisplayName ?? invitation.resourceId }}</p>
+              <p class="font-mono text-[11px] text-surface-500 break-all">{{ invitation.resourceUri }}</p>
             </td>
-            <td class="px-4 py-3 text-xs text-surface-500 hidden xl:table-cell">
+            <td class="px-4 py-3 text-xs text-surface-500 hidden lg:table-cell">
               {{ formatDateTime(invitation.expiresAt) }}
             </td>
             <td class="px-4 py-3">
-              <BaseBadge :variant="statusVariant(invitation.state)" dot>
+              <BaseBadge :variant="stateVariant(invitation.state)" dot>
                 {{ t(`share.invitationStates.${invitation.state}`) }}
               </BaseBadge>
             </td>
             <td class="px-4 py-3">
-              <div v-if="canManage && invitation.state === 'pending'" class="flex justify-end">
+              <div v-if="invitation.state === 'pending'" class="flex justify-end">
                 <BaseButton variant="ghost" size="sm" @click="requestRevoke(invitation)">
-                  <Ban class="w-3.5 h-3.5" />{{ t('share.invitations.revoke') }}
+                  <X class="w-3.5 h-3.5" />{{ t('share.invitations.revoke') }}
                 </BaseButton>
               </div>
             </td>
@@ -195,28 +188,21 @@ onMounted(() => void load());
     </div>
 
     <BaseModal :open="showForm" :title="t('share.invitations.createTitle')" size="md" @close="showForm = false">
-      <div v-if="inviteUrl" class="space-y-4">
-        <p class="text-sm text-surface-300">
-          {{ emailSent ? t('share.invitations.sent') : t('share.invitations.notSent') }}
-        </p>
-        <CopyField :value="inviteUrl" :label="t('share.invitations.acceptanceUrl')" />
-        <p class="text-xs text-surface-500">{{ t('share.invitations.urlOnce') }}</p>
-        <BaseButton @click="showForm = false">{{ t('common.close') }}</BaseButton>
-      </div>
-      <div v-else class="space-y-4">
+      <div class="space-y-4">
         <BaseInput v-model="form.email" type="email" :label="t('share.invitations.email')" required />
-        <BaseSelect v-model="form.planId" :label="t('share.invitations.plan')" :options="planOptions" />
         <BaseSelect v-model="form.resourceId" :label="t('share.invitations.resource')" :options="resourceOptions" />
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <BaseInput v-model="form.allowedClientIds" :label="t('share.invitations.clients')" :hint="t('share.grants.clientsHint')" />
-          <BaseInput v-model="form.ttlHours" type="number" :label="t('share.invitations.ttlHours')" />
+        <BaseInput v-model.number="form.ttlHours" type="number" :label="t('share.invitations.ttlHours')" />
+        <div v-if="inviteUrl" class="rounded-xl bg-surface-800/60 p-3 space-y-1">
+          <p class="text-xs text-surface-400">{{ t('share.invitations.urlOnce') }}</p>
+          <p class="font-mono text-xs text-primary-300 break-all">{{ inviteUrl }}</p>
+          <p class="text-xs text-surface-500">
+            {{ emailSent ? t('share.invitations.sent') : t('share.invitations.notSent') }}
+          </p>
         </div>
       </div>
-      <template v-if="!inviteUrl" #footer>
-        <BaseButton variant="ghost" @click="showForm = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="saving" :disabled="!form.email || !form.planId" @click="save">
-          {{ t('share.invitations.add') }}
-        </BaseButton>
+      <template #footer>
+        <BaseButton variant="ghost" @click="showForm = false">{{ t('common.close') }}</BaseButton>
+        <BaseButton :loading="saving" :disabled="!canSave" @click="save">{{ t('common.create') }}</BaseButton>
       </template>
     </BaseModal>
 

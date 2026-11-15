@@ -130,51 +130,6 @@ CREATE TABLE "registration_invitations" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "resource_grant" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"subject_id" text NOT NULL,
-	"owner_application_id" uuid NOT NULL,
-	"resource_id" uuid,
-	"plan_id" uuid NOT NULL,
-	"allowed_client_ids" text[],
-	"expires_at" timestamp with time zone,
-	"revoked_at" timestamp with time zone,
-	"created_by" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE "resource_invitation" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"token_hash" text NOT NULL,
-	"email" text NOT NULL,
-	"owner_application_id" uuid NOT NULL,
-	"resource_id" uuid,
-	"plan_id" uuid NOT NULL,
-	"allowed_client_ids" text[],
-	"expires_at" timestamp with time zone NOT NULL,
-	"consumed_at" timestamp with time zone,
-	"revoked_at" timestamp with time zone,
-	"created_by" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE "shared_resource" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"owner_application_id" uuid NOT NULL,
-	"resource_type" text NOT NULL,
-	"key" text NOT NULL,
-	"display_name" text NOT NULL,
-	"upstream_ref" text,
-	"status" text DEFAULT 'draft' NOT NULL,
-	"visibility" text DEFAULT 'invited_only' NOT NULL,
-	"default_plan_id" uuid,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "shared_resources_type_check" CHECK ("shared_resource"."resource_type" IN ('model', 'workflow', 'mcp_agent', 'https_endpoint')),
-	CONSTRAINT "shared_resources_status_check" CHECK ("shared_resource"."status" IN ('draft', 'published', 'disabled')),
-	CONSTRAINT "shared_resources_visibility_check" CHECK ("shared_resource"."visibility" IN ('invited_only', 'public_catalog'))
-);
---> statement-breakpoint
 CREATE TABLE "stripe_events" (
 	"id" text PRIMARY KEY NOT NULL,
 	"type" text NOT NULL,
@@ -235,37 +190,6 @@ CREATE TABLE "subscription_plans" (
 	"is_default" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-CREATE TABLE "usage_record" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"subject_id" text NOT NULL,
-	"client_id" text NOT NULL,
-	"owner_application_id" uuid NOT NULL,
-	"resource_id" uuid NOT NULL,
-	"resource_type" text NOT NULL,
-	"resource_key" text NOT NULL,
-	"plan_id" uuid NOT NULL,
-	"request_id" text NOT NULL,
-	"prompt_tokens" bigint,
-	"completion_tokens" bigint,
-	"total_tokens" bigint,
-	"cost_usd" numeric,
-	"usage_source" text DEFAULT 'provider' NOT NULL,
-	"occurred_at" timestamp with time zone NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "usage_record_type_check" CHECK ("usage_record"."resource_type" IN ('model', 'workflow', 'mcp_agent', 'https_endpoint')),
-	CONSTRAINT "usage_record_source_check" CHECK ("usage_record"."usage_source" IN ('provider', 'unsupported')),
-	CONSTRAINT "usage_record_tokens_check" CHECK (("usage_record"."prompt_tokens" IS NULL OR "usage_record"."prompt_tokens" >= 0)
-        AND ("usage_record"."completion_tokens" IS NULL OR "usage_record"."completion_tokens" >= 0)
-        AND ("usage_record"."total_tokens" IS NULL OR "usage_record"."total_tokens" >= 0)),
-	CONSTRAINT "usage_record_cost_check" CHECK ("usage_record"."cost_usd" IS NULL OR "usage_record"."cost_usd" >= 0),
-	CONSTRAINT "usage_record_unsupported_check" CHECK ("usage_record"."usage_source" <> 'unsupported' OR (
-        "usage_record"."cost_usd" IS NULL
-        AND "usage_record"."prompt_tokens" IS NULL
-        AND "usage_record"."completion_tokens" IS NULL
-        AND "usage_record"."total_tokens" IS NULL
-      ))
 );
 --> statement-breakpoint
 CREATE TABLE "user_app_roles" (
@@ -644,6 +568,147 @@ CREATE TABLE "verification" (
 	"updated_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "application_schemes" (
+	"application_id" uuid NOT NULL,
+	"scheme" text NOT NULL,
+	"enabled" boolean DEFAULT true NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "application_schemes_application_id_scheme_pk" PRIMARY KEY("application_id","scheme")
+);
+--> statement-breakpoint
+CREATE TABLE "resource_access_events" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"resource_id" uuid,
+	"uri" text NOT NULL,
+	"scheme" text NOT NULL,
+	"owner_type" text,
+	"owner_id" text,
+	"subject_type" text,
+	"subject_id" text,
+	"actor_user_id" text,
+	"client_id" text NOT NULL,
+	"application_id" uuid,
+	"decision" text NOT NULL,
+	"reason_class" text,
+	"request_id" text,
+	"source" text NOT NULL,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	CONSTRAINT "resource_access_events_decision_check" CHECK ("resource_access_events"."decision" IN ('allow', 'deny')),
+	CONSTRAINT "resource_access_events_source_check" CHECK ("resource_access_events"."source" IN ('gateway', 'ssh', 'external', 'api'))
+);
+--> statement-breakpoint
+CREATE TABLE "resource_grants" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"resource_id" uuid NOT NULL,
+	"subject_type" text NOT NULL,
+	"subject_id" text,
+	"permission" text DEFAULT 'use' NOT NULL,
+	"expires_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"created_by" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "resource_grants_subject_type_check" CHECK ("resource_grants"."subject_type" IN ('user', 'organization', 'plan', 'everyone')),
+	CONSTRAINT "resource_grants_subject_id_check" CHECK (("resource_grants"."subject_type" = 'everyone' AND "resource_grants"."subject_id" IS NULL)
+        OR ("resource_grants"."subject_type" <> 'everyone' AND "resource_grants"."subject_id" IS NOT NULL)),
+	CONSTRAINT "resource_grants_permission_check" CHECK ("resource_grants"."permission" = 'use'),
+	CONSTRAINT "resource_grants_created_by_check" CHECK (length("resource_grants"."created_by") > 0)
+);
+--> statement-breakpoint
+CREATE TABLE "resource_invitations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"token_hash" text NOT NULL,
+	"email" text NOT NULL,
+	"resource_id" uuid NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"consumed_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"created_by" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "resource_invitations_created_by_check" CHECK (length("resource_invitations"."created_by") > 0)
+);
+--> statement-breakpoint
+CREATE TABLE "resource_schemes" (
+	"scheme" text PRIMARY KEY NOT NULL,
+	"source" text NOT NULL,
+	"adapter" text NOT NULL,
+	"owner_type" text NOT NULL,
+	"owner_id" text,
+	"display_name" text NOT NULL,
+	"description" text,
+	"icon" text,
+	"status" text DEFAULT 'active' NOT NULL,
+	"validator_client_id" text,
+	"validator_url" text,
+	"config" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "resource_schemes_format_check" CHECK ("resource_schemes"."scheme" ~ '^[a-z][a-z0-9]{0,49}$'),
+	CONSTRAINT "resource_schemes_source_check" CHECK ("resource_schemes"."source" IN ('builtin', 'application')),
+	CONSTRAINT "resource_schemes_adapter_check" CHECK ("resource_schemes"."adapter" IN ('litellm', 'ssh', 'http', 'file', 'external')),
+	CONSTRAINT "resource_schemes_owner_check" CHECK (("resource_schemes"."owner_type" = 'platform' AND "resource_schemes"."owner_id" IS NULL)
+        OR ("resource_schemes"."owner_type" = 'application' AND "resource_schemes"."owner_id" IS NOT NULL)),
+	CONSTRAINT "resource_schemes_status_check" CHECK ("resource_schemes"."status" IN ('active', 'disabled')),
+	CONSTRAINT "resource_schemes_application_adapter_check" CHECK ("resource_schemes"."source" <> 'application' OR "resource_schemes"."adapter" = 'external')
+);
+--> statement-breakpoint
+CREATE TABLE "resource_usage_records" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"occurred_at" timestamp with time zone NOT NULL,
+	"resource_id" uuid NOT NULL,
+	"uri" text NOT NULL,
+	"scheme" text NOT NULL,
+	"owner_type" text NOT NULL,
+	"owner_id" text NOT NULL,
+	"subject_type" text,
+	"subject_id" text,
+	"client_id" text NOT NULL,
+	"application_id" uuid,
+	"request_id" text NOT NULL,
+	"prompt_tokens" bigint,
+	"completion_tokens" bigint,
+	"total_tokens" bigint,
+	"cost_usd" numeric,
+	"usage_source" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "resource_usage_records_source_check" CHECK ("resource_usage_records"."usage_source" IN ('provider', 'unsupported')),
+	CONSTRAINT "resource_usage_records_tokens_check" CHECK (("resource_usage_records"."prompt_tokens" IS NULL OR "resource_usage_records"."prompt_tokens" >= 0)
+        AND ("resource_usage_records"."completion_tokens" IS NULL OR "resource_usage_records"."completion_tokens" >= 0)
+        AND ("resource_usage_records"."total_tokens" IS NULL OR "resource_usage_records"."total_tokens" >= 0)),
+	CONSTRAINT "resource_usage_records_cost_check" CHECK ("resource_usage_records"."cost_usd" IS NULL OR "resource_usage_records"."cost_usd" >= 0),
+	CONSTRAINT "resource_usage_records_unsupported_check" CHECK ("resource_usage_records"."usage_source" <> 'unsupported' OR (
+        "resource_usage_records"."cost_usd" IS NULL
+        AND "resource_usage_records"."prompt_tokens" IS NULL
+        AND "resource_usage_records"."completion_tokens" IS NULL
+        AND "resource_usage_records"."total_tokens" IS NULL
+      ))
+);
+--> statement-breakpoint
+CREATE TABLE "resources" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"application_id" uuid NOT NULL,
+	"scheme" text NOT NULL,
+	"locator" text NOT NULL,
+	"uri" text NOT NULL,
+	"display_name" text NOT NULL,
+	"owner_type" text NOT NULL,
+	"owner_id" text NOT NULL,
+	"status" text DEFAULT 'pending_validation' NOT NULL,
+	"listed" boolean DEFAULT false NOT NULL,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"validation_requested_at" timestamp with time zone,
+	"validated_at" timestamp with time zone,
+	"validation_error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "resources_scheme_format_check" CHECK ("resources"."scheme" ~ '^[a-z][a-z0-9]{0,49}$'),
+	CONSTRAINT "resources_uri_length_check" CHECK (length("resources"."uri") BETWEEN 3 AND 512),
+	CONSTRAINT "resources_locator_length_check" CHECK (length("resources"."locator") BETWEEN 1 AND 255),
+	CONSTRAINT "resources_owner_type_check" CHECK ("resources"."owner_type" IN ('user', 'application')),
+	CONSTRAINT "resources_status_check" CHECK ("resources"."status" IN ('pending_validation', 'validation_failed', 'validated', 'disabled')),
+	CONSTRAINT "resources_owner_id_check" CHECK (length("resources"."owner_id") > 0)
+);
+--> statement-breakpoint
 ALTER TABLE "app_delegation" ADD CONSTRAINT "app_delegation_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_permissions" ADD CONSTRAINT "app_permissions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_role_permissions" ADD CONSTRAINT "app_role_permissions_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -655,20 +720,9 @@ ALTER TABLE "consumption_aggregates" ADD CONSTRAINT "consumption_aggregates_appl
 ALTER TABLE "consumption_entries" ADD CONSTRAINT "consumption_entries_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "login_history" ADD CONSTRAINT "login_history_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "registration_invitations" ADD CONSTRAINT "registration_invitations_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "resource_grant" ADD CONSTRAINT "resource_grant_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "resource_grant" ADD CONSTRAINT "resource_grant_resource_id_shared_resource_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."shared_resource"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "resource_grant" ADD CONSTRAINT "resource_grant_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "resource_invitation" ADD CONSTRAINT "resource_invitation_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "resource_invitation" ADD CONSTRAINT "resource_invitation_resource_id_shared_resource_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."shared_resource"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "resource_invitation" ADD CONSTRAINT "resource_invitation_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "shared_resource" ADD CONSTRAINT "shared_resource_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "shared_resource" ADD CONSTRAINT "shared_resource_default_plan_id_subscription_plans_id_fk" FOREIGN KEY ("default_plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plan_prices" ADD CONSTRAINT "subscription_plan_prices_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plans" ADD CONSTRAINT "subscription_plans_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "usage_record" ADD CONSTRAINT "usage_record_owner_application_id_applications_id_fk" FOREIGN KEY ("owner_application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "usage_record" ADD CONSTRAINT "usage_record_resource_id_shared_resource_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."shared_resource"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "usage_record" ADD CONSTRAINT "usage_record_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_applications" ADD CONSTRAINT "user_applications_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -702,6 +756,16 @@ ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_user_id_us
 ALTER TABLE "passkey" ADD CONSTRAINT "passkey_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "application_schemes" ADD CONSTRAINT "application_schemes_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "application_schemes" ADD CONSTRAINT "application_schemes_scheme_resource_schemes_scheme_fk" FOREIGN KEY ("scheme") REFERENCES "public"."resource_schemes"("scheme") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_access_events" ADD CONSTRAINT "resource_access_events_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_access_events" ADD CONSTRAINT "resource_access_events_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_grants" ADD CONSTRAINT "resource_grants_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_invitations" ADD CONSTRAINT "resource_invitations_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resources" ADD CONSTRAINT "resources_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resources" ADD CONSTRAINT "resources_scheme_resource_schemes_scheme_fk" FOREIGN KEY ("scheme") REFERENCES "public"."resource_schemes"("scheme") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "app_delegation_user_app_permission_idx" ON "app_delegation" USING btree ("user_id","application_id","permission");--> statement-breakpoint
 CREATE INDEX "app_delegation_lookup_idx" ON "app_delegation" USING btree ("user_id","application_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "app_permissions_app_resource_action_idx" ON "app_permissions" USING btree ("application_id","resource","action");--> statement-breakpoint
@@ -717,21 +781,10 @@ CREATE INDEX "login_history_app_logged_idx" ON "login_history" USING btree ("app
 CREATE UNIQUE INDEX "registration_invitations_token_hash_idx" ON "registration_invitations" USING btree ("token_hash");--> statement-breakpoint
 CREATE INDEX "registration_invitations_email_idx" ON "registration_invitations" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "registration_invitations_app_idx" ON "registration_invitations" USING btree ("application_id");--> statement-breakpoint
-CREATE INDEX "resource_grants_subject_owner_idx" ON "resource_grant" USING btree ("subject_id","owner_application_id");--> statement-breakpoint
-CREATE INDEX "resource_grants_resource_idx" ON "resource_grant" USING btree ("resource_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "resource_invitations_token_hash_idx" ON "resource_invitation" USING btree ("token_hash");--> statement-breakpoint
-CREATE INDEX "resource_invitations_email_idx" ON "resource_invitation" USING btree ("email");--> statement-breakpoint
-CREATE INDEX "resource_invitations_owner_idx" ON "resource_invitation" USING btree ("owner_application_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "shared_resources_key_idx" ON "shared_resource" USING btree ("key");--> statement-breakpoint
-CREATE INDEX "shared_resources_owner_status_idx" ON "shared_resource" USING btree ("owner_application_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "stripe_invoices_stripe_idx" ON "stripe_invoices" USING btree ("stripe_invoice_id");--> statement-breakpoint
 CREATE INDEX "stripe_invoices_owner_idx" ON "stripe_invoices" USING btree ("user_id","application_id","stripe_created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plan_prices_plan_feature_idx" ON "subscription_plan_prices" USING btree ("plan_id","feature_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
-CREATE UNIQUE INDEX "usage_record_resource_request_idx" ON "usage_record" USING btree ("resource_id","request_id");--> statement-breakpoint
-CREATE INDEX "usage_record_owner_occurred_idx" ON "usage_record" USING btree ("owner_application_id","occurred_at");--> statement-breakpoint
-CREATE INDEX "usage_record_owner_subject_occurred_idx" ON "usage_record" USING btree ("owner_application_id","subject_id","occurred_at");--> statement-breakpoint
-CREATE INDEX "usage_record_owner_resource_occurred_idx" ON "usage_record" USING btree ("owner_application_id","resource_id","occurred_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_user_app_created_idx" ON "user_subscription_events" USING btree ("user_id","application_id","created_at");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_app_created_idx" ON "user_subscription_events" USING btree ("application_id","created_at");--> statement-breakpoint
@@ -771,4 +824,23 @@ CREATE INDEX "passkey_credentialID_idx" ON "passkey" USING btree ("credential_id
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "twoFactor_secret_idx" ON "two_factor" USING btree ("secret");--> statement-breakpoint
 CREATE INDEX "twoFactor_userId_idx" ON "two_factor" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");
+CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
+CREATE INDEX "application_schemes_scheme_idx" ON "application_schemes" USING btree ("scheme");--> statement-breakpoint
+CREATE INDEX "resource_access_events_occurred_idx" ON "resource_access_events" USING btree ("occurred_at");--> statement-breakpoint
+CREATE INDEX "resource_access_events_resource_idx" ON "resource_access_events" USING btree ("resource_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "resource_access_events_subject_idx" ON "resource_access_events" USING btree ("subject_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "resource_access_events_application_idx" ON "resource_access_events" USING btree ("application_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "resource_grants_resource_idx" ON "resource_grants" USING btree ("resource_id");--> statement-breakpoint
+CREATE INDEX "resource_grants_subject_idx" ON "resource_grants" USING btree ("subject_type","subject_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "resource_invitations_token_hash_idx" ON "resource_invitations" USING btree ("token_hash");--> statement-breakpoint
+CREATE INDEX "resource_invitations_email_idx" ON "resource_invitations" USING btree ("email");--> statement-breakpoint
+CREATE INDEX "resource_invitations_resource_idx" ON "resource_invitations" USING btree ("resource_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "resource_usage_records_event_idx" ON "resource_usage_records" USING btree ("resource_id","request_id");--> statement-breakpoint
+CREATE INDEX "resource_usage_records_owner_occurred_idx" ON "resource_usage_records" USING btree ("owner_type","owner_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "resource_usage_records_application_occurred_idx" ON "resource_usage_records" USING btree ("application_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "resource_usage_records_subject_occurred_idx" ON "resource_usage_records" USING btree ("subject_id","occurred_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "resources_uri_idx" ON "resources" USING btree ("uri");--> statement-breakpoint
+CREATE UNIQUE INDEX "resources_scheme_locator_idx" ON "resources" USING btree ("scheme","locator");--> statement-breakpoint
+CREATE INDEX "resources_application_status_idx" ON "resources" USING btree ("application_id","status");--> statement-breakpoint
+CREATE INDEX "resources_owner_idx" ON "resources" USING btree ("owner_type","owner_id");--> statement-breakpoint
+CREATE INDEX "resources_scheme_status_idx" ON "resources" USING btree ("scheme","status");

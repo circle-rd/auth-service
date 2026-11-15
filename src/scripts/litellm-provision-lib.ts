@@ -1,9 +1,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { RESOURCE_SYNC_ROUTES } from "../services/resource-sharing/litellm-scope.js";
-
-export { RESOURCE_SYNC_ROUTES };
+/** Temporary legacy resource-sync key scope, removed with the ACL cutover. */
+export const RESOURCE_SYNC_ROUTES = [
+  "/v1/access_group",
+  "/v1/access_group/*",
+] as const;
 
 /** Gateway user that owns the team key, and the key's alias. */
 export const PROVISIONER_USER_ID = "auth-service-provisioner";

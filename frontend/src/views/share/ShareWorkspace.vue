@@ -11,13 +11,14 @@ import GrantsPanel from './GrantsPanel.vue';
 import InvitationsPanel from './InvitationsPanel.vue';
 import MembersPanel from './MembersPanel.vue';
 import UsagePanel from './UsagePanel.vue';
+import AccessEventsPanel from './AccessEventsPanel.vue';
 
 const props = defineProps<{ appId: string }>();
 
 const { t } = useI18n();
 const toast = useToast();
 
-const tabs = ['resources', 'grants', 'invitations', 'members', 'usage'] as const;
+const tabs = ['resources', 'grants', 'invitations', 'members', 'usage', 'access'] as const;
 type Tab = typeof tabs[number];
 
 const ownerApp = ref<OwnerApplication | null>(null);
@@ -27,10 +28,15 @@ const activeTab = ref<Tab>('resources');
 const canReadResources = computed(
   () => ownerApp.value?.permissions.some((p) => p === 'resources:manage' || p === 'resources:read') ?? false,
 );
-const canManageGrants = computed(() => ownerApp.value?.permissions.includes('grants:manage') ?? false);
+const canManageGrants = computed(
+  () => ownerApp.value?.permissions.includes('grants:manage') ?? false,
+);
 const visibleTabs = computed<Tab[]>(() =>
   tabs.filter((tab) => {
-    if (tab === 'grants' || tab === 'invitations') return canManageGrants.value;
+    if (tab === 'invitations' || tab === 'members' || tab === 'access') {
+      return ownerApp.value?.isAdmin === true;
+    }
+    if (tab === 'grants') return canManageGrants.value;
     return canReadResources.value;
   }),
 );
@@ -84,6 +90,7 @@ onMounted(async () => {
       <SharedResourcesPanel
         v-if="activeTab === 'resources'"
         :app-id="ownerApp.id"
+        scope="app"
         :can-manage="ownerApp.permissions.includes('resources:manage')"
         :can-read="canReadResources"
       />
@@ -91,14 +98,18 @@ onMounted(async () => {
         v-else-if="activeTab === 'grants'"
         :app-id="ownerApp.id"
         :can-manage="canManageGrants"
+        :is-admin="ownerApp.isAdmin"
       />
       <InvitationsPanel
         v-else-if="activeTab === 'invitations'"
         :app-id="ownerApp.id"
-        :can-manage="canManageGrants"
       />
-      <MembersPanel v-else-if="activeTab === 'members'" :app-id="ownerApp.id" />
-      <UsagePanel v-else :app-id="ownerApp.id" />
+      <MembersPanel
+        v-else-if="activeTab === 'members'"
+        :app-id="ownerApp.id"
+      />
+      <UsagePanel v-else-if="activeTab === 'usage'" :app-id="ownerApp.id" />
+      <AccessEventsPanel v-else :app-id="ownerApp.id" />
     </template>
   </div>
 </template>

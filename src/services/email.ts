@@ -113,7 +113,7 @@ export async function sendResourceInvitationEmail(
     expiresInHours: number;
     ownerAppName: string;
     ownerAppSlug: string;
-    planName: string;
+    planName?: string | null;
     resourceName?: string | null;
     inviterName?: string;
   },
@@ -126,7 +126,7 @@ export async function sendResourceInvitationEmail(
       email,
       expiresInHours: args.expiresInHours,
       ownerAppName: args.ownerAppName,
-      planName: args.planName,
+      planName: args.planName ?? "",
       resourceName: args.resourceName ?? "",
       inviterName: args.inviterName,
     },

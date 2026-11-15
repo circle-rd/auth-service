@@ -56,11 +56,11 @@ function isUserRow(row: UsageUserRow | UsageResourceRow): row is UsageUserRow {
 
 function rowLabel(row: UsageUserRow | UsageResourceRow): string {
   if (isUserRow(row)) return row.subjectId;
-  return row.displayName ?? row.resourceKey;
+  return row.displayName ?? row.uri;
 }
 
 function rowDetail(row: UsageUserRow | UsageResourceRow): string | null {
-  return isUserRow(row) ? null : row.resourceKey;
+  return isUserRow(row) ? null : row.uri;
 }
 
 function costAvailable(row: UsageTotals): boolean {
@@ -181,7 +181,7 @@ onMounted(() => void load());
               <p class="font-medium text-surface-200">{{ rowLabel(row) }}</p>
               <p v-if="rowDetail(row)" class="font-mono text-xs text-surface-500">{{ rowDetail(row) }}</p>
               <p v-if="!isUserRow(row)" class="text-xs text-surface-500">
-                {{ t(`share.resourceTypes.${row.resourceType}`) }}
+                {{ row.scheme }}
               </p>
             </td>
             <td class="px-4 py-3 text-right text-surface-300">{{ row.calls }}</td>

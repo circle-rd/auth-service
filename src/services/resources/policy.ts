@@ -12,8 +12,10 @@ import {
   resourceGrants,
   resourceSchemes,
 } from "../../db/resource-schema.js";
-import type { ResourceGrantRow } from "./grants.js";
+import { isActiveMember, isApplicationAdmin } from "./authority.js";
+import { resolveGrantsForSubject, type ResourceGrantRow } from "./grants.js";
 import { findResourceByUri, type ResourceView } from "./registry.js";
+import { isSchemeEnabledForApplication } from "./scheme-service.js";
 import type { ResourceSubjectType } from "./types.js";
 import { parseResourceUri } from "./uri.js";
 
@@ -90,25 +92,28 @@ function allow(
   };
 }
 
-interface DecisionFacts {
-  sharingEnabled: boolean;
-  schemeEnabled: boolean;
-  member: boolean;
-  isOwner: boolean;
-  isAdmin: boolean;
-  grants: ResourceGrantRow[];
+interface AccessProvider {
+  schemeEnabled: () => Promise<boolean>;
+  activeMember: () => Promise<boolean>;
+  isOwner: () => boolean;
+  isAdmin: () => Promise<boolean>;
+  grants: () => Promise<ResourceGrantRow[]>;
 }
 
-function decide(resource: ResourceView, facts: DecisionFacts): AccessDecision {
+async function decide(
+  resource: ResourceView,
+  provider: AccessProvider,
+): Promise<AccessDecision> {
+  // Static state first: a disabled or unshared resource never needs a query.
   if (resource.status === "disabled") return deny("disabled");
   if (resource.status !== "validated") return deny("not_validated");
   if (!resource.applicationActive) return deny("application_inactive");
-  if (!facts.sharingEnabled) return deny("sharing_disabled");
-  if (!facts.schemeEnabled) return deny("scheme_disabled");
-  if (!facts.member) return deny("no_membership");
-  if (facts.isOwner) return allow(resource, "owner");
-  if (facts.isAdmin) return allow(resource, "admin");
-  const grant = facts.grants[0];
+  if (!resource.resourceSharingEnabled) return deny("sharing_disabled");
+  if (!(await provider.schemeEnabled())) return deny("scheme_disabled");
+  if (!(await provider.activeMember())) return deny("no_membership");
+  if (provider.isOwner()) return allow(resource, "owner");
+  if (await provider.isAdmin()) return allow(resource, "admin");
+  const grant = (await provider.grants())[0];
   if (!grant) return deny("no_grant");
   return allow(resource, "grant", grant.subjectType);
 }
@@ -121,12 +126,17 @@ function decide(resource: ResourceView, facts: DecisionFacts): AccessDecision {
 export async function evaluateResourceAccess(
   facts: AccessFacts,
 ): Promise<AccessDecision> {
-  const [decision] = await evaluateResourceAccessBatch(
-    [facts.resource],
-    facts.subjectId,
-    facts.now,
-  );
-  return decision ?? deny("not_found");
+  const { resource, subjectId } = facts;
+  return decide(resource, {
+    schemeEnabled: () =>
+      isSchemeEnabledForApplication(resource.applicationId, resource.scheme),
+    activeMember: () => isActiveMember(subjectId, resource.applicationId),
+    isOwner: () =>
+      resource.ownerType === "user" && resource.ownerId === subjectId,
+    isAdmin: () => isApplicationAdmin(subjectId, resource.applicationId),
+    grants: () =>
+      resolveGrantsForSubject(subjectId, resource.id, facts.now ?? new Date()),
+  });
 }
 
 interface BatchAccessContext {
@@ -320,23 +330,27 @@ export async function evaluateResourceAccessBatch(
 ): Promise<AccessDecision[]> {
   if (resources.length === 0) return [];
   const context = await loadBatchAccessContext(subjectId, resources, now);
-  return resources.map((resource) => {
-    const grants = (context.grants.get(resource.id) ?? []).filter((grant) =>
-      grantApplies(grant, resource.applicationId, context),
-    );
-    return decide(resource, {
-      sharingEnabled: resource.resourceSharingEnabled,
-      schemeEnabled: context.enabledSchemes.has(
-        schemeKey(resource.applicationId, resource.scheme),
-      ),
-      member: context.memberships.has(resource.applicationId),
-      isOwner: resource.ownerType === "user" && resource.ownerId === subjectId,
-      isAdmin:
-        context.platformAdmin ||
-        context.adminApplications.has(resource.applicationId),
-      grants,
-    });
-  });
+  return Promise.all(
+    resources.map((resource) =>
+      decide(resource, {
+        schemeEnabled: async () =>
+          context.enabledSchemes.has(
+            schemeKey(resource.applicationId, resource.scheme),
+          ),
+        activeMember: async () =>
+          context.memberships.has(resource.applicationId),
+        isOwner: () =>
+          resource.ownerType === "user" && resource.ownerId === subjectId,
+        isAdmin: async () =>
+          context.platformAdmin ||
+          context.adminApplications.has(resource.applicationId),
+        grants: async () =>
+          (context.grants.get(resource.id) ?? []).filter((grant) =>
+            grantApplies(grant, resource.applicationId, context),
+          ),
+      }),
+    ),
+  );
 }
 
 export async function authorizeResource(

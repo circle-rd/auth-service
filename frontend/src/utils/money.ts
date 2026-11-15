@@ -91,9 +91,15 @@ export function formatMinorAmount(
   currency: string,
   options: { locale?: string; minimumFractionDigits?: number } = {},
 ): string {
+  const exponent = currencyExponent(currency);
   return new Intl.NumberFormat(options.locale, {
     style: 'currency',
     currency: currency.toUpperCase(),
-    minimumFractionDigits: options.minimumFractionDigits,
-  }).format(minor / 10 ** currencyExponent(currency));
+    // Never show more decimals than the currency has, even if a caller asks.
+    minimumFractionDigits: Math.min(
+      options.minimumFractionDigits ?? exponent,
+      exponent,
+    ),
+    maximumFractionDigits: exponent,
+  }).format(minor / 10 ** exponent);
 }

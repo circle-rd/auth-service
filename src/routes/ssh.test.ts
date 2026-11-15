@@ -8,6 +8,7 @@ import {
   vi,
 } from "vitest";
 import { createTestApp } from "../tests/helpers/app.js";
+import { ERR } from "../errors.js";
 
 const {
   mockRequireSession,
@@ -284,6 +285,31 @@ describe("gateway SSH routes", () => {
         subjectId: "user-1",
         clientId: "litellm-wallet",
         sessionId: "session-2",
+        startedAt: "2026-11-15T12:00:00.000Z",
+        endedAt: "2026-11-15T12:01:00.000Z",
+        bytesIn: 1,
+        bytesOut: 2,
+        endReason: "client",
+      },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("AUTH_011");
+    expect(mockRecordSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a session report from a non-validator client", async () => {
+    mockAssertSchemeValidator.mockRejectedValue(
+      ERR.AUTH_011("Client is not the validator for this resource scheme"),
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/internal/gateway/ssh/sessions",
+      payload: {
+        resourceId: RESOURCE,
+        resourceUri: "ssh://x",
+        subjectId: "user-1",
+        clientId: "ssh-gateway",
+        sessionId: "session-3",
         startedAt: "2026-11-15T12:00:00.000Z",
         endedAt: "2026-11-15T12:01:00.000Z",
         bytesIn: 1,

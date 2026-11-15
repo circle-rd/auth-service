@@ -130,7 +130,7 @@ def select_executed_resource(
                     for resource in resources
                     if resource.get("parentName") == name
                 ]
-                tool_name = tool.get("mcp_tool_name")
+                tool_name = tool.get("mcp_tool_name") or tool.get("name")
                 if isinstance(tool_name, str):
                     for resource in candidates:
                         if resource.get("name") == tool_name:

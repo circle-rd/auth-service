@@ -72,7 +72,7 @@ def payload(
     if mcp_server:
         meta["mcp_tool_call_metadata"] = {"mcp_server_name": mcp_server}
         if mcp_tool:
-            meta["mcp_tool_call_metadata"]["mcp_tool_name"] = mcp_tool
+            meta["mcp_tool_call_metadata"]["name"] = mcp_tool
     return {
         "standard_logging_object": {
             "id": call_id,

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ExternalLink, Plus, Pencil, PowerOff, RefreshCw } from '@lucide/vue';
+import { ExternalLink, Plus, Pencil, PowerOff, RefreshCw, Terminal } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
@@ -24,6 +24,7 @@ import {
 } from '@/api/resources';
 import type { SelectOption } from '@/types/select';
 import { formatDateTime } from './format';
+import SshTargetDialog from './SshTargetDialog.vue';
 
 const props = defineProps<{
   appId: string;
@@ -44,6 +45,7 @@ const showForm = ref(false);
 const showDisable = ref(false);
 const editing = ref<Resource | null>(null);
 const selected = ref<Resource | null>(null);
+const sshResource = ref<Resource | null>(null);
 
 const form = reactive({
   scheme: '',
@@ -158,6 +160,10 @@ async function validate(resource: Resource) {
   }
 }
 
+function openSsh(resource: Resource) {
+  sshResource.value = resource;
+}
+
 function requestDisable(resource: Resource) {
   selected.value = resource;
   showDisable.value = true;
@@ -237,7 +243,15 @@ onMounted(() => void load());
             <td class="px-4 py-3">
               <div v-if="canManage" class="flex justify-end gap-1">
                 <BaseButton
-                  v-if="resource.status === 'pending_validation' || resource.status === 'validation_failed'"
+                  v-if="resource.scheme === 'ssh'"
+                  variant="ghost"
+                  size="sm"
+                  @click="openSsh(resource)"
+                >
+                  <Terminal class="w-3.5 h-3.5" />{{ t('share.ssh.configure') }}
+                </BaseButton>
+                <BaseButton
+                  v-else-if="resource.status === 'pending_validation' || resource.status === 'validation_failed'"
                   variant="ghost"
                   size="sm"
                   @click="validate(resource)"
@@ -296,6 +310,15 @@ onMounted(() => void load());
         <BaseButton :loading="saving" :disabled="!canSave" @click="save">{{ t('common.save') }}</BaseButton>
       </template>
     </BaseModal>
+
+    <SshTargetDialog
+      v-if="sshResource"
+      :open="sshResource !== null"
+      :resource-id="sshResource.id"
+      :resource-name="sshResource.displayName"
+      @close="sshResource = null"
+      @updated="load"
+    />
 
     <ConfirmDialog
       :open="showDisable"

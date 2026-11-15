@@ -28,6 +28,7 @@ import {
   updateResource,
 } from "../services/resources/registry.js";
 import { linkResourceToGatewayObject } from "../services/gateway-inventory.js";
+import { buildSshValidationCommand } from "../services/ssh/targets.js";
 import { getResourceScheme } from "../services/resources/scheme-service.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
 import { RESOURCE_SUBJECT_TYPES } from "../services/resources/types.js";
@@ -249,6 +250,10 @@ export async function userResourceRoutes(
           resource.status === "validated"
             ? null
             : (scheme?.validatorUrl ?? null),
+        validationCommand:
+          resource.status === "validated"
+            ? null
+            : buildSshValidationCommand(resource.id),
       });
     },
   );

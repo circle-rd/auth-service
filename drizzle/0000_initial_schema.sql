@@ -733,6 +733,67 @@ CREATE TABLE "resource_gateway_links" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "ssh_recipient_keys" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" text NOT NULL,
+	"public_key" text NOT NULL,
+	"fingerprint" text NOT NULL,
+	"label" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"revoked_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "ssh_resource_details" (
+	"resource_id" uuid PRIMARY KEY NOT NULL,
+	"host" text NOT NULL,
+	"port" integer DEFAULT 22 NOT NULL,
+	"account" text NOT NULL,
+	"host_key_fingerprint" text,
+	"validated_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "ssh_resource_details_host_check" CHECK (length("ssh_resource_details"."host") BETWEEN 1 AND 255),
+	CONSTRAINT "ssh_resource_details_port_check" CHECK ("ssh_resource_details"."port" BETWEEN 1 AND 65535),
+	CONSTRAINT "ssh_resource_details_account_check" CHECK ("ssh_resource_details"."account" ~ '^[A-Za-z0-9._-]{1,64}$')
+);
+--> statement-breakpoint
+CREATE TABLE "ssh_resource_identities" (
+	"resource_id" uuid PRIMARY KEY NOT NULL,
+	"public_key" text NOT NULL,
+	"fingerprint" text NOT NULL,
+	"private_key_ciphertext" text NOT NULL,
+	"key_version" integer DEFAULT 1 NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"rotated_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "ssh_sessions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"resource_id" uuid NOT NULL,
+	"subject_id" text NOT NULL,
+	"client_id" text NOT NULL,
+	"session_id" text NOT NULL,
+	"started_at" timestamp with time zone NOT NULL,
+	"ended_at" timestamp with time zone NOT NULL,
+	"bytes_in" bigint,
+	"bytes_out" bigint,
+	"end_reason" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "ssh_sessions_end_reason_check" CHECK ("ssh_sessions"."end_reason" IN ('client', 'idle', 'error', 'revoked', 'target')),
+	CONSTRAINT "ssh_sessions_time_check" CHECK ("ssh_sessions"."ended_at" >= "ssh_sessions"."started_at"),
+	CONSTRAINT "ssh_sessions_bytes_check" CHECK (("ssh_sessions"."bytes_in" IS NULL OR "ssh_sessions"."bytes_in" >= 0)
+        AND ("ssh_sessions"."bytes_out" IS NULL OR "ssh_sessions"."bytes_out" >= 0))
+);
+--> statement-breakpoint
+CREATE TABLE "ssh_share_details" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"resource_id" uuid NOT NULL,
+	"meta_user" text NOT NULL,
+	"created_by" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "ssh_share_details_meta_user_check" CHECK ("ssh_share_details"."meta_user" ~ '^[a-z0-9][a-z0-9_-]{2,31}$')
+);
+--> statement-breakpoint
 ALTER TABLE "app_delegation" ADD CONSTRAINT "app_delegation_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_permissions" ADD CONSTRAINT "app_permissions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "app_role_permissions" ADD CONSTRAINT "app_role_permissions_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -792,6 +853,11 @@ ALTER TABLE "resources" ADD CONSTRAINT "resources_application_id_applications_id
 ALTER TABLE "resources" ADD CONSTRAINT "resources_scheme_resource_schemes_scheme_fk" FOREIGN KEY ("scheme") REFERENCES "public"."resource_schemes"("scheme") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_gateway_links" ADD CONSTRAINT "resource_gateway_links_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_gateway_links" ADD CONSTRAINT "resource_gateway_links_gateway_object_id_gateway_objects_id_fk" FOREIGN KEY ("gateway_object_id") REFERENCES "public"."gateway_objects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ssh_recipient_keys" ADD CONSTRAINT "ssh_recipient_keys_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ssh_resource_details" ADD CONSTRAINT "ssh_resource_details_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ssh_resource_identities" ADD CONSTRAINT "ssh_resource_identities_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ssh_sessions" ADD CONSTRAINT "ssh_sessions_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "ssh_share_details" ADD CONSTRAINT "ssh_share_details_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "app_delegation_user_app_permission_idx" ON "app_delegation" USING btree ("user_id","application_id","permission");--> statement-breakpoint
 CREATE INDEX "app_delegation_lookup_idx" ON "app_delegation" USING btree ("user_id","application_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "app_permissions_app_resource_action_idx" ON "app_permissions" USING btree ("application_id","resource","action");--> statement-breakpoint
@@ -873,4 +939,13 @@ CREATE INDEX "resources_scheme_status_idx" ON "resources" USING btree ("scheme",
 CREATE UNIQUE INDEX "gateway_objects_litellm_idx" ON "gateway_objects" USING btree ("kind","litellm_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "gateway_objects_name_idx" ON "gateway_objects" USING btree ("kind","object_name","parent_name");--> statement-breakpoint
 CREATE INDEX "gateway_objects_active_idx" ON "gateway_objects" USING btree ("kind","is_active");--> statement-breakpoint
-CREATE INDEX "resource_gateway_links_object_idx" ON "resource_gateway_links" USING btree ("gateway_object_id");
+CREATE INDEX "resource_gateway_links_object_idx" ON "resource_gateway_links" USING btree ("gateway_object_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "ssh_recipient_keys_public_active_idx" ON "ssh_recipient_keys" USING btree ("public_key") WHERE "ssh_recipient_keys"."revoked_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "ssh_recipient_keys_fingerprint_active_idx" ON "ssh_recipient_keys" USING btree ("fingerprint") WHERE "ssh_recipient_keys"."revoked_at" IS NULL;--> statement-breakpoint
+CREATE INDEX "ssh_recipient_keys_user_idx" ON "ssh_recipient_keys" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "ssh_resource_identities_fingerprint_idx" ON "ssh_resource_identities" USING btree ("fingerprint");--> statement-breakpoint
+CREATE UNIQUE INDEX "ssh_sessions_session_idx" ON "ssh_sessions" USING btree ("session_id");--> statement-breakpoint
+CREATE INDEX "ssh_sessions_resource_idx" ON "ssh_sessions" USING btree ("resource_id","started_at");--> statement-breakpoint
+CREATE INDEX "ssh_sessions_subject_idx" ON "ssh_sessions" USING btree ("subject_id","started_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "ssh_share_details_meta_user_idx" ON "ssh_share_details" USING btree ("meta_user");--> statement-breakpoint
+CREATE INDEX "ssh_share_details_resource_idx" ON "ssh_share_details" USING btree ("resource_id");

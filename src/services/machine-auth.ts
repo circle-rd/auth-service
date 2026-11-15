@@ -16,6 +16,9 @@ export const MACHINE_SCOPES = [
   "resources:usage:write",
   "resources:validate",
   "gateway:entitlements:read",
+  "ssh:target:read",
+  "ssh:resource:read",
+  "device:session:validate",
 ] as const;
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 

@@ -296,6 +296,12 @@ const envSchema = z
       .string()
       .min(1)
       .default("/run/litellm-provisioner/inventory-key"),
+    // SSH gateway contract. The envelope key encrypts resource identity keys;
+    // it is only required when the ssh scheme is enabled and a resource is set
+    // up. The public host/port build the validation command shown to owners.
+    SSH_GATEWAY_ENVELOPE_KEY: z.string().min(1).optional(),
+    SSH_GATEWAY_VALIDATION_HOST: z.string().min(1).max(255).optional(),
+    SSH_GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(2222),
 
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
     GOOGLE_CLIENT_ID: z.string().optional(),
@@ -500,6 +506,11 @@ export const config = {
   litellm: {
     url: parsed.data.LITELLM_URL?.replace(/\/+$/, ""),
     inventoryKeyFile: parsed.data.LITELLM_INVENTORY_KEY_FILE,
+  },
+  sshGateway: {
+    envelopeKey: parsed.data.SSH_GATEWAY_ENVELOPE_KEY,
+    validationHost: parsed.data.SSH_GATEWAY_VALIDATION_HOST,
+    port: parsed.data.SSH_GATEWAY_PORT,
   },
   templatesDir: parsed.data.TEMPLATES_DIR || null,
   providers: {

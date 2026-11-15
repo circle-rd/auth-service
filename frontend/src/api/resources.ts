@@ -186,6 +186,40 @@ export interface OwnerUsage {
   nextOffset: number | null;
 }
 
+export interface SshTarget {
+  host: string;
+  port: number;
+  account: string;
+}
+
+export interface SshOwnerDetail {
+  resourceId: string;
+  uri: string;
+  host: string;
+  port: number;
+  account: string;
+  publicKey: string;
+  fingerprint: string;
+  authorizedKeysLine: string;
+  validationCommand: string | null;
+  hostKeyFingerprint: string | null;
+  validatedAt: string | null;
+}
+
+export interface SshRecipientKey {
+  id: string;
+  publicKey: string;
+  fingerprint: string;
+  label: string | null;
+  createdAt: string;
+}
+
+export interface SshMetaUser {
+  id: string;
+  metaUser: string;
+  createdAt: string;
+}
+
 export interface CreateResourceBody {
   applicationId: string;
   scheme: string;
@@ -217,6 +251,12 @@ export interface CreateInvitationBody {
   email: string;
   resourceId: string;
   ttlHours?: number;
+}
+
+export interface ValidationRequestResult {
+  resource: Resource;
+  validatorUrl: string | null;
+  validationCommand: string | null;
 }
 
 export interface CreateInvitationResult {
@@ -369,8 +409,51 @@ export async function disableResource(resourceId: string): Promise<{ resource: R
   return apiFetch(`/user/resources/${resourceId}`, { method: 'DELETE' });
 }
 
-export async function requestValidation(resourceId: string): Promise<{ resource: Resource; validatorUrl: string | null }> {
+export async function requestValidation(resourceId: string): Promise<ValidationRequestResult> {
   return apiFetch(`/user/resources/${resourceId}/validation-request`, { method: 'POST' });
+}
+
+export async function setupSshTarget(resourceId: string, target: SshTarget): Promise<{ ssh: SshOwnerDetail }> {
+  return apiFetch(`/user/resources/${resourceId}/ssh-target`, {
+    method: 'PUT',
+    body: JSON.stringify(target),
+  });
+}
+
+export async function getSshTarget(resourceId: string): Promise<{ ssh: SshOwnerDetail }> {
+  return apiFetch(`/user/resources/${resourceId}/ssh-target`);
+}
+
+export async function listSshMetaUsers(resourceId: string): Promise<{ metaUsers: SshMetaUser[] }> {
+  return apiFetch(`/user/resources/${resourceId}/ssh/meta-users`);
+}
+
+export async function createSshMetaUser(resourceId: string, metaUser: string): Promise<{ metaUser: SshMetaUser }> {
+  return apiFetch(`/user/resources/${resourceId}/ssh/meta-users`, {
+    method: 'POST',
+    body: JSON.stringify({ metaUser }),
+  });
+}
+
+export async function deleteSshMetaUser(resourceId: string, metaUser: string): Promise<void> {
+  await apiFetch(`/user/resources/${resourceId}/ssh/meta-users/${encodeURIComponent(metaUser)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function listRecipientKeys(): Promise<{ keys: SshRecipientKey[] }> {
+  return apiFetch('/user/recipient-keys');
+}
+
+export async function registerRecipientKey(publicKey: string, label?: string): Promise<{ key: SshRecipientKey }> {
+  return apiFetch('/user/recipient-keys', {
+    method: 'POST',
+    body: JSON.stringify({ publicKey, label: label ?? null }),
+  });
+}
+
+export async function revokeRecipientKey(keyId: string): Promise<void> {
+  await apiFetch(`/user/recipient-keys/${keyId}`, { method: 'DELETE' });
 }
 
 export async function listResourceGrants(resourceId: string): Promise<{ grants: ResourceGrant[] }> {

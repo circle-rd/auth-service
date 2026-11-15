@@ -49,6 +49,8 @@ import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { userResourceRoutes } from "./routes/user-resources.js";
 import { appResourceRoutes } from "./routes/app-resources.js";
+import { sshResourceRoutes } from "./routes/ssh.js";
+import { gatewaySshRoutes } from "./routes/gateway-ssh.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { walletInternalRoutes } from "./routes/wallet-internal.js";
 import { gatewayInternalRoutes } from "./routes/gateway-internal.js";
@@ -803,6 +805,9 @@ export async function buildServer(
   if (config.features.resourceSharing) {
     await fastify.register(userResourceRoutes, { prefix: "/api/user" });
     await fastify.register(appResourceRoutes, { prefix: "/api/user" });
+    if (config.resources.enabledSchemes.includes("ssh")) {
+      await fastify.register(sshResourceRoutes, { prefix: "/api/user" });
+    }
   }
   await fastify.register(walletRoutes, { prefix: "/api/user/wallet" });
   await fastify.register(walletInternalRoutes, {
@@ -815,6 +820,11 @@ export async function buildServer(
     await fastify.register(gatewayResourceRoutes, {
       prefix: "/api/internal/gateway",
     });
+    if (config.resources.enabledSchemes.includes("ssh")) {
+      await fastify.register(gatewaySshRoutes, {
+        prefix: "/api/internal/gateway",
+      });
+    }
   }
   await fastify.register(appBillingRoutes, { prefix: "/api/app/billing" });
   await fastify.register(appConsumptionRoutes, {

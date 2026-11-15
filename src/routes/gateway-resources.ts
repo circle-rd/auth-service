@@ -10,7 +10,10 @@ import {
   recordAccessEvent,
   recordUsageEvent,
 } from "../services/resources/usage.js";
-import { RESOURCE_USAGE_SOURCES } from "../services/resources/types.js";
+import {
+  RESOURCE_EVENT_SOURCES,
+  RESOURCE_USAGE_SOURCES,
+} from "../services/resources/types.js";
 import {
   completeResourceValidation,
   invalidateResource,
@@ -31,6 +34,7 @@ const authorizeBodySchema = z
     resourceUri: z.string().min(3).max(512),
     audience: z.string().min(1).max(2048),
     requestId: z.string().min(1).max(256).optional(),
+    source: z.enum(RESOURCE_EVENT_SOURCES).optional(),
   })
   .strict();
 
@@ -102,6 +106,7 @@ const validateBodySchema = z
   .object({
     result: z.enum(VALIDATION_RESULTS),
     reason: z.string().trim().max(500).nullable().optional(),
+    evidence: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .strict();
 
@@ -121,6 +126,7 @@ async function logDecision(
     subjectId: string;
     clientId: string;
     requestId?: string;
+    source?: (typeof RESOURCE_EVENT_SOURCES)[number];
   },
 ): Promise<void> {
   if (decision.decision === "allow") {
@@ -137,7 +143,7 @@ async function logDecision(
       decision: "allow",
       reasonClass: decision.accessKind,
       requestId: input.requestId,
-      source: "gateway",
+      source: input.source ?? "gateway",
     });
     return;
   }
@@ -150,7 +156,7 @@ async function logDecision(
     decision: "deny",
     reasonClass: decision.reason,
     requestId: input.requestId,
-    source: "gateway",
+    source: input.source ?? "gateway",
   });
 }
 
@@ -178,6 +184,7 @@ export async function gatewayResourceRoutes(
           subjectId: body.subjectId,
           clientId: body.clientId,
           requestId: body.requestId,
+          source: body.source,
         });
       } catch (err) {
         req.log.warn({ err }, "[res] access event could not be recorded");
@@ -273,6 +280,7 @@ export async function gatewayResourceRoutes(
         clientId,
         result: body.result,
         reason: body.reason,
+        evidence: body.evidence,
       });
       await reply.send({
         resource: {

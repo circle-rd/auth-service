@@ -20,6 +20,7 @@ import {
 import type { SelectOption } from '@/types/select';
 import ShareWorkspace from './ShareWorkspace.vue';
 import SharedResourcesPanel from './SharedResourcesPanel.vue';
+import SshKeysPanel from './SshKeysPanel.vue';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -203,6 +204,8 @@ onMounted(() => void load());
             can-read
           />
         </section>
+
+        <SshKeysPanel />
 
         <section v-if="ownerApps.length > 0" class="space-y-3">
           <div class="flex flex-wrap items-end justify-between gap-3">

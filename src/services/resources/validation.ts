@@ -1,5 +1,6 @@
 import { ERR } from "../../errors.js";
 import { linkResourceToGatewayObject } from "../gateway-inventory.js";
+import { setSshHostKeyFingerprint } from "../ssh/targets.js";
 import {
   getResource,
   markResourceInvalidated,
@@ -17,6 +18,7 @@ export interface CompleteValidationInput {
   clientId: string;
   result: ValidationResult;
   reason?: string | null;
+  evidence?: Record<string, unknown> | null;
 }
 
 /**
@@ -49,6 +51,13 @@ export async function completeResourceValidation(
       if (!linked) {
         throw ERR.RES_011("Resource is not present in the gateway inventory");
       }
+    }
+    if (resource.scheme === "ssh") {
+      const fingerprint = input.evidence?.hostKeyFingerprint;
+      if (typeof fingerprint !== "string") {
+        throw ERR.RES_001("SSH validation requires the host key fingerprint");
+      }
+      await setSshHostKeyFingerprint(resource.id, fingerprint);
     }
     return markResourceValidated(resource.id);
   }

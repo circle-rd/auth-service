@@ -142,6 +142,11 @@ services:
       LITELLM_URL: http://litellm:4000
       LITELLM_INVENTORY_KEY_FILE: /run/litellm-provisioner/inventory-key
       RESOURCE_SHARING_ENABLED: ${RESOURCE_SHARING_ENABLED:-false}
+      # SSH profile: envelope key for resource identity keys, and the public
+      # host/port used to build the owner validation command.
+      SSH_GATEWAY_ENVELOPE_KEY: ${SSH_GATEWAY_ENVELOPE_KEY:-}
+      SSH_GATEWAY_VALIDATION_HOST: ${SSH_GATEWAY_VALIDATION_HOST:-localhost}
+      SSH_GATEWAY_PORT: ${SSH_GATEWAY_PORT:-2222}
     volumes:
       - litellm_provisioner:/run/litellm-provisioner:ro
       - ./templates:/templates:ro
@@ -246,9 +251,42 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # External SSH gateway image. It is built from its own repository; auth-service
+  # never builds it. The machine client and device client are registered by the
+  # operator (see docs-site content 9.ssh-gateway-external-spec).
+  ssh-gateway:
+    image: ${SSH_GATEWAY_IMAGE:-ghcr.io/circle/ssh-gateway:latest}
+    profiles: ["ssh"]
+    restart: unless-stopped
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:${PORT:-3001}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3001}
+      SSH_GATEWAY_MACHINE_CLIENT_ID: ${SSH_GATEWAY_MACHINE_CLIENT_ID:-ssh-gateway}
+      SSH_GATEWAY_MACHINE_CLIENT_SECRET: ${SSH_GATEWAY_MACHINE_CLIENT_SECRET:-}
+      SSH_GATEWAY_DEVICE_CLIENT_ID: ${SSH_GATEWAY_DEVICE_CLIENT_ID:-ssh-gateway-device}
+      SSH_GATEWAY_ENVELOPE_KEY: ${SSH_GATEWAY_ENVELOPE_KEY:-}
+      SSH_LISTEN_ADDRESS: 0.0.0.0
+      SSH_LISTEN_PORT: "2222"
+      SSH_HOST_KEY_PATH: /data/ssh_host_key
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ssh_gateway_data:/data
+    ports:
+      - "${SSH_GATEWAY_PORT:-2222}:2222"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
   litellm:
     # Pinned to the 1.108 LTS line: custom_auth relies on LiteLLM internals,
-    # re-run `pnpm test:litellm` and `pnpm llm:smoke` before bumping the patch.
+    # re-run `pnpm test:litellm` before bumping the patch.
     # Keep the concrete LTS patch: the `lts` tag moves with every LTS release.
     # LiteLLM updates its Prisma schema at startup, so back up the `litellm`
     # database before the first start of a new minor (see the gateway guide).
@@ -323,6 +361,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  ssh_gateway_data:
   postgres_data:
   litellm_config:
   litellm_spool:

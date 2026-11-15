@@ -18,6 +18,7 @@ const {
   mockListSharingApps,
   mockAssertActiveMember,
   mockAssertCanManage,
+  mockAssertCanManageGrants,
   mockCreateGrant,
   mockGetGrant,
   mockListGrants,
@@ -59,6 +60,7 @@ const {
   mockListSharingApps: vi.fn(),
   mockAssertActiveMember: vi.fn(),
   mockAssertCanManage: vi.fn(),
+  mockAssertCanManageGrants: vi.fn(),
   mockCreateGrant: vi.fn(),
   mockGetGrant: vi.fn(),
   mockListGrants: vi.fn(),
@@ -113,6 +115,7 @@ vi.mock("../services/resources/apps.js", () => ({
 vi.mock("../services/resources/authority.js", () => ({
   assertActiveMember: mockAssertActiveMember,
   assertCanManageResource: mockAssertCanManage,
+  assertCanManageGrants: mockAssertCanManageGrants,
 }));
 vi.mock("../services/resources/grants.js", () => ({
   createResourceGrant: mockCreateGrant,
@@ -210,6 +213,7 @@ beforeEach(() => {
     mockListSharingApps,
     mockAssertActiveMember,
     mockAssertCanManage,
+    mockAssertCanManageGrants,
     mockCreateGrant,
     mockGetGrant,
     mockListGrants,
@@ -298,6 +302,7 @@ describe("user resource routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().resources).toHaveLength(1);
+    expect(Array.isArray(res.json().enabledSchemes)).toBe(true);
   });
 
   it("creates a user-owned resource in an application the user belongs to", async () => {
@@ -365,6 +370,17 @@ describe("user resource routes", () => {
     expect(mockMarkValidated).toHaveBeenCalledWith(RESOURCE);
     expect(res.json().resource.status).toBe("validated");
     expect(res.json().validatorUrl).toBeNull();
+  });
+
+  it("lists grants through the grant-specific authority", async () => {
+    mockGetResource.mockResolvedValue(resource);
+    mockListGrants.mockResolvedValue([]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/user/resources/${RESOURCE}/grants`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockAssertCanManageGrants).toHaveBeenCalledWith("user-1", resource);
   });
 
   it("creates a grant through the authority-aware service", async () => {

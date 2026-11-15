@@ -49,4 +49,22 @@ describe("Email — rate limit (integration)", () => {
     const body = blocked.json<{ error: { code: string } }>();
     expect(body.error.code).toBe("MAIL_003");
   });
+
+  it("does not spend the email bucket on invitation reads or preflights", async () => {
+    const url =
+      "/api/user/apps/11111111-1111-4111-8111-111111111111/invitations";
+    for (let i = 0; i < 10; i++) {
+      const read = await handle.app.inject({ method: "GET", url });
+      expect(read.statusCode).not.toBe(429);
+      const preflight = await handle.app.inject({
+        method: "OPTIONS",
+        url,
+        headers: {
+          origin: "http://localhost:3001",
+          "access-control-request-method": "POST",
+        },
+      });
+      expect(preflight.statusCode).not.toBe(429);
+    }
+  });
 });

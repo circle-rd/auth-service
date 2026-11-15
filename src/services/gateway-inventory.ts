@@ -223,6 +223,21 @@ export async function syncGatewayInventory(): Promise<number> {
           },
         });
     }
+    // Retired rows keep their name while a replacement takes over: move the
+    // links so already-validated resources stay entitled across the id change.
+    await tx.execute(sql`
+      UPDATE "resource_gateway_links" AS l
+      SET "gateway_object_id" = active."id"
+      FROM "gateway_objects" AS retired
+      JOIN "gateway_objects" AS active
+        ON active."kind" = retired."kind"
+       AND active."object_name" = retired."object_name"
+       AND active."parent_name" = retired."parent_name"
+       AND active."is_active" = true
+       AND active."id" <> retired."id"
+      WHERE l."gateway_object_id" = retired."id"
+        AND retired."is_active" = false
+    `);
   });
   return rows.length;
 }

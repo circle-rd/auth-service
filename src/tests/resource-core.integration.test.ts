@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
+  appDelegations,
   applications,
   subscriptionPlans,
   userApplications,
@@ -22,6 +23,7 @@ import {
   getResource,
 } from "../services/resources/registry.js";
 import { completeResourceValidation } from "../services/resources/validation.js";
+import { canManageGrants } from "../services/resources/authority.js";
 import { authorize } from "../services/resources/policy.js";
 import {
   createResourceGrant,
@@ -359,6 +361,30 @@ describe("generic resource core", () => {
         actorUserId: seedData.ownerId,
       }),
     ).rejects.toMatchObject({ code: "RES_004" });
+  });
+
+  it("separates grant administration from resource administration", async () => {
+    const seedData = await seed();
+    const resource = await validatedResource(seedData);
+    await db.insert(appDelegations).values([
+      {
+        userId: "member",
+        applicationId: seedData.appAId,
+        permission: "grants:manage",
+        status: "active",
+      },
+      {
+        userId: "outsider",
+        applicationId: seedData.appAId,
+        permission: "resources:manage",
+        status: "active",
+      },
+    ]);
+
+    await expect(canManageGrants("owner", resource)).resolves.toBe(true);
+    await expect(canManageGrants("member", resource)).resolves.toBe(true);
+    await expect(canManageGrants("outsider", resource)).resolves.toBe(false);
+    await expect(canManageGrants("admin", resource)).resolves.toBe(true);
   });
 
   it("denies when the application disables the scheme or the owner disables the resource", async () => {

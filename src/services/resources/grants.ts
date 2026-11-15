@@ -43,12 +43,20 @@ export async function insertResourceGrant(
   input: InsertResourceGrantInput,
   exec: DbExecutor = db,
 ): Promise<ResourceGrantRow> {
-  if (exec === db) {
-    return db.transaction((tx) => insertResourceGrant(input, tx));
-  }
+  // Resolve the resource and subject before opening a transaction so the
+  // connection is not held while these global-pool reads run.
   const resource = await getResource(input.resourceId);
   await assertSubjectExists(resource, input.subjectType, input.subjectId);
+  if (exec === db) {
+    return db.transaction((tx) => insertResourceGrantRow(input, tx));
+  }
+  return insertResourceGrantRow(input, exec);
+}
 
+async function insertResourceGrantRow(
+  input: InsertResourceGrantInput,
+  exec: DbExecutor,
+): Promise<ResourceGrantRow> {
   // Serialize concurrent inserts for this resource so the duplicate check and
   // the insert cannot interleave into two active grants.
   await exec

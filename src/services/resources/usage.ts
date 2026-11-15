@@ -1,4 +1,16 @@
-import { and, asc, count, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  isNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { config } from "../../config.js";
 import { db } from "../../db/index.js";
@@ -123,8 +135,14 @@ export async function recordUsageEvent(
     .from(resourceUsageRecords)
     .where(
       and(
-        eq(resourceUsageRecords.resourceId, input.resourceId),
         eq(resourceUsageRecords.requestId, input.requestId),
+        or(
+          eq(resourceUsageRecords.resourceId, input.resourceId),
+          and(
+            isNull(resourceUsageRecords.resourceId),
+            eq(resourceUsageRecords.uri, input.resourceUri),
+          ),
+        ),
       ),
     )
     .limit(1);

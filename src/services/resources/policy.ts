@@ -12,10 +12,8 @@ import {
   resourceGrants,
   resourceSchemes,
 } from "../../db/resource-schema.js";
-import { isActiveMember, isApplicationAdmin } from "./authority.js";
-import { resolveGrantsForSubject, type ResourceGrantRow } from "./grants.js";
+import type { ResourceGrantRow } from "./grants.js";
 import { findResourceByUri, type ResourceView } from "./registry.js";
-import { isSchemeEnabledForApplication } from "./scheme-service.js";
 import type { ResourceSubjectType } from "./types.js";
 import { parseResourceUri } from "./uri.js";
 
@@ -123,36 +121,12 @@ function decide(resource: ResourceView, facts: DecisionFacts): AccessDecision {
 export async function evaluateResourceAccess(
   facts: AccessFacts,
 ): Promise<AccessDecision> {
-  const { resource, subjectId } = facts;
-  if (resource.status === "disabled") return deny("disabled");
-  if (resource.status !== "validated") return deny("not_validated");
-  if (!resource.applicationActive) return deny("application_inactive");
-  if (!resource.resourceSharingEnabled) return deny("sharing_disabled");
-  if (
-    !(await isSchemeEnabledForApplication(
-      resource.applicationId,
-      resource.scheme,
-    ))
-  ) {
-    return deny("scheme_disabled");
-  }
-  if (!(await isActiveMember(subjectId, resource.applicationId))) {
-    return deny("no_membership");
-  }
-  if (resource.ownerType === "user" && resource.ownerId === subjectId) {
-    return allow(resource, "owner");
-  }
-  if (await isApplicationAdmin(subjectId, resource.applicationId)) {
-    return allow(resource, "admin");
-  }
-  const grants = await resolveGrantsForSubject(
-    subjectId,
-    resource.id,
-    facts.now ?? new Date(),
+  const [decision] = await evaluateResourceAccessBatch(
+    [facts.resource],
+    facts.subjectId,
+    facts.now,
   );
-  const grant = grants[0];
-  if (!grant) return deny("no_grant");
-  return allow(resource, "grant", grant.subjectType);
+  return decision ?? deny("not_found");
 }
 
 interface BatchAccessContext {

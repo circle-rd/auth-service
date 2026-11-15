@@ -38,5 +38,9 @@ const invokedDirectly =
   process.argv[1] !== undefined &&
   import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
-  await runMigrations();
+  try {
+    await runMigrations();
+  } finally {
+    await db.$client.end();
+  }
 }

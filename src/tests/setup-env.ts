@@ -30,6 +30,7 @@ process.env.REQUIRE_EMAIL_VERIFICATION = "true";
 // tests leave the flag unset, so they exercise the flag-off default.
 process.env.RESOURCE_SHARING_ENABLED = "true";
 process.env.RESOURCE_SCHEMES_ENABLED = "llm,agent,mcp,ssh";
+process.env.SSH_GATEWAY_EGRESS_IP = "203.0.113.10";
 
 // Fake credentials so the GitHub provider is mounted regardless of the
 // developer's local `.env` (CI has none). The OAuth flow is never completed.

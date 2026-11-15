@@ -62,9 +62,9 @@ const usageBodySchema = z
       .transform((value) => new Date(value)),
     usageSource: z.enum(RESOURCE_USAGE_SOURCES),
     costUsd: grossCostSchema.nullable(),
-    promptTokens: z.number().int().min(0).nullable(),
-    completionTokens: z.number().int().min(0).nullable(),
-    totalTokens: z.number().int().min(0).nullable(),
+    promptTokens: z.number().int().min(0).nullable().default(null),
+    completionTokens: z.number().int().min(0).nullable().default(null),
+    totalTokens: z.number().int().min(0).nullable().default(null),
   })
   .strict()
   .superRefine((value, ctx) => {

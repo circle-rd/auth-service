@@ -23,7 +23,8 @@ const SATISFIED_BY: Record<
   AppDelegationPermission,
   readonly AppDelegationPermission[]
 > = {
-  "resources:read": ["resources:read", "resources:manage"],
+  // Grant managers need resource metadata to pick a grant target.
+  "resources:read": ["resources:read", "resources:manage", "grants:manage"],
   "resources:manage": ["resources:manage"],
   "grants:manage": ["grants:manage"],
 };
@@ -48,6 +49,9 @@ export async function isApplicationAdmin(
   applicationId: string,
 ): Promise<boolean> {
   if (await isPlatformAdmin(userId)) return true;
+  // An application-admin role is only authoritative while the user still has
+  // an active membership: revoking access must also revoke the admin role.
+  if (!(await isActiveMember(userId, applicationId))) return false;
   const [row] = await db
     .select({ roleId: appRoles.id })
     .from(userAppRoles)
@@ -93,6 +97,7 @@ export async function assertActiveMember(
   userId: string,
   applicationId: string,
 ): Promise<void> {
+  if (!(await applicationExistsAndShares(applicationId))) throw ERR.RES_004();
   if (await isActiveMember(userId, applicationId)) return;
   throw ERR.RES_004();
 }
@@ -119,11 +124,14 @@ async function applicationExistsAndShares(
   applicationId: string,
 ): Promise<boolean> {
   const [app] = await db
-    .select({ enabled: applications.resourceSharingEnabled })
+    .select({
+      enabled: applications.resourceSharingEnabled,
+      isActive: applications.isActive,
+    })
     .from(applications)
     .where(eq(applications.id, applicationId))
     .limit(1);
-  return app?.enabled === true;
+  return app?.enabled === true && app.isActive === true;
 }
 
 /** Application admins and platform admins only; unknown apps share the 404. */
@@ -157,8 +165,11 @@ export async function canManageResource(
   resource: ResourceAuthorityRow,
 ): Promise<boolean> {
   if (await isPlatformAdmin(userId)) return true;
-  if (!(await isActiveMember(userId, resource.applicationId))) return false;
-  if (resource.ownerType === "user" && resource.ownerId === userId) return true;
+  // Owners must still be members; a delegated manager does not need a
+  // membership row for the application, only the active delegation.
+  if (resource.ownerType === "user" && resource.ownerId === userId) {
+    return isActiveMember(userId, resource.applicationId);
+  }
   if (await isApplicationAdmin(userId, resource.applicationId)) return true;
   return hasDelegatedPermission(
     userId,
@@ -187,10 +198,12 @@ export async function canGrantToSubject(
   subjectId: string | null,
 ): Promise<boolean> {
   if (await isPlatformAdmin(userId)) return true;
-  if (!(await isActiveMember(userId, resource.applicationId))) return false;
   if (await isApplicationAdmin(userId, resource.applicationId)) return true;
 
-  const isOwner = resource.ownerType === "user" && resource.ownerId === userId;
+  const isOwner =
+    resource.ownerType === "user" &&
+    resource.ownerId === userId &&
+    (await isActiveMember(userId, resource.applicationId));
   const delegated = await hasDelegatedPermission(
     userId,
     resource.applicationId,
@@ -199,6 +212,35 @@ export async function canGrantToSubject(
   if (!isOwner && !delegated) return false;
   if (subjectType !== "user" || subjectId === null) return false;
   return isActiveMember(subjectId, resource.applicationId);
+}
+
+/** Grant administration is separate from resource administration. */
+export async function canManageGrants(
+  userId: string,
+  resource: ResourceAuthorityRow,
+): Promise<boolean> {
+  if (await isPlatformAdmin(userId)) return true;
+  if (
+    resource.ownerType === "user" &&
+    resource.ownerId === userId &&
+    (await isActiveMember(userId, resource.applicationId))
+  ) {
+    return true;
+  }
+  if (await isApplicationAdmin(userId, resource.applicationId)) return true;
+  return hasDelegatedPermission(
+    userId,
+    resource.applicationId,
+    "grants:manage",
+  );
+}
+
+export async function assertCanManageGrants(
+  userId: string,
+  resource: ResourceAuthorityRow,
+): Promise<void> {
+  if (await canManageGrants(userId, resource)) return;
+  throw ERR.RES_002();
 }
 
 export async function assertCanGrantToSubject(

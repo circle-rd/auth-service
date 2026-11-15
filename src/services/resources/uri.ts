@@ -36,6 +36,9 @@ export function assertResourceScheme(scheme: string): string {
 
 export function adapterForScheme(scheme: string): ResourceAdapter {
   assertResourceScheme(scheme);
+  if (!Object.prototype.hasOwnProperty.call(BUILTIN_ADAPTERS, scheme)) {
+    return "external";
+  }
   return BUILTIN_ADAPTERS[scheme] ?? "external";
 }
 

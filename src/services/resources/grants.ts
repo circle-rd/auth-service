@@ -12,10 +12,7 @@ import {
 } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
 import type { DbExecutor } from "../credential-user.js";
-import {
-  assertCanGrantToSubject,
-  assertCanManageResource,
-} from "./authority.js";
+import { assertCanGrantToSubject, assertCanManageGrants } from "./authority.js";
 import { getResource, type ResourceView } from "./registry.js";
 import type { ResourceSubjectType } from "./types.js";
 
@@ -46,8 +43,19 @@ export async function insertResourceGrant(
   input: InsertResourceGrantInput,
   exec: DbExecutor = db,
 ): Promise<ResourceGrantRow> {
+  if (exec === db) {
+    return db.transaction((tx) => insertResourceGrant(input, tx));
+  }
   const resource = await getResource(input.resourceId);
   await assertSubjectExists(resource, input.subjectType, input.subjectId);
+
+  // Serialize concurrent inserts for this resource so the duplicate check and
+  // the insert cannot interleave into two active grants.
+  await exec
+    .select({ id: resourcesTable.id })
+    .from(resourcesTable)
+    .where(eq(resourcesTable.id, input.resourceId))
+    .for("update");
 
   const now = new Date();
   const [existing] = await exec
@@ -172,7 +180,7 @@ export async function revokeResourceGrant(
     .limit(1);
   if (!current) throw ERR.RES_007();
   const resource = await getResource(current.resourceId);
-  await assertCanManageResource(actorUserId, resource);
+  await assertCanManageGrants(actorUserId, resource);
   if (current.revokedAt) return current;
   const [row] = await db
     .update(resourceGrants)

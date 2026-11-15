@@ -148,6 +148,10 @@ export async function isSchemeEnabledForApplication(
     .select({ scheme: resourceSchemes.scheme })
     .from(applicationSchemes)
     .innerJoin(
+      applications,
+      eq(applicationSchemes.applicationId, applications.id),
+    )
+    .innerJoin(
       resourceSchemes,
       eq(applicationSchemes.scheme, resourceSchemes.scheme),
     )
@@ -157,6 +161,8 @@ export async function isSchemeEnabledForApplication(
         eq(applicationSchemes.scheme, scheme),
         eq(applicationSchemes.enabled, true),
         eq(resourceSchemes.status, "active"),
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
       ),
     )
     .limit(1);
@@ -243,11 +249,18 @@ export async function createApplicationScheme(
       id: applications.id,
       slug: applications.slug,
       enabled: applications.resourceSharingEnabled,
+      isActive: applications.isActive,
+      isPublic: applications.isPublic,
     })
     .from(applications)
     .where(eq(applications.id, input.applicationId))
     .limit(1);
-  if (!app || !app.enabled) throw ERR.RES_004();
+  if (!app || !app.enabled || !app.isActive) throw ERR.RES_004();
+  // A public client cannot obtain the client-credentials token the validation
+  // endpoint requires, so its resources could never be validated.
+  if (app.isPublic) {
+    throw ERR.RES_001("Public applications cannot own a resource scheme");
+  }
 
   return db.transaction(async (tx) => {
     const [row] = await tx

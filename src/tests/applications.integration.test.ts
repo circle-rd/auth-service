@@ -165,7 +165,6 @@ describe("applicationRoutes integration", () => {
       "billing:read",
       "consumption:read",
       "consumption:write",
-      "gateway:entitlements:read",
       "m2m",
       "resources:validate",
     ]);

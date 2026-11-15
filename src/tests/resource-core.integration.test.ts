@@ -387,6 +387,27 @@ describe("generic resource core", () => {
     ).resolves.toEqual({ decision: "deny", reason: "disabled" });
   });
 
+  it("denies when the resource application turns sharing off", async () => {
+    const seedData = await seed();
+    const resource = await validatedResource(seedData);
+    await db
+      .update(applications)
+      .set({ resourceSharingEnabled: false })
+      .where(eq(applications.id, seedData.appAId));
+
+    await expect(
+      authorize({
+        subjectId: seedData.ownerId,
+        clientId: "client",
+        resourceUri: resource.uri,
+        audience: "https://auth.example",
+      }),
+    ).resolves.toEqual({ decision: "deny", reason: "sharing_disabled" });
+    await expect(
+      listAccessibleResources({ subjectId: seedData.ownerId }),
+    ).resolves.toEqual([]);
+  });
+
   it("lists accessible resources without leaking foreign grants", async () => {
     const seedData = await seed();
     const resource = await validatedResource(seedData);
@@ -462,7 +483,8 @@ describe("generic resource core", () => {
 
     const entitlements = await listGatewayEntitlements(seedData.ownerId);
     expect(entitlements.models).toEqual(["gpt-x"]);
-    expect(entitlements.agents).toEqual(["analyst"]);
+    // LiteLLM's object_permission.agents expects agent ids, not display names.
+    expect(entitlements.agents).toEqual(["agent-1"]);
     expect(entitlements.mcpServers).toEqual(["server-x"]);
     expect(entitlements.mcpToolPermissions).toEqual({ "server-x": ["search"] });
     expect(entitlements.resources).toHaveLength(3);
@@ -594,9 +616,11 @@ describe("generic resource core", () => {
       ownerId: seedData.ownerId,
       status: "validated",
     });
-    const result = await sweepResourceMonitoringRetention(
-      new Date("2026-11-15T12:00:00.000Z"),
-    );
-    expect(result.accessEvents).toBeGreaterThanOrEqual(0);
+    const future = new Date(Date.now() + 401 * 24 * 60 * 60 * 1000);
+    const result = await sweepResourceMonitoringRetention(future);
+    expect(result.accessEvents).toBeGreaterThanOrEqual(1);
+    await expect(
+      listAccessEvents({ applicationId: seedData.appAId, limit: 10, offset: 0 }),
+    ).resolves.toHaveLength(0);
   });
 });

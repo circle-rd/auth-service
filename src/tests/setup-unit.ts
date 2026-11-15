@@ -13,3 +13,5 @@ import { applyBaseEnv } from "./base-env.js";
 applyBaseEnv();
 
 process.env.DATABASE_URL ??= "postgres://user:pass@localhost:5432/db";
+
+process.env.SSH_GATEWAY_EGRESS_IP = "203.0.113.10";

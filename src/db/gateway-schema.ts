@@ -50,11 +50,11 @@ export const gatewayObjects = pgTable(
   },
   (t) => [
     uniqueIndex("gateway_objects_litellm_idx").on(t.kind, t.litellmId),
-    uniqueIndex("gateway_objects_name_idx").on(
-      t.kind,
-      t.objectName,
-      t.parentName,
-    ),
+    // Only live names are unique: a provider id change retires the old row
+    // before the replacement becomes active.
+    uniqueIndex("gateway_objects_name_idx")
+      .on(t.kind, t.objectName, t.parentName)
+      .where(sql`${t.isActive} = true`),
     index("gateway_objects_active_idx").on(t.kind, t.isActive),
     check(
       "gateway_objects_kind_check",

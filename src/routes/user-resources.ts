@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { config } from "../config.js";
 import { ERR } from "../errors.js";
 import { getRequestSession, requireSession } from "../middleware.js";
 import {
@@ -9,6 +10,7 @@ import {
 import { listMemberApplications } from "../services/resources/apps.js";
 import {
   assertActiveMember,
+  assertCanManageGrants,
   assertCanManageResource,
 } from "../services/resources/authority.js";
 import {
@@ -160,7 +162,11 @@ export async function userResourceRoutes(
         listAccessibleResources({ subjectId: userId }),
         listSharingApplications(),
       ]);
-      await reply.send({ applications, resources });
+      await reply.send({
+        applications,
+        resources,
+        enabledSchemes: config.resources.enabledSchemes,
+      });
     },
   );
 
@@ -263,7 +269,7 @@ export async function userResourceRoutes(
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const resource = await getResource(resourceId);
-    await assertCanManageResource(userId, resource);
+    await assertCanManageGrants(userId, resource);
     const grants = await listGrantsForResource(resourceId);
     await reply.send({ grants });
   });

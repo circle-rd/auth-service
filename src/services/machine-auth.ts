@@ -32,7 +32,6 @@ export const APPLICATION_MACHINE_SCOPES = [
   "consumption:read",
   "consumption:write",
   "resources:validate",
-  "gateway:entitlements:read",
 ] as const satisfies readonly MachineScope[];
 
 /** What a new confidential application may request through client_credentials. */

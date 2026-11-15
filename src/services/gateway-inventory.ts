@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
@@ -193,34 +193,37 @@ export async function syncGatewayInventory(): Promise<number> {
   if (!config.litellm.url) return 0;
   const syncStartedAt = new Date();
   const rows = await fetchInventory();
-  for (let index = 0; index < rows.length; index += UPSERT_CHUNK) {
-    const chunk = rows.slice(index, index + UPSERT_CHUNK);
-    await db
-      .insert(gatewayObjects)
-      .values(
-        chunk.map((row) => ({
-          ...row,
-          lastSeenAt: syncStartedAt,
-          updatedAt: syncStartedAt,
-        })),
-      )
-      .onConflictDoUpdate({
-        target: [gatewayObjects.kind, gatewayObjects.litellmId],
-        set: {
-          objectName: sql`excluded.object_name`,
-          parentName: sql`excluded.parent_name`,
-          displayName: sql`excluded.display_name`,
-          isActive: sql`excluded.is_active`,
-          lastSeenAt: syncStartedAt,
-          metadata: sql`excluded.metadata`,
-          updatedAt: syncStartedAt,
-        },
-      });
-  }
-  await db
-    .update(gatewayObjects)
-    .set({ isActive: false, updatedAt: syncStartedAt })
-    .where(lt(gatewayObjects.lastSeenAt, syncStartedAt));
+  await db.transaction(async (tx) => {
+    // Retire every mirrored row first so a provider id change cannot collide
+    // with the still-active row that holds the same name.
+    await tx
+      .update(gatewayObjects)
+      .set({ isActive: false, updatedAt: syncStartedAt });
+    for (let index = 0; index < rows.length; index += UPSERT_CHUNK) {
+      const chunk = rows.slice(index, index + UPSERT_CHUNK);
+      await tx
+        .insert(gatewayObjects)
+        .values(
+          chunk.map((row) => ({
+            ...row,
+            lastSeenAt: syncStartedAt,
+            updatedAt: syncStartedAt,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [gatewayObjects.kind, gatewayObjects.litellmId],
+          set: {
+            objectName: sql`excluded.object_name`,
+            parentName: sql`excluded.parent_name`,
+            displayName: sql`excluded.display_name`,
+            isActive: sql`excluded.is_active`,
+            lastSeenAt: syncStartedAt,
+            metadata: sql`excluded.metadata`,
+            updatedAt: syncStartedAt,
+          },
+        });
+    }
+  });
   return rows.length;
 }
 
@@ -326,13 +329,17 @@ export async function listGatewayEntitlements(
     .select({
       resourceId: resourceGatewayLinks.resourceId,
       kind: gatewayObjects.kind,
+      litellmId: gatewayObjects.litellmId,
       objectName: gatewayObjects.objectName,
       parentName: gatewayObjects.parentName,
     })
     .from(resourceGatewayLinks)
     .innerJoin(
       gatewayObjects,
-      eq(resourceGatewayLinks.gatewayObjectId, gatewayObjects.id),
+      and(
+        eq(resourceGatewayLinks.gatewayObjectId, gatewayObjects.id),
+        eq(gatewayObjects.isActive, true),
+      ),
     )
     .where(
       inArray(
@@ -353,7 +360,7 @@ export async function listGatewayEntitlements(
     const link = byResource.get(item.resourceId);
     if (!link) continue;
     if (link.kind === "model") models.add(link.objectName);
-    else if (link.kind === "agent") agents.add(link.objectName);
+    else if (link.kind === "agent") agents.add(link.litellmId);
     else if (link.kind === "mcp_server") {
       mcpServers.add(link.objectName);
       serverLevel.add(link.objectName);

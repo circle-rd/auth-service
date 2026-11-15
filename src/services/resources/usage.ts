@@ -116,6 +116,27 @@ function sameUsageEvent(
 export async function recordUsageEvent(
   input: RecordUsageInput,
 ): Promise<RecordUsageResult> {
+  // Check idempotency first: a retry of a stored event must succeed even if
+  // access was revoked after the original delivery.
+  const [existingEvent] = await db
+    .select()
+    .from(resourceUsageRecords)
+    .where(
+      and(
+        eq(resourceUsageRecords.resourceId, input.resourceId),
+        eq(resourceUsageRecords.requestId, input.requestId),
+      ),
+    )
+    .limit(1);
+  if (existingEvent) {
+    if (!sameUsageEvent(existingEvent, input)) {
+      throw ERR.RES_012(
+        "A different payload was already stored for this event",
+      );
+    }
+    return { record: existingEvent, replayed: true };
+  }
+
   const resource = await getResource(input.resourceId);
   if (resource.uri !== input.resourceUri) {
     throw ERR.RES_011("Unknown or mismatched resource");
@@ -351,7 +372,7 @@ async function queryUsage(
       .where(range)
       .groupBy(resourceUsageRecords.subjectId)
       .orderBy(
-        desc(sql`sum(${resourceUsageRecords.costUsd})`),
+        desc(sql`coalesce(sum(${resourceUsageRecords.costUsd}), 0)`),
         asc(resourceUsageRecords.subjectId),
       )
       .limit(query.limit + 1)
@@ -392,7 +413,7 @@ async function queryUsage(
       resourcesTable.displayName,
     )
     .orderBy(
-      desc(sql`sum(${resourceUsageRecords.costUsd})`),
+      desc(sql`coalesce(sum(${resourceUsageRecords.costUsd}), 0)`),
       asc(resourceUsageRecords.uri),
     )
     .limit(query.limit + 1)
@@ -403,7 +424,8 @@ async function queryUsage(
     from: query.from.toISOString(),
     to: query.to.toISOString(),
     items: rows.slice(0, query.limit).map((row) => ({
-      resourceId: row.resourceId,
+      // Deleted resources keep their usage; fall back to the URI as the key.
+      resourceId: row.resourceId ?? row.uri,
       uri: row.uri,
       scheme: row.scheme,
       displayName: row.displayName,

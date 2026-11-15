@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
 import { resources } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
 import type { DbExecutor } from "../credential-user.js";
-import { assertCanManageResource } from "./authority.js";
+import { assertCanManageResource, isActiveMember } from "./authority.js";
 import { assertSchemeEnabledForApplication } from "./scheme-service.js";
 import type { ResourceOwnerType, ResourceStatus } from "./types.js";
 import { assertLocator, buildResourceUri, parseResourceUri } from "./uri.js";
@@ -15,6 +15,8 @@ export type ResourceRow = typeof resources.$inferSelect;
 export interface ResourceView extends ResourceRow {
   applicationSlug: string;
   applicationName: string;
+  resourceSharingEnabled: boolean;
+  applicationActive: boolean;
 }
 
 const resourceColumns = {
@@ -40,6 +42,8 @@ const viewColumns = {
   ...resourceColumns,
   applicationSlug: applications.slug,
   applicationName: applications.name,
+  resourceSharingEnabled: applications.resourceSharingEnabled,
+  applicationActive: applications.isActive,
 } as const;
 
 export interface CreateResourceInput {
@@ -56,6 +60,12 @@ export async function createResource(
   input: CreateResourceInput,
 ): Promise<ResourceView> {
   await assertSchemeEnabledForApplication(input.applicationId, input.scheme);
+  if (
+    input.ownerType === "user" &&
+    !(await isActiveMember(input.ownerId, input.applicationId))
+  ) {
+    throw ERR.RES_004();
+  }
   if (
     input.ownerType === "application" &&
     input.ownerId !== input.applicationId
@@ -93,7 +103,12 @@ export async function createResource(
   if (!row) throw ERR.RES_003();
 
   const [app] = await db
-    .select({ slug: applications.slug, name: applications.name })
+    .select({
+      slug: applications.slug,
+      name: applications.name,
+      resourceSharingEnabled: applications.resourceSharingEnabled,
+      applicationActive: applications.isActive,
+    })
     .from(applications)
     .where(eq(applications.id, row.applicationId))
     .limit(1);
@@ -101,6 +116,8 @@ export async function createResource(
     ...row,
     applicationSlug: app?.slug ?? "",
     applicationName: app?.name ?? "",
+    resourceSharingEnabled: app?.resourceSharingEnabled ?? false,
+    applicationActive: app?.applicationActive ?? false,
   };
 }
 
@@ -141,6 +158,8 @@ export async function listResourcesForOwner(
       and(
         eq(resources.ownerType, ownerType),
         eq(resources.ownerId, ownerId),
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
         applicationId ? eq(resources.applicationId, applicationId) : undefined,
       ),
     )
@@ -154,7 +173,13 @@ export async function listResourcesForApplication(
     .select(viewColumns)
     .from(resources)
     .innerJoin(applications, eq(resources.applicationId, applications.id))
-    .where(eq(resources.applicationId, applicationId))
+    .where(
+      and(
+        eq(resources.applicationId, applicationId),
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
+      ),
+    )
     .orderBy(desc(resources.createdAt));
 }
 
@@ -170,6 +195,8 @@ export async function listValidatedResourcesForApplication(
       and(
         eq(resources.applicationId, applicationId),
         eq(resources.status, "validated"),
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
         scheme ? eq(resources.scheme, scheme) : undefined,
       ),
     )
@@ -187,6 +214,8 @@ export async function listValidatedResourcesBySchemes(
     .where(
       and(
         eq(resources.status, "validated"),
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
         inArray(resources.scheme, [...schemes]),
       ),
     );
@@ -197,7 +226,13 @@ export async function listValidatedResources(): Promise<ResourceView[]> {
     .select(viewColumns)
     .from(resources)
     .innerJoin(applications, eq(resources.applicationId, applications.id))
-    .where(eq(resources.status, "validated"))
+    .where(
+      and(
+        eq(resources.status, "validated"),
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
+      ),
+    )
     .orderBy(desc(resources.createdAt));
 }
 
@@ -257,9 +292,9 @@ export async function markResourceValidated(
       validationError: null,
       updatedAt: new Date(),
     })
-    .where(eq(resources.id, id))
+    .where(and(eq(resources.id, id), ne(resources.status, "disabled")))
     .returning();
-  if (!row) throw ERR.RES_002();
+  if (!row) throw ERR.RES_001("Resource is disabled");
   return { ...current, ...row };
 }
 
@@ -276,9 +311,9 @@ export async function markResourceValidationFailed(
       validationError: reason.slice(0, 500),
       updatedAt: new Date(),
     })
-    .where(eq(resources.id, id))
+    .where(and(eq(resources.id, id), ne(resources.status, "disabled")))
     .returning();
-  if (!row) throw ERR.RES_002();
+  if (!row) throw ERR.RES_001("Resource is disabled");
   return { ...current, ...row };
 }
 

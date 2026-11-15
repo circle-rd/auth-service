@@ -620,11 +620,13 @@ export async function buildServer(
 
     // The email bucket also covers owner routes outside /api/auth (resource
     // invitations), so it is evaluated before the BetterAuth-only branch.
+    // Reads and CORS preflights never send mail and must not consume it.
     if (
-      EMAIL_SEND_PATHS.some(
+      req.method === "POST" &&
+      (EMAIL_SEND_PATHS.some(
         (p) => urlPath === p || urlPath.startsWith(p + "/"),
       ) ||
-      EMAIL_SEND_PATH_PATTERNS.some((pattern) => pattern.test(urlPath))
+        EMAIL_SEND_PATH_PATTERNS.some((pattern) => pattern.test(urlPath)))
     ) {
       const allowed = await rateLimitStore.hit(
         `email:${ip}`,

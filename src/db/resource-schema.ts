@@ -318,9 +318,11 @@ export const resourceUsageRecords = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
-    resourceId: uuid("resource_id")
-      .notNull()
-      .references(() => resources.id, { onDelete: "cascade" }),
+    // The usage ledger outlives the resource: deleting an application must not
+    // erase historical sales data.
+    resourceId: uuid("resource_id").references(() => resources.id, {
+      onDelete: "set null",
+    }),
     uri: text("uri").notNull(),
     scheme: text("scheme").notNull(),
     ownerType: text("owner_type").$type<ResourceOwnerType>().notNull(),

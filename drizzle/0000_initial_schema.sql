@@ -655,7 +655,7 @@ CREATE TABLE "resource_schemes" (
 CREATE TABLE "resource_usage_records" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"occurred_at" timestamp with time zone NOT NULL,
-	"resource_id" uuid NOT NULL,
+	"resource_id" uuid,
 	"uri" text NOT NULL,
 	"scheme" text NOT NULL,
 	"owner_type" text NOT NULL,
@@ -847,7 +847,7 @@ ALTER TABLE "resource_access_events" ADD CONSTRAINT "resource_access_events_reso
 ALTER TABLE "resource_access_events" ADD CONSTRAINT "resource_access_events_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_grants" ADD CONSTRAINT "resource_grants_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_invitations" ADD CONSTRAINT "resource_invitations_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_scheme_resource_schemes_scheme_fk" FOREIGN KEY ("scheme") REFERENCES "public"."resource_schemes"("scheme") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
@@ -937,7 +937,7 @@ CREATE INDEX "resources_application_status_idx" ON "resources" USING btree ("app
 CREATE INDEX "resources_owner_idx" ON "resources" USING btree ("owner_type","owner_id");--> statement-breakpoint
 CREATE INDEX "resources_scheme_status_idx" ON "resources" USING btree ("scheme","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "gateway_objects_litellm_idx" ON "gateway_objects" USING btree ("kind","litellm_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "gateway_objects_name_idx" ON "gateway_objects" USING btree ("kind","object_name","parent_name");--> statement-breakpoint
+CREATE UNIQUE INDEX "gateway_objects_name_idx" ON "gateway_objects" USING btree ("kind","object_name","parent_name") WHERE "gateway_objects"."is_active" = true;--> statement-breakpoint
 CREATE INDEX "gateway_objects_active_idx" ON "gateway_objects" USING btree ("kind","is_active");--> statement-breakpoint
 CREATE INDEX "resource_gateway_links_object_idx" ON "resource_gateway_links" USING btree ("gateway_object_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "ssh_recipient_keys_public_active_idx" ON "ssh_recipient_keys" USING btree ("public_key") WHERE "ssh_recipient_keys"."revoked_at" IS NULL;--> statement-breakpoint

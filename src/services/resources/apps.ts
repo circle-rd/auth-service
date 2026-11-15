@@ -79,6 +79,14 @@ export async function listOwnerApplications(
     .from(userAppRoles)
     .innerJoin(appRoles, eq(userAppRoles.roleId, appRoles.id))
     .innerJoin(applications, eq(appRoles.applicationId, applications.id))
+    .innerJoin(
+      userApplications,
+      and(
+        eq(userApplications.applicationId, applications.id),
+        eq(userApplications.userId, userId),
+        eq(userApplications.isActive, true),
+      ),
+    )
     .where(
       and(
         eq(userAppRoles.userId, userId),
@@ -156,19 +164,45 @@ export interface OwnerApplicationMember {
   roles: string[];
 }
 
+export interface OwnerMemberQuery {
+  limit: number;
+  offset: number;
+}
+
+export interface OwnerMemberPage {
+  members: OwnerApplicationMember[];
+  hasMore: boolean;
+}
+
 export async function listOwnerMembers(
   ownerApplicationId: string,
-): Promise<OwnerApplicationMember[]> {
-  const rows = await db
-    .select({
+  query: OwnerMemberQuery,
+): Promise<OwnerMemberPage> {
+  // Page on distinct users first: a user with several roles must not consume
+  // several rows of the limit.
+  const userPage = await db
+    .selectDistinct({
       userId: userApplications.userId,
       name: userTable.name,
       email: userTable.email,
+    })
+    .from(userApplications)
+    .innerJoin(userTable, eq(userTable.id, userApplications.userId))
+    .where(eq(userApplications.applicationId, ownerApplicationId))
+    .orderBy(asc(userTable.name), asc(userTable.email))
+    .limit(query.limit + 1)
+    .offset(query.offset);
+  const hasMore = userPage.length > query.limit;
+  const page = userPage.slice(0, query.limit);
+  if (page.length === 0) return { members: [], hasMore: false };
+
+  const rows = await db
+    .select({
+      userId: userApplications.userId,
       isActive: userApplications.isActive,
       role: appRoles.name,
     })
     .from(userApplications)
-    .innerJoin(userTable, eq(userTable.id, userApplications.userId))
     .leftJoin(
       userAppRoles,
       and(
@@ -177,8 +211,15 @@ export async function listOwnerMembers(
       ),
     )
     .leftJoin(appRoles, eq(userAppRoles.roleId, appRoles.id))
-    .where(eq(userApplications.applicationId, ownerApplicationId))
-    .orderBy(asc(userTable.name), asc(userTable.email));
+    .where(
+      and(
+        eq(userApplications.applicationId, ownerApplicationId),
+        inArray(
+          userApplications.userId,
+          page.map((row) => row.userId),
+        ),
+      ),
+    );
 
   const byUser = new Map<string, OwnerApplicationMember>();
   for (const row of rows) {
@@ -191,13 +232,21 @@ export async function listOwnerMembers(
     }
     byUser.set(row.userId, {
       userId: row.userId,
-      name: row.name,
-      email: row.email,
+      name: "",
+      email: "",
       isActive: row.isActive,
       roles: row.role ? [row.role] : [],
     });
   }
-  return [...byUser.values()];
+  const members: OwnerApplicationMember[] = [];
+  for (const row of page) {
+    const member = byUser.get(row.userId);
+    if (!member) continue;
+    member.name = row.name;
+    member.email = row.email;
+    members.push(member);
+  }
+  return { members, hasMore };
 }
 
 export interface OwnerPlanSummary {
@@ -256,24 +305,16 @@ export async function addExistingUserToApplication(
     .limit(1);
   if (!app) throw ERR.RES_004();
 
-  const [existing] = await db
-    .select({ id: userApplications.id, isActive: userApplications.isActive })
-    .from(userApplications)
-    .where(
-      and(
-        eq(userApplications.userId, user.id),
-        eq(userApplications.applicationId, applicationId),
-      ),
-    )
-    .limit(1);
-
-  if (!existing) {
-    await db.insert(userApplications).values({
-      userId: user.id,
-      applicationId,
-      isActive: true,
-    });
-  } else if (!existing.isActive) {
+  const inserted = await db
+    .insert(userApplications)
+    .values({ userId: user.id, applicationId, isActive: true })
+    .onConflictDoNothing({
+      target: [userApplications.userId, userApplications.applicationId],
+    })
+    .returning({ id: userApplications.id });
+  const created = inserted.length > 0;
+  if (!created) {
+    // A concurrent request may have created the row, or reactivated it.
     await db
       .update(userApplications)
       .set({ isActive: true })
@@ -281,11 +322,12 @@ export async function addExistingUserToApplication(
         and(
           eq(userApplications.userId, user.id),
           eq(userApplications.applicationId, applicationId),
+          eq(userApplications.isActive, false),
         ),
       );
   }
 
-  if (!existing) {
+  if (created) {
     await assignDefaultRoleIfNeeded(user.id, applicationId);
     await assignDefaultPlanIfNeeded(user.id, applicationId);
     publishEvent("user.changed");
@@ -294,7 +336,7 @@ export async function addExistingUserToApplication(
     userId: user.id,
     name: user.name,
     email: user.email,
-    created: !existing,
+    created,
     applicationName: app.name,
     applicationSlug: app.slug,
   };

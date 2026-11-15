@@ -59,6 +59,13 @@ const memberBodySchema = z
   .object({ email: z.string().trim().email().max(320) })
   .strict();
 
+const memberQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .strict();
+
 const appResourceCreateSchema = z
   .object({
     scheme: z.string().regex(RESOURCE_SCHEME_RE),
@@ -68,13 +75,21 @@ const appResourceCreateSchema = z
   })
   .strict();
 
+const validatorUrlSchema = z
+  .string()
+  .url()
+  .max(2048)
+  .refine((value) => /^https?:\/\//i.test(value), {
+    message: "Validator URL must use HTTP or HTTPS",
+  });
+
 const schemeCreateSchema = z
   .object({
     scheme: z.string().regex(RESOURCE_SCHEME_RE),
     displayName: z.string().trim().min(1).max(200),
     description: z.string().trim().max(2000).nullable().optional(),
     icon: z.string().trim().max(200).nullable().optional(),
-    validatorUrl: z.string().url().max(2048).nullable().optional(),
+    validatorUrl: validatorUrlSchema.nullable().optional(),
   })
   .strict();
 
@@ -83,7 +98,7 @@ const schemePatchSchema = z
     displayName: z.string().trim().min(1).max(200).optional(),
     description: z.string().trim().max(2000).nullable().optional(),
     icon: z.string().trim().max(200).nullable().optional(),
-    validatorUrl: z.string().url().max(2048).nullable().optional(),
+    validatorUrl: validatorUrlSchema.nullable().optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -134,7 +149,13 @@ export async function appResourceRoutes(
       "resources:read",
     );
     if (!userId) return;
-    await reply.send({ members: await listOwnerMembers(appId) });
+    const query = memberQuerySchema.parse(req.query);
+    const page = await listOwnerMembers(appId, query);
+    await reply.send({
+      members: page.members,
+      hasMore: page.hasMore,
+      nextOffset: page.hasMore ? query.offset + query.limit : null,
+    });
   });
 
   fastify.post("/apps/:appId/members", async (req, reply) => {
@@ -274,7 +295,12 @@ export async function appResourceRoutes(
 
   fastify.get("/apps/:appId/invitations", async (req, reply) => {
     const { appId } = appParamsSchema.parse(req.params);
-    const userId = await requireResourceAppAdmin(req, reply, appId);
+    const userId = await requireAppDelegation(
+      req,
+      reply,
+      appId,
+      "grants:manage",
+    );
     if (!userId) return;
     await reply.send({
       invitations: await listResourceInvitationsForApplication(appId),
@@ -296,15 +322,24 @@ export async function appResourceRoutes(
     let emailSent = false;
     if (isMailConfigured()) {
       const session = await getRequestSession(req);
-      await sendResourceInvitationEmail(body.email, {
-        url: inviteUrl,
-        expiresInHours: body.ttlHours ?? 72,
-        ownerAppName: created.resource.applicationName,
-        ownerAppSlug: created.resource.applicationSlug,
-        resourceName: created.resource.displayName,
-        inviterName: session?.user.name ?? undefined,
-      });
-      emailSent = true;
+      try {
+        await sendResourceInvitationEmail(body.email, {
+          url: inviteUrl,
+          expiresInHours: body.ttlHours ?? 72,
+          ownerAppName: created.resource.applicationName,
+          ownerAppSlug: created.resource.applicationSlug,
+          resourceName: created.resource.displayName,
+          inviterName: session?.user.name ?? undefined,
+        });
+        emailSent = true;
+      } catch (err) {
+        // The invitation exists and its URL is returned below: a mail outage
+        // must not strand it. Log the failure class only, never the token URL.
+        req.log.error(
+          { error: err instanceof Error ? err.name : "unknown" },
+          "resource invitation email could not be sent",
+        );
+      }
     }
     await reply.status(201).send({
       invitation: toPublicResourceInvitation(created.invitation),
@@ -317,7 +352,12 @@ export async function appResourceRoutes(
     "/apps/:appId/invitations/:invitationId",
     async (req, reply) => {
       const { appId, invitationId } = invitationParamsSchema.parse(req.params);
-      const userId = await requireResourceAppAdmin(req, reply, appId);
+      const userId = await requireAppDelegation(
+        req,
+        reply,
+        appId,
+        "grants:manage",
+      );
       if (!userId) return;
       const invitation = await revokeResourceInvitation(invitationId, userId);
       await reply.send({

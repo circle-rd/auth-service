@@ -1,7 +1,7 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
-import { evaluateResourceAccess, type AccessKind } from "./policy.js";
+import { evaluateResourceAccessBatch, type AccessKind } from "./policy.js";
 import {
   listValidatedResources,
   listValidatedResourcesBySchemes,
@@ -62,15 +62,16 @@ export async function listAccessibleResources(
   const resources: ResourceView[] = input.scheme
     ? await listValidatedResourcesBySchemes([input.scheme])
     : await listValidatedResources();
+  const decisions = await evaluateResourceAccessBatch(
+    resources,
+    input.subjectId,
+    input.now,
+  );
   const accessible: AccessibleResource[] = [];
-  for (const resource of resources) {
-    const decision = await evaluateResourceAccess({
-      resource,
-      subjectId: input.subjectId,
-      now: input.now,
-    });
-    if (decision.decision !== "allow") continue;
-    accessible.push(toAccessible(resource, decision));
+  for (let index = 0; index < resources.length; index += 1) {
+    const decision = decisions[index];
+    if (decision?.decision !== "allow") continue;
+    accessible.push(toAccessible(resources[index]!, decision));
   }
   return accessible;
 }
@@ -81,6 +82,11 @@ export async function listSharingApplications(): Promise<
   return db
     .select({ slug: applications.slug, name: applications.name })
     .from(applications)
-    .where(eq(applications.resourceSharingEnabled, true))
+    .where(
+      and(
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
+      ),
+    )
     .orderBy(asc(applications.name));
 }

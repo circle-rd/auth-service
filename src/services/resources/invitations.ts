@@ -12,7 +12,7 @@ import { ERR } from "../../errors.js";
 import { assignDefaultRoleIfNeeded } from "../claims.js";
 import { publishEvent } from "../event-bus.js";
 import { assignDefaultPlanIfNeeded } from "../subscriptions.js";
-import { assertAppAdmin } from "./authority.js";
+import { assertAppAdmin, assertCanManageGrants } from "./authority.js";
 import { insertResourceGrant, type ResourceGrantRow } from "./grants.js";
 import { getResource, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
@@ -245,7 +245,7 @@ export async function revokeResourceInvitation(
     .limit(1);
   if (!invitation) throw ERR.RES_010();
   const resource = await getResource(invitation.resourceId);
-  await assertAppAdmin(actorUserId, resource.applicationId);
+  await assertCanManageGrants(actorUserId, resource);
   if (invitation.consumedAt || invitation.revokedAt) {
     throw ERR.RES_010();
   }

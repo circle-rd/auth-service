@@ -472,6 +472,33 @@ describe("application resource routes", () => {
     expect(mockSendInvitation).not.toHaveBeenCalled();
   });
 
+  it("keeps the invitation when the email transport fails", async () => {
+    mockMailConfigured.mockReturnValue(true);
+    mockSendInvitation.mockRejectedValue(new Error("smtp unavailable"));
+    mockCreateInvitation.mockResolvedValue({
+      invitation: {
+        id: INVITATION,
+        email: "invitee@example.com",
+        resourceId: RESOURCE,
+        expiresAt: new Date("2026-11-18T00:00:00Z"),
+        consumedAt: null,
+        revokedAt: null,
+        createdBy: "user-1",
+        createdAt: new Date("2026-11-15T00:00:00Z"),
+      },
+      token: "token-1",
+      resource,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/apps/${APP}/invitations`,
+      payload: { email: "invitee@example.com", resourceId: RESOURCE },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().inviteUrl).toContain("token-1");
+    expect(res.json().emailSent).toBe(false);
+  });
+
   it("defaults usage to the last 30 days and rejects an inverted range", async () => {
     mockGetUsage.mockResolvedValue({
       groupBy: "user",
@@ -499,6 +526,10 @@ describe("application resource routes", () => {
       APP,
       expect.objectContaining({ groupBy: "user", limit: 50, offset: 0 }),
     );
+    const defaults = mockGetUsage.mock.calls[0]?.[1];
+    const span =
+      new Date(defaults.to).getTime() - new Date(defaults.from).getTime();
+    expect(span).toBe(30 * 24 * 60 * 60 * 1000);
 
     const inverted = await app.inject({
       method: "GET",

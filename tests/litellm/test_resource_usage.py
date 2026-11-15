@@ -18,6 +18,7 @@ for name, value in {
     "WALLET_CLIENT_SECRET": "secret",
     "GATEWAY_ENTITLEMENTS_URL": "https://auth.test",
     "RESOURCE_USAGE_SPOOL_DIR": tempfile.mkdtemp(prefix="resource-usage-test-"),
+    "RESOURCE_USAGE_BACKGROUND_RETRY": "0",
 }.items():
     os.environ.setdefault(name, value)
 
@@ -201,6 +202,25 @@ class BuildEvent(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event["resourceId"], "resource-tool")
 
+    def test_ambiguous_mcp_server_without_tool_is_skipped(self) -> None:
+        event = resource_usage.build_event(
+            payload(
+                resources=[
+                    resource("search", "resource-a", "mcp_tool", "server-x"),
+                    resource("fetch", "resource-b", "mcp_tool", "server-x"),
+                ],
+                call_type="call_mcp_tool",
+                model_group=None,
+                cost=0,
+                total=0,
+                prompt=0,
+                completion=0,
+                mcp_server="server-x",
+            ),
+            failed=False,
+        )
+        self.assertIsNone(event)
+
     def test_unverified_identity_creates_no_event(self) -> None:
         raw = payload()
         raw["standard_logging_object"]["metadata"] = {}
@@ -243,9 +263,9 @@ class Spool(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(item["body"]["resourceId"], "resource-1")
 
     async def test_capture_failure_never_raises(self) -> None:
-        await self.logger.async_log_success_event(
-            {"standard_logging_object": "bad"}, None, None, None
-        )
+        self.pending.rmdir()
+        self.pending.write_text("not a directory")
+        await self.logger.async_log_success_event(payload(), None, None, None)
 
     async def test_delivery_success_removes_the_spooled_event(self) -> None:
         await self.logger.async_log_success_event(payload(), None, None, None)

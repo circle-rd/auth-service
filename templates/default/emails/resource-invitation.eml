@@ -12,7 +12,7 @@ You're invited to a shared resource on <%= it.appName %>
 
 Accept the invitation by opening the link below:
 
-  <%= it.authUrl %><%= it.url %>
+  <%= it.url %>
 
 This link is valid for <%= it.expiresInHours %> hours and can be used once.
 If you weren't expecting this email, you can safely ignore it.

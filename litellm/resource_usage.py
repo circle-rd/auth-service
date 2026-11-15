@@ -18,6 +18,7 @@ import hashlib
 import json
 import math
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -35,11 +36,17 @@ AUTH_URL = (os.environ.get("WALLET_AUTH_URL") or "").rstrip("/")
 CLIENT_ID = os.environ.get("WALLET_CLIENT_ID") or ""
 CLIENT_SECRET = os.environ.get("WALLET_CLIENT_SECRET") or ""
 USAGE_SCOPE = os.environ.get("RESOURCE_USAGE_SCOPE", "resources:usage:write")
+# The LiteLLM container mounts WALLET_SPOOL_DIR as a persistent volume. Keep the
+# usage spool in a subdirectory so it survives recreation and never collides with
+# the wallet's own pending/dead directories.
+WALLET_SPOOL_DIR = os.environ.get("WALLET_SPOOL_DIR", "/var/lib/circle-wallet")
 SPOOL_DIR = Path(
-    os.environ.get("RESOURCE_USAGE_SPOOL_DIR", "/var/lib/circle-resource-usage")
+    os.environ.get("RESOURCE_USAGE_SPOOL_DIR")
+    or str(Path(WALLET_SPOOL_DIR) / "resource-usage")
 )
 PENDING_DIR = SPOOL_DIR / "pending"
 DEAD_DIR = SPOOL_DIR / "dead"
+BACKGROUND_RETRY = os.environ.get("RESOURCE_USAGE_BACKGROUND_RETRY", "1") != "0"
 RETRY_INTERVAL_S = float(os.environ.get("RESOURCE_USAGE_RETRY_INTERVAL_S", "15"))
 HTTP_TIMEOUT_S = float(os.environ.get("RESOURCE_USAGE_HTTP_TIMEOUT_S", "5"))
 MAX_ATTEMPT_BACKOFF_S = 300.0
@@ -72,13 +79,25 @@ def _resource_index(
     resources: Sequence[Mapping[str, Any]],
 ) -> dict[str, Mapping[str, Any]]:
     index: dict[str, Mapping[str, Any]] = {}
+    ambiguous: set[str] = set()
+    parents: dict[str, list[Mapping[str, Any]]] = {}
     for resource in resources:
         name = resource.get("name")
         if isinstance(name, str) and name:
-            index[name] = resource
+            if name in index:
+                ambiguous.add(name)
+            else:
+                index[name] = resource
         parent = resource.get("parentName")
-        if isinstance(parent, str) and parent and parent not in index:
-            index[parent] = resource
+        if isinstance(parent, str) and parent:
+            parents.setdefault(parent, []).append(resource)
+    for name in ambiguous:
+        index.pop(name, None)
+    for parent, children in parents.items():
+        # A parent alias is only safe when it names no resource itself and
+        # exactly one child claims it; otherwise the owner is ambiguous.
+        if parent not in index and parent not in ambiguous and len(children) == 1:
+            index[parent] = children[0]
     return index
 
 
@@ -118,8 +137,17 @@ def select_executed_resource(
                             return resource
                 if len(candidates) == 1:
                     return candidates[0]
-                if isinstance(name, str) and name in index:
-                    return index[name]
+                # Several tools share the server name: only an explicit
+                # server-level resource is unambiguous, otherwise skip.
+                return next(
+                    (
+                        resource
+                        for resource in resources
+                        if resource.get("name") == name
+                        and not resource.get("parentName")
+                    ),
+                    None,
+                )
 
     if len(resources) == 1:
         return resources[0]
@@ -250,12 +278,10 @@ class ResourceUsageLogger(CustomLogger):
         self._token_expires_at = 0.0
         self._token_lock = asyncio.Lock()
         self._retry_task: asyncio.Task[None] | None = None
+        self._retry_thread: threading.Thread | None = None
         self._directories_ready = False
-        try:
-            asyncio.get_running_loop()
+        if BACKGROUND_RETRY:
             self._ensure_retry_loop()
-        except RuntimeError:
-            pass
 
     def _ensure_directories(self) -> None:
         if self._directories_ready:
@@ -323,7 +349,34 @@ class ResourceUsageLogger(CustomLogger):
         except Exception as err:  # noqa: BLE001 - accounting must not fail a response
             log.error("resource usage: could not spool an event: %s", type(err).__name__)
 
+    def _start_retry_thread(self) -> None:
+        if self._retry_thread is not None and self._retry_thread.is_alive():
+            return
+        self._retry_thread = threading.Thread(
+            target=self._run_retry_thread,
+            name="resource-usage-retry",
+            daemon=True,
+        )
+        self._retry_thread.start()
+
+    def _run_retry_thread(self) -> None:
+        try:
+            asyncio.run(self._retry_loop())
+        except Exception as err:  # noqa: BLE001 - a dead retry loop is reported
+            log.error(
+                "resource usage: retry loop stopped: %s", type(err).__name__
+            )
+
     def _ensure_retry_loop(self) -> None:
+        if self._retry_thread is not None and self._retry_thread.is_alive():
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # Imported before the server loop exists: own a daemon loop so
+            # events spooled by a previous process are delivered at startup.
+            self._start_retry_thread()
+            return
         if self._retry_task is None or self._retry_task.done():
             self._retry_task = asyncio.ensure_future(self._retry_loop())
 
@@ -334,7 +387,7 @@ class ResourceUsageLogger(CustomLogger):
                     item = json.loads(path.read_text())
                     age = time.time() - path.stat().st_mtime
                     if item["attempts"] > 0 and age < min(
-                        RETRY_INTERVAL_S * 2 ** (item["attempts"] - 1),
+                        RETRY_INTERVAL_S * 2 ** min(item["attempts"] - 1, 16),
                         MAX_ATTEMPT_BACKOFF_S,
                     ):
                         continue
@@ -371,7 +424,10 @@ class ResourceUsageLogger(CustomLogger):
 
     def _retry_later(self, path: Path, item: dict[str, Any], reason: str) -> None:
         item["attempts"] += 1
-        path.write_text(json.dumps(item))
+        # A crash mid-write must not leave an unparseable event in place.
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(item))
+        os.replace(tmp, path)
         log.warning(
             "resource usage: event %s not delivered (%s), attempt %d",
             item["body"].get("requestId"),

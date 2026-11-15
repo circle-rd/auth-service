@@ -210,6 +210,12 @@ class EntitlementResolver:
         now = self._clock()
         if cached is not None and now - cached[1] < self._ttl_s:
             return cached[0]
+        if len(self._cache) >= 1024:
+            self._cache = {
+                key: value
+                for key, value in self._cache.items()
+                if now - value[1] < self._ttl_s
+            }
 
         for attempt in (0, 1):
             token = await self._access_token(force=attempt == 1)

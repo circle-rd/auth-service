@@ -227,6 +227,8 @@ export interface AddedApplicationMember {
   name: string;
   email: string;
   created: boolean;
+  applicationName: string;
+  applicationSlug: string;
 }
 
 /**
@@ -247,6 +249,12 @@ export async function addExistingUserToApplication(
     .where(eq(userTable.email, normalized))
     .limit(1);
   if (!user) throw ERR.AUTH_013();
+  const [app] = await db
+    .select({ name: applications.name, slug: applications.slug })
+    .from(applications)
+    .where(eq(applications.id, applicationId))
+    .limit(1);
+  if (!app) throw ERR.RES_004();
 
   const [existing] = await db
     .select({ id: userApplications.id, isActive: userApplications.isActive })
@@ -287,5 +295,7 @@ export async function addExistingUserToApplication(
     name: user.name,
     email: user.email,
     created: !existing,
+    applicationName: app.name,
+    applicationSlug: app.slug,
   };
 }

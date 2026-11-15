@@ -134,6 +134,28 @@ export async function sendResourceInvitationEmail(
   );
 }
 
+export async function sendApplicationAccessEmail(
+  email: string,
+  args: {
+    url: string;
+    appName: string;
+    appSlug: string;
+    inviterName?: string;
+  },
+): Promise<void> {
+  await sendEmail(
+    "application-access-granted",
+    email,
+    {
+      url: args.url,
+      email,
+      appName: args.appName,
+      inviterName: args.inviterName,
+    },
+    args.appSlug,
+  );
+}
+
 export async function sendRegistrationInvitationEmail(
   email: string,
   args: {

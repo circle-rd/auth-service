@@ -218,6 +218,13 @@ subject: Tenant A magic link
     ["org-invitation", { inviterName: "Ada", orgName: "Acme", role: "admin" }],
     ["registration-invitation", { inviterName: "Ada", expiresInHours: 72 }],
     [
+      "application-access-granted",
+      {
+        inviterName: "Ada",
+        appName: "App A",
+      },
+    ],
+    [
       "resource-invitation",
       {
         inviterName: "Ada",

@@ -3,7 +3,7 @@
 #
 #   postgres      — isolated test database (port 5434 on host)
 #   auth-service  — built from repo root, port 3001
-#   testapp       — OIDC RP fixture app, port 3000
+#   testapp       — OIDC RP fixture app, port 3002 on the host
 #   setup         — seed script (runs once then exits)
 #
 # Shared volume "credentials" carries clientId/clientSecret + fixtures.json
@@ -39,7 +39,7 @@ services:
       BETTER_AUTH_URL: "http://localhost:3001"
       ADMIN_EMAIL: "admin@test.local"
       ADMIN_PASSWORD: "AdminPass123!"
-      CORS_ORIGINS: "http://localhost:3000,http://testapp:3000"
+      CORS_ORIGINS: "http://localhost:3002,http://testapp:3000"
       RESOURCE_SHARING_ENABLED: "true"
       TEMPLATES_DIR: "/app/templates"
       DEFAULT_AUDIENCE: "true"
@@ -69,10 +69,10 @@ services:
       AUTH_SERVICE_URL: "http://localhost:3001"
       AUTH_SERVICE_INTERNAL_URL: "http://auth-service:3001"
       APP_SLUG: "test-app"
-      REDIRECT_URI: "http://localhost:3000/callback"
+      REDIRECT_URI: "http://localhost:3002/callback"
       CREDENTIALS_PATH: "/shared/credentials.json"
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - credentials:/shared
     depends_on:
@@ -95,7 +95,7 @@ services:
       ADMIN_EMAIL: "admin@test.local"
       ADMIN_PASSWORD: "AdminPass123!"
       APP_SLUG: "test-app"
-      REDIRECT_URI: "http://localhost:3000/callback"
+      REDIRECT_URI: "http://localhost:3002/callback"
       CREDENTIALS_PATH: "/shared/credentials.json"
       FIXTURES_PATH: "/shared/fixtures.json"
     volumes:

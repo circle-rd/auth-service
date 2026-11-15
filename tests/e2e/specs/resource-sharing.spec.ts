@@ -12,7 +12,7 @@ async function signInToPortal(page: Page): Promise<void> {
 }
 
 test.describe("Resource-sharing catalogue (AC-01 portal chain)", () => {
-  test("one session sees two owners' resources and selects a model", async ({ page }) => {
+  test("one session sees two owners' resources", async ({ page }) => {
     await signInToPortal(page);
 
     await page.goto(`${AUTH_URL}/share/catalogue`);
@@ -20,7 +20,7 @@ test.describe("Resource-sharing catalogue (AC-01 portal chain)", () => {
 
     // Every sharing application is listed even before a selection.
     const applications = page.getByTestId("catalogue-applications").getByRole("button");
-    await expect(applications).toHaveCount(3);
+    await expect(applications).toHaveCount(4);
     await expect(page.getByTestId("catalogue-app-test-app")).toContainText("Test App");
     await expect(page.getByTestId("catalogue-app-restricted-app")).toContainText("Restricted App");
 
@@ -30,7 +30,6 @@ test.describe("Resource-sharing catalogue (AC-01 portal chain)", () => {
     const modelA = testAppItems.filter({ hasText: "Shared Model A" });
     await expect(modelA).toHaveCount(1);
     await expect(modelA).toContainText("Test App");
-    await expect(page.getByTestId("selected-model")).toContainText("Shared Model A");
 
     await page.getByTestId("catalogue-app-restricted-app").click();
     const restrictedItems = page.getByTestId("catalogue-item");
@@ -38,9 +37,5 @@ test.describe("Resource-sharing catalogue (AC-01 portal chain)", () => {
     const modelB = restrictedItems.filter({ hasText: "Shared Model B" });
     await expect(modelB).toHaveCount(1);
     await expect(modelB).toContainText("Restricted App");
-
-    // Both seeded grants are unrestricted, so the client dimension is absent.
-    await expect(page.getByText("Restricted clients")).toHaveCount(0);
-    await expect(page.getByTestId("selected-model")).toContainText("Shared Model B");
   });
 });

@@ -22,7 +22,7 @@ import { test, expect, type Page } from "@playwright/test";
 import crypto from "crypto";
 
 const AUTH_URL = "http://localhost:3001";
-const TESTAPP_URL = "http://localhost:3000";
+const TESTAPP_URL = "http://localhost:3002";
 const REDIRECT_URI = `${TESTAPP_URL}/callback`;
 
 const ALICE = { email: "alice@test.local", password: "TestPass1!" };
@@ -107,7 +107,7 @@ async function injectPkceIntoTestappSession(
 
 /**
  * Performs a full OAuth flow for the given app and user.
- * After success, lands on `http://localhost:3000/` with claims visible.
+ * After success, lands on `http://localhost:3002/` with claims visible.
  * Returns the parsed claims object or null if FORBIDDEN.
  */
 async function performOAuthFlow(

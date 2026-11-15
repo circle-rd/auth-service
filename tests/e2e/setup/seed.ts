@@ -185,96 +185,133 @@ async function upsertUser(headers: Headers, name: string, email: string): Promis
   );
 }
 
-async function appPlanId(headers: Headers, appId: string): Promise<string> {
-  const res = await fetch(`${AUTH_INTERNAL}/api/admin/applications/${appId}/plans`, { headers });
-  if (!res.ok) throw new Error(`Plan lookup failed for ${appId}: ${res.status}`);
-  const { plans } = (await res.json()) as { plans: Array<{ id: string; isDefault: boolean }> };
-  const plan = plans.find((p) => p.isDefault) ?? plans[0];
-  if (!plan) throw new Error(`No plan found for ${appId}`);
-  return plan.id;
-}
-
-async function publishResource(
+async function ensureScheme(
   headers: Headers,
   appId: string,
-  slug: string,
+  scheme: string,
   displayName: string,
-): Promise<string> {
-  const res = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/shared-resources`, {
+): Promise<void> {
+  const res = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/schemes`, {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      resourceType: "model",
-      slug,
-      displayName,
-      status: "published",
-    }),
+    body: JSON.stringify({ scheme, displayName }),
   });
-  if (!res.ok) {
-    const listRes = await fetch(
-      `${AUTH_INTERNAL}/api/user/apps/${appId}/shared-resources`,
-      { headers },
-    );
+  if (res.ok || res.status === 409) return;
+  const body = await res.text();
+  throw new Error(`Scheme registration failed (${res.status}): ${body}`);
+}
+
+async function publishAppResource(
+  headers: Headers,
+  appId: string,
+  scheme: string,
+  locator: string,
+  displayName: string,
+): Promise<string> {
+  const res = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/resources`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ scheme, locator, displayName }),
+  });
+  if (res.status === 201) {
+    const data = (await res.json()) as { resource: { id: string } };
+    console.log(`  Created resource: ${displayName}`);
+    return data.resource.id;
+  }
+  if (res.status === 409) {
+    const listRes = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/resources`, {
+      headers,
+    });
     if (listRes.ok) {
       const { resources } = (await listRes.json()) as {
-        resources: Array<{ id: string; key: string }>;
+        resources: Array<{ id: string; uri: string }>;
       };
-      const existing = resources.find(
-        (r) => r.key.split("/").pop() === slug,
-      );
+      const existing = resources.find((r) => r.uri.endsWith(`/${locator}`));
       if (existing) {
         console.log(`  Reused resource: ${displayName}`);
         return existing.id;
       }
     }
-    const body = await res.text();
-    throw new Error(`Resource create failed (${res.status}): ${body}`);
   }
-  const data = (await res.json()) as { resource: { id: string } };
-  console.log(`  Published resource: ${displayName}`);
-  return data.resource.id;
+  const body = await res.text();
+  throw new Error(`Resource create failed (${res.status}): ${body}`);
 }
 
-async function inviteAndAccept(
-  headers: Headers,
-  subjectCookie: string,
-  appId: string,
-  planId: string,
-  resourceId: string,
-  email: string,
-): Promise<void> {
-  const created = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/invitations`, {
-    method: "POST",
-    headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ email, planId, resourceId }),
-  });
-  if (!created.ok) {
-    const body = await created.text();
-    throw new Error(`Invitation create failed (${created.status}): ${body}`);
-  }
-  const { inviteUrl } = (await created.json()) as { inviteUrl: string };
-  const token = new URL(inviteUrl).searchParams.get("token");
-  if (!token) throw new Error("Invitation URL has no token");
-
-  const accepted = await fetch(`${AUTH_INTERNAL}/api/user/resource-invitations/accept`, {
+async function machineToken(app: AppResult): Promise<string> {
+  if (!app.clientSecret) throw new Error(`No machine secret for ${app.clientId}`);
+  const basic = Buffer.from(`${app.clientId}:${app.clientSecret}`).toString("base64");
+  const res = await fetch(`${AUTH_INTERNAL}/api/auth/oauth2/token`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      Origin: APP_ORIGIN,
-      Cookie: subjectCookie,
+      Authorization: `Basic ${basic}`,
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify({ token }),
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: "resources:validate",
+    }),
   });
-  if (!accepted.ok) {
-    const body = await accepted.text();
-    // A re-run against a seeded database already has the grant this invitation
-    // would create; the invitation still exists, so only reject real failures.
-    if (accepted.status === 409 && body.includes("RES_008")) {
-      console.log("  Reused existing grant");
-      return;
-    }
-    throw new Error(`Invitation accept failed (${accepted.status}): ${body}`);
+  if (!res.ok) throw new Error(`Machine token failed (${res.status})`);
+  const data = (await res.json()) as { access_token: string };
+  return data.access_token;
+}
+
+async function validateResource(app: AppResult, resourceId: string): Promise<void> {
+  const token = await machineToken(app);
+  const res = await fetch(
+    `${AUTH_INTERNAL}/api/internal/gateway/resources/${resourceId}/validate`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ result: "validated" }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Resource validation failed (${res.status}): ${body}`);
   }
+  console.log(`  Validated resource: ${resourceId}`);
+}
+
+async function addMember(
+  headers: Headers,
+  appId: string,
+  email: string,
+): Promise<void> {
+  const res = await fetch(`${AUTH_INTERNAL}/api/user/apps/${appId}/members`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Add member failed (${res.status}): ${body}`);
+  }
+}
+
+async function grantUser(
+  headers: Headers,
+  resourceId: string,
+  userId: string,
+): Promise<void> {
+  const res = await fetch(`${AUTH_INTERNAL}/api/user/resources/${resourceId}/grants`, {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ subjectType: "user", subjectId: userId }),
+  });
+  if (res.ok) {
+    console.log(`  Granted resource ${resourceId} to ${userId}`);
+    return;
+  }
+  const body = await res.text();
+  if (res.status === 409 && body.includes("RES_008")) {
+    console.log(`  Reused existing grant on ${resourceId}`);
+    return;
+  }
+  throw new Error(`Grant failed (${res.status}): ${body}`);
 }
 
 async function verifyEmail(headers: Headers, userId: string): Promise<void> {
@@ -349,23 +386,31 @@ async function main(): Promise<void> {
   await grantAccess(authHeaders, charlie.id, testApp.id, false);
 
   console.log("Publishing catalogue resources…");
-  const testAppPlan = await appPlanId(authHeaders, testApp.id);
-  const restrictedAppPlan = await appPlanId(authHeaders, restrictedApp.id);
-  const sharedA = await publishResource(authHeaders, testApp.id, "catalogue-a", "Shared Model A");
-  const sharedB = await publishResource(authHeaders, restrictedApp.id, "catalogue-b", "Shared Model B");
+  await ensureScheme(authHeaders, testApp.id, "gine", "Projet Re:GINE");
+  await ensureScheme(authHeaders, restrictedApp.id, "demo", "Projet Demo");
+  const sharedA = await publishAppResource(
+    authHeaders,
+    testApp.id,
+    "gine",
+    "project-a",
+    "Shared Model A",
+  );
+  const sharedB = await publishAppResource(
+    authHeaders,
+    restrictedApp.id,
+    "demo",
+    "project-b",
+    "Shared Model B",
+  );
+  await validateResource(testApp, sharedA);
+  await validateResource(restrictedApp, sharedB);
 
   console.log("Granting catalogue resources to Dana…");
   await verifyEmail(authHeaders, dana.id);
-  const danaCookie = await signIn("dana@test.local", TEST_PASSWORD);
-  await inviteAndAccept(authHeaders, danaCookie, testApp.id, testAppPlan, sharedA, "dana@test.local");
-  await inviteAndAccept(
-    authHeaders,
-    danaCookie,
-    restrictedApp.id,
-    restrictedAppPlan,
-    sharedB,
-    "dana@test.local",
-  );
+  await addMember(authHeaders, testApp.id, "dana@test.local");
+  await addMember(authHeaders, restrictedApp.id, "dana@test.local");
+  await grantUser(authHeaders, sharedA, dana.id);
+  await grantUser(authHeaders, sharedB, dana.id);
 
   // Write credentials for testapp container
   fs.mkdirSync("/shared", { recursive: true });

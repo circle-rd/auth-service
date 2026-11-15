@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { config } from "../config.js";
 import { ERR } from "../errors.js";
 import {
   getRequestSession,
@@ -40,7 +41,10 @@ import {
 } from "../services/resources/usage.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
 import { RESOURCE_EVENT_DECISIONS } from "../services/resources/types.js";
-import { sendResourceInvitationEmail } from "../services/email.js";
+import {
+  sendApplicationAccessEmail,
+  sendResourceInvitationEmail,
+} from "../services/email.js";
 import { isMailConfigured } from "../services/mail/index.js";
 
 const appParamsSchema = z.object({ appId: z.string().uuid() });
@@ -143,6 +147,15 @@ export async function appResourceRoutes(
       appId,
       body.email,
     );
+    if (member.created && isMailConfigured()) {
+      const session = await getRequestSession(req);
+      await sendApplicationAccessEmail(member.email, {
+        url: `${config.betterAuth.url}/share/catalogue`,
+        appName: member.applicationName,
+        appSlug: member.applicationSlug,
+        inviterName: session?.user.name ?? undefined,
+      });
+    }
     await reply.status(member.created ? 201 : 200).send({ member });
   });
 

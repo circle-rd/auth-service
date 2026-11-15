@@ -255,7 +255,7 @@ services:
   # never builds it. The machine client and device client are registered by the
   # operator (see docs-site content 9.ssh-gateway-external-spec).
   ssh-gateway:
-    image: ${SSH_GATEWAY_IMAGE:-ghcr.io/circle/ssh-gateway:latest}
+    image: ${SSH_GATEWAY_IMAGE:-ghcr.io/circle-rd/auth-gate:nightly}
     profiles: ["ssh"]
     restart: unless-stopped
     environment:

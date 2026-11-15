@@ -111,10 +111,10 @@ onMounted(() => void load());
     </div>
 
     <div v-if="offset > 0 || hasMore" class="flex justify-end gap-2">
-      <BaseButton variant="outline" size="sm" :disabled="offset === 0" @click="offset -= LIMIT">
+      <BaseButton variant="outline" size="sm" :disabled="loading || offset === 0" @click="offset -= LIMIT">
         <ChevronLeft class="w-3.5 h-3.5" />{{ t('common.previous') }}
       </BaseButton>
-      <BaseButton variant="outline" size="sm" :disabled="!hasMore" @click="offset += LIMIT">
+      <BaseButton variant="outline" size="sm" :disabled="loading || !hasMore" @click="offset += LIMIT">
         {{ t('common.next') }}<ChevronRight class="w-3.5 h-3.5" />
       </BaseButton>
     </div>

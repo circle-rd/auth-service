@@ -27,7 +27,6 @@ const events = ref<AccessEvent[]>([]);
 const loading = ref(true);
 const decision = ref<ResourceEventDecision | ''>('');
 const offset = ref(0);
-const loadedOffset = ref(0);
 let latestRequest = 0;
 
 const decisionOptions: SelectOption[] = [
@@ -49,11 +48,9 @@ async function load() {
     });
     if (request !== latestRequest) return;
     events.value = res.events;
-    loadedOffset.value = offset.value;
   } catch (err) {
     if (request !== latestRequest) return;
     events.value = [];
-    loadedOffset.value = 0;
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
     if (request === latestRequest) loading.value = false;
@@ -63,12 +60,12 @@ async function load() {
 const hasNext = computed(() => events.value.length === LIMIT);
 
 watch(decision, () => {
-  offset.value = 0;
-  void load();
+  if (offset.value === 0) void load();
+  else offset.value = 0;
 });
 watch(() => props.appId, () => {
-  offset.value = 0;
-  void load();
+  if (offset.value === 0) void load();
+  else offset.value = 0;
 });
 watch(offset, () => void load());
 onMounted(() => void load());
@@ -125,11 +122,11 @@ onMounted(() => void load());
       </table>
     </div>
 
-    <div v-if="loadedOffset > 0 || hasNext" class="flex justify-end gap-2">
-      <BaseButton variant="outline" size="sm" :disabled="loadedOffset === 0" @click="offset = loadedOffset - LIMIT">
+    <div v-if="offset > 0 || hasNext" class="flex justify-end gap-2">
+      <BaseButton variant="outline" size="sm" :disabled="loading || offset === 0" @click="offset -= LIMIT">
         <ChevronLeft class="w-3.5 h-3.5" />{{ t('common.previous') }}
       </BaseButton>
-      <BaseButton variant="outline" size="sm" :disabled="!hasNext" @click="offset = loadedOffset + LIMIT">
+      <BaseButton variant="outline" size="sm" :disabled="loading || !hasNext" @click="offset += LIMIT">
         {{ t('common.next') }}<ChevronRight class="w-3.5 h-3.5" />
       </BaseButton>
     </div>

@@ -7,6 +7,7 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import { getMyInvoices } from '@/api/billing';
 import { useToast } from '@/composables/useToast';
 import type { BillingInvoice } from '@/types';
+import { formatMinorAmount } from '@/utils/money';
 
 const { t, locale } = useI18n();
 const toast = useToast();
@@ -36,18 +37,8 @@ async function loadInvoices(more = false): Promise<void> {
 
 onMounted(() => void loadInvoices());
 
-// Stripe amounts are minor units; most currencies have two decimals, but some
-// have none or three and must not be divided by 100.
-const ZERO_DECIMAL_CURRENCIES = new Set([
-  'bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga',
-  'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf',
-]);
-const THREE_DECIMAL_CURRENCIES = new Set(['bhd', 'jod', 'kwd', 'omr', 'tnd']);
-
 function money(minor: number, currency: string): string {
-  const code = currency.toLowerCase();
-  const exponent = ZERO_DECIMAL_CURRENCIES.has(code) ? 0 : THREE_DECIMAL_CURRENCIES.has(code) ? 3 : 2;
-  return new Intl.NumberFormat(locale.value, { style: 'currency', currency: currency.toUpperCase() }).format(minor / 10 ** exponent);
+  return formatMinorAmount(minor, currency, { locale: locale.value });
 }
 
 function day(iso: string): string {

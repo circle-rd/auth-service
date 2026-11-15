@@ -158,6 +158,8 @@ async function validate(resource: Resource) {
       // Render the link instead of opening it after the await: browsers may
       // block window.open once the user activation has expired.
       validatorLink.value = `${result.validatorUrl}${separator}resourceId=${resource.id}`;
+    } else {
+      validatorLink.value = null;
     }
     await load();
   } catch (err) {

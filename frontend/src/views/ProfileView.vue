@@ -11,6 +11,7 @@ import { getMySubscriptions, changeMyPlan } from '@/api/subscriptions';
 import { getMyMfaState } from '@/api/passkeys';
 import type { Session, ConsumptionAggregate, UserSubscriptionEntry, UserSubscriptionPlan, MfaState } from '@/types';
 import { useToast } from '@/composables/useToast';
+import { formatMinorAmount } from '@/utils/money';
 import ProfileLayout from '@/components/layout/ProfileLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
@@ -423,7 +424,7 @@ function formatDateShort(iso: string) {
 }
 
 function formatPrice(amount: string, currency: string) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 2 }).format(Number(amount) / 100);
+    return formatMinorAmount(Number(amount), currency, { minimumFractionDigits: 2 });
 }
 
 async function handleRevoke(session: Session) {

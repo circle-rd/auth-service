@@ -28,6 +28,7 @@ import UserAppHistoryModal from '@/components/users/UserAppHistoryModal.vue';
 import RolesPermissionsTab from '@/components/applications/RolesPermissionsTab.vue';
 import PlanEditorModal from '@/components/applications/PlanEditorModal.vue';
 import PlanPricesDialog from '@/components/applications/PlanPricesDialog.vue';
+import { formatMinorAmount } from '@/utils/money';
 import ApplicationInvitationsTab from '@/components/applications/ApplicationInvitationsTab.vue';
 import ApplicationConsumptionTab from '@/components/applications/ApplicationConsumptionTab.vue';
 import ApplicationFinancialTab from '@/components/applications/ApplicationFinancialTab.vue';
@@ -468,7 +469,7 @@ function getRoleName(roleId: string | null) { return roleId ? roles.value.find(r
 function getPlanName(planId: string | null) { return planId ? plans.value.find(p => p.id === planId)?.name ?? planId : t('common.none'); }
 
 function formatPrice(amount: string, currency: string) {
-  return new Intl.NumberFormat('en', { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 0 }).format(Number(amount) / 100);
+    return formatMinorAmount(Number(amount), currency, { locale: 'en', minimumFractionDigits: 0 });
 }
 
 

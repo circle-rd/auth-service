@@ -42,7 +42,7 @@ const groupOptions = computed<SelectOption[]>(() => [
 
 const items = computed<Array<UsageUserRow | UsageResourceRow>>(() => usage.value?.items ?? []);
 const totals = computed<UsageTotals | null>(() => (items.value.length > 0 ? usage.value?.totals ?? null : null));
-const hasPrev = computed(() => loadedOffset.value > 0);
+const hasPrev = computed(() => offset.value > 0 && loadedOffset.value > 0);
 const hasNext = computed(() => usage.value?.hasMore === true);
 
 function setDefaultRange() {
@@ -228,10 +228,10 @@ onMounted(() => void load());
         {{ t('share.usage.range', { from: loadedOffset + 1, to: loadedOffset + items.length }) }}
       </p>
       <div class="flex gap-2">
-        <BaseButton variant="outline" size="sm" :disabled="!hasPrev" @click="offset -= LIMIT">
+        <BaseButton variant="outline" size="sm" :disabled="loading || !hasPrev" @click="offset -= LIMIT">
           <ChevronLeft class="w-3.5 h-3.5" />{{ t('common.previous') }}
         </BaseButton>
-        <BaseButton variant="outline" size="sm" :disabled="!hasNext" @click="offset += LIMIT">
+        <BaseButton variant="outline" size="sm" :disabled="loading || !hasNext" @click="offset += LIMIT">
           {{ t('common.next') }}<ChevronRight class="w-3.5 h-3.5" />
         </BaseButton>
       </div>

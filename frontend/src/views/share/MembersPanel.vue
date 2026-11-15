@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { UserPlus } from '@lucide/vue';
+import { ChevronLeft, ChevronRight, UserPlus } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
@@ -15,16 +15,22 @@ const props = defineProps<{ appId: string }>();
 const { t } = useI18n();
 const toast = useToast();
 
+const LIMIT = 100;
+
 const members = ref<OwnerMember[]>([]);
 const loading = ref(true);
 const adding = ref(false);
 const showForm = ref(false);
 const email = ref('');
+const offset = ref(0);
+const hasMore = ref(false);
 
 async function load() {
   loading.value = true;
   try {
-    members.value = (await listOwnerMembers(props.appId)).members;
+    const page = await listOwnerMembers(props.appId, { limit: LIMIT, offset: offset.value });
+    members.value = page.members;
+    hasMore.value = page.hasMore;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
@@ -54,7 +60,11 @@ async function add() {
   }
 }
 
-watch(() => props.appId, () => void load());
+watch(() => props.appId, () => {
+  offset.value = 0;
+  void load();
+});
+watch(offset, () => void load());
 onMounted(() => void load());
 </script>
 
@@ -98,6 +108,15 @@ onMounted(() => void load());
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="offset > 0 || hasMore" class="flex justify-end gap-2">
+      <BaseButton variant="outline" size="sm" :disabled="offset === 0" @click="offset -= LIMIT">
+        <ChevronLeft class="w-3.5 h-3.5" />{{ t('common.previous') }}
+      </BaseButton>
+      <BaseButton variant="outline" size="sm" :disabled="!hasMore" @click="offset += LIMIT">
+        {{ t('common.next') }}<ChevronRight class="w-3.5 h-3.5" />
+      </BaseButton>
     </div>
 
     <BaseModal :open="showForm" :title="t('share.members.addTitle')" size="sm" @close="showForm = false">

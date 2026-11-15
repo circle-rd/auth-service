@@ -15,12 +15,13 @@ const { t } = useI18n();
 
 const financialKpis = computed(() => {
   const subscribedUsers = props.subscriptions;
-  const activeSubscribers = subscribedUsers.filter((s) => s.isActive).length;
+  const activeSubscriptions = subscribedUsers.filter((s) => s.isActive);
+  const activeSubscribers = activeSubscriptions.length;
 
   let mrr = 0;
   const planRevenue: Record<string, { name: string; subscribers: number; monthly: number; currency: string }> = {};
 
-  for (const subscription of subscribedUsers) {
+  for (const subscription of activeSubscriptions) {
     const plan = props.plans.find((p) => p.id === subscription.planId);
     if (!plan) continue;
     const price = plan.prices.find((p) => p.billingType === 'fixed' && p.interval === 'month');

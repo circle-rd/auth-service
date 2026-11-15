@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Gauge } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
+import BaseButton from '@/components/ui/BaseButton.vue';
 import { getMyUsage } from '@/api/billing';
 import type { BillingUsage, UserSubscriptionEntry } from '@/types';
 
@@ -11,19 +12,31 @@ const props = defineProps<{
 }>();
 
 const { t, locale } = useI18n();
-const usage = ref<Record<string, BillingUsage | null>>({});
+const usage = ref<Record<string, BillingUsage>>({});
+const failed = ref<Set<string>>(new Set());
+const pending = ref<Set<string>>(new Set());
 
 const withPlan = computed(() => props.subscriptions.filter((s) => s.plan));
 
 async function loadUsage(): Promise<void> {
   for (const sub of withPlan.value) {
-    if (sub.applicationId in usage.value) continue;
+    const id = sub.applicationId;
+    if (id in usage.value || failed.value.has(id) || pending.value.has(id)) continue;
+    pending.value.add(id);
     try {
-      usage.value[sub.applicationId] = await getMyUsage(sub.applicationId);
-    } catch {
-      usage.value[sub.applicationId] = null;
+      usage.value[id] = await getMyUsage(id);
+    } catch (err) {
+      failed.value.add(id);
+      console.error('billing usage could not be loaded', err);
+    } finally {
+      pending.value.delete(id);
     }
   }
+}
+
+function retry(id: string): void {
+  failed.value.delete(id);
+  void loadUsage();
 }
 
 watch(withPlan, () => void loadUsage());
@@ -50,11 +63,15 @@ function share(used: number, limit: number): number {
           <p class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
           <BaseBadge variant="neutral" size="sm">{{ sub.plan!.name }}</BaseBadge>
         </div>
-        <p v-if="usage[sub.applicationId] === null" class="text-xs text-surface-500">{{ t('profile.billingPanel.usageUnavailable') }}</p>
-        <p v-else-if="usage[sub.applicationId] && usage[sub.applicationId]!.features.length === 0" class="text-xs text-surface-500">
+        <div v-if="failed.has(sub.applicationId)" class="flex items-center gap-3 text-xs text-surface-500">
+          <span>{{ t('profile.billingPanel.usageUnavailable') }}</span>
+          <BaseButton variant="ghost" size="sm" @click="retry(sub.applicationId)">{{ t('common.retry') }}</BaseButton>
+        </div>
+        <p v-else-if="pending.has(sub.applicationId) || !usage[sub.applicationId]" class="text-xs text-surface-500">{{ t('common.loading') }}</p>
+        <p v-else-if="usage[sub.applicationId]!.features.length === 0" class="text-xs text-surface-500">
           {{ t('profile.billingPanel.noMetered') }}
         </p>
-        <ul v-else-if="usage[sub.applicationId]" class="space-y-3">
+        <ul v-else class="space-y-3">
           <li v-for="f in usage[sub.applicationId]!.features" :key="f.featureKey">
             <div class="flex items-baseline justify-between text-sm">
               <code class="text-xs font-mono text-surface-500">{{ f.featureKey }}</code>

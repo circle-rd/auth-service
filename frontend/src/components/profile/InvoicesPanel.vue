@@ -15,16 +15,19 @@ const invoices = ref<BillingInvoice[]>([]);
 const nextCursor = ref<string | null>(null);
 const invoicesLoading = ref(false);
 const invoicesLoaded = ref(false);
+const loadError = ref(false);
 
 async function loadInvoices(more = false): Promise<void> {
   if (invoicesLoading.value) return;
   invoicesLoading.value = true;
+  loadError.value = false;
   try {
     const page = await getMyInvoices({ cursor: more ? nextCursor.value ?? undefined : undefined });
     invoices.value = more ? [...invoices.value, ...page.items] : page.items;
     nextCursor.value = page.nextCursor;
     invoicesLoaded.value = true;
   } catch (err) {
+    loadError.value = true;
     toast.error(err instanceof Error ? err.message : t('common.error'));
   } finally {
     invoicesLoading.value = false;
@@ -33,8 +36,18 @@ async function loadInvoices(more = false): Promise<void> {
 
 onMounted(() => void loadInvoices());
 
+// Stripe amounts are minor units; most currencies have two decimals, but some
+// have none or three and must not be divided by 100.
+const ZERO_DECIMAL_CURRENCIES = new Set([
+  'bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga',
+  'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf',
+]);
+const THREE_DECIMAL_CURRENCIES = new Set(['bhd', 'jod', 'kwd', 'omr', 'tnd']);
+
 function money(minor: number, currency: string): string {
-  return new Intl.NumberFormat(locale.value, { style: 'currency', currency: currency.toUpperCase() }).format(minor / 100);
+  const code = currency.toLowerCase();
+  const exponent = ZERO_DECIMAL_CURRENCIES.has(code) ? 0 : THREE_DECIMAL_CURRENCIES.has(code) ? 3 : 2;
+  return new Intl.NumberFormat(locale.value, { style: 'currency', currency: currency.toUpperCase() }).format(minor / 10 ** exponent);
 }
 
 function day(iso: string): string {
@@ -67,6 +80,10 @@ function safeLink(url: string | null): string | null {
     </header>
 
     <div v-if="!invoicesLoaded && invoicesLoading" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.loading') }}</div>
+    <div v-else-if="loadError && invoices.length === 0" class="px-5 py-8 text-center text-sm text-surface-500">
+      <p>{{ t('profile.billingPanel.invoicesError') }}</p>
+      <BaseButton class="mt-3" variant="outline" size="sm" @click="loadInvoices()">{{ t('common.retry') }}</BaseButton>
+    </div>
     <div v-else-if="invoicesLoaded && invoices.length === 0" class="px-5 py-8 text-center text-sm text-surface-500">
       {{ t('profile.billingPanel.noInvoices') }}
     </div>

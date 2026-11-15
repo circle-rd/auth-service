@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { BookOpen, Layers, Settings2 } from '@lucide/vue';
 import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
+import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
@@ -32,7 +33,9 @@ const ownerApps = ref<OwnerApplication[]>([]);
 const selectedAppSlug = ref('');
 const mineAppId = ref('');
 const adminAppId = ref('');
+const enabledSchemes = ref<string[]>([]);
 const loading = ref(true);
+const loadError = ref(false);
 
 const memberOptions = computed<SelectOption[]>(() =>
   memberApps.value.map((app) => ({ value: app.id, label: app.name })),
@@ -64,23 +67,33 @@ function accessLabel(item: AccessibleResource): string {
 
 async function load() {
   loading.value = true;
-  try {
-    const [catalogue, memberRes, ownerRes] = await Promise.all([
-      listResourceCatalogue(),
-      listMemberApplications(),
-      listOwnerApplications(),
-    ]);
-    applications.value = catalogue.applications;
-    resources.value = catalogue.resources;
-    memberApps.value = memberRes.applications;
-    ownerApps.value = ownerRes.apps;
-    mineAppId.value = memberApps.value[0]?.id ?? '';
-    adminAppId.value = ownerApps.value[0]?.id ?? '';
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('share.loadError'));
-  } finally {
-    loading.value = false;
+  loadError.value = false;
+  const [catalogue, memberRes, ownerRes] = await Promise.allSettled([
+    listResourceCatalogue(),
+    listMemberApplications(),
+    listOwnerApplications(),
+  ]);
+  if (catalogue.status === 'fulfilled') {
+    applications.value = catalogue.value.applications;
+    resources.value = catalogue.value.resources;
+    enabledSchemes.value = catalogue.value.enabledSchemes;
+  } else {
+    loadError.value = true;
+    toast.error(catalogue.reason instanceof Error ? catalogue.reason.message : t('share.loadError'));
   }
+  if (memberRes.status === 'fulfilled') {
+    memberApps.value = memberRes.value.applications;
+    mineAppId.value = memberApps.value[0]?.id ?? '';
+  } else {
+    toast.error(memberRes.reason instanceof Error ? memberRes.reason.message : t('share.loadError'));
+  }
+  if (ownerRes.status === 'fulfilled') {
+    ownerApps.value = ownerRes.value.apps;
+    adminAppId.value = ownerApps.value[0]?.id ?? '';
+  } else {
+    toast.error(ownerRes.reason instanceof Error ? ownerRes.reason.message : t('share.loadError'));
+  }
+  loading.value = false;
 }
 
 watch(selectedAppSlug, () => {
@@ -101,6 +114,16 @@ onMounted(() => void load());
         <SkeletonBlock class="h-24 w-full" />
         <SkeletonBlock class="h-40 w-full" />
       </div>
+
+      <EmptyState
+        v-else-if="loadError"
+        :title="t('share.loadError')"
+        :message="t('share.loadErrorHint')"
+      >
+        <template #action>
+          <BaseButton variant="outline" size="sm" @click="load">{{ t('common.retry') }}</BaseButton>
+        </template>
+      </EmptyState>
 
       <EmptyState
         v-else-if="applications.length === 0 && memberApps.length === 0"
@@ -205,7 +228,7 @@ onMounted(() => void load());
           />
         </section>
 
-        <SshKeysPanel />
+        <SshKeysPanel v-if="enabledSchemes.includes('ssh')" />
 
         <section v-if="ownerApps.length > 0" class="space-y-3">
           <div class="flex flex-wrap items-end justify-between gap-3">

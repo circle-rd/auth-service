@@ -88,6 +88,7 @@ async function save() {
       account: form.account.trim(),
     });
     detail.value = res.ssh;
+    validationCommand.value = res.ssh.validationCommand;
     toast.success(t('share.ssh.saved'));
     emit('updated');
   } catch (err) {

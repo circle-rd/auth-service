@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
+import { ChevronLeft, ChevronRight } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
+import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useToast } from '@/composables/useToast';
@@ -19,9 +21,14 @@ const props = defineProps<{ appId: string }>();
 const { t } = useI18n();
 const toast = useToast();
 
+const LIMIT = 100;
+
 const events = ref<AccessEvent[]>([]);
 const loading = ref(true);
 const decision = ref<ResourceEventDecision | ''>('');
+const offset = ref(0);
+const loadedOffset = ref(0);
+let latestRequest = 0;
 
 const decisionOptions: SelectOption[] = [
   { value: '', label: t('share.access.all') },
@@ -32,22 +39,38 @@ const decisionOptions: SelectOption[] = [
 ];
 
 async function load() {
+  const request = ++latestRequest;
   loading.value = true;
   try {
     const res = await listAccessEvents(props.appId, {
       decision: decision.value || undefined,
-      limit: 100,
+      limit: LIMIT,
+      offset: offset.value,
     });
+    if (request !== latestRequest) return;
     events.value = res.events;
+    loadedOffset.value = offset.value;
   } catch (err) {
+    if (request !== latestRequest) return;
+    events.value = [];
+    loadedOffset.value = 0;
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
-    loading.value = false;
+    if (request === latestRequest) loading.value = false;
   }
 }
 
-watch(decision, () => void load());
-watch(() => props.appId, () => void load());
+const hasNext = computed(() => events.value.length === LIMIT);
+
+watch(decision, () => {
+  offset.value = 0;
+  void load();
+});
+watch(() => props.appId, () => {
+  offset.value = 0;
+  void load();
+});
+watch(offset, () => void load());
 onMounted(() => void load());
 </script>
 
@@ -100,6 +123,15 @@ onMounted(() => void load());
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="loadedOffset > 0 || hasNext" class="flex justify-end gap-2">
+      <BaseButton variant="outline" size="sm" :disabled="loadedOffset === 0" @click="offset = loadedOffset - LIMIT">
+        <ChevronLeft class="w-3.5 h-3.5" />{{ t('common.previous') }}
+      </BaseButton>
+      <BaseButton variant="outline" size="sm" :disabled="!hasNext" @click="offset = loadedOffset + LIMIT">
+        {{ t('common.next') }}<ChevronRight class="w-3.5 h-3.5" />
+      </BaseButton>
     </div>
   </div>
 </template>

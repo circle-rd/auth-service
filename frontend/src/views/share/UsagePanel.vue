@@ -30,8 +30,10 @@ const groupBy = ref<'user' | 'resource'>('user');
 const from = ref('');
 const to = ref('');
 const offset = ref(0);
+const loadedOffset = ref(0);
 const usage = ref<OwnerUsage | null>(null);
 const loading = ref(true);
+let latestRequest = 0;
 
 const groupOptions = computed<SelectOption[]>(() => [
   { value: 'user', label: t('share.usage.byUser') },
@@ -40,7 +42,7 @@ const groupOptions = computed<SelectOption[]>(() => [
 
 const items = computed<Array<UsageUserRow | UsageResourceRow>>(() => usage.value?.items ?? []);
 const totals = computed<UsageTotals | null>(() => (items.value.length > 0 ? usage.value?.totals ?? null : null));
-const hasPrev = computed(() => offset.value > 0);
+const hasPrev = computed(() => loadedOffset.value > 0);
 const hasNext = computed(() => usage.value?.hasMore === true);
 
 function setDefaultRange() {
@@ -89,22 +91,34 @@ function numberLabel(row: UsageTotals, value: number | null | undefined): string
 }
 
 async function load() {
+  const request = ++latestRequest;
   const fromIso = toIso(from.value);
   const toIsoValue = toIso(to.value);
-  if (!fromIso || !toIsoValue) return;
+  if (!fromIso || !toIsoValue) {
+    usage.value = null;
+    loadedOffset.value = 0;
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   try {
-    usage.value = await getOwnerUsage(props.appId, {
+    const result = await getOwnerUsage(props.appId, {
       groupBy: groupBy.value,
       from: fromIso,
       to: toIsoValue,
       limit: LIMIT,
       offset: offset.value,
     });
+    if (request !== latestRequest) return;
+    usage.value = result;
+    loadedOffset.value = offset.value;
   } catch (err) {
+    if (request !== latestRequest) return;
+    usage.value = null;
+    loadedOffset.value = 0;
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
-    loading.value = false;
+    if (request === latestRequest) loading.value = false;
   }
 }
 
@@ -211,7 +225,7 @@ onMounted(() => void load());
 
     <div v-if="items.length > 0" class="flex items-center justify-between gap-3">
       <p class="text-xs text-surface-500">
-        {{ t('share.usage.range', { from: offset + 1, to: offset + items.length }) }}
+        {{ t('share.usage.range', { from: loadedOffset + 1, to: loadedOffset + items.length }) }}
       </p>
       <div class="flex gap-2">
         <BaseButton variant="outline" size="sm" :disabled="!hasPrev" @click="offset -= LIMIT">

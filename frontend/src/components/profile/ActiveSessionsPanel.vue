@@ -51,7 +51,7 @@ function formatDate(iso: string) {
             <p class="text-sm text-surface-200">{{ parseUserAgent(session.userAgent).browser }} on {{ parseUserAgent(session.userAgent).os }}</p>
             <BaseBadge v-if="session.id === currentSessionId" variant="success" size="sm">{{ t('profile.current') }}</BaseBadge>
           </div>
-          <p class="text-xs text-surface-500 mt-0.5">{{ session.ipAddress }} · {{ formatDate(session.createdAt) }}</p>
+          <p class="text-xs text-surface-500 mt-0.5">{{ session.ipAddress ?? '—' }} · {{ formatDate(session.createdAt) }}</p>
         </div>
         <BaseButton v-if="session.id !== currentSessionId" variant="ghost" size="sm" @click="emit('revoke', session)">{{ t('profile.revoke') }}</BaseButton>
       </div>

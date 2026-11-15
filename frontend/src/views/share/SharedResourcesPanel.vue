@@ -46,6 +46,7 @@ const showDisable = ref(false);
 const editing = ref<Resource | null>(null);
 const selected = ref<Resource | null>(null);
 const sshResource = ref<Resource | null>(null);
+const validatorLink = ref<string | null>(null);
 
 const form = reactive({
   scheme: '',
@@ -64,9 +65,11 @@ const selectedScheme = computed(() =>
   schemes.value.find((scheme) => scheme.scheme === form.scheme) ?? null,
 );
 const isSsh = computed(() => form.scheme === 'ssh');
-const canSave = computed(
-  () => form.scheme.length > 0 && form.displayName.trim().length > 0 && (isSsh.value || form.locator.trim().length > 0),
-);
+const canSave = computed(() => {
+  if (form.displayName.trim().length === 0) return false;
+  if (editing.value) return true;
+  return form.scheme.length > 0 && (isSsh.value || form.locator.trim().length > 0);
+});
 
 function statusVariant(status: Resource['status']): 'success' | 'warning' | 'neutral' {
   if (status === 'validated') return 'success';
@@ -152,7 +155,9 @@ async function validate(resource: Resource) {
     toast.success(t('share.resources.validationRequested'));
     if (result.validatorUrl) {
       const separator = result.validatorUrl.includes('?') ? '&' : '?';
-      window.open(`${result.validatorUrl}${separator}resourceId=${resource.id}`, '_blank', 'noopener');
+      // Render the link instead of opening it after the await: browsers may
+      // block window.open once the user activation has expired.
+      validatorLink.value = `${result.validatorUrl}${separator}resourceId=${resource.id}`;
     }
     await load();
   } catch (err) {
@@ -195,6 +200,12 @@ onMounted(() => void load());
       <BaseButton v-if="canManage" size="sm" @click="openCreate">
         <Plus class="w-3.5 h-3.5" />{{ t('share.resources.add') }}
       </BaseButton>
+    </div>
+
+    <div v-if="validatorLink" class="rounded-xl border border-primary-500/30 bg-primary-500/10 px-4 py-3 text-sm">
+      <a :href="validatorLink" target="_blank" rel="noopener noreferrer" class="text-primary-300 underline">
+        {{ t('share.resources.openValidator') }}
+      </a>
     </div>
 
     <div v-if="loading" class="h-40 rounded-2xl bg-surface-800/40 animate-pulse" />

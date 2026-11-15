@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Share2 } from '@lucide/vue';
+import BaseButton from '@/components/ui/BaseButton.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { listOwnerApplications, type OwnerApplication } from '@/api/resources';
@@ -23,6 +24,7 @@ type Tab = typeof tabs[number];
 
 const ownerApp = ref<OwnerApplication | null>(null);
 const loading = ref(true);
+const loadError = ref(false);
 const activeTab = ref<Tab>('resources');
 
 const canReadResources = computed(
@@ -41,7 +43,9 @@ const visibleTabs = computed<Tab[]>(() =>
   }),
 );
 
-onMounted(async () => {
+async function load() {
+  loading.value = true;
+  loadError.value = false;
   try {
     const res = await listOwnerApplications();
     ownerApp.value = res.apps.find((app) => app.id === props.appId) ?? null;
@@ -49,11 +53,14 @@ onMounted(async () => {
       activeTab.value = visibleTabs.value[0] ?? 'resources';
     }
   } catch (err) {
+    loadError.value = true;
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
     loading.value = false;
   }
-});
+}
+
+onMounted(load);
 </script>
 
 <template>
@@ -62,6 +69,16 @@ onMounted(async () => {
       <SkeletonBlock class="h-10 w-80" />
       <SkeletonBlock class="h-48 w-full" />
     </div>
+
+    <EmptyState
+      v-else-if="loadError"
+      :title="t('share.loadError')"
+      :message="t('share.loadErrorHint')"
+    >
+      <template #action>
+        <BaseButton variant="outline" size="sm" @click="load">{{ t('common.retry') }}</BaseButton>
+      </template>
+    </EmptyState>
 
     <EmptyState
       v-else-if="!ownerApp"

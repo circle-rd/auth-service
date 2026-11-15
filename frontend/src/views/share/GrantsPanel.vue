@@ -120,6 +120,10 @@ async function save() {
   }
 }
 
+function isExpired(grant: ResourceGrant): boolean {
+  return !grant.revokedAt && grant.expiresAt !== null && new Date(grant.expiresAt).getTime() <= Date.now();
+}
+
 function requestRevoke(grant: ResourceGrant) {
   selected.value = grant;
   showRevoke.value = true;
@@ -187,8 +191,8 @@ onMounted(() => void load());
               {{ grant.expiresAt ? formatDateTime(grant.expiresAt) : '—' }}
             </td>
             <td class="px-4 py-3">
-              <BaseBadge :variant="grant.revokedAt ? 'neutral' : 'success'" dot>
-                {{ grant.revokedAt ? t('share.grants.revoked') : t('share.grants.active') }}
+              <BaseBadge :variant="grant.revokedAt || isExpired(grant) ? 'neutral' : 'success'" dot>
+                {{ grant.revokedAt ? t('share.grants.revoked') : isExpired(grant) ? t('share.grants.expired') : t('share.grants.active') }}
               </BaseBadge>
             </td>
             <td class="px-4 py-3">

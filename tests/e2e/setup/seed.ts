@@ -122,7 +122,10 @@ async function upsertApp(
       {
         method: "PATCH",
         headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ url: opts.url ?? null }),
+        body: JSON.stringify({
+          url: opts.url ?? null,
+          resourceSharingEnabled: true,
+        }),
       },
     );
     if (!patchRes.ok) {

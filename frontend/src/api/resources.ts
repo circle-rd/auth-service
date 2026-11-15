@@ -308,6 +308,7 @@ function queryString(params: Record<string, string | number | undefined>): strin
 export async function listResourceCatalogue(): Promise<{
   applications: CatalogueApplication[];
   resources: AccessibleResource[];
+  enabledSchemes: string[];
 }> {
   return apiFetch('/user/resource-catalogue');
 }
@@ -331,8 +332,17 @@ export async function listOwnerPlans(appId: string): Promise<{ plans: OwnerPlan[
   return apiFetch(`/user/apps/${appId}/plans`);
 }
 
-export async function listOwnerMembers(appId: string): Promise<{ members: OwnerMember[] }> {
-  return apiFetch(`/user/apps/${appId}/members`);
+export interface OwnerMemberPage {
+  members: OwnerMember[];
+  hasMore: boolean;
+  nextOffset: number | null;
+}
+
+export async function listOwnerMembers(
+  appId: string,
+  query: { limit?: number; offset?: number } = {},
+): Promise<OwnerMemberPage> {
+  return apiFetch(`/user/apps/${appId}/members${queryString(query)}`);
 }
 
 export async function addOwnerMember(appId: string, email: string): Promise<{ member: OwnerMember & { created: boolean } }> {

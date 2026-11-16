@@ -7,6 +7,34 @@
 
 const ROLE_RANK: Record<string, number> = { user: 0, admin: 1, superadmin: 2 };
 
+/** Roles allowed on the administration surface. */
+export const ADMIN_ROLES: readonly string[] = ["admin", "superadmin"];
+
+// Each dashboard lists the roles that may read it, so a dedicated role can be
+// granted one view later without widening the others.
+export const DASHBOARD_ROLES = {
+  security: ADMIN_ROLES,
+  business: ADMIN_ROLES,
+} as const satisfies Record<string, readonly string[]>;
+
+/** A user's roles: BetterAuth stores several as one comma-separated string. */
+export function rolesOf(role: string | null | undefined): string[] {
+  return role
+    ? role
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    : [];
+}
+
+export function hasAnyRole(
+  role: string | null | undefined,
+  allowed: readonly string[],
+): boolean {
+  const owned = rolesOf(role);
+  return allowed.some((entry) => owned.includes(entry));
+}
+
 export function roleRank(role: string | null | undefined): number {
   return role ? (ROLE_RANK[role] ?? 0) : 0;
 }

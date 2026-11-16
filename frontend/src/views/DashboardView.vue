@@ -1,523 +1,78 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { computed, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { useRouter } from 'vue-router';
-import { useAuthStore } from '@/stores/auth';
-import { useServicesStore } from '@/stores/services';
-import { listUsers } from '@/api/users';
-import { USE_MOCK } from '@/api/client';
-import { listSessions, revokeAdminSession } from '@/api/sessions';
-import { listApplications } from '@/api/applications';
-import { listOrganizations } from '@/api/organizations';
-import { getActiveUsers, getLogins, getRegistrations, type DailyCountPoint, type LoginsSeriesPoint } from '@/api/stats';
-import { useDebounce } from '@/composables/useDebounce';
-import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
-import { useAdminEvents } from '@/composables/useAdminEvents';
 import AppLayout from '@/components/layout/AppLayout.vue';
-import StatCard from '@/components/ui/StatCard.vue';
-import UserAvatar from '@/components/ui/UserAvatar.vue';
-import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
-import DataTable from '@/components/ui/DataTable.vue';
-import AppIconStack from '@/components/ui/AppIconStack.vue';
-import DashboardWalletSection from '@/components/wallet/DashboardWalletSection.vue';
-import { parseUserAgent } from '@/composables/useUserAgent';
-import type { Session, User, Application, Organization } from '@/types';
-import type { ColumnDef, DataTablePagination } from '@/types/data-table';
-import {
-  Users, MonitorSmartphone, AppWindow, Building2, Activity,
-  AlertTriangle, Info, UserPlus, Plus, Settings, Clock, Layers,
-} from '@lucide/vue';
+import BusinessDashboard from '@/components/dashboard/BusinessDashboard.vue';
+import DashboardOverview from '@/components/dashboard/DashboardOverview.vue';
+import SecurityDashboard from '@/components/dashboard/SecurityDashboard.vue';
+import { useAppBranding } from '@/composables/useAppBranding';
+import { useAuthStore } from '@/stores/auth';
+import { DASHBOARD_ROLES, hasAnyRole } from '@/utils/roles';
 import type { SelectOption } from '@/types/select';
-import { Line } from 'vue-chartjs';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler } from 'chart.js';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Filler);
+type TabKey = 'overview' | 'security' | 'business';
 
-const { t, d } = useI18n();
+const { t } = useI18n();
+const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
-const services = useServicesStore();
+const { resourceSharing } = useAppBranding();
 
-const users = ref<User[]>([]);
-const sessions = ref<Session[]>([]);
-const applications = ref<Application[]>([]);
-const organizations = ref<Organization[]>([]);
-const loading = ref(true);
-const sessionsLoading = ref(true);
-const timeRange = ref<'7d' | '30d'>('7d');
-const lastRefreshed = ref(new Date());
-
-// Server-driven state for the sessions table. Search is debounced so the
-// user can type a query without firing one request per keystroke.
-const sessionPage = ref(1);
-const sessionLimit = usePersistentPageSize('dashboard-sessions', 20);
-const sessionTotal = ref(0);
-const sessionSearch = ref('');
-const sessionAppFilter = ref('');
-const debouncedSessionSearch = useDebounce(sessionSearch, 300);
-
-const onlineCount = ref<number | null>(null);
-const loginsSeries = ref<LoginsSeriesPoint[]>([]);
-const registrationsSeries = ref<DailyCountPoint[]>([]);
-const loginsTotal = ref(0);
-const activityLoading = ref(true);
-const activityError = ref(false);
-let onlinePollHandle: ReturnType<typeof setInterval> | null = null;
-
-async function fetchOnline() {
-  try {
-    const res = await getActiveUsers();
-    onlineCount.value = res.count;
-  } catch {
-    // Silent — KPI tolerates transient errors during polling.
+// Each view lists the roles allowed to read it, so a dedicated role can be added later.
+const tabs = computed(() => {
+  const role = auth.user?.role;
+  const list: { key: TabKey; label: string }[] = [{ key: 'overview', label: t('dashboard.tabs.overview') }];
+  if (resourceSharing.value && hasAnyRole(role, DASHBOARD_ROLES.security)) {
+    list.push({ key: 'security', label: t('dashboard.tabs.security') });
   }
-}
-
-// `silent` is what the real-time path uses: an event-driven refresh must not
-// flip the chart back to its skeleton, otherwise a sustained login stream would
-// keep the chart unreadable. The value swaps in place instead.
-//
-// Both series come from the server over the same UTC day range and are fetched
-// with `allSettled`, so one failing endpoint cannot abort the dashboard mount.
-// A non-silent failure clears the affected series, which makes the axis fall
-// back to the selected window instead of showing the previous range's points
-// as if they were current.
-async function fetchActivity(options: { silent?: boolean } = {}) {
-  const silent = options.silent === true;
-  if (!silent) activityLoading.value = true;
-  const [logins, registrations] = await Promise.allSettled([
-    getLogins({ range: timeRange.value }),
-    getRegistrations({ range: timeRange.value }),
-  ]);
-
-  if (logins.status === 'fulfilled') {
-    loginsSeries.value = logins.value.series;
-    loginsTotal.value = logins.value.total;
-  } else if (!silent) {
-    loginsSeries.value = [];
-    loginsTotal.value = 0;
+  if (hasAnyRole(role, DASHBOARD_ROLES.business)) {
+    list.push({ key: 'business', label: t('dashboard.tabs.business') });
   }
-
-  if (registrations.status === 'fulfilled') {
-    registrationsSeries.value = registrations.value.series;
-  } else if (!silent) {
-    registrationsSeries.value = [];
-  }
-
-  activityError.value =
-    logins.status === 'rejected' || registrations.status === 'rejected';
-  if (!silent) activityLoading.value = false;
-}
-
-// Real-time signal: a `login.recorded` frame re-reads the logins series and the
-// online counter instead of waiting for the poll below. The composable coalesces
-// a burst of frames into a single refresh, and the server is the only access
-// control — a refused stream stays silent.
-const walletSection = ref<InstanceType<typeof DashboardWalletSection> | null>(null);
-
-const adminEvents = useAdminEvents({
-  'login.recorded': () => {
-    void fetchActivity({ silent: true });
-    void fetchOnline();
-  },
-  'wallet.changed': () => void walletSection.value?.refresh(),
+  return list;
 });
 
-onMounted(async () => {
-  await Promise.all([
-    services.fetch(),
-    fetchOnline(),
-    fetchActivity(),
-    loadSessions(),
-    (async () => {
-      const [u, a, o] = await Promise.all([
-        listUsers({ limit: 100 }),
-        listApplications(),
-        listOrganizations(),
-      ]);
-      users.value = u.users;
-      applications.value = a.applications;
-      organizations.value = o.organizations;
-      lastRefreshed.value = new Date();
-    })(),
-  ]);
-  loading.value = false;
-  onlinePollHandle = setInterval(fetchOnline, 30_000);
-});
-
-async function loadSessions() {
-  sessionsLoading.value = true;
-  try {
-    const res = await listSessions({
-      page: sessionPage.value,
-      limit: sessionLimit.value,
-      search: debouncedSessionSearch.value || undefined,
-    });
-    sessions.value = res.sessions;
-    sessionTotal.value = res.total;
-    lastRefreshed.value = new Date();
-  } finally {
-    sessionsLoading.value = false;
-  }
-}
-
-watch(debouncedSessionSearch, () => {
-  sessionPage.value = 1;
-  void loadSessions();
-});
-watch(sessionLimit, () => {
-  sessionPage.value = 1;
-  void loadSessions();
-});
-watch(sessionPage, () => { void loadSessions(); });
-
-onUnmounted(() => {
-  if (onlinePollHandle) clearInterval(onlinePollHandle);
-  adminEvents.close();
-});
-
-const activeApplications = computed(() => applications.value.filter(a => a.isActive).length);
-
-const userMap = computed(() => {
-  const m = new Map<string, User>();
-  users.value.forEach(u => m.set(u.id, u));
-  return m;
-});
-
-const sessionColumns = computed<ColumnDef<Session>[]>(() => [
-  { key: 'user', label: t('users.columns.name') },
-  { key: 'apps', label: t('users.columns.applications') },
-  { key: 'ipAddress', label: t('users.columns.ipAddress'), field: 'ipAddress' },
-  { key: 'ua', label: t('users.columns.device') },
-  { key: 'createdAt', label: t('users.columns.createdAt'), field: 'createdAt', sortable: true },
-  { key: 'actions', label: t('users.columns.actions'), align: 'right' },
-]);
-
-// Client-side filter on application slug, applied to the page returned by
-// the server. Acceptable because the page size is bounded by the limit.
-const filteredSessions = computed(() => {
-  if (!sessionAppFilter.value) return sessions.value;
-  return sessions.value.filter(s => (s.applications ?? []).some(a => a.id === sessionAppFilter.value));
-});
-
-const appFilterOptions = computed<SelectOption[]>(() => [
-  { value: '', label: t('dashboard.allApplications'), icon: Layers },
-  ...applications.value.map(a => ({ value: a.id, label: a.name, icon: AppWindow })),
-]);
-
-const sessionPagination = computed<DataTablePagination>(() => ({
-  page: sessionPage.value,
-  limit: sessionLimit.value,
-  total: sessionTotal.value,
-}));
-
-const chartDays = computed(() => (timeRange.value === '7d' ? 7 : 30));
-
-// Both axes are counts, so keep tick *positions* integer-safe: `precision`
-// alone only formats labels, and a low maximum would otherwise place ticks at
-// fractional steps whose rounded labels repeat (e.g. 0, 1, 1). Hiding the
-// non-integer labels guarantees one label per integer value.
-function integerTickLabel(value: string | number): string {
-  const n = typeof value === 'number' ? value : Number(value);
-  return Number.isInteger(n) ? String(n) : '';
-}
-
-// Dual vertical axes: logins (left, emerald) and registrations (right, blue)
-// live on very different scales, so each gets its own axis. The right axis
-// draws no grid lines so the two grids do not interleave.
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  interaction: { mode: 'index' as const, intersect: false },
-  plugins: {
-    legend: {
-      display: true,
-      position: 'top' as const,
-      labels: {
-        color: '#94a3b8',
-        boxWidth: 10,
-        boxHeight: 10,
-        usePointStyle: true,
-        pointStyle: 'circle' as const,
-        font: { size: 11 },
-      },
-    },
-    tooltip: { mode: 'index' as const, intersect: false },
-  },
-  scales: {
-    x: { grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#64748b', font: { size: 11 } } },
-    y: {
-      position: 'left' as const,
-      beginAtZero: true,
-      grid: { color: 'rgba(148,163,184,0.08)' },
-      ticks: { color: '#10b981', font: { size: 11 }, maxTicksLimit: 6, callback: integerTickLabel },
-    },
-    y1: {
-      position: 'right' as const,
-      beginAtZero: true,
-      grid: { drawOnChartArea: false },
-      ticks: { color: '#3b82f6', font: { size: 11 }, maxTicksLimit: 6, callback: integerTickLabel },
-    },
-  },
-};
-
-// ── Login / registration chart (single card, dual vertical axes) ───────────
-// Both series share one x-axis so the two trends can be read together. The
-// server's dense login series is the canonical axis (UTC day keys); a non-silent
-// fetch failure clears it, so the axis falls back to the selected last-N-days
-// window. Registrations come from the server-side daily aggregate over the same
-// range, and both datasets are emitted in the axis order so they can never
-// drift out of alignment.
-
-/** Last N calendar days as `YYYY-MM-DD` UTC keys, oldest first. */
-function lastNDayKeys(days: number): string[] {
-  const out: string[] = [];
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setUTCDate(today.getUTCDate() - i);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
-}
-
-function formatDayKey(key: string): string {
-  return new Date(`${key}T00:00:00Z`).toLocaleDateString('en', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-const chartKeys = computed<string[]>(() =>
-  loginsSeries.value.length > 0
-    ? loginsSeries.value.map(p => p.date)
-    : lastNDayKeys(chartDays.value),
+const requested = ref(typeof route.query.tab === 'string' ? route.query.tab : 'overview');
+const active = computed<TabKey>(
+  () => tabs.value.find((tab) => tab.key === requested.value)?.key ?? 'overview',
 );
+const options = computed<SelectOption[]>(() => tabs.value.map((tab) => ({ value: tab.key, label: tab.label })));
 
-const activityChartData = computed(() => {
-  const loginsByDay = new Map(loginsSeries.value.map(p => [p.date, p.count]));
-  // Server-side aggregate over the same UTC range as the login series, so the
-  // registration counts are not limited to the user page loaded for the cards.
-  const registrationsByDay = new Map(
-    registrationsSeries.value.map(p => [p.date, p.count]),
-  );
-
-  return {
-    labels: chartKeys.value.map(formatDayKey),
-    datasets: [
-      {
-        label: t('dashboard.loginsChart'),
-        data: chartKeys.value.map(k => loginsByDay.get(k) ?? 0),
-        yAxisID: 'y',
-        borderColor: '#10b981',
-        backgroundColor: 'rgba(16,185,129,0.08)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 3,
-        pointBackgroundColor: '#10b981',
-      },
-      {
-        label: t('dashboard.newRegistrations'),
-        data: chartKeys.value.map(k => registrationsByDay.get(k) ?? 0),
-        yAxisID: 'y1',
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59,130,246,0.08)',
-        // Only the primary (login) series is filled: two filled areas on two
-        // different scales would overlap and read as comparable magnitudes.
-        fill: false,
-        tension: 0.4,
-        pointRadius: 3,
-        pointBackgroundColor: '#3b82f6',
-      },
-    ],
-  };
-});
-
-watch(timeRange, () => { void fetchActivity(); });
-
-const hasNoProviders = computed(() => {
-  const p = services.config?.providers;
-  if (!p) return false;
-  return !Object.values(p).some(v => v.enabled);
-});
-
-const hasNoMfa = computed(() => !users.value.some(u => u.twoFactorEnabled || u.isMfaRequired));
-
-async function handleRevoke(session: Session) {
-  await revokeAdminSession(session.id);
-  sessions.value = sessions.value.filter(s => s.id !== session.id);
-  sessionTotal.value = Math.max(0, sessionTotal.value - 1);
-  if (USE_MOCK) return;
-  // The table is server-paginated: refetch so the next row fills the gap and
-  // the total stays authoritative. If the page is now empty, step back one
-  // page and let the page watcher reload it.
-  if (sessions.value.length === 0 && sessionPage.value > 1) {
-    sessionPage.value -= 1;
-    return;
-  }
-  await loadSessions();
+function select(key: string) {
+  requested.value = key;
+  void router.replace({ query: { ...route.query, tab: key } });
 }
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
-}
-
-void d;
 </script>
 
 <template>
   <AppLayout :title="t('dashboard.title')" :subtitle="t('dashboard.subtitle')">
     <div class="space-y-6">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard
-          :label="t('dashboard.onlineNow')"
-          :value="onlineCount ?? '—'"
-          :loading="loading && onlineCount === null"
-          :icon="Activity"
-          :sub="t('dashboard.onlineNowSub')"
-        />
-        <StatCard :label="t('dashboard.totalUsers')" :value="loading ? '' : users.length" :loading="loading" :icon="Users" />
-        <StatCard :label="t('dashboard.activeSessions')" :value="sessionsLoading ? '' : sessionTotal" :loading="sessionsLoading" :icon="MonitorSmartphone" :sub="t('dashboard.lastRefreshed') + ' ' + lastRefreshed.toLocaleTimeString()" />
-        <StatCard :label="t('dashboard.totalApplications')" :value="loading ? '' : applications.length" :loading="loading" :icon="AppWindow" :sub="`${activeApplications} ${t('common.active')}`" />
-        <StatCard :label="t('dashboard.totalOrganizations')" :value="loading ? '' : organizations.length" :loading="loading" :icon="Building2" />
-      </div>
-
-      <div v-if="services.config && !loading" class="space-y-2">
-        <div v-if="!services.config.stripe" class="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-500/8 border border-amber-500/20 text-amber-300">
-          <AlertTriangle class="w-4 h-4 mt-0.5 shrink-0" />
-          <p class="text-sm">{{ t('dashboard.stripeDisabled') }}</p>
+      <template v-if="tabs.length > 1">
+        <div class="sm:hidden">
+          <BaseSelect :model-value="active" :options="options" @update:model-value="select" />
         </div>
-        <div v-if="hasNoProviders" class="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-500/8 border border-red-500/20 text-red-300">
-          <AlertTriangle class="w-4 h-4 mt-0.5 shrink-0" />
-          <p class="text-sm">{{ t('dashboard.noProviders') }}</p>
-        </div>
-        <div v-if="hasNoMfa" class="flex items-start gap-3 px-4 py-3 rounded-xl bg-sky-500/8 border border-sky-500/20 text-sky-300">
-          <Info class="w-4 h-4 mt-0.5 shrink-0" />
-          <p class="text-sm">{{ t('dashboard.noMfaEnforced') }}</p>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div class="lg:col-span-2 rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
-          <div class="flex items-center justify-between mb-4">
-            <div>
-              <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.activityChart') }}</p>
-              <p v-if="activityError" class="text-xs text-amber-400 mt-0.5">{{ t('dashboard.activityUnavailable') }}</p>
-              <p v-else class="text-xs text-surface-500 mt-0.5">{{ t('dashboard.totalLogins', { count: loginsTotal }) }}</p>
-            </div>
-            <div class="flex gap-1">
-              <button
-                v-for="r in (['7d', '30d'] as const)"
-                :key="r"
-                @click="timeRange = r"
-                :class="['px-2.5 py-1 rounded-lg text-xs font-medium transition-colors', timeRange === r ? 'bg-primary-600/20 text-primary-300' : 'text-surface-500 hover:text-surface-300']"
-              >
-                {{ t(`dashboard.timeRanges.${r}`) }}
-              </button>
-            </div>
-          </div>
-          <div class="h-64">
-            <Line v-if="!loading && !activityLoading" :data="activityChartData" :options="chartOptions" />
-            <div v-else class="h-full bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-xl" />
-          </div>
-        </div>
-
-        <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
-          <p class="text-sm font-semibold text-surface-200 mb-4">{{ t('dashboard.quickActions') }}</p>
-          <div class="space-y-2">
-            <button @click="router.push('/users')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-800/60 transition-colors text-left">
-              <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center shrink-0">
-                <UserPlus class="w-4 h-4 text-primary-400" />
-              </div>
-              {{ t('dashboard.createUser') }}
-            </button>
-            <button @click="router.push('/applications')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-800/60 transition-colors text-left">
-              <div class="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
-                <Plus class="w-4 h-4 text-emerald-400" />
-              </div>
-              {{ t('dashboard.createApplication') }}
-            </button>
-            <button @click="router.push('/configuration')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-800/60 transition-colors text-left">
-              <div class="w-8 h-8 rounded-lg bg-surface-700/60 flex items-center justify-center shrink-0">
-                <Settings class="w-4 h-4 text-surface-400" />
-              </div>
-              {{ t('dashboard.goToConfiguration') }}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <DashboardWalletSection ref="walletSection" />
-
-      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-        <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between">
-          <p class="text-sm font-semibold text-surface-200">{{ t('dashboard.activeSessionsList') }}</p>
-          <span class="text-xs text-surface-500">{{ sessionTotal }} {{ t('common.total').toLowerCase() }}</span>
-        </div>
-        <div class="p-3">
-          <DataTable
-            :columns="sessionColumns"
-            :items="filteredSessions"
-            :loading="sessionsLoading"
-            :empty="!sessionsLoading && filteredSessions.length === 0"
-            :row-key="(s: Session) => s.id"
-            searchable
-            :search="sessionSearch"
-            :pagination="sessionPagination"
-            @update:search="sessionSearch = $event"
-            @update:page="sessionPage = $event"
-            @update:limit="sessionLimit = $event"
+        <div class="hidden sm:flex gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 w-fit">
+          <button
+            v-for="tab in tabs"
+            :key="tab.key"
+            type="button"
+            :class="[
+              'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap',
+              active === tab.key
+                ? 'bg-primary-600/20 text-primary-300 shadow-sm'
+                : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',
+            ]"
+            @click="select(tab.key)"
           >
-            <template #filters>
-              <BaseSelect v-model="sessionAppFilter" :options="appFilterOptions" class="w-48" />
-            </template>
-            <template #empty>
-              <div class="px-5 py-10 text-center text-sm text-surface-500">No active sessions</div>
-            </template>
-            <template #cell-user="{ row }">
-              <div class="flex items-center gap-3">
-                <UserAvatar
-                  :name="(row as Session).user?.name ?? userMap.get((row as Session).userId)?.name"
-                  :image="(row as Session).user?.image ?? userMap.get((row as Session).userId)?.image"
-                  size="sm"
-                />
-                <div class="min-w-0">
-                  <p class="text-sm font-medium text-surface-200 truncate">
-                    {{ (row as Session).user?.name ?? userMap.get((row as Session).userId)?.name ?? t('common.unknown') }}
-                    <span v-if="(row as Session).userId === auth.user?.id" class="ml-1 text-xs text-primary-400">(you)</span>
-                  </p>
-                  <p class="text-xs text-surface-500 truncate">
-                    {{ (row as Session).user?.email ?? userMap.get((row as Session).userId)?.email }}
-                  </p>
-                </div>
-              </div>
-            </template>
-            <template #cell-apps="{ row }">
-              <AppIconStack :apps="(row as Session).applications ?? []" />
-            </template>
-            <template #cell-ipAddress="{ row }">
-              <span class="text-xs text-surface-400">{{ (row as Session).ipAddress ?? '—' }}</span>
-            </template>
-            <template #cell-ua="{ row }">
-              <span class="text-xs text-surface-400">
-                {{ parseUserAgent((row as Session).userAgent).browser }} / {{ parseUserAgent((row as Session).userAgent).os }}
-              </span>
-            </template>
-            <template #cell-createdAt="{ row }">
-              <span class="text-xs text-surface-500 inline-flex items-center gap-1">
-                <Clock class="w-3 h-3" />
-                {{ formatDate((row as Session).createdAt) }}
-              </span>
-            </template>
-            <template #cell-actions="{ row }">
-              <BaseButton variant="ghost" size="sm" @click="handleRevoke(row as Session)">{{ t('dashboard.revoke') }}</BaseButton>
-            </template>
-          </DataTable>
+            {{ tab.label }}
+          </button>
         </div>
-      </div>
+      </template>
+
+      <DashboardOverview v-if="active === 'overview'" />
+      <SecurityDashboard v-else-if="active === 'security'" />
+      <BusinessDashboard v-else />
     </div>
   </AppLayout>
 </template>

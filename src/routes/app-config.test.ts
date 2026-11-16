@@ -78,6 +78,32 @@ describe("app-config routes", () => {
     }
   });
 
+  it("offers SSH key management only when sharing and the ssh scheme are both on", async () => {
+    const mutable = config as unknown as {
+      features: { resourceSharing: boolean };
+      resources: { enabledSchemes: string[] };
+    };
+    const originalFlag = mutable.features.resourceSharing;
+    const originalSchemes = mutable.resources.enabledSchemes;
+    try {
+      mutable.features.resourceSharing = true;
+      mutable.resources.enabledSchemes = ["llm"];
+      let res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({ sshSharing: false });
+
+      mutable.resources.enabledSchemes = ["llm", "ssh"];
+      res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({ sshSharing: true });
+
+      mutable.features.resourceSharing = false;
+      res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({ sshSharing: false });
+    } finally {
+      mutable.features.resourceSharing = originalFlag;
+      mutable.resources.enabledSchemes = originalSchemes;
+    }
+  });
+
   it("exposes the showcase flag, off by default", async () => {
     // The local .env may enable the showcase page; this case asserts the flag.
     const mutable = config as unknown as { showcase: boolean };

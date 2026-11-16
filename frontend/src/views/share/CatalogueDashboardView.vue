@@ -6,6 +6,7 @@ import { CircleCheck, Clock, Share2, Boxes } from '@lucide/vue';
 import SchemeIcon from '@/components/ui/SchemeIcon.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import StatCard from '@/components/ui/StatCard.vue';
+import UserActivityPanel from '@/components/dashboard/UserActivityPanel.vue';
 import { useCatalogueStore } from '@/stores/catalogue';
 
 const { t } = useI18n();
@@ -69,5 +70,7 @@ const byType = computed(() =>
         </li>
       </ul>
     </section>
+
+    <UserActivityPanel :app-id="appId" />
   </div>
 </template>

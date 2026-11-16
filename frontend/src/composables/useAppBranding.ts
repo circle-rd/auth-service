@@ -24,6 +24,9 @@ const showcase = ref(false);
 // Whether the deployment enables cross-application resource sharing.
 const resourceSharing = ref(false);
 
+// Whether SSH sharing is on, which makes the SSH key section relevant.
+const sshSharing = ref(false);
+
 let inflight: Promise<void> | null = null;
 
 async function load(): Promise<void> {
@@ -40,6 +43,7 @@ async function load(): Promise<void> {
         emailVerificationEnabled?: boolean;
         showcase?: boolean;
         resourceSharing?: boolean;
+        sshSharing?: boolean;
       };
       if (data.appName) state.value.appName = data.appName;
       if (data.logoUrl) state.value.logoUrl = data.logoUrl;
@@ -47,6 +51,7 @@ async function load(): Promise<void> {
       emailVerificationEnabled.value = data.emailVerificationEnabled === true;
       showcase.value = data.showcase === true;
       resourceSharing.value = data.resourceSharing === true;
+      sshSharing.value = data.sshSharing === true;
       state.value.loaded = true;
       applyFavicon(state.value.logoUrl);
       if (typeof document !== 'undefined') document.title = state.value.appName;
@@ -85,5 +90,5 @@ function applyFavicon(url: string | null): void {
 }
 
 export function useAppBranding() {
-  return { branding: state, emailVerificationEnabled, showcase, resourceSharing, load };
+  return { branding: state, emailVerificationEnabled, showcase, resourceSharing, sshSharing, load };
 }

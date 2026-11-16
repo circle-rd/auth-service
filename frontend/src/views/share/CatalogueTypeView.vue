@@ -8,7 +8,7 @@ import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { useCatalogueStore } from '@/stores/catalogue';
 import AccessibleResourceList from './AccessibleResourceList.vue';
 import SharedResourcesPanel from './SharedResourcesPanel.vue';
-import SshKeysPanel from './SshKeysPanel.vue';
+import SshIdentityBanner from './SshIdentityBanner.vue';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -66,7 +66,7 @@ function refresh() {
       </div>
     </header>
 
-    <SshKeysPanel v-if="scheme.scheme === 'ssh'" />
+    <SshIdentityBanner v-if="scheme.scheme === 'ssh'" />
 
     <section class="space-y-3">
       <h2 class="text-sm font-semibold text-surface-200">{{ t('share.catalogue.type.created') }}</h2>

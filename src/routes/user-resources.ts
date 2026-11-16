@@ -20,6 +20,7 @@ import {
   revokeResourceGrant,
 } from "../services/resources/grants.js";
 import { acceptResourceInvitation } from "../services/resources/invitations.js";
+import { getUserActivity } from "../services/resources/monitoring.js";
 import {
   createResource,
   disableResource,
@@ -49,6 +50,13 @@ const accessibleQuerySchema = z
   .object({
     scheme: z.string().regex(RESOURCE_SCHEME_RE).optional(),
     applicationId: z.string().uuid().optional(),
+  })
+  .strict();
+
+const activityQuerySchema = z
+  .object({
+    applicationId: z.string().uuid(),
+    range: z.enum(["7d", "30d"]).default("7d"),
   })
   .strict();
 
@@ -174,6 +182,16 @@ export async function userResourceRoutes(
     const userId = await requireSession(req, reply);
     if (!userId) return;
     await reply.send({ applications: await listMemberApplications(userId) });
+  });
+
+  fastify.get("/resource-activity", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const query = activityQuerySchema.parse(req.query);
+    await assertActiveMember(userId, query.applicationId);
+    await reply.send(
+      await getUserActivity(userId, query.applicationId, query.range),
+    );
   });
 
   fastify.get("/resources", async (req, reply) => {

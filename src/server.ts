@@ -43,6 +43,7 @@ import { adminConsumptionRoutes } from "./routes/admin/adminConsumption.js";
 import { usersRoutes } from "./routes/admin/users.js";
 import { sessionsRoutes } from "./routes/admin/sessions.js";
 import { statsRoutes } from "./routes/admin/stats.js";
+import { monitoringRoutes } from "./routes/admin/monitoring.js";
 import { eventsRoutes } from "./routes/admin/events.js";
 import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
@@ -792,6 +793,7 @@ export async function buildServer(
   await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
   await fastify.register(statsRoutes, { prefix: "/api/admin/stats" });
+  await fastify.register(monitoringRoutes, { prefix: "/api/admin/monitoring" });
   await fastify.register(eventsRoutes, { prefix: "/api/admin/events" });
   await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
   await fastify.register(organizationsRoutes, {

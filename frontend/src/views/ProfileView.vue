@@ -29,6 +29,8 @@ import WalletPanel from '@/components/profile/WalletPanel.vue';
 import ActiveSessionsPanel from '@/components/profile/ActiveSessionsPanel.vue';
 import ApplicationsAccessPanel from '@/components/profile/ApplicationsAccessPanel.vue';
 import BillingUsagePanel from '@/components/profile/BillingUsagePanel.vue';
+import SshKeysPanel from '@/components/profile/SshKeysPanel.vue';
+import { useAppBranding } from '@/composables/useAppBranding';
 import { ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, Pencil, CalendarDays, AppWindow } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import { countryDefaults, countryFlag, countryName, countryOptions } from '@/utils/countries';
@@ -41,9 +43,15 @@ const toast = useToast();
 const route = useRoute();
 // A payment provider return lands on the credit tab.
 type ProfileTabKey = 'account' | 'security' | 'organizations' | 'applications' | 'credit';
-const activeTab = ref<ProfileTabKey>(
-  route.query.topup !== undefined ? 'credit' : 'account',
-);
+const PROFILE_TABS: readonly ProfileTabKey[] = ['account', 'security', 'organizations', 'applications', 'credit'];
+const { sshSharing } = useAppBranding();
+
+function initialTab(): ProfileTabKey {
+  if (route.query.topup !== undefined) return 'credit';
+  return PROFILE_TABS.find((tab) => tab === route.query.tab) ?? 'account';
+}
+
+const activeTab = ref<ProfileTabKey>(initialTab());
 
 const profileTabs = [
   { key: 'account' as const, label: t('profile.tabAccount') },
@@ -113,7 +121,9 @@ function setGender(value: string) {
 // the value this page generated itself.
 const showAvatarModal = ref(false);
 const accountTab = ref<'identity' | 'oidc'>('identity');
-const securityTab = ref<'security' | 'sessions'>('security');
+const securityTab = ref<'security' | 'sessions' | 'ssh'>(
+  route.query.security === 'ssh' && sshSharing.value ? 'ssh' : 'security',
+);
 const applicationsTab = ref<'access' | 'usage'>('access');
 
 let syncingName = false;
@@ -735,6 +745,19 @@ async function handleChangePlan() {
         >
           {{ t('profile.activeSessions') }}
         </button>
+        <button
+          v-if="sshSharing"
+          type="button"
+          :class="[
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150',
+            securityTab === 'ssh'
+              ? 'bg-primary-600/20 text-primary-300 shadow-sm'
+              : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',
+          ]"
+          @click="securityTab = 'ssh'"
+        >
+          {{ t('profile.sshKeys') }}
+        </button>
       </div>
 
       <template v-if="securityTab === 'security'">
@@ -831,7 +854,7 @@ async function handleChangePlan() {
 
       </template>
       <ActiveSessionsPanel
-        v-else
+        v-else-if="securityTab === 'sessions'"
         :sessions="sessions"
         :loading="sessionsLoading"
         :current-session-id="currentSessionId"
@@ -839,6 +862,7 @@ async function handleChangePlan() {
         @revoke="handleRevoke"
         @revoke-others="handleRevokeOthers"
       />
+      <SshKeysPanel v-else-if="securityTab === 'ssh'" />
     </div>
 
     <!-- Organizations tab -->

@@ -10,6 +10,7 @@ import {
   assertAppPermission,
   type AppDelegationPermission,
 } from "./services/resources/authority.js";
+import { ADMIN_ROLES, hasAnyRole } from "./services/roles.js";
 
 /**
  * Shared Fastify authentication guards. Every admin route plugin attaches
@@ -39,27 +40,28 @@ async function sendAuthError(
 }
 
 /**
- * Reject the request unless the caller is an admin or superadmin. Sends the
- * error response itself; callers should stop when the reply has been sent.
+ * Reject the request unless the caller holds one of the allowed roles. Sends
+ * the error response itself; callers should stop when the reply has been sent.
  */
-export async function requireAdmin(
-  req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
-  const session = await getRequestSession(req);
-  if (!session) {
-    await reply.status(401).send(ERR.AUTH_001().toJSON());
-    return;
-  }
-  const role = (session.user as Record<string, unknown>).role as
-    string | undefined;
-  if (role !== "admin" && role !== "superadmin") {
-    await reply
-      .status(403)
-      .send(ERR.AUTH_011("Insufficient permissions").toJSON());
-    return;
-  }
+export function requireAnyRole(allowed: readonly string[]) {
+  return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const session = await getRequestSession(req);
+    if (!session) {
+      await reply.status(401).send(ERR.AUTH_001().toJSON());
+      return;
+    }
+    const role = (session.user as Record<string, unknown>).role as
+      string | undefined;
+    if (!hasAnyRole(role, allowed)) {
+      await reply
+        .status(403)
+        .send(ERR.AUTH_011("Insufficient permissions").toJSON());
+    }
+  };
 }
+
+/** Reject the request unless the caller is an admin or superadmin. */
+export const requireAdmin = requireAnyRole(ADMIN_ROLES);
 
 /**
  * Require an authenticated session that may administer the given application.

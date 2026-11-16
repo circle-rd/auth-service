@@ -33,6 +33,9 @@ export const applications = pgTable(
     // default). `delegated`: the service serves the subscribe, invoices and
     // billing-usage pages for it. The application keeps its own UI otherwise.
     billingMode: text("billing_mode").notNull().default("none"),
+    resourceSharingEnabled: boolean("resource_sharing_enabled")
+      .notNull()
+      .default(false),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()
@@ -165,6 +168,46 @@ export const userAppRoles = pgTable(
       .notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.applicationId, t.roleId] })],
+);
+
+// ── App Delegations ───────────────────────────────────────────────────────────
+// Explicit, least-privilege owner administration for users who are not members
+// of the application's built-in `admin` role. An `admin` role membership is the
+// application's initial owner representation and implies every permission; a
+// delegation row grants exactly one owner permission.
+export const appDelegations = pgTable(
+  "app_delegation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    permission: text("permission").notNull(),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("app_delegation_user_app_permission_idx").on(
+      t.userId,
+      t.applicationId,
+      t.permission,
+    ),
+    index("app_delegation_lookup_idx").on(t.userId, t.applicationId, t.status),
+    check(
+      "app_delegation_permission_check",
+      sql`${t.permission} IN ('resources:read', 'resources:manage', 'grants:manage')`,
+    ),
+    check(
+      "app_delegation_status_check",
+      sql`${t.status} IN ('active', 'revoked')`,
+    ),
+  ],
 );
 
 // ── Subscription Plans ────────────────────────────────────────────────────────

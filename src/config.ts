@@ -76,6 +76,11 @@ const envSchema = z
     // behind a reverse proxy or load balancer that spreads source IPs.
     RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(600),
 
+    // Per-IP ceiling for the strict sign-in/sign-up/password-reset bucket. The
+    // default protects credential endpoints; automated suites raise it instead
+    // of disabling the bucket.
+    RATE_LIMIT_AUTH_MAX: z.coerce.number().int().positive().default(10),
+
     // Display name used as TOTP issuer in authenticator apps and as BetterAuth
     // appName. Falls back to a sensible default when unset.
     APP_NAME: z.string().min(1).default("CIRCLE Auth"),
@@ -163,6 +168,34 @@ const envSchema = z
     // One-shot reconciliation of `two_factor_enabled` for pre-existing MFA
     // factors. Off by default because it scans the historical user table.
     MFA_BACKFILL_ENABLED: envBoolean(false),
+    // Cross-application resource sharing. Off by default: when unset the
+    // gateway authorize/accessible routes are not mounted at all, so existing
+    // azp→team behaviour is untouched.
+    RESOURCE_SHARING_ENABLED: envBoolean(false),
+    // Comma-separated built-in resource schemes enabled on this deployment.
+    // A scheme whose dedicated service/profile is absent stays disabled even
+    // when applications enable it.
+    RESOURCE_SCHEMES_ENABLED: z.string().default(""),
+    // Monitoring retention. Startup defaults: 90 days of access events and
+    // 400 days of usage records, purged in batches by the sweeper.
+    RESOURCE_ACCESS_EVENT_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .default(90),
+    RESOURCE_USAGE_RECORD_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .default(400),
+    RESOURCE_RETENTION_SWEEP_HOURS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(168)
+      .default(24),
 
     // CAPTCHA on credential endpoints. Deliberately opt-in via CAPTCHA_ENABLED
     // (not merely by setting keys): enabling it rejects sign-in, sign-up and
@@ -255,14 +288,33 @@ const envSchema = z
       .optional(),
     WALLET_MARGIN_PERCENT: z.coerce.number().int().min(0).max(1000).default(0),
 
-    // LLM gateway (LiteLLM) administration API, used to keep one gateway team per
-    // application with LiteLLM support. The key is a restricted virtual key (team
-    // routes only) written by `litellm-provision` on a volume this service reads.
+    // LLM gateway (LiteLLM) inventory API. The key is a read-only virtual key
+    // written by `litellm-provision` on a volume this service reads. It is used
+    // only to mirror models, agents and MCP servers for entitlement resolution.
     LITELLM_URL: z.string().url().optional(),
-    LITELLM_PROVISIONER_KEY_FILE: z
+    LITELLM_INVENTORY_KEY_FILE: z
       .string()
       .min(1)
-      .default("/run/litellm-provisioner/key"),
+      .default("/run/litellm-provisioner/inventory-key"),
+    // SSH gateway contract. The envelope key encrypts resource identity keys;
+    // it is only required when the ssh scheme is enabled and a resource is set
+    // up. The public host/port build the validation command shown to owners.
+    SSH_GATEWAY_ENVELOPE_KEY: z.string().min(1).optional(),
+    SSH_GATEWAY_VALIDATION_HOST: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.string().min(1).max(255).optional(),
+    ),
+    SSH_GATEWAY_EGRESS_IP: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z
+        .string()
+        .refine(
+          (v) => isTrustedProxyEntry(v) && !TRUST_PROXY_KEYWORDS.includes(v),
+          "must be an IP or CIDR",
+        )
+        .optional(),
+    ),
+    SSH_GATEWAY_PORT: z.coerce.number().int().min(1).max(65535).default(2222),
 
     // OAuth social providers (optional — each requires CLIENT_ID + CLIENT_SECRET)
     GOOGLE_CLIENT_ID: z.string().optional(),
@@ -334,9 +386,9 @@ const rawEnv = Object.fromEntries(
 const parsed = envSchema.safeParse(rawEnv);
 
 if (!parsed.success) {
-  console.error("Invalid environment variables:");
+  process.stderr.write("Invalid environment variables:\n");
   for (const issue of parsed.error.issues) {
-    console.error(`  ${issue.path.join(".")}: ${issue.message}`);
+    process.stderr.write(`  ${issue.path.join(".")}: ${issue.message}\n`);
   }
   process.exit(1);
 }
@@ -353,11 +405,11 @@ const anyEmailFlowEnabled =
   parsed.data.EMAIL_OTP_ENABLED;
 
 if (isProduction && anyEmailFlowEnabled && !parsed.data.SMTP_HOST) {
-  console.error(
+  process.stderr.write(
     "Invalid environment configuration:\n" +
       "  SMTP_HOST is required in production when REQUIRE_EMAIL_VERIFICATION, " +
       "MAGIC_LINK_ENABLED, or EMAIL_OTP_ENABLED is on.\n" +
-      "  Either set SMTP_HOST, or disable the email-dependent flows.",
+      "  Either set SMTP_HOST, or disable the email-dependent flows.\n",
   );
   process.exit(1);
 }
@@ -374,6 +426,7 @@ export const config = {
   },
   rateLimit: {
     globalMax: parsed.data.RATE_LIMIT_GLOBAL_MAX,
+    authMax: parsed.data.RATE_LIMIT_AUTH_MAX,
   },
   verificationCache: {
     resourcesTtlSeconds: parsed.data.RESOURCE_CACHE_TTL_SECONDS,
@@ -415,6 +468,15 @@ export const config = {
     lastLoginMethod: parsed.data.LAST_LOGIN_METHOD_ENABLED,
     deviceAuthorization: parsed.data.DEVICE_AUTHORIZATION_ENABLED,
     mfaBackfill: parsed.data.MFA_BACKFILL_ENABLED,
+    resourceSharing: parsed.data.RESOURCE_SHARING_ENABLED,
+  },
+  resources: {
+    enabledSchemes: parsed.data.RESOURCE_SCHEMES_ENABLED.split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    accessEventRetentionDays: parsed.data.RESOURCE_ACCESS_EVENT_RETENTION_DAYS,
+    usageRecordRetentionDays: parsed.data.RESOURCE_USAGE_RECORD_RETENTION_DAYS,
+    retentionSweepHours: parsed.data.RESOURCE_RETENTION_SWEEP_HOURS,
   },
   captcha: {
     enabled: !!(
@@ -456,7 +518,13 @@ export const config = {
   },
   litellm: {
     url: parsed.data.LITELLM_URL?.replace(/\/+$/, ""),
-    provisionerKeyFile: parsed.data.LITELLM_PROVISIONER_KEY_FILE,
+    inventoryKeyFile: parsed.data.LITELLM_INVENTORY_KEY_FILE,
+  },
+  sshGateway: {
+    envelopeKey: parsed.data.SSH_GATEWAY_ENVELOPE_KEY,
+    validationHost: parsed.data.SSH_GATEWAY_VALIDATION_HOST,
+    egressIp: parsed.data.SSH_GATEWAY_EGRESS_IP,
+    port: parsed.data.SSH_GATEWAY_PORT,
   },
   templatesDir: parsed.data.TEMPLATES_DIR || null,
   providers: {

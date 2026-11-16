@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useApplicationsStore } from '@/stores/applications';
+import { useAppBranding } from '@/composables/useAppBranding';
 import { rotateSecret } from '@/api/applications';
 import { useToast } from '@/composables/useToast';
 import type { Application } from '@/types';
@@ -34,12 +35,14 @@ import {
   AlertTriangle,
   Activity,
   Layers,
+  Share2,
 } from '@lucide/vue';
 
 const { t } = useI18n();
 const router = useRouter();
 const store = useApplicationsStore();
 const toast = useToast();
+const { resourceSharing } = useAppBranding();
 
 const showFormModal = ref(false);
 const editingApp = ref<Application | null>(null);
@@ -208,22 +211,21 @@ function formatDate(iso: string) {
           class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 hover:border-surface-600/60 transition-all duration-200 group cursor-pointer"
           @click="router.push(`/applications/${app.id}`)"
         >
-          <div class="flex items-start justify-between mb-3">
-            <div class="flex items-center gap-3">
-              <div
-                class="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-surface-800 flex items-center justify-center"
-              >
-                <img v-if="app.icon" :src="app.icon" class="w-full h-full object-cover" />
-                <span v-else class="text-sm font-bold text-surface-400">
-                  {{ app.name[0].toUpperCase() }}
-                </span>
-              </div>
-              <div>
-                <p class="text-sm font-semibold text-surface-200">{{ app.name }}</p>
-                <p class="text-xs font-mono text-surface-500">{{ app.slug }}</p>
-              </div>
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-surface-800 flex items-center justify-center">
+              <img v-if="app.icon" :src="app.icon" class="w-full h-full object-cover" />
+              <span v-else class="text-sm font-bold text-surface-400">
+                {{ app.name[0].toUpperCase() }}
+              </span>
             </div>
-            <div class="relative" @click.stop>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-surface-200 truncate">{{ app.name }}</p>
+              <p class="text-xs font-mono text-surface-500 truncate">{{ app.slug }}</p>
+              <p v-if="app.description" class="text-xs text-surface-500 mt-1.5 line-clamp-2">
+                {{ app.description }}
+              </p>
+            </div>
+            <div class="relative shrink-0" @click.stop>
               <button
                 @click.stop="actionMenu = actionMenu === app.id ? null : app.id"
                 class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors opacity-0 group-hover:opacity-100"
@@ -238,7 +240,7 @@ function formatDate(iso: string) {
                   @click="router.push(`/applications/${app.id}`)"
                   class="w-full text-left px-3 py-2.5 text-sm text-surface-300 hover:text-surface-100 hover:bg-surface-700/50 flex items-center gap-2"
                 >
-                  <Eye class="w-4 h-4" />View
+                  <Eye class="w-4 h-4" />{{ t('common.view') }}
                 </button>
                 <button
                   @click="openEdit(app)"
@@ -279,14 +281,7 @@ function formatDate(iso: string) {
             </div>
           </div>
 
-          <p
-            v-if="app.description"
-            class="text-xs text-surface-500 mb-3 line-clamp-2"
-          >
-            {{ app.description }}
-          </p>
-
-          <div class="flex flex-wrap gap-1.5 mb-3">
+          <div class="mt-4 flex flex-wrap items-center justify-end gap-1.5">
             <BaseBadge
               :variant="app.isActive ? 'success' : 'neutral'"
               size="sm"
@@ -304,11 +299,19 @@ function formatDate(iso: string) {
             <BaseBadge v-if="app.isSystem" variant="info" size="sm">
               {{ t('applications.system') }}
             </BaseBadge>
+            <BaseBadge
+              v-if="resourceSharing && app.resourceSharingEnabled"
+              variant="info"
+              size="sm"
+            >
+              <Share2 class="w-3 h-3" />
+              {{ t('applications.resourceSharing') }}
+            </BaseBadge>
           </div>
 
-          <div class="text-xs text-surface-600">
+          <p class="mt-2 text-right text-xs text-surface-600">
             {{ app.redirectUris.length }} redirect URIs · {{ formatDate(app.createdAt) }}
-          </div>
+          </p>
 
           <div class="mt-3 pt-3 border-t border-surface-800/40 flex items-center justify-between">
             <div class="flex items-center gap-3 text-xs">

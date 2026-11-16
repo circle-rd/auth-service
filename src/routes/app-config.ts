@@ -63,6 +63,7 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
           logoDarkUrl: config.appLogoDarkUrl ?? null,
           emailVerificationEnabled,
           showcase: config.showcase,
+          resourceSharing: config.features.resourceSharing,
         });
       }
 

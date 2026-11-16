@@ -8,77 +8,69 @@ import {
   vi,
 } from "vitest";
 import { createTestApp } from "../tests/helpers/app.js";
-import { ERR } from "../errors.js";
 
-const { mockRequireScope, mockResolvePlan } = vi.hoisted(() => ({
-  mockRequireScope: vi.fn(),
-  mockResolvePlan: vi.fn(),
+const { mockRequireMachineScope, mockListEntitlements } = vi.hoisted(() => ({
+  mockRequireMachineScope: vi.fn(),
+  mockListEntitlements: vi.fn(),
 }));
 
-vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../services/machine-auth.js", () => ({
-  requireMachineScope: mockRequireScope,
+  requireMachineScope: mockRequireMachineScope,
 }));
-vi.mock("../services/litellm-plan.js", () => ({
-  resolveGatewayPlan: mockResolvePlan,
+vi.mock("../services/gateway-inventory.js", () => ({
+  listGatewayEntitlements: mockListEntitlements,
 }));
 
 const { gatewayInternalRoutes } = await import("./gateway-internal.js");
 
+const USER = "11111111-1111-4111-8111-111111111111";
 const app = createTestApp();
 
 beforeAll(async () => {
-  await app.register(gatewayInternalRoutes);
+  await app.register(gatewayInternalRoutes, {
+    prefix: "/api/internal/gateway",
+  });
   await app.ready();
 });
-
 afterAll(() => app.close());
 
 beforeEach(() => {
-  mockRequireScope
-    .mockReset()
-    .mockResolvedValue({ clientId: "litellm-wallet" });
-  mockResolvePlan.mockReset().mockResolvedValue(null);
+  mockRequireMachineScope.mockReset();
+  mockListEntitlements.mockReset();
+  mockRequireMachineScope.mockResolvedValue({
+    clientId: "litellm-wallet",
+    scopes: [],
+  });
+  mockListEntitlements.mockResolvedValue({
+    models: ["gpt-x"],
+    agents: [],
+    mcpServers: [],
+    mcpToolPermissions: {},
+    resources: [],
+  });
 });
 
-const get = (url: string, auth = "Bearer token") =>
-  app.inject({ method: "GET", url, headers: { authorization: auth } });
-
-describe("gateway internal plan route", () => {
-  it("requires the wallet:read machine scope", async () => {
-    await get("/users/u1/plan?applicationSlug=app");
-    expect(mockRequireScope).toHaveBeenCalledWith(
-      "Bearer token",
-      "wallet:read",
-    );
-  });
-
-  it("returns the plan and its team", async () => {
-    mockResolvePlan.mockResolvedValue({
-      applicationSlug: "app",
-      planName: "Premium",
-      teamId: "app:premium",
+describe("gateway internal entitlements", () => {
+  it("requires the entitlements scope and returns the resolved lists", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/internal/gateway/users/${USER}/entitlements?applicationSlug=acme`,
     });
-    const res = await get("/users/u1/plan?applicationSlug=app");
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ plan: "Premium", teamId: "app:premium" });
-    expect(mockResolvePlan).toHaveBeenCalledWith("u1", "app");
+    expect(res.json()).toMatchObject({ models: ["gpt-x"] });
+    expect(mockRequireMachineScope).toHaveBeenCalledWith(
+      undefined,
+      "gateway:entitlements:read",
+    );
+    expect(mockListEntitlements).toHaveBeenCalledWith(USER);
   });
 
-  it("returns nulls when the user holds no plan", async () => {
-    const res = await get("/users/u1/plan?applicationSlug=app");
+  it("accepts non-uuid user ids used by BetterAuth", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/internal/gateway/users/user_abc/entitlements",
+    });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ plan: null, teamId: null });
-  });
-
-  it("rejects a missing applicationSlug", async () => {
-    const res = await get("/users/u1/plan");
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("fails when the machine token is refused", async () => {
-    mockRequireScope.mockRejectedValue(ERR.AUTH_001());
-    const res = await get("/users/u1/plan?applicationSlug=app");
-    expect(res.statusCode).toBe(401);
+    expect(mockListEntitlements).toHaveBeenCalledWith("user_abc");
   });
 });

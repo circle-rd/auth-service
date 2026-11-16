@@ -20,12 +20,14 @@ for name, value in {
     "WALLET_AUTH_URL": "https://auth.test",
     "WALLET_CLIENT_ID": "litellm-wallet",
     "WALLET_CLIENT_SECRET": "secret",
+    "GATEWAY_ENTITLEMENTS_URL": "https://auth.test",
 }.items():
     os.environ.setdefault(name, value)
 
 sys.path.insert(0, str(Path(os.environ.get("GATEWAY_DIR", "/gateway"))))
 
 import custom_auth  # noqa: E402
+from entitlements import EntitlementResource, Entitlements  # noqa: E402
 
 
 class ClientRoutePolicy(unittest.TestCase):
@@ -41,6 +43,8 @@ class ClientRoutePolicy(unittest.TestCase):
             ("GET", "/mcp/"),
             ("POST", "/docs-server/mcp"),
             ("POST", "/docs-server/mcp/sse"),
+            ("POST", "/a2a/owner-agent/message/send"),
+            ("POST", "/v1/a2a/owner-agent/message/send"),
         ]:
             with self.subTest(method=method, path=path):
                 self.assertTrue(self.allowed(method, path))
@@ -90,9 +94,69 @@ class ClientRoutePolicy(unittest.TestCase):
             ("GET", "/spend/logs"),
             ("GET", "/user/list"),
             ("POST", "/model/new"),
+            ("POST", "/model/update"),
+            ("POST", "/model/delete"),
+            ("POST", "/key/update"),
+            ("POST", "/key/delete"),
+            ("POST", "/user/update"),
+            ("POST", "/user/delete"),
+            ("POST", "/team/update"),
+            ("POST", "/team/delete"),
+            ("POST", "/organization/new"),
+            ("POST", "/config/update"),
+            ("POST", "/cache/flush"),
+            ("POST", "/v1/a2a/discover"),
         ]:
             with self.subTest(method=method, path=path):
                 self.assertFalse(self.allowed(method, path))
+
+
+class EntitlementIdentity(unittest.TestCase):
+    def test_entitlements_become_a_key_object_permission(self) -> None:
+        entitlements = Entitlements(
+            models=("gpt-x", "claude-x"),
+            agents=("analyst",),
+            mcp_servers=("server-x",),
+            mcp_tool_permissions={"server-x": ("search",)},
+            resources=(
+                EntitlementResource(
+                    resource_id="r1",
+                    uri="llm://acme/gpt-x",
+                    scheme="llm",
+                    kind="model",
+                    name="gpt-x",
+                    parent_name="",
+                    application_slug="acme",
+                    owner_type="application",
+                    owner_id="acme",
+                ),
+            ),
+        )
+        identity = custom_auth._identity({"sub": "user-1", "azp": "acme"}, entitlements)
+        self.assertEqual(identity.models, ["gpt-x", "claude-x"])
+        self.assertIsNone(identity.team_id)
+        permission = identity.object_permission
+        self.assertIsNotNone(permission)
+        self.assertEqual(permission.models, ["gpt-x", "claude-x"])
+        self.assertEqual(permission.agents, ["analyst"])
+        self.assertEqual(permission.mcp_servers, ["server-x"])
+        self.assertEqual(permission.mcp_tool_permissions, {"server-x": ["search"]})
+        usage = identity.metadata["resourceUsage"]
+        self.assertEqual(usage["subjectId"], "user-1")
+        self.assertEqual(usage["clientId"], "acme")
+        self.assertEqual(usage["resources"][0]["resourceId"], "r1")
+        self.assertEqual(usage["resources"][0]["name"], "gpt-x")
+
+    def test_empty_entitlements_use_explicit_deny_sentinels(self) -> None:
+        identity = custom_auth._identity(
+            {"sub": "user-1", "azp": "acme"},
+            Entitlements((), (), (), {}, ()),
+        )
+        self.assertEqual(identity.models, [custom_auth.NO_MODEL_SENTINEL])
+        permission = identity.object_permission
+        self.assertEqual(permission.mcp_servers, [custom_auth.NO_MCP_SENTINEL])
+        self.assertEqual(permission.agents, [])
+        self.assertEqual(permission.mcp_tool_permissions, None)
 
 
 if __name__ == "__main__":

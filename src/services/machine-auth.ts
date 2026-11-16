@@ -12,6 +12,13 @@ export const MACHINE_SCOPES = [
   "billing:read",
   "consumption:read",
   "consumption:write",
+  "resources:authorize",
+  "resources:usage:write",
+  "resources:validate",
+  "gateway:entitlements:read",
+  "ssh:target:read",
+  "ssh:resource:read",
+  "device:session:validate",
 ] as const;
 export type MachineScope = (typeof MACHINE_SCOPES)[number];
 
@@ -24,6 +31,7 @@ export const APPLICATION_MACHINE_SCOPES = [
   "billing:read",
   "consumption:read",
   "consumption:write",
+  "resources:validate",
 ] as const satisfies readonly MachineScope[];
 
 /** What a new confidential application may request through client_credentials. */

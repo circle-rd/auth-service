@@ -61,6 +61,18 @@ const routes = [
     meta: { requiresAdmin: true },
   },
   {
+    path: '/share/catalogue',
+    name: 'share-catalogue',
+    component: () => import('@/views/share/SubjectCatalogueView.vue'),
+    meta: { requiresAdmin: false },
+  },
+  {
+    path: '/resource-invitation',
+    name: 'resource-invitation',
+    component: () => import('@/views/share/ResourceInvitationView.vue'),
+    meta: { requiresAdmin: false },
+  },
+  {
     path: '/configuration',
     name: 'configuration',
     component: () => import('@/views/ConfigurationView.vue'),
@@ -191,7 +203,9 @@ router.beforeEach(async (to) => {
   const isPublic = to.meta.isPublic === true;
 
   if (!auth.user && !isPublic) {
-    return { name: 'login' };
+    // Keep the whole target, not just its name: invitation links carry a
+    // one-time token in the query that must survive the sign-in detour.
+    return { name: 'login', query: { redirectTo: to.fullPath } };
   }
 
   // Someone already signed in has nothing to do on the sign-in page. An OAuth

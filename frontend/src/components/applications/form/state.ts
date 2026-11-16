@@ -25,6 +25,7 @@ export interface ApplicationFormState {
   isMfaRequired: boolean;
   allowRegister: boolean;
   billingDelegated: boolean;
+  resourceSharingEnabled: boolean;
   allowedScopes: string[];
   redirectUris: string[];
   allowedResources: string[];
@@ -58,6 +59,7 @@ export function emptyApplicationForm(
     isMfaRequired: false,
     allowRegister: true,
     billingDelegated: false,
+    resourceSharingEnabled: false,
     allowedScopes: [...DEFAULT_SCOPES],
     redirectUris: [''],
     allowedResources: [],
@@ -84,6 +86,7 @@ export function formFromApplication(a: Application): ApplicationFormState {
     isMfaRequired: a.isMfaRequired,
     allowRegister: a.allowRegister,
     billingDelegated: a.billingMode === 'delegated',
+    resourceSharingEnabled: a.resourceSharingEnabled,
     allowedScopes: [...a.allowedScopes],
     redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
     allowedResources: [...(a.allowedResources ?? [])],

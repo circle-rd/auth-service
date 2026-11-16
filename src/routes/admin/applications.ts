@@ -70,12 +70,7 @@ import {
   backchannelLogoutUriSchema,
 } from "../../services/backchannel-logout-uri.js";
 import { publishEvent } from "../../services/event-bus.js";
-import {
-  deleteApplicationTeams,
-  ensureTeamBeforeSave,
-  retireTeamAfterSave,
-} from "../../services/litellm-sync.js";
-import { DEFAULT_PLAN_NAME } from "../../services/litellm-plan.js";
+const DEFAULT_PLAN_NAME = "free";
 import { DEFAULT_MACHINE_SCOPES } from "../../services/machine-auth.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
@@ -313,6 +308,7 @@ const createAppSchema = z.object({
   isMfaRequired: z.boolean().default(false),
   allowRegister: z.boolean().default(false),
   billingMode: z.enum(["none", "delegated"]).default("none"),
+  resourceSharingEnabled: z.boolean().default(false),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client may call
@@ -365,6 +361,7 @@ const updateAppSchema = createAppSchema
     isMfaRequired: z.boolean().optional(),
     allowRegister: z.boolean().optional(),
     billingMode: z.enum(["none", "delegated"]).optional(),
+    resourceSharingEnabled: z.boolean().optional(),
     allowedScopes: z.array(z.string()).optional(),
     redirectUris: z.array(z.string().url()).optional(),
     enableEndSession: z.boolean().optional(),
@@ -516,10 +513,6 @@ export async function applicationRoutes(
     if (data.backchannelLogoutUri) {
       await assertReachableBackchannelLogoutUri(data.backchannelLogoutUri);
     }
-    // The plans do not exist yet (a new application is created with just its
-    // default one), so the team ids are derived from the plan names here.
-    await ensureTeamBeforeSave(data, [], [DEFAULT_PLAN_NAME]);
-
     // Generate and hash the client secret (only for confidential clients)
     const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
     const hashedSecret = rawSecret ? hashClientSecret(rawSecret) : null;
@@ -539,6 +532,7 @@ export async function applicationRoutes(
           isMfaRequired: data.isMfaRequired,
           allowRegister: data.allowRegister,
           billingMode: data.billingMode,
+          resourceSharingEnabled: data.resourceSharingEnabled,
           allowedScopes: data.allowedScopes,
           redirectUris: data.redirectUris,
           url: data.url,
@@ -787,17 +781,6 @@ export async function applicationRoutes(
       parsed.data.url !== undefined ? parsed.data.url : before.url,
     );
 
-    // The gateway team must exist before an application gets LiteLLM support.
-    await ensureTeamBeforeSave(
-      {
-        slug: before.slug,
-        name: parsed.data.name ?? before.name,
-        allowedResources:
-          parsed.data.allowedResources ?? before.allowedResources,
-      },
-      before.allowedResources,
-    );
-
     // `enableEndSession`, `postLogoutRedirectUris` and the back-channel logout
     // settings live exclusively on the BetterAuth `oauthClient` row, not on
     // `applications` — strip them before updating the application table.
@@ -908,12 +891,6 @@ export async function applicationRoutes(
       });
     }
 
-    await retireTeamAfterSave(
-      app.slug,
-      before.allowedResources,
-      app.allowedResources,
-    );
-
     const view = await fetchOauthClientView(app.slug);
     publishEvent("application.changed");
     await reply.send({ application: mergeOauthView(app, view) });
@@ -957,7 +934,6 @@ export async function applicationRoutes(
       removeCorsOrigin(deleted.url);
     }
 
-    await deleteApplicationTeams(deleted.slug);
     await archiveApplicationCatalogue(catalogue);
 
     publishEvent("application.changed");

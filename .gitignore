@@ -42,3 +42,5 @@ litellm-gateway-config.json
 
 # Local plans
 *.docx
+test-results/
+playwright-report/

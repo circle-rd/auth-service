@@ -106,6 +106,56 @@ export async function sendOrganizationInvitationEmail(
   );
 }
 
+export async function sendResourceInvitationEmail(
+  email: string,
+  args: {
+    url: string;
+    expiresInHours: number;
+    ownerAppName: string;
+    ownerAppSlug: string;
+    planName?: string | null;
+    resourceName?: string | null;
+    inviterName?: string;
+  },
+): Promise<void> {
+  await sendEmail(
+    "resource-invitation",
+    email,
+    {
+      url: args.url,
+      email,
+      expiresInHours: args.expiresInHours,
+      ownerAppName: args.ownerAppName,
+      planName: args.planName ?? "",
+      resourceName: args.resourceName ?? "",
+      inviterName: args.inviterName,
+    },
+    args.ownerAppSlug,
+  );
+}
+
+export async function sendApplicationAccessEmail(
+  email: string,
+  args: {
+    url: string;
+    appName: string;
+    appSlug: string;
+    inviterName?: string;
+  },
+): Promise<void> {
+  await sendEmail(
+    "application-access-granted",
+    email,
+    {
+      url: args.url,
+      email,
+      appName: args.appName,
+      inviterName: args.inviterName,
+    },
+    args.appSlug,
+  );
+}
+
 export async function sendRegistrationInvitationEmail(
   email: string,
   args: {

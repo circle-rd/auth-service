@@ -2,9 +2,11 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
-import { RefreshCw } from '@lucide/vue';
+import { Receipt, RefreshCw } from '@lucide/vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
+import BaseModal from '@/components/ui/BaseModal.vue';
+import InvoicesPanel from '@/components/profile/InvoicesPanel.vue';
 import WalletBalanceCard from '@/components/wallet/WalletBalanceCard.vue';
 import WalletSpendCard from '@/components/wallet/WalletSpendCard.vue';
 import WalletDailyTable from '@/components/wallet/WalletDailyTable.vue';
@@ -37,6 +39,7 @@ const options = ref<TopupOptions | null>(null);
 const amount = ref('10');
 const amountError = ref('');
 const redirecting = ref(false);
+const showInvoices = ref(false);
 
 const cents = computed(() => eurToCents(amount.value));
 const inRange = computed(() =>
@@ -127,6 +130,9 @@ onUnmounted(() => {
           <BaseButton variant="ghost" size="sm" @click="refresh">
             <RefreshCw class="w-3.5 h-3.5" /> {{ t('wallet.refresh') }}
           </BaseButton>
+          <BaseButton variant="ghost" size="sm" @click="showInvoices = true">
+            <Receipt class="w-3.5 h-3.5" /> {{ t('wallet.invoices') }}
+          </BaseButton>
         </template>
       </WalletBalanceCard>
 
@@ -178,5 +184,9 @@ onUnmounted(() => {
       </div>
       <WalletDailyTable :daily="stats?.daily ?? []" :loading="loading" />
     </div>
+
+    <BaseModal :open="showInvoices" :title="t('profile.billingPanel.invoicesTitle')" size="xl" @close="showInvoices = false">
+      <InvoicesPanel />
+    </BaseModal>
   </div>
 </template>

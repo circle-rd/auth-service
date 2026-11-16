@@ -60,6 +60,24 @@ describe("app-config routes", () => {
     expect(body.emailVerificationEnabled).toBe(false);
   });
 
+  it("exposes the global resource sharing flag, off by default", async () => {
+    const mutable = config as unknown as {
+      features: { resourceSharing: boolean };
+    };
+    const original = mutable.features.resourceSharing;
+    try {
+      mutable.features.resourceSharing = false;
+      let res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({ resourceSharing: false });
+
+      mutable.features.resourceSharing = true;
+      res = await app.inject({ method: "GET", url: "/" });
+      expect(JSON.parse(res.body)).toMatchObject({ resourceSharing: true });
+    } finally {
+      mutable.features.resourceSharing = original;
+    }
+  });
+
   it("exposes the showcase flag, off by default", async () => {
     // The local .env may enable the showcase page; this case asserts the flag.
     const mutable = config as unknown as { showcase: boolean };

@@ -7,6 +7,7 @@ defineProps<{
   form: ApplicationFormState;
   isEdit: boolean;
   litellmAvailable: boolean;
+  resourceSharingAvailable: boolean;
 }>();
 
 const litellmSupport = defineModel<boolean>('litellm', { required: true });
@@ -94,6 +95,13 @@ const { t } = useI18n();
           :label="t('applications.litellmSupport')"
           :description="litellmAvailable ? t('applications.litellmSupportHint') : t('applications.litellmUnavailable')"
           :disabled="!litellmAvailable"
+        />
+        <BaseToggle
+          v-model="form.resourceSharingEnabled"
+          class="p-3.5"
+          :label="t('applications.resourceSharing')"
+          :description="resourceSharingAvailable ? t('applications.resourceSharingHint') : t('applications.resourceSharingUnavailable')"
+          :disabled="!resourceSharingAvailable"
         />
       </div>
     </section>

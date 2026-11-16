@@ -17,8 +17,10 @@ import { applications } from "./db/schema.js";
 import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
+import { startGatewayInventorySync } from "./services/gateway-inventory.js";
+import { syncBuiltinSchemes } from "./services/resources/scheme-service.js";
+import { startResourceMonitoringRetention } from "./services/resources/usage.js";
 import { closeRedisClient } from "./services/redis-client.js";
-import { startLitellmReconciler } from "./services/litellm-sync.js";
 import { startBillingMeterRetry } from "./services/billing/usage.js";
 import { ensureSigningKey } from "./compat/signing-keys.js";
 import { reconcileTokenAuthMethod } from "./compat/token-auth.js";
@@ -30,6 +32,7 @@ async function start(): Promise<void> {
     await runMigrations();
   }
   await bootstrap();
+  if (config.features.resourceSharing) await syncBuiltinSchemes();
   await ensureSigningKey();
   await reconcileTokenAuthMethod();
   if (config.compat.profile !== "default") {
@@ -80,7 +83,8 @@ async function start(): Promise<void> {
 
   await fastify.listen({ port: config.port, host: config.host });
   fastify.log.info(`auth-service listening on ${config.host}:${config.port}`);
-  startLitellmReconciler();
+  startGatewayInventorySync();
+  startResourceMonitoringRetention();
   startBillingMeterRetry();
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {

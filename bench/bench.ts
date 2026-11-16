@@ -75,6 +75,7 @@ const MACHINE_SCOPES = [
   "billing:read",
   "consumption:read",
   "consumption:write",
+  "gateway:entitlements:read",
 ];
 const COUNT_REPS = 5;
 
@@ -482,7 +483,7 @@ function scenarioRequest(
     }
     const { userId, slug } = seed.machine;
     return {
-      url: `${base}/api/internal/gateway/users/${userId}/plan?applicationSlug=${slug}`,
+      url: `${base}/api/internal/gateway/users/${userId}/entitlements?applicationSlug=${slug}`,
       init: {},
     };
   }

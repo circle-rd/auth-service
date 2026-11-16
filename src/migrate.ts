@@ -1,6 +1,6 @@
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { db } from "./db/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -31,5 +31,16 @@ export async function runMigrations(): Promise<void> {
       );
     }
     throw err;
+  }
+}
+
+const invokedDirectly =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) {
+  try {
+    await runMigrations();
+  } finally {
+    await db.$client.end();
   }
 }

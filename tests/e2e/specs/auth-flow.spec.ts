@@ -12,7 +12,7 @@
  *   bob@test.local    – no access to test-app (auto-provisioned via allowRegister:true)
  *
  * Seeded app:
- *   test-app (allowRegister: true, skipConsent: true, redirectUri: http://localhost:3000/callback)
+ *   test-app (allowRegister: true, skipConsent: true, redirectUri: http://localhost:3002/callback)
  */
 import { test, expect, type Page } from "@playwright/test";
 
@@ -44,7 +44,7 @@ async function signIn(page: Page, user: { email: string; password: string }): Pr
   await goToLoginPage(page);
   await fillLoginForm(page, user.email, user.password);
   // Redirected back: testapp callback → testapp root
-  await page.waitForURL("http://localhost:3000/");
+  await page.waitForURL("http://localhost:3002/");
   await expect(page.locator('[data-testid="claims"]')).toBeVisible();
 }
 
@@ -77,7 +77,7 @@ test.describe("Login flow (alice)", () => {
     await signIn(page, ALICE);
 
     await page.locator('[data-testid="logout-btn"]').click();
-    await page.waitForURL("http://localhost:3000/");
+    await page.waitForURL("http://localhost:3002/");
 
     // After logout, the login button should be visible
     await expect(page.locator('[data-testid="login-btn"]')).toBeVisible();
@@ -125,7 +125,7 @@ test.describe("Registration flow", () => {
     await page.click("#submit-btn");
 
     // Redirected back to testapp after successful registration + OAuth flow
-    await page.waitForURL("http://localhost:3000/", { timeout: 15_000 });
+    await page.waitForURL("http://localhost:3002/", { timeout: 15_000 });
     await expect(page.locator('[data-testid="claims"]')).toBeVisible();
 
     const text = await page.locator('[data-testid="claims"]').textContent();
@@ -176,6 +176,6 @@ test.describe("Cross-link OAuth param preservation (Bug A regression)", () => {
     const href = await registerLink.getAttribute("href");
 
     // The old bug: link was always /register?redirectTo={{REDIRECT_TO}} regardless of OAuth context
-    expect(href).not.toMatch(/^\\/register\\?redirectTo=/);
+    expect(href).not.toMatch(/^\/register\?redirectTo=/);
   });
 });

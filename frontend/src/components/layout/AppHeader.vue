@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { useRouter } from 'vue-router';
 import { useTheme } from '@/composables/useTheme';
 import { useAuthStore } from '@/stores/auth';
-import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen, LayoutDashboard } from '@lucide/vue';
+import { Sun, Moon, User, LogOut, Menu, PanelLeftClose, PanelLeftOpen, LayoutDashboard, BookOpen } from '@lucide/vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import LanguageSelect from '@/components/ui/LanguageSelect.vue';
 import AppLogo from '@/components/branding/AppLogo.vue';
@@ -15,7 +15,7 @@ const { t } = useI18n();
 const router = useRouter();
 const auth = useAuthStore();
 const { theme, toggle } = useTheme();
-const { branding } = useAppBranding();
+const { branding, resourceSharing } = useAppBranding();
 const { toggle: toggleSidebar, toggleCollapsed, isSidebarCollapsed } = useMobileNav();
 
 // Pages without a sidebar show the instance logo where the sidebar toggles would be.
@@ -132,6 +132,16 @@ async function handleLogout() {
               >
                 <User class="w-4 h-4 shrink-0 text-surface-500" />
                 {{ t('nav.profile') }}
+              </RouterLink>
+
+              <RouterLink
+                v-if="resourceSharing"
+                to="/share/catalogue"
+                @click="menuOpen = false"
+                class="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-300 hover:bg-surface-800/60 hover:text-surface-100 transition-colors"
+              >
+                <BookOpen class="w-4 h-4 shrink-0 text-surface-500" />
+                {{ t('nav.catalogue') }}
               </RouterLink>
 
               <button

@@ -70,3 +70,36 @@ export function parseRate(input: string): string | null {
   if (!/^[0-9]{1,3}(\.[0-9]{1,8})?$/.test(value)) return null;
   return Number(value) > 0 ? value : null;
 }
+
+// Stripe amounts are integer minor units. Most currencies use two decimals,
+// but some use none or three; dividing everything by 100 misprices them.
+const ZERO_DECIMAL_CURRENCIES = new Set([
+  'bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga',
+  'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf',
+]);
+const THREE_DECIMAL_CURRENCIES = new Set(['bhd', 'jod', 'kwd', 'omr', 'tnd']);
+
+export function currencyExponent(currency: string): number {
+  const code = currency.toLowerCase();
+  if (ZERO_DECIMAL_CURRENCIES.has(code)) return 0;
+  if (THREE_DECIMAL_CURRENCIES.has(code)) return 3;
+  return 2;
+}
+
+export function formatMinorAmount(
+  minor: number,
+  currency: string,
+  options: { locale?: string; minimumFractionDigits?: number } = {},
+): string {
+  const exponent = currencyExponent(currency);
+  return new Intl.NumberFormat(options.locale, {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    // Never show more decimals than the currency has, even if a caller asks.
+    minimumFractionDigits: Math.min(
+      options.minimumFractionDigits ?? exponent,
+      exponent,
+    ),
+    maximumFractionDigits: exponent,
+  }).format(minor / 10 ** exponent);
+}

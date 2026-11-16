@@ -35,6 +35,8 @@ export interface CreateApplicationBody {
   isMfaRequired?: boolean
   allowRegister?: boolean
   billingMode?: 'none' | 'delegated'
+  /** Per-application owner sharing switch; effective only with the global flag. */
+  resourceSharingEnabled?: boolean
   allowedScopes?: string[]
   redirectUris?: string[]
   url?: string
@@ -79,6 +81,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       isMfaRequired: body.isMfaRequired ?? false,
       allowRegister: body.allowRegister ?? true,
       billingMode: body.billingMode ?? 'none',
+      resourceSharingEnabled: body.resourceSharingEnabled ?? false,
       allowedScopes: body.allowedScopes ?? ['openid'],
       redirectUris: body.redirectUris ?? [],
       isPublic: body.isPublic ?? false,

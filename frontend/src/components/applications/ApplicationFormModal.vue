@@ -3,6 +3,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { createApplication, detectFavicon, listApplications, updateApplication } from '@/api/applications';
 import { getServicesConfig } from '@/api/services';
+import { useAppBranding } from '@/composables/useAppBranding';
 import type { Application, ServicesConfig } from '@/types';
 import { useToast } from '@/composables/useToast';
 import BaseButton from '@/components/ui/BaseButton.vue';
@@ -33,6 +34,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const toast = useToast();
+const { resourceSharing } = useAppBranding();
 const loading = ref(false);
 const services = ref<ServicesConfig | null>(null);
 
@@ -289,6 +291,7 @@ async function submit() {
       isMfaRequired: form.value.isMfaRequired,
       allowRegister: form.value.allowRegister,
       billingMode: form.value.billingDelegated ? ('delegated' as const) : ('none' as const),
+      resourceSharingEnabled: form.value.resourceSharingEnabled,
       allowedScopes: form.value.allowedScopes,
       redirectUris: form.value.redirectUris.filter(Boolean),
       allowedResources: form.value.allowedResources.filter(Boolean),
@@ -414,6 +417,7 @@ function onEnter() {
         :form="form"
         :is-edit="isEdit"
         :litellm-available="litellmAvailable"
+        :resource-sharing-available="resourceSharing"
       />
       <StepAuthorization
         v-else-if="step === STEP_AUTHORIZATION"

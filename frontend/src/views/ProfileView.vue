@@ -11,7 +11,7 @@ import { getMySubscriptions, changeMyPlan } from '@/api/subscriptions';
 import { getMyMfaState } from '@/api/passkeys';
 import type { Session, ConsumptionAggregate, UserSubscriptionEntry, UserSubscriptionPlan, MfaState } from '@/types';
 import { useToast } from '@/composables/useToast';
-import { parseUserAgent } from '@/composables/useUserAgent';
+import { formatMinorAmount } from '@/utils/money';
 import ProfileLayout from '@/components/layout/ProfileLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
@@ -26,23 +26,14 @@ import ChangePasswordModal from '@/components/profile/ChangePasswordModal.vue';
 import PasskeySettings from '@/components/profile/PasskeySettings.vue';
 import AvatarModal from '@/components/profile/AvatarModal.vue';
 import WalletPanel from '@/components/profile/WalletPanel.vue';
-import BillingPanel from '@/components/profile/BillingPanel.vue';
-import { Monitor, ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, ExternalLink, Pencil, CalendarDays, AppWindow } from '@lucide/vue';
+import ActiveSessionsPanel from '@/components/profile/ActiveSessionsPanel.vue';
+import ApplicationsAccessPanel from '@/components/profile/ApplicationsAccessPanel.vue';
+import BillingUsagePanel from '@/components/profile/BillingUsagePanel.vue';
+import { ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, Pencil, CalendarDays, AppWindow } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import { countryDefaults, countryFlag, countryName, countryOptions } from '@/utils/countries';
 
 const { t, locale } = useI18n();
-
-/** Only http(s) application URLs are rendered as links (never javascript:). */
-function isHttpUrl(value: string | null | undefined): boolean {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
 
 const auth = useAuthStore();
 const toast = useToast();
@@ -122,6 +113,8 @@ function setGender(value: string) {
 // the value this page generated itself.
 const showAvatarModal = ref(false);
 const accountTab = ref<'identity' | 'oidc'>('identity');
+const securityTab = ref<'security' | 'sessions'>('security');
+const applicationsTab = ref<'access' | 'usage'>('access');
 
 let syncingName = false;
 const lastAutoName = ref('');
@@ -426,16 +419,12 @@ async function handleSave() {
   }
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
-}
-
 function formatDateShort(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 
 function formatPrice(amount: string, currency: string) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 2 }).format(Number(amount) / 100);
+    return formatMinorAmount(Number(amount), currency, { minimumFractionDigits: 2 });
 }
 
 async function handleRevoke(session: Session) {
@@ -721,6 +710,34 @@ async function handleChangePlan() {
 
     <!-- Security tab -->
     <div v-if="activeTab === 'security'" class="space-y-5">
+      <div class="grid grid-cols-2 gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 sm:flex sm:w-fit">
+        <button
+          type="button"
+          :class="[
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150',
+            securityTab === 'security'
+              ? 'bg-primary-600/20 text-primary-300 shadow-sm'
+              : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',
+          ]"
+          @click="securityTab = 'security'"
+        >
+          {{ t('profile.security') }}
+        </button>
+        <button
+          type="button"
+          :class="[
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150',
+            securityTab === 'sessions'
+              ? 'bg-primary-600/20 text-primary-300 shadow-sm'
+              : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',
+          ]"
+          @click="securityTab = 'sessions'"
+        >
+          {{ t('profile.activeSessions') }}
+        </button>
+      </div>
+
+      <template v-if="securityTab === 'security'">
       <!-- MFA setup-required banner -->
       <div
         v-if="auth.mfaSetupRequired"
@@ -812,38 +829,16 @@ async function handleChangePlan() {
       <MfaBackupCodesModal :open="showRegenerateBackup" @close="showRegenerateBackup = false" />
       <ChangePasswordModal :open="showChangePassword" @close="showChangePassword = false" @success="showChangePassword = false" />
 
-      <!-- Active sessions -->
-      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-        <div class="px-5 py-4 border-b border-surface-700/40 flex items-center justify-between gap-3">
-          <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.activeSessions') }}</h3>
-          <BaseButton
-            v-if="sessions.length > 1"
-            variant="ghost"
-            size="sm"
-            :loading="revokeOthersLoading"
-            @click="handleRevokeOthers"
-          >
-            {{ t('profile.revokeOtherSessions') }}
-          </BaseButton>
-        </div>
-        <div v-if="sessionsLoading" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.loading') }}</div>
-        <div v-else-if="sessions.length === 0" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.noData') }}</div>
-        <div v-else class="divide-y divide-surface-800/40">
-          <div v-for="session in sessions" :key="session.id" class="px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
-            <div class="w-8 h-8 rounded-lg bg-surface-800 flex items-center justify-center shrink-0">
-              <Monitor class="w-4 h-4 text-surface-400" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <p class="text-sm text-surface-200">{{ parseUserAgent(session.userAgent).browser }} on {{ parseUserAgent(session.userAgent).os }}</p>
-                <BaseBadge v-if="session.id === currentSessionId" variant="success" size="sm">{{ t('profile.current') }}</BaseBadge>
-              </div>
-              <p class="text-xs text-surface-500 mt-0.5">{{ session.ipAddress }} · {{ formatDate(session.createdAt) }}</p>
-            </div>
-            <BaseButton v-if="session.id !== currentSessionId" variant="ghost" size="sm" @click="handleRevoke(session)">{{ t('profile.revoke') }}</BaseButton>
-          </div>
-        </div>
-      </div>
+      </template>
+      <ActiveSessionsPanel
+        v-else
+        :sessions="sessions"
+        :loading="sessionsLoading"
+        :current-session-id="currentSessionId"
+        :revoke-others-loading="revokeOthersLoading"
+        @revoke="handleRevoke"
+        @revoke-others="handleRevokeOthers"
+      />
     </div>
 
     <!-- Organizations tab -->
@@ -876,57 +871,42 @@ async function handleChangePlan() {
 
     <!-- Applications tab -->
     <div v-if="activeTab === 'applications'" class="space-y-5">
-      <!-- App subscriptions -->
-      <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 overflow-hidden">
-        <div class="px-5 py-4 border-b border-surface-700/40">
-          <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('profile.appAccess') }}</h3>
-        </div>
-        <div v-if="appsLoading" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.loading') }}</div>
-        <div v-else-if="!subscriptions.length" class="px-5 py-6 text-center text-sm text-surface-500">{{ t('common.noData') }}</div>
-        <div v-else class="divide-y divide-surface-800/40">
-          <div v-for="sub in subscriptions" :key="sub.applicationId" class="px-4 py-4 sm:px-5">
-            <div class="flex flex-wrap items-center gap-2 mb-2 sm:gap-3">
-              <div class="flex items-center gap-2 min-w-0 w-full sm:flex-1">
-                <img v-if="sub.applicationIcon" :src="sub.applicationIcon" class="w-5 h-5 rounded shrink-0" />
-                <a
-                  v-if="isHttpUrl(sub.applicationUrl)"
-                  :href="sub.applicationUrl || undefined"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="group inline-flex items-center gap-1.5 min-w-0 flex-1 text-sm font-medium text-surface-200 hover:text-primary-300 transition-colors"
-                  :title="sub.applicationUrl || undefined"
-                >
-                  <span class="truncate">{{ sub.applicationName }}</span>
-                  <ExternalLink class="w-3.5 h-3.5 shrink-0 opacity-50 group-hover:opacity-100" />
-                </a>
-                <p v-else class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
-              </div>
-              <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <BaseBadge :variant="sub.isActive ? 'success' : 'neutral'" size="sm" dot>{{ sub.isActive ? t('common.active') : t('common.inactive') }}</BaseBadge>
-                <BaseBadge v-if="sub.plan" variant="neutral" size="sm">{{ sub.plan.name }}</BaseBadge>
-                <BaseButton
-                  v-if="stripeConfigured && sub.availablePlans.length > 0"
-                  size="sm"
-                  variant="outline"
-                  @click="openPlanModal(sub)"
-                >
-                  <CreditCard class="w-3.5 h-3.5" />{{ t('profile.changePlan') }}
-                </BaseButton>
-              </div>
-            </div>
-            <p v-if="!stripeConfigured && sub.availablePlans.length > 0" class="text-xs text-surface-500">{{ t('profile.manageByAdmin') }}</p>
-            <div v-if="consumption[sub.applicationId]?.length" class="flex flex-wrap gap-2 mt-2">
-              <div v-for="agg in consumption[sub.applicationId]" :key="agg.key" class="px-2.5 py-1 rounded-lg bg-surface-800/60 border border-surface-700/30">
-                <span class="text-xs font-mono text-surface-500">{{ agg.key }}: </span>
-                <span class="text-xs font-semibold text-surface-200">{{ Number(agg.total).toLocaleString() }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+      <div class="grid grid-cols-2 gap-1 p-1 bg-surface-900/60 rounded-xl border border-surface-700/40 sm:flex sm:w-fit">
+        <button
+          type="button"
+          :class="[
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150',
+            applicationsTab === 'access'
+              ? 'bg-primary-600/20 text-primary-300 shadow-sm'
+              : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',
+          ]"
+          @click="applicationsTab = 'access'"
+        >
+          {{ t('profile.applicationsAccess') }}
+        </button>
+        <button
+          type="button"
+          :class="[
+            'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150',
+            applicationsTab === 'usage'
+              ? 'bg-primary-600/20 text-primary-300 shadow-sm'
+              : 'text-surface-400 hover:text-surface-200 hover:bg-surface-800/60',
+          ]"
+          @click="applicationsTab = 'usage'"
+        >
+          {{ t('profile.applicationsUsage') }}
+        </button>
       </div>
 
-      <!-- Billing: metered usage and real invoices -->
-      <BillingPanel :subscriptions="subscriptions" :loading="appsLoading" />
+      <ApplicationsAccessPanel
+        v-if="applicationsTab === 'access'"
+        :subscriptions="subscriptions"
+        :consumption="consumption"
+        :loading="appsLoading"
+        :stripe-configured="stripeConfigured"
+        @change-plan="openPlanModal"
+      />
+      <BillingUsagePanel v-else :subscriptions="subscriptions" />
     </div>
     <!-- Self-service plan change (only when Stripe is configured) -->
     <BaseModal :open="showPlanModal" :title="t('profile.changePlanTitle')" @close="showPlanModal = false">

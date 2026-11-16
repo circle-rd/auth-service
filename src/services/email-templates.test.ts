@@ -217,6 +217,23 @@ subject: Tenant A magic link
     ["change-email", { newEmail: "new@example.com", expiresInHours: 1 }],
     ["org-invitation", { inviterName: "Ada", orgName: "Acme", role: "admin" }],
     ["registration-invitation", { inviterName: "Ada", expiresInHours: 72 }],
+    [
+      "application-access-granted",
+      {
+        inviterName: "Ada",
+        appName: "App A",
+      },
+    ],
+    [
+      "resource-invitation",
+      {
+        inviterName: "Ada",
+        expiresInHours: 72,
+        ownerAppName: "App A",
+        planName: "free",
+        resourceName: "Model A",
+      },
+    ],
   ] as const)("renders the built-in %s template", (name, vars) => {
     const out = renderEmail(
       name,

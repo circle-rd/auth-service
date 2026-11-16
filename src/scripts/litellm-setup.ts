@@ -360,7 +360,9 @@ async function main(): Promise<void> {
 
     if (!process.env.LITELLM_STATE_FILE) {
       out("");
-      out("Next: docker compose --profile llm up -d, then pnpm llm:smoke");
+      out(
+        "Next: docker compose --profile llm up -d, then apply the LiteLLM inventory sync",
+      );
     }
   } finally {
     await client.signOut();

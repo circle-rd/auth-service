@@ -14,6 +14,8 @@ const props = withDefaults(defineProps<{
   options: SelectOption[];
   placeholder?: string;
   size?: 'sm' | 'md';
+  // Shows the description of the selected option inside the trigger.
+  showSelectedDescription?: boolean;
 }>(), {
   size: 'md',
 });
@@ -85,7 +87,7 @@ function onKeydown(e: KeyboardEvent) {
       @click="toggle"
       @keydown="onKeydown"
     >
-      <SelectOptionContent v-if="selectedOption" :option="selectedOption" :show-description="false" class="flex-1" />
+      <SelectOptionContent v-if="selectedOption" :option="selectedOption" :show-description="showSelectedDescription === true" class="flex-1" />
       <span v-else class="flex-1 truncate text-surface-500">{{ placeholder }}</span>
       <ChevronDown class="w-3.5 h-3.5 text-surface-500 shrink-0 transition-transform" :class="open ? 'rotate-180' : ''" />
     </button>

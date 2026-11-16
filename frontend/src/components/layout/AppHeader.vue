@@ -136,7 +136,7 @@ async function handleLogout() {
 
               <RouterLink
                 v-if="resourceSharing"
-                to="/share/catalogue"
+                to="/catalogue"
                 @click="menuOpen = false"
                 class="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-300 hover:bg-surface-800/60 hover:text-surface-100 transition-colors"
               >

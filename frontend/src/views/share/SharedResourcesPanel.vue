@@ -31,7 +31,11 @@ const props = defineProps<{
   scope: 'app' | 'mine';
   canManage: boolean;
   canRead: boolean;
+  // Restricts the list, and the creation form, to one resource type.
+  scheme?: string;
 }>();
+
+const emit = defineEmits<{ changed: [] }>();
 
 const { t } = useI18n();
 const toast = useToast();
@@ -88,11 +92,12 @@ async function load() {
       props.scope === 'app' ? listAppResources(props.appId) : listMyResources(),
       listMemberSchemes(props.appId),
     ]);
-    resources.value = props.scope === 'app'
+    resources.value = (props.scope === 'app'
       ? resourceRes.resources
-      : resourceRes.resources.filter((resource) => resource.applicationId === props.appId);
+      : resourceRes.resources.filter((resource) => resource.applicationId === props.appId)
+    ).filter((resource) => !props.scheme || resource.scheme === props.scheme);
     schemes.value = schemeRes.schemes;
-    if (!form.scheme && schemes.value[0]) form.scheme = schemes.value[0].scheme;
+    if (!form.scheme) form.scheme = props.scheme ?? schemes.value[0]?.scheme ?? '';
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
@@ -103,7 +108,7 @@ async function load() {
 function openCreate() {
   editing.value = null;
   Object.assign(form, {
-    scheme: schemes.value[0]?.scheme ?? '',
+    scheme: props.scheme ?? schemes.value[0]?.scheme ?? '',
     displayName: '',
     locator: '',
   });
@@ -142,6 +147,7 @@ async function save() {
     }
     showForm.value = false;
     await load();
+    emit('changed');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.saveError'));
   } finally {
@@ -162,6 +168,7 @@ async function validate(resource: Resource) {
       validatorLink.value = null;
     }
     await load();
+    emit('changed');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.saveError'));
   }
@@ -184,6 +191,7 @@ async function disable() {
     toast.success(t('share.resources.disabledToast'));
     showDisable.value = false;
     await load();
+    emit('changed');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.saveError'));
   } finally {
@@ -298,7 +306,7 @@ onMounted(() => void load());
     >
       <div class="space-y-4">
         <BaseSelect
-          v-if="!editing"
+          v-if="!editing && !scheme"
           v-model="form.scheme"
           :label="t('share.resources.scheme')"
           :options="schemeOptions"
@@ -330,7 +338,7 @@ onMounted(() => void load());
       :resource-id="sshResource.id"
       :resource-name="sshResource.displayName"
       @close="sshResource = null"
-      @updated="load"
+      @updated="load().then(() => emit('changed'))"
     />
 
     <ConfirmDialog

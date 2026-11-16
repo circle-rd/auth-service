@@ -71,7 +71,7 @@ onUnmounted(() => {
       />
     </transition>
 
-    <AppSidebar />
+    <slot name="sidebar"><AppSidebar /></slot>
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
       <AppHeader :title="title" :subtitle="subtitle" />
       <main class="flex-1 overflow-y-auto">

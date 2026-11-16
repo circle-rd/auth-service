@@ -41,6 +41,7 @@ const {
   mockListSchemeCatalog,
   mockCreateScheme,
   mockUpdateScheme,
+  mockDeleteScheme,
   mockEnableScheme,
   mockDisableScheme,
   mockGetUsage,
@@ -83,6 +84,7 @@ const {
   mockListSchemeCatalog: vi.fn(),
   mockCreateScheme: vi.fn(),
   mockUpdateScheme: vi.fn(),
+  mockDeleteScheme: vi.fn(),
   mockEnableScheme: vi.fn(),
   mockDisableScheme: vi.fn(),
   mockGetUsage: vi.fn(),
@@ -148,6 +150,7 @@ vi.mock("../services/gateway-inventory.js", () => ({
 }));
 vi.mock("../services/resources/scheme-service.js", () => ({
   createApplicationScheme: mockCreateScheme,
+  deleteApplicationScheme: mockDeleteScheme,
   disableSchemeForApplication: mockDisableScheme,
   enableSchemeForApplication: mockEnableScheme,
   getResourceScheme: mockGetScheme,
@@ -236,6 +239,7 @@ beforeEach(() => {
     mockListSchemeCatalog,
     mockCreateScheme,
     mockUpdateScheme,
+    mockDeleteScheme,
     mockEnableScheme,
     mockDisableScheme,
     mockGetUsage,
@@ -440,6 +444,24 @@ describe("application resource routes", () => {
     expect(mockCreateScheme).toHaveBeenCalledWith(
       expect.objectContaining({ applicationId: APP, scheme: "gine" }),
     );
+  });
+
+  it("deletes an application scheme for an application admin only", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/user/apps/${APP}/schemes/gine`,
+    });
+    expect(res.statusCode).toBe(204);
+    expect(mockDeleteScheme).toHaveBeenCalledWith(APP, "gine");
+
+    mockDeleteScheme.mockClear();
+    mockRequireResourceAppAdmin.mockResolvedValue(null);
+    const denied = await app.inject({
+      method: "DELETE",
+      url: `/api/user/apps/${APP}/schemes/gine`,
+    });
+    expect(denied.statusCode).not.toBe(204);
+    expect(mockDeleteScheme).not.toHaveBeenCalled();
   });
 
   it("adds an existing user to the application", async () => {

@@ -170,6 +170,8 @@ export const ERR = {
   ) => new ApiError(400, "RES_011", msg),
   RES_012: (msg = "Usage record conflicts with an existing event") =>
     new ApiError(409, "RES_012", msg),
+  RES_013: (msg = "Resource scheme still has resources") =>
+    new ApiError(409, "RES_013", msg),
 
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),

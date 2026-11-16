@@ -13,8 +13,10 @@ import { resources } from "../db/resource-schema.js";
 import { gatewayObjects } from "../db/gateway-schema.js";
 import {
   createApplicationScheme,
+  deleteApplicationScheme,
   disableSchemeForApplication,
   enableSchemeForApplication,
+  listApplicationSchemeCatalog,
   syncBuiltinSchemes,
 } from "../services/resources/scheme-service.js";
 import {
@@ -239,6 +241,44 @@ describe("generic resource core", () => {
         audience: "https://auth.example",
       }),
     ).resolves.toMatchObject({ decision: "allow", accessKind: "owner" });
+  });
+
+  it("deletes an application scheme only when no live resource uses it", async () => {
+    const seedData = await seed();
+    const resource = await createResource({
+      applicationId: seedData.appAId,
+      scheme: "gine",
+      locator: "project_del",
+      displayName: "Project",
+      ownerType: "user",
+      ownerId: seedData.ownerId,
+    });
+    await expect(
+      deleteApplicationScheme(seedData.appAId, "gine"),
+    ).rejects.toMatchObject({ code: "RES_013" });
+    await expect(
+      deleteApplicationScheme(seedData.appBId, "gine"),
+    ).rejects.toMatchObject({ code: "RES_004" });
+    await expect(
+      deleteApplicationScheme(seedData.appAId, "llm"),
+    ).rejects.toMatchObject({ code: "RES_004" });
+
+    await disableResource(resource.id, seedData.ownerId);
+    await deleteApplicationScheme(seedData.appAId, "gine");
+    const catalog = await listApplicationSchemeCatalog(seedData.appAId);
+    expect(catalog.map((entry) => entry.scheme)).not.toContain("gine");
+  });
+
+  it("frees the scheme name when it never had a resource", async () => {
+    const seedData = await seed();
+    await deleteApplicationScheme(seedData.appAId, "gine");
+    await expect(
+      createApplicationScheme({
+        applicationId: seedData.appAId,
+        scheme: "gine",
+        displayName: "Again",
+      }),
+    ).resolves.toMatchObject({ scheme: "gine" });
   });
 
   it("rejects a validation callback from another scheme validator", async () => {

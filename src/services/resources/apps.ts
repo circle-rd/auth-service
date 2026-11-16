@@ -26,6 +26,7 @@ export interface OwnerApplicationSummary {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   url: string | null;
   icon: string | null;
   permissions: AppDelegationPermission[];
@@ -36,6 +37,7 @@ export interface MemberApplicationSummary {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   icon: string | null;
 }
 
@@ -47,6 +49,7 @@ export async function listMemberApplications(
       id: applications.id,
       name: applications.name,
       slug: applications.slug,
+      description: applications.description,
       icon: applications.icon,
     })
     .from(userApplications)
@@ -73,6 +76,7 @@ export async function listOwnerApplications(
       id: applications.id,
       name: applications.name,
       slug: applications.slug,
+      description: applications.description,
       url: applications.url,
       icon: applications.icon,
     })
@@ -102,6 +106,7 @@ export async function listOwnerApplications(
       id: applications.id,
       name: applications.name,
       slug: applications.slug,
+      description: applications.description,
       url: applications.url,
       icon: applications.icon,
       permission: appDelegations.permission,
@@ -147,6 +152,7 @@ export async function listOwnerApplications(
       id: row.id,
       name: row.name,
       slug: row.slug,
+      description: row.description,
       url: row.url,
       icon: row.icon,
       permissions: [row.permission as AppDelegationPermission],

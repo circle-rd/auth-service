@@ -11,31 +11,29 @@ async function signInToPortal(page: Page): Promise<void> {
   await page.waitForURL(`${AUTH_URL}/profile`);
 }
 
+async function selectApplication(page: Page, name: string): Promise<void> {
+  await page.locator("aside").getByRole("combobox").click();
+  await page.getByRole("option", { name: new RegExp(name) }).click();
+}
+
 test.describe("Resource-sharing catalogue (AC-01 portal chain)", () => {
   test("one session sees two owners' resources", async ({ page }) => {
     await signInToPortal(page);
 
-    await page.goto(`${AUTH_URL}/share/catalogue`);
+    await page.goto(`${AUTH_URL}/catalogue`);
     await expect(page.getByTestId("subject-catalogue")).toBeVisible();
+    await expect(page.getByTestId("catalogue-dashboard")).toBeVisible();
 
-    // Every sharing application is listed even before a selection.
-    const applications = page.getByTestId("catalogue-applications").getByRole("button");
-    await expect(applications).toHaveCount(4);
-    await expect(page.getByTestId("catalogue-app-test-app")).toContainText("Test App");
-    await expect(page.getByTestId("catalogue-app-restricted-app")).toContainText("Restricted App");
-
-    await page.getByTestId("catalogue-app-test-app").click();
+    await selectApplication(page, "Test App");
+    await page.getByRole("link", { name: /Projet Re:GINE/ }).click();
     const testAppItems = page.getByTestId("catalogue-item");
     await expect(testAppItems).toHaveCount(1);
-    const modelA = testAppItems.filter({ hasText: "Shared Model A" });
-    await expect(modelA).toHaveCount(1);
-    await expect(modelA).toContainText("Test App");
+    await expect(testAppItems.filter({ hasText: "Shared Model A" })).toHaveCount(1);
 
-    await page.getByTestId("catalogue-app-restricted-app").click();
+    await selectApplication(page, "Restricted App");
+    await page.getByRole("link", { name: /Projet Demo/ }).click();
     const restrictedItems = page.getByTestId("catalogue-item");
     await expect(restrictedItems).toHaveCount(1);
-    const modelB = restrictedItems.filter({ hasText: "Shared Model B" });
-    await expect(modelB).toHaveCount(1);
-    await expect(modelB).toContainText("Restricted App");
+    await expect(restrictedItems.filter({ hasText: "Shared Model B" })).toHaveCount(1);
   });
 });

@@ -4,6 +4,7 @@ defineProps<{
   label?: string;
   description?: string;
   disabled?: boolean;
+  ariaLabel?: string;
   // For labels that are identifiers (scope names) rather than prose.
   mono?: boolean;
 }>();
@@ -19,6 +20,7 @@ const emit = defineEmits<{
       type="button"
       role="switch"
       :aria-checked="modelValue"
+      :aria-label="ariaLabel"
       :disabled="disabled"
       @click="emit('update:modelValue', !modelValue)"
       :class="[

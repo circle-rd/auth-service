@@ -27,6 +27,7 @@ export interface OwnerApplication {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   url: string | null;
   icon: string | null;
   permissions: OwnerPermission[];
@@ -119,6 +120,7 @@ export interface MemberApplication {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   icon: string | null;
 }
 
@@ -372,6 +374,10 @@ export async function updateScheme(appId: string, scheme: string, body: UpdateSc
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+}
+
+export async function deleteScheme(appId: string, scheme: string): Promise<void> {
+  await apiFetch(`/user/apps/${appId}/schemes/${scheme}`, { method: 'DELETE' });
 }
 
 export async function enableScheme(appId: string, scheme: string): Promise<void> {

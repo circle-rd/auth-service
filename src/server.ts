@@ -137,8 +137,11 @@ const EMAIL_SEND_PATHS = [
   "/api/auth/email-otp/request-password-reset",
 ];
 // Dynamic owner paths cannot be listed as static prefixes without throttling
-// unrelated owner APIs, so the invitation endpoint is matched exactly.
-const EMAIL_SEND_PATH_PATTERNS = [/^\/api\/user\/apps\/[^/]+\/invitations$/];
+// unrelated owner APIs, so the endpoints that send mail are matched exactly.
+const EMAIL_SEND_PATH_PATTERNS = [
+  /^\/api\/user\/apps\/[^/]+\/invitations$/,
+  /^\/api\/user\/apps\/[^/]+\/members$/,
+];
 const EMAIL_SEND_MAX = 5;
 const EMAIL_SEND_WINDOW = 60_000;
 

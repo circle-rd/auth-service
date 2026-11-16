@@ -6,7 +6,7 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import StatCard from '@/components/ui/StatCard.vue';
-import { downloadText, toCsv } from '@/utils/csv';
+import { downloadText, neutralizeFormula, toCsv } from '@/utils/csv';
 import {
   getSecurityStats,
   listAdminAccessEvents,
@@ -145,7 +145,7 @@ function exportCsv() {
     event.clientId,
     event.source,
     event.reasonClass ?? '',
-  ]);
+  ].map(neutralizeFormula));
   downloadText('resource-access-events.csv', toCsv([header, ...rows]));
 }
 </script>

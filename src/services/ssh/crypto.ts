@@ -135,5 +135,5 @@ export function authorizedKeysLine(
       "SSH_GATEWAY_EGRESS_IP is not configured; SSH authorized_keys cannot be generated",
     );
   }
-  return `restrict,pty,from=${egressIp} ${publicKey} auth-service:${resourceId}`;
+  return `restrict,pty,from="${egressIp}" ${publicKey} auth-service:${resourceId}`;
 }

@@ -75,6 +75,9 @@ describe("monitoring routes access", () => {
         url: `/api/admin/monitoring/${route}`,
       });
       expect(res.statusCode).toBe(403);
+      expect(mockSecurity).not.toHaveBeenCalled();
+      expect(mockEvents).not.toHaveBeenCalled();
+      expect(mockBusiness).not.toHaveBeenCalled();
     });
 
     it(`${route}: accepts an admin, also when roles are a list`, async () => {

@@ -111,11 +111,6 @@ export interface ResourceInvitation {
   state: 'pending' | 'consumed' | 'revoked' | 'expired';
 }
 
-export interface CatalogueApplication {
-  slug: string;
-  name: string;
-}
-
 export interface MemberApplication {
   id: string;
   name: string;
@@ -307,14 +302,6 @@ function queryString(params: Record<string, string | number | undefined>): strin
   return encoded ? `?${encoded}` : '';
 }
 
-export async function listResourceCatalogue(): Promise<{
-  applications: CatalogueApplication[];
-  resources: AccessibleResource[];
-  enabledSchemes: string[];
-}> {
-  return apiFetch('/user/resource-catalogue');
-}
-
 export async function listAccessibleResources(query: {
   applicationId?: string;
   scheme?: string;
@@ -421,7 +408,7 @@ export async function updateResource(resourceId: string, body: UpdateResourceBod
   });
 }
 
-export async function disableResource(resourceId: string): Promise<{ resource: Resource }> {
+export async function removeResource(resourceId: string): Promise<{ resource: Resource; removed: boolean }> {
   return apiFetch(`/user/resources/${resourceId}`, { method: 'DELETE' });
 }
 

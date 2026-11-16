@@ -23,10 +23,10 @@ import { acceptResourceInvitation } from "../services/resources/invitations.js";
 import { getUserActivity } from "../services/resources/monitoring.js";
 import {
   createResource,
-  disableResource,
   getResource,
   listResourcesForOwner,
   markResourceValidated,
+  removeResource,
   requestResourceValidation,
   updateResource,
 } from "../services/resources/registry.js";
@@ -35,6 +35,7 @@ import { buildSshValidationCommand } from "../services/ssh/targets.js";
 import { getResourceScheme } from "../services/resources/scheme-service.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
 import { RESOURCE_SUBJECT_TYPES } from "../services/resources/types.js";
+import { resourceMetadataSchema } from "./resource-metadata.js";
 
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
@@ -66,7 +67,7 @@ const resourceCreateSchema = z
     scheme: z.string().regex(RESOURCE_SCHEME_RE),
     locator: z.string().trim().min(1).max(255).optional(),
     displayName: z.string().trim().min(1).max(200),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: resourceMetadataSchema.optional(),
   })
   .strict();
 
@@ -74,7 +75,7 @@ const resourcePatchSchema = z
   .object({
     displayName: z.string().trim().min(1).max(200).optional(),
     listed: z.boolean().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: resourceMetadataSchema.optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -245,9 +246,9 @@ export async function userResourceRoutes(
     const userId = await requireSession(req, reply);
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
-    const resource = await disableResource(resourceId, userId);
+    const { resource, removed } = await removeResource(resourceId, userId);
     const scheme = await getResourceScheme(resource.scheme);
-    await reply.send({ resource: publicResource(resource, scheme) });
+    await reply.send({ resource: publicResource(resource, scheme), removed });
   });
 
   fastify.post(

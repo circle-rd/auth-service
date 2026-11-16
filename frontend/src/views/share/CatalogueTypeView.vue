@@ -71,6 +71,7 @@ function refresh() {
     <section class="space-y-3">
       <h2 class="text-sm font-semibold text-surface-200">{{ t('share.catalogue.type.created') }}</h2>
       <SharedResourcesPanel
+        :key="scheme.scheme"
         :app-id="appId"
         scope="mine"
         :scheme="scheme.scheme"

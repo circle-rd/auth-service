@@ -29,7 +29,7 @@ const {
   mockListInvitations,
   mockRevokeInvitation,
   mockCreateResource,
-  mockDisableResource,
+  mockRemoveResource,
   mockGetResource,
   mockListMyResources,
   mockRequestValidation,
@@ -72,7 +72,7 @@ const {
   mockListInvitations: vi.fn(),
   mockRevokeInvitation: vi.fn(),
   mockCreateResource: vi.fn(),
-  mockDisableResource: vi.fn(),
+  mockRemoveResource: vi.fn(),
   mockGetResource: vi.fn(),
   mockListMyResources: vi.fn(),
   mockRequestValidation: vi.fn(),
@@ -137,7 +137,7 @@ vi.mock("../services/resources/invitations.js", () => ({
 }));
 vi.mock("../services/resources/registry.js", () => ({
   createResource: mockCreateResource,
-  disableResource: mockDisableResource,
+  removeResource: mockRemoveResource,
   getResource: mockGetResource,
   listResourcesForOwner: mockListMyResources,
   listResourcesForApplication: mockListAppResources,
@@ -227,7 +227,7 @@ beforeEach(() => {
     mockListInvitations,
     mockRevokeInvitation,
     mockCreateResource,
-    mockDisableResource,
+    mockRemoveResource,
     mockGetResource,
     mockListMyResources,
     mockRequestValidation,
@@ -334,6 +334,22 @@ describe("user resource routes", () => {
     expect(res.json().resource.uri).toBe("gine://project_1");
   });
 
+  it("refuses oversized free-form metadata", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        locator: "project_1",
+        displayName: "Project 1",
+        metadata: { blob: "x".repeat(5000) },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockCreateResource).not.toHaveBeenCalled();
+  });
+
   it("rejects an invalid resource body", async () => {
     const res = await app.inject({
       method: "POST",
@@ -374,6 +390,30 @@ describe("user resource routes", () => {
     expect(mockMarkValidated).toHaveBeenCalledWith(RESOURCE);
     expect(res.json().resource.status).toBe("validated");
     expect(res.json().validatorUrl).toBeNull();
+  });
+
+  it("tells the caller whether the resource was deleted or only disabled", async () => {
+    mockRemoveResource.mockResolvedValueOnce({ resource, removed: true });
+    let res = await app.inject({
+      method: "DELETE",
+      url: `/api/user/resources/${RESOURCE}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().removed).toBe(true);
+    expect(mockRemoveResource).toHaveBeenCalledWith(RESOURCE, "user-1");
+
+    mockRemoveResource.mockResolvedValueOnce({
+      resource: { ...resource, status: "disabled" },
+      removed: false,
+    });
+    res = await app.inject({
+      method: "DELETE",
+      url: `/api/user/resources/${RESOURCE}`,
+    });
+    expect(res.json()).toMatchObject({
+      removed: false,
+      resource: { status: "disabled" },
+    });
   });
 
   it("lists grants through the grant-specific authority", async () => {

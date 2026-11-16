@@ -36,7 +36,7 @@ export function hasAnyRole(
 }
 
 export function roleRank(role: string | null | undefined): number {
-  return role ? (ROLE_RANK[role] ?? 0) : 0;
+  return Math.max(0, ...rolesOf(role).map((entry) => ROLE_RANK[entry] ?? 0));
 }
 
 /** A caller may only manage users that strictly outrank below them. */
@@ -57,5 +57,5 @@ export function canAdminTargetUser(
   callerRole: string | null | undefined,
   targetRole: string | null | undefined,
 ): boolean {
-  return callerRole === "superadmin" || roleRank(targetRole) < 1;
+  return hasAnyRole(callerRole, ["superadmin"]) || roleRank(targetRole) < 1;
 }

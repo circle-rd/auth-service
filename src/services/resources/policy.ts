@@ -13,6 +13,7 @@ import {
   resourceSchemes,
 } from "../../db/resource-schema.js";
 import { isActiveMember, isApplicationAdmin } from "./authority.js";
+import { ADMIN_ROLES, hasAnyRole } from "../roles.js";
 import { resolveGrantsForSubject, type ResourceGrantRow } from "./grants.js";
 import { findResourceByUri, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
@@ -24,6 +25,7 @@ export type DenialReason =
   | "not_found"
   | "application_inactive"
   | "sharing_disabled"
+  | "account_disabled"
   | "no_membership"
   | "scheme_disabled"
   | "not_validated"
@@ -94,6 +96,7 @@ function allow(
 
 interface AccessProvider {
   schemeEnabled: () => Promise<boolean>;
+  accountActive: () => Promise<boolean>;
   activeMember: () => Promise<boolean>;
   isOwner: () => boolean;
   isAdmin: () => Promise<boolean>;
@@ -110,12 +113,25 @@ async function decide(
   if (!resource.applicationActive) return deny("application_inactive");
   if (!resource.resourceSharingEnabled) return deny("sharing_disabled");
   if (!(await provider.schemeEnabled())) return deny("scheme_disabled");
+  if (!(await provider.accountActive())) return deny("account_disabled");
   if (!(await provider.activeMember())) return deny("no_membership");
   if (provider.isOwner()) return allow(resource, "owner");
   if (await provider.isAdmin()) return allow(resource, "admin");
   const grant = (await provider.grants())[0];
   if (!grant) return deny("no_grant");
   return allow(resource, "grant", grant.subjectType);
+}
+
+/**
+ * A ban blocks token issuance, but tokens already issued stay valid until they
+ * expire: the resource decision must not outlive the ban.
+ */
+export function isBanned(
+  row: { banned: boolean | null; banExpires: Date | null },
+  now: Date,
+): boolean {
+  if (row.banned !== true) return false;
+  return row.banExpires === null || row.banExpires.getTime() > now.getTime();
 }
 
 /**
@@ -130,6 +146,14 @@ export async function evaluateResourceAccess(
   return decide(resource, {
     schemeEnabled: () =>
       isSchemeEnabledForApplication(resource.applicationId, resource.scheme),
+    accountActive: async () => {
+      const [row] = await db
+        .select({ banned: userTable.banned, banExpires: userTable.banExpires })
+        .from(userTable)
+        .where(eq(userTable.id, subjectId))
+        .limit(1);
+      return row !== undefined && !isBanned(row, facts.now ?? new Date());
+    },
     activeMember: () => isActiveMember(subjectId, resource.applicationId),
     isOwner: () =>
       resource.ownerType === "user" && resource.ownerId === subjectId,
@@ -141,6 +165,7 @@ export async function evaluateResourceAccess(
 
 interface BatchAccessContext {
   subjectId: string;
+  accountActive: boolean;
   platformAdmin: boolean;
   memberships: Set<string>;
   adminApplications: Set<string>;
@@ -191,7 +216,11 @@ async function loadBatchAccessContext(
     grantRows,
   ] = await Promise.all([
     db
-      .select({ role: userTable.role })
+      .select({
+        role: userTable.role,
+        banned: userTable.banned,
+        banExpires: userTable.banExpires,
+      })
       .from(userTable)
       .where(eq(userTable.id, subjectId))
       .limit(1),
@@ -258,8 +287,9 @@ async function loadBatchAccessContext(
       ),
   ]);
 
-  const role = platformRows[0]?.role;
-  const platformAdmin = role === "admin" || role === "superadmin";
+  const platformAdmin = hasAnyRole(platformRows[0]?.role, ADMIN_ROLES);
+  const accountActive =
+    platformRows[0] !== undefined && !isBanned(platformRows[0], now);
 
   const adminApplications = new Set<string>();
   if (!platformAdmin) {
@@ -302,6 +332,7 @@ async function loadBatchAccessContext(
 
   return {
     subjectId,
+    accountActive,
     platformAdmin,
     memberships: new Set(membershipRows.map((row) => row.applicationId)),
     adminApplications,
@@ -337,6 +368,7 @@ export async function evaluateResourceAccessBatch(
           context.enabledSchemes.has(
             schemeKey(resource.applicationId, resource.scheme),
           ),
+        accountActive: async () => context.accountActive,
         activeMember: async () =>
           context.memberships.has(resource.applicationId),
         isOwner: () =>

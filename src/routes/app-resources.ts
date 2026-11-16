@@ -47,6 +47,7 @@ import {
   sendResourceInvitationEmail,
 } from "../services/email.js";
 import { isMailConfigured } from "../services/mail/index.js";
+import { resourceMetadataSchema } from "./resource-metadata.js";
 
 const appParamsSchema = z.object({ appId: z.string().uuid() });
 const schemeParamsSchema = appParamsSchema.extend({
@@ -72,7 +73,7 @@ const appResourceCreateSchema = z
     scheme: z.string().regex(RESOURCE_SCHEME_RE),
     locator: z.string().trim().min(1).max(255).optional(),
     displayName: z.string().trim().min(1).max(200),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: resourceMetadataSchema.optional(),
   })
   .strict();
 

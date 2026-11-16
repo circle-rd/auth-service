@@ -120,7 +120,7 @@ describe("SSH resource contract", () => {
     expect(detail.account).toBe("test");
     expect(detail.publicKey.startsWith("ssh-ed25519 ")).toBe(true);
     expect(detail.authorizedKeysLine).toContain(`auth-service:${resource.id}`);
-    expect(detail.authorizedKeysLine.startsWith("restrict,pty,from=")).toBe(true);
+    expect(detail.authorizedKeysLine.startsWith('restrict,pty,from="')).toBe(true);
     expect(detail.validationCommand).toBe(
       `ssh -p 2222 validate-${resource.id}@gateway.test`,
     );

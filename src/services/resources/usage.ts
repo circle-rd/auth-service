@@ -465,20 +465,6 @@ export async function getApplicationUsage(
   );
 }
 
-export async function getOwnerUsage(
-  ownerType: ResourceOwnerType,
-  ownerId: string,
-  query: UsageQuery,
-): Promise<UsageResult> {
-  return queryUsage(
-    and(
-      eq(resourceUsageRecords.ownerType, ownerType),
-      eq(resourceUsageRecords.ownerId, ownerId),
-    ),
-    query,
-  );
-}
-
 /** Delete monitoring rows past their configured retention. */
 export async function sweepResourceMonitoringRetention(
   now: Date = new Date(),

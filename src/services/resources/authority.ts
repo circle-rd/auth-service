@@ -10,6 +10,7 @@ import {
 import { user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import type { ResourceOwnerType, ResourceSubjectType } from "./types.js";
+import { ADMIN_ROLES, hasAnyRole } from "../roles.js";
 
 export const APP_DELEGATION_PERMISSIONS = [
   "resources:read",
@@ -41,7 +42,7 @@ export async function isPlatformAdmin(userId: string): Promise<boolean> {
     .from(userTable)
     .where(eq(userTable.id, userId))
     .limit(1);
-  return row?.role === "admin" || row?.role === "superadmin";
+  return hasAnyRole(row?.role, ADMIN_ROLES);
 }
 
 export async function isApplicationAdmin(

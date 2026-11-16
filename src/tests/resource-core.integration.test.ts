@@ -23,6 +23,7 @@ import {
   createResource,
   disableResource,
   getResource,
+  removeResource,
 } from "../services/resources/registry.js";
 import { completeResourceValidation } from "../services/resources/validation.js";
 import { canManageGrants } from "../services/resources/authority.js";
@@ -267,6 +268,66 @@ describe("generic resource core", () => {
     await deleteApplicationScheme(seedData.appAId, "gine");
     const catalog = await listApplicationSchemeCatalog(seedData.appAId);
     expect(catalog.map((entry) => entry.scheme)).not.toContain("gine");
+  });
+
+  it("denies a banned account even though its tokens are still valid", async () => {
+    const seedData = await seed();
+    const resource = await validatedResource(seedData);
+    const decide = () =>
+      authorize({
+        subjectId: seedData.ownerId,
+        clientId: "client",
+        resourceUri: resource.uri,
+        audience: "https://auth.example",
+      });
+    await expect(decide()).resolves.toMatchObject({ decision: "allow" });
+
+    await db
+      .update(userTable)
+      .set({ banned: true, banExpires: null })
+      .where(eq(userTable.id, seedData.ownerId));
+    await expect(decide()).resolves.toEqual({
+      decision: "deny",
+      reason: "account_disabled",
+    });
+    await expect(
+      listAccessibleResources({ subjectId: seedData.ownerId }),
+    ).resolves.toEqual([]);
+
+    await db
+      .update(userTable)
+      .set({ banExpires: new Date(Date.now() - 60_000) })
+      .where(eq(userTable.id, seedData.ownerId));
+    await expect(decide()).resolves.toMatchObject({ decision: "allow" });
+  });
+
+  it("deletes a never-validated resource and only disables a validated one", async () => {
+    const seedData = await seed();
+    const pending = await createResource({
+      applicationId: seedData.appAId,
+      scheme: "gine",
+      locator: "never_validated",
+      displayName: "Pending",
+      ownerType: "user",
+      ownerId: seedData.ownerId,
+    });
+    await expect(
+      removeResource(pending.id, seedData.memberId),
+    ).rejects.toMatchObject({ code: "RES_002" });
+    await expect(
+      removeResource(pending.id, seedData.ownerId),
+    ).resolves.toMatchObject({ removed: true });
+    await expect(getResource(pending.id)).rejects.toMatchObject({
+      code: "RES_002",
+    });
+
+    const validated = await validatedResource(seedData);
+    const result = await removeResource(validated.id, seedData.ownerId);
+    expect(result.removed).toBe(false);
+    expect(result.resource.status).toBe("disabled");
+    await expect(getResource(validated.id)).resolves.toMatchObject({
+      status: "disabled",
+    });
   });
 
   it("frees the scheme name when it never had a resource", async () => {

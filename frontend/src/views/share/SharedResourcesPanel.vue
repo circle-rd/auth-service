@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ExternalLink, Plus, Pencil, PowerOff, RefreshCw, Terminal } from '@lucide/vue';
+import { ExternalLink, Plus, Pencil, PowerOff, RefreshCw, Terminal, Trash2 } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
@@ -11,10 +11,10 @@ import { useToast } from '@/composables/useToast';
 import {
   createAppResource,
   createResource,
-  disableResource,
   listAppResources,
   listMemberSchemes,
   listMyResources,
+  removeResource,
   requestValidation,
   updateResource,
   type Resource,
@@ -148,8 +148,8 @@ async function disable() {
   if (!selected.value) return;
   disabling.value = true;
   try {
-    await disableResource(selected.value.id);
-    toast.success(t('share.resources.disabledToast'));
+    const { removed } = await removeResource(selected.value.id);
+    toast.success(t(removed ? 'share.resources.deletedToast' : 'share.resources.disabledToast'));
     showDisable.value = false;
     await load();
     emit('changed');
@@ -160,7 +160,12 @@ async function disable() {
   }
 }
 
-watch(() => props.appId, () => void load());
+// A resource that was never validated could not be used: removing it deletes it.
+function neverValidated(resource: Resource): boolean {
+  return resource.validatedAt === null;
+}
+
+watch([() => props.appId, () => props.scheme], () => void load());
 onMounted(() => void load());
 </script>
 
@@ -238,12 +243,13 @@ onMounted(() => void load());
             <Pencil class="w-3.5 h-3.5" />{{ t('common.edit') }}
           </BaseButton>
           <BaseButton
-            v-if="resource.status !== 'disabled'"
+            v-if="neverValidated(resource) || resource.status !== 'disabled'"
             variant="ghost"
             size="sm"
             @click="requestDisable(resource)"
           >
-            <PowerOff class="w-3.5 h-3.5" />{{ t('share.resources.disable') }}
+            <component :is="neverValidated(resource) ? Trash2 : PowerOff" class="w-3.5 h-3.5" />
+            {{ neverValidated(resource) ? t('common.delete') : t('share.resources.disable') }}
           </BaseButton>
         </div>
       </li>
@@ -271,9 +277,9 @@ onMounted(() => void load());
 
     <ConfirmDialog
       :open="showDisable"
-      :title="t('share.resources.disableTitle')"
-      :message="t('share.resources.disableMessage')"
-      :confirm-label="t('share.resources.disable')"
+      :title="selected && neverValidated(selected) ? t('share.resources.deleteTitle') : t('share.resources.disableTitle')"
+      :message="selected && neverValidated(selected) ? t('share.resources.deleteMessage') : t('share.resources.disableMessage')"
+      :confirm-label="selected && neverValidated(selected) ? t('common.delete') : t('share.resources.disable')"
       :loading="disabling"
       @confirm="disable"
       @cancel="showDisable = false"

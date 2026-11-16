@@ -12,6 +12,7 @@ import {
   assertActiveMember,
   assertCanManageGrants,
   assertCanManageResource,
+  isPlatformAdmin,
 } from "../services/resources/authority.js";
 import {
   createResourceGrant,
@@ -264,6 +265,13 @@ export async function userResourceRoutes(
         resource.scheme === "agent" ||
         resource.scheme === "mcp"
       ) {
+        // The inventory is shared by every application: choosing which of its
+        // objects an application may expose is a platform decision.
+        if (!(await isPlatformAdmin(userId))) {
+          throw ERR.AUTH_011(
+            "Only a platform administrator validates a gateway resource",
+          );
+        }
         if (!(await linkResourceToGatewayObject(resource))) {
           throw ERR.RES_011("Resource is not present in the gateway inventory");
         }

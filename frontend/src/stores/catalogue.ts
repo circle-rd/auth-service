@@ -20,6 +20,7 @@ export interface CatalogueApp {
   name: string;
   description: string | null;
   icon: string | null;
+  canCreate: boolean;
   // Set when the user administers the application or holds an owner delegation.
   owner: OwnerApplication | null;
 }
@@ -61,6 +62,7 @@ export const useCatalogueStore = defineStore('catalogue', () => {
           name: owner.name,
           description: owner.description,
           icon: owner.icon,
+          canCreate: false,
           ...existing,
           owner,
         });

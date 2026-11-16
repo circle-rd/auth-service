@@ -3,8 +3,10 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
   appDelegations,
+  appRoles,
   applications,
   subscriptionPlans,
+  userAppRoles,
   userApplications,
   userSubscriptions,
 } from "../db/schema.js";
@@ -33,6 +35,10 @@ import {
   resolveGrantsForSubject,
 } from "../services/resources/grants.js";
 import { listAccessibleResources } from "../services/resources/access.js";
+import {
+  addExistingUserToApplication,
+  listOwnerMembers,
+} from "../services/resources/apps.js";
 import {
   acceptResourceInvitation,
   createResourceInvitation,
@@ -182,15 +188,17 @@ async function validatedResource(
     locator?: string;
     validatorClientId?: string;
     displayName?: string;
+    ownerType?: "user" | "application";
   } = {},
 ) {
+  const ownerType = overrides.ownerType ?? "user";
   const resource = await createResource({
     applicationId: seedData.appAId,
     scheme: overrides.scheme ?? "gine",
     locator: overrides.locator ?? `project_${Math.random().toString(36).slice(2)}`,
     displayName: overrides.displayName ?? "Project",
-    ownerType: "user",
-    ownerId: seedData.ownerId,
+    ownerType,
+    ownerId: ownerType === "user" ? seedData.ownerId : seedData.appAId,
   });
   await completeResourceValidation({
     resourceId: resource.id,
@@ -389,8 +397,11 @@ describe("generic resource core", () => {
       }),
     ).resolves.toMatchObject({ decision: "allow", accessKind: "grant" });
 
+    const shared = await validatedResource(seedData, {
+      ownerType: "application",
+    });
     await createResourceGrant({
-      resourceId: resource.id,
+      resourceId: shared.id,
       subjectType: "organization",
       subjectId: seedData.orgId,
       actorUserId: seedData.adminId,
@@ -399,13 +410,13 @@ describe("generic resource core", () => {
       authorize({
         subjectId: seedData.orgUserId,
         clientId: "client",
-        resourceUri: resource.uri,
+        resourceUri: shared.uri,
         audience: "https://auth.example",
       }),
     ).resolves.toMatchObject({ decision: "allow", grantSubjectType: "organization" });
 
     await createResourceGrant({
-      resourceId: resource.id,
+      resourceId: shared.id,
       subjectType: "plan",
       subjectId: seedData.planAId,
       actorUserId: seedData.adminId,
@@ -414,13 +425,13 @@ describe("generic resource core", () => {
       authorize({
         subjectId: seedData.planUserId,
         clientId: "client",
-        resourceUri: resource.uri,
+        resourceUri: shared.uri,
         audience: "https://auth.example",
       }),
     ).resolves.toMatchObject({ decision: "allow", grantSubjectType: "plan" });
 
     await createResourceGrant({
-      resourceId: resource.id,
+      resourceId: shared.id,
       subjectType: "everyone",
       subjectId: null,
       actorUserId: seedData.adminId,
@@ -429,7 +440,7 @@ describe("generic resource core", () => {
       authorize({
         subjectId: "everyone-user",
         clientId: "client",
-        resourceUri: resource.uri,
+        resourceUri: shared.uri,
         audience: "https://auth.example",
       }),
     ).resolves.toMatchObject({ decision: "allow", grantSubjectType: "everyone" });
@@ -437,10 +448,83 @@ describe("generic resource core", () => {
     const outsider = await authorize({
       subjectId: seedData.outsiderId,
       clientId: "client",
-      resourceUri: resource.uri,
+      resourceUri: shared.uri,
       audience: "https://auth.example",
     });
     expect(outsider).toEqual({ decision: "deny", reason: "no_membership" });
+  });
+
+  it("never admits an administrator to a personal resource, nor lets one grant it", async () => {
+    const seedData = await seed();
+    const resource = await validatedResource(seedData);
+    await expect(
+      authorize({
+        subjectId: seedData.adminId,
+        clientId: "client",
+        resourceUri: resource.uri,
+        audience: "https://auth.example",
+      }),
+    ).resolves.toMatchObject({ decision: "deny" });
+    for (const subject of [
+      { subjectType: "user", subjectId: seedData.adminId },
+      { subjectType: "everyone", subjectId: null },
+    ] as const) {
+      await expect(
+        createResourceGrant({
+          resourceId: resource.id,
+          ...subject,
+          actorUserId: seedData.adminId,
+        }),
+      ).rejects.toMatchObject({ code: "RES_004" });
+    }
+    await expect(
+      createResourceInvitation({
+        email: "invitee@example.com",
+        resourceId: resource.id,
+        actorUserId: seedData.adminId,
+      }),
+    ).rejects.toMatchObject({ code: "RES_002" });
+    await expect(canManageGrants(seedData.adminId, resource)).resolves.toBe(false);
+  });
+
+  it("does not let a guest create or grant resources while it still receives shares", async () => {
+    const seedData = await seed();
+    const [guestRole] = await db
+      .insert(appRoles)
+      .values({ applicationId: seedData.appAId, name: "guest" })
+      .returning();
+    if (!guestRole) throw new Error("role seed failed");
+    const resource = await validatedResource(seedData);
+    await createResourceGrant({
+      resourceId: resource.id,
+      subjectType: "user",
+      subjectId: seedData.memberId,
+      actorUserId: seedData.ownerId,
+    });
+    await db.insert(userAppRoles).values({
+      userId: seedData.memberId,
+      applicationId: seedData.appAId,
+      roleId: guestRole.id,
+    });
+
+    await expect(
+      createResource({
+        applicationId: seedData.appAId,
+        scheme: "gine",
+        locator: "guest_project",
+        displayName: "Guest project",
+        ownerType: "user",
+        ownerId: seedData.memberId,
+      }),
+    ).rejects.toMatchObject({ code: "AUTH_011" });
+    await expect(
+      authorize({
+        subjectId: seedData.memberId,
+        clientId: "client",
+        resourceUri: resource.uri,
+        audience: "https://auth.example",
+      }),
+    ).resolves.toMatchObject({ decision: "allow", accessKind: "grant" });
   });
 
   it("does not let a standard owner grant to a non-member or a group", async () => {
@@ -483,9 +567,17 @@ describe("generic resource core", () => {
     ]);
 
     await expect(canManageGrants("owner", resource)).resolves.toBe(true);
-    await expect(canManageGrants("member", resource)).resolves.toBe(true);
+    await expect(canManageGrants("member", resource)).resolves.toBe(false);
     await expect(canManageGrants("outsider", resource)).resolves.toBe(false);
-    await expect(canManageGrants("admin", resource)).resolves.toBe(true);
+    await expect(canManageGrants("admin", resource)).resolves.toBe(false);
+
+    const shared = await validatedResource(seedData, {
+      ownerType: "application",
+    });
+    await expect(canManageGrants("owner", shared)).resolves.toBe(false);
+    await expect(canManageGrants("member", shared)).resolves.toBe(true);
+    await expect(canManageGrants("outsider", shared)).resolves.toBe(false);
+    await expect(canManageGrants("admin", shared)).resolves.toBe(true);
   });
 
   it("denies when the application disables the scheme or the owner disables the resource", async () => {
@@ -598,13 +690,19 @@ describe("generic resource core", () => {
         scheme,
         locator,
         displayName: locator,
-        ownerType: "user",
-        ownerId: seedData.ownerId,
+        ownerType: "application",
+        ownerId: seedData.appAId,
       });
       await completeResourceValidation({
         resourceId: resource.id,
         clientId: "litellm",
         result: "validated",
+      });
+      await createResourceGrant({
+        resourceId: resource.id,
+        subjectType: "everyone",
+        subjectId: null,
+        actorUserId: seedData.adminId,
       });
     }
 
@@ -622,6 +720,45 @@ describe("generic resource core", () => {
       "llm://app-a/gpt-x",
       "mcp://app-a/server-x/tool/search",
     ]);
+  });
+
+  it("keeps gateway objects out of reach of a member who claims them", async () => {
+    const seedData = await seed();
+    await db.insert(gatewayObjects).values({
+      kind: "model",
+      litellmId: "gpt-x",
+      objectName: "gpt-x",
+      parentName: "",
+      displayName: "gpt-x",
+    });
+    const claim = (overrides: {
+      ownerType: "user" | "application";
+      ownerId: string;
+      locator: string;
+    }) =>
+      createResource({
+        applicationId: seedData.appAId,
+        scheme: "llm",
+        displayName: "gpt-x",
+        ...overrides,
+      });
+    await expect(
+      claim({
+        ownerType: "user",
+        ownerId: seedData.ownerId,
+        locator: "app-a/gpt-x",
+      }),
+    ).rejects.toMatchObject({ code: "RES_001" });
+    await expect(
+      claim({
+        ownerType: "application",
+        ownerId: seedData.appAId,
+        locator: "other-app/gpt-x",
+      }),
+    ).rejects.toMatchObject({ code: "RES_005" });
+    await expect(
+      listGatewayEntitlements(seedData.ownerId),
+    ).resolves.toMatchObject({ models: [], resources: [] });
   });
 
   it("parses inventory targets from resource locators", () => {
@@ -652,7 +789,9 @@ describe("generic resource core", () => {
 
   it("redeems an invitation for an existing AuthService account", async () => {
     const seedData = await seed();
-    const resource = await validatedResource(seedData);
+    const resource = await validatedResource(seedData, {
+      ownerType: "application",
+    });
     const created = await createResourceInvitation({
       email: "invitee@example.com",
       resourceId: resource.id,
@@ -675,6 +814,83 @@ describe("generic resource core", () => {
     expect(membership).toBeDefined();
     const active = await resolveGrantsForSubject("invitee", resource.id);
     expect(active).toHaveLength(1);
+  });
+
+  it("keeps member emails from a delegate who does not administer the application", async () => {
+    const seedData = await seed();
+    await db.insert(appDelegations).values({
+      userId: "member",
+      applicationId: seedData.appAId,
+      permission: "resources:read",
+      status: "active",
+    });
+    const page = { limit: 10, offset: 0 };
+    const asAdmin = await listOwnerMembers(seedData.appAId, page, "admin");
+    const asDelegate = await listOwnerMembers(seedData.appAId, page, "member");
+    expect(asAdmin.members.every((entry) => entry.email !== null)).toBe(true);
+    expect(asDelegate.members).toHaveLength(asAdmin.members.length);
+    expect(asDelegate.members.every((entry) => entry.email === null)).toBe(
+      true,
+    );
+  });
+
+  it("keeps a suspended membership suspended through an invitation or an add-member call", async () => {
+    const seedData = await seed();
+    const resource = await validatedResource(seedData, {
+      ownerType: "application",
+    });
+    const created = await createResourceInvitation({
+      email: "invitee@example.com",
+      resourceId: resource.id,
+      actorUserId: seedData.adminId,
+    });
+    await seedUser("invitee");
+    await db.insert(userApplications).values({
+      userId: "invitee",
+      applicationId: seedData.appAId,
+      isActive: false,
+    });
+
+    await expect(
+      acceptResourceInvitation({
+        token: created.token,
+        subjectId: "invitee",
+        email: "invitee@example.com",
+        emailVerified: true,
+      }),
+    ).rejects.toMatchObject({ code: "RES_004" });
+    await expect(
+      addExistingUserToApplication(
+        seedData.adminId,
+        seedData.appAId,
+        "invitee@example.com",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      addExistingUserToApplication(
+        seedData.adminId,
+        seedData.appAId,
+        "nobody@example.com",
+      ),
+    ).resolves.toBeNull();
+
+    const [membership] = await db
+      .select({ isActive: userApplications.isActive })
+      .from(userApplications)
+      .where(eq(userApplications.userId, "invitee"));
+    expect(membership?.isActive).toBe(false);
+    await expect(
+      resolveGrantsForSubject("invitee", resource.id),
+    ).resolves.toHaveLength(0);
+
+    await seedUser("newcomer");
+    await expect(
+      addExistingUserToApplication(
+        seedData.adminId,
+        seedData.appAId,
+        "newcomer@example.com",
+      ),
+    ).resolves.toMatchObject({ email: "newcomer@example.com" });
   });
 
   it("records usage idempotently and aggregates it per application", async () => {

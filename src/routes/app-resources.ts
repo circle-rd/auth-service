@@ -164,7 +164,7 @@ export async function appResourceRoutes(
     );
     if (!userId) return;
     const query = memberQuerySchema.parse(req.query);
-    const page = await listOwnerMembers(appId, query);
+    const page = await listOwnerMembers(appId, query, userId);
     await reply.send({
       members: page.members,
       hasMore: page.hasMore,
@@ -177,21 +177,17 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     const body = memberBodySchema.parse(req.body);
-    const member = await addExistingUserToApplication(
-      userId,
-      appId,
-      body.email,
-    );
-    if (member.created && isMailConfigured()) {
+    const added = await addExistingUserToApplication(userId, appId, body.email);
+    if (added && isMailConfigured()) {
       const session = await getRequestSession(req);
-      await sendApplicationAccessEmail(member.email, {
+      await sendApplicationAccessEmail(added.email, {
         url: `${config.betterAuth.url}/catalogue`,
-        appName: member.applicationName,
-        appSlug: member.applicationSlug,
+        appName: added.applicationName,
+        appSlug: added.applicationSlug,
         inviterName: session?.user.name ?? undefined,
       });
     }
-    await reply.status(member.created ? 201 : 200).send({ member });
+    await reply.status(202).send({ accepted: true });
   });
 
   fastify.get("/apps/:appId/plans", async (req, reply) => {

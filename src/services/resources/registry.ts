@@ -5,10 +5,19 @@ import { applications } from "../../db/schema.js";
 import { resources } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
 import type { DbExecutor } from "../credential-user.js";
-import { assertCanManageResource, isActiveMember } from "./authority.js";
+import {
+  assertCanManageResource,
+  isActiveMember,
+  isGuest,
+} from "./authority.js";
 import { assertSchemeEnabledForApplication } from "./scheme-service.js";
 import type { ResourceOwnerType, ResourceStatus } from "./types.js";
-import { assertLocator, buildResourceUri, parseResourceUri } from "./uri.js";
+import {
+  adapterForScheme,
+  assertLocator,
+  buildResourceUri,
+  parseResourceUri,
+} from "./uri.js";
 
 export type ResourceRow = typeof resources.$inferSelect;
 
@@ -60,11 +69,13 @@ export async function createResource(
   input: CreateResourceInput,
 ): Promise<ResourceView> {
   await assertSchemeEnabledForApplication(input.applicationId, input.scheme);
-  if (
-    input.ownerType === "user" &&
-    !(await isActiveMember(input.ownerId, input.applicationId))
-  ) {
-    throw ERR.RES_004();
+  if (input.ownerType === "user") {
+    if (!(await isActiveMember(input.ownerId, input.applicationId))) {
+      throw ERR.RES_004();
+    }
+    if (await isGuest(input.ownerId, input.applicationId)) {
+      throw ERR.AUTH_011("A guest cannot create resources");
+    }
   }
   if (
     input.ownerType === "application" &&
@@ -84,6 +95,28 @@ export async function createResource(
   assertLocator(input.scheme, locator);
   const uri = buildResourceUri(input.scheme, locator);
 
+  const [app] = await db
+    .select({
+      slug: applications.slug,
+      name: applications.name,
+      resourceSharingEnabled: applications.resourceSharingEnabled,
+      applicationActive: applications.isActive,
+    })
+    .from(applications)
+    .where(eq(applications.id, input.applicationId))
+    .limit(1);
+  if (!app) throw ERR.RES_004();
+  if (adapterForScheme(input.scheme) === "litellm") {
+    // The gateway inventory is platform-wide and proves no ownership: only the
+    // application may declare its own objects, under its own slug.
+    if (input.ownerType !== "application") {
+      throw ERR.RES_001("Gateway resources belong to the application");
+    }
+    if (locator.split("/")[0] !== app.slug) {
+      throw ERR.RES_005("The locator must start with the application slug");
+    }
+  }
+
   const [row] = await db
     .insert(resources)
     .values({
@@ -102,22 +135,12 @@ export async function createResource(
     .returning();
   if (!row) throw ERR.RES_003();
 
-  const [app] = await db
-    .select({
-      slug: applications.slug,
-      name: applications.name,
-      resourceSharingEnabled: applications.resourceSharingEnabled,
-      applicationActive: applications.isActive,
-    })
-    .from(applications)
-    .where(eq(applications.id, row.applicationId))
-    .limit(1);
   return {
     ...row,
-    applicationSlug: app?.slug ?? "",
-    applicationName: app?.name ?? "",
-    resourceSharingEnabled: app?.resourceSharingEnabled ?? false,
-    applicationActive: app?.applicationActive ?? false,
+    applicationSlug: app.slug,
+    applicationName: app.name,
+    resourceSharingEnabled: app.resourceSharingEnabled,
+    applicationActive: app.applicationActive,
   };
 }
 

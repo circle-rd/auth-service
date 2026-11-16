@@ -2,6 +2,7 @@ import { and, eq, isNotNull } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { applications } from "../db/schema.js";
+import { isAuthServiceMachineScope } from "../services/machine-scopes.js";
 
 export interface AudienceRequest {
   path: string;
@@ -115,6 +116,11 @@ export async function resolveAudiencePatch(
     if (audience) return patch(audience);
   }
   if (defaultAudience && startsGrant && clientId) {
+    // The default would bind the token to the application's own API, which
+    // auth-service's machine routes refuse: leave the audience alone there.
+    const scopes =
+      typeof params.scope === "string" ? params.scope.split(" ") : [];
+    if (scopes.some(isAuthServiceMachineScope)) return undefined;
     const url = await lookup(clientId);
     if (url) return patch(url);
   }

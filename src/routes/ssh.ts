@@ -13,6 +13,8 @@ import {
   registerRecipientKey,
   revokeRecipientKey,
 } from "../services/ssh/keys.js";
+import { parseSshPublicKey } from "../services/ssh/crypto.js";
+import { issueKeyChallenge } from "../services/ssh/key-proof.js";
 
 const resourceParamsSchema = z.object({ resourceId: z.string().uuid() });
 const metaUserParamsSchema = resourceParamsSchema.extend({
@@ -30,9 +32,13 @@ const targetSchema = z
 const metaUserSchema = z
   .object({ metaUser: z.string().trim().min(3).max(32) })
   .strict();
+const publicKeySchema = z.string().trim().min(32).max(4096);
+const challengeSchema = z.object({ publicKey: publicKeySchema }).strict();
 const recipientKeySchema = z
   .object({
-    publicKey: z.string().trim().min(32).max(4096),
+    publicKey: publicKeySchema,
+    challenge: z.string().trim().min(1).max(256),
+    signature: z.string().trim().min(1).max(4096),
     label: z.string().trim().max(200).nullable().optional(),
   })
   .strict();
@@ -95,12 +101,26 @@ export async function sshResourceRoutes(
     await reply.send({ keys: await listRecipientKeys(userId) });
   });
 
+  fastify.post("/recipient-keys/challenge", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const body = challengeSchema.parse(req.body);
+    await reply.send(
+      issueKeyChallenge(userId, parseSshPublicKey(body.publicKey)),
+    );
+  });
+
   fastify.post("/recipient-keys", async (req, reply) => {
     const userId = await requireSession(req, reply);
     if (!userId) return;
     const body = recipientKeySchema.parse(req.body);
     await reply.status(201).send({
-      key: await registerRecipientKey(userId, body.publicKey, body.label),
+      key: await registerRecipientKey(
+        userId,
+        body.publicKey,
+        { challenge: body.challenge, signature: body.signature },
+        body.label,
+      ),
     });
   });
 

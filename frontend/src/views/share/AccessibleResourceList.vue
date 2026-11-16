@@ -14,7 +14,6 @@ const { t } = useI18n();
 
 function accessLabel(item: AccessibleResource): string {
   if (item.accessKind === 'owner') return t('share.catalogue.accessOwner');
-  if (item.accessKind === 'admin') return t('share.catalogue.accessAdmin');
   return t(`share.subjectTypes.${item.grantSubjectType ?? 'user'}`);
 }
 </script>

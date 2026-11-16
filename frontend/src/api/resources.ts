@@ -44,7 +44,7 @@ export interface OwnerPlan {
 export interface OwnerMember {
   userId: string;
   name: string;
-  email: string;
+  email: string | null;
   isActive: boolean;
   roles: string[];
 }
@@ -117,6 +117,8 @@ export interface MemberApplication {
   slug: string;
   description: string | null;
   icon: string | null;
+  // False for a guest: it receives shares but creates no resource.
+  canCreate: boolean;
 }
 
 export interface AccessibleResource {
@@ -129,7 +131,7 @@ export interface AccessibleResource {
   applicationName: string;
   ownerType: ResourceOwnerType;
   ownerId: string;
-  accessKind: 'owner' | 'admin' | 'grant';
+  accessKind: 'owner' | 'grant';
   grantSubjectType?: ResourceSubjectType;
 }
 
@@ -334,7 +336,7 @@ export async function listOwnerMembers(
   return apiFetch(`/user/apps/${appId}/members${queryString(query)}`);
 }
 
-export async function addOwnerMember(appId: string, email: string): Promise<{ member: OwnerMember & { created: boolean } }> {
+export async function addOwnerMember(appId: string, email: string): Promise<{ accepted: true }> {
   return apiFetch(`/user/apps/${appId}/members`, {
     method: 'POST',
     body: JSON.stringify({ email }),
@@ -448,10 +450,25 @@ export async function listRecipientKeys(): Promise<{ keys: SshRecipientKey[] }> 
   return apiFetch('/user/recipient-keys');
 }
 
-export async function registerRecipientKey(publicKey: string, label?: string): Promise<{ key: SshRecipientKey }> {
+export interface SshKeyChallenge {
+  challenge: string;
+  namespace: string;
+  expiresAt: string;
+}
+
+export async function requestSshKeyChallenge(publicKey: string): Promise<SshKeyChallenge> {
+  return apiFetch('/user/recipient-keys/challenge', {
+    method: 'POST',
+    body: JSON.stringify({ publicKey }),
+  });
+}
+
+export async function registerRecipientKey(
+  body: { publicKey: string; challenge: string; signature: string; label?: string },
+): Promise<{ key: SshRecipientKey }> {
   return apiFetch('/user/recipient-keys', {
     method: 'POST',
-    body: JSON.stringify({ publicKey, label: label ?? null }),
+    body: JSON.stringify({ ...body, label: body.label ?? null }),
   });
 }
 

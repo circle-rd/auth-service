@@ -77,6 +77,8 @@ export async function createResourceInvitation(
 ): Promise<CreatedResourceInvitation> {
   const resource = await getResource(input.resourceId);
   await assertAppAdmin(input.actorUserId, resource.applicationId);
+  // The invitee receives a grant: only whoever may grant this resource can invite.
+  await assertCanManageGrants(input.actorUserId, resource);
 
   const email = input.email.trim().toLowerCase();
   const [existing] = await db
@@ -187,7 +189,7 @@ export async function acceptResourceInvitation(
     if (!claimed) throw ERR.RES_010();
 
     const [membership] = await tx
-      .select({ id: userApplications.id })
+      .select({ isActive: userApplications.isActive })
       .from(userApplications)
       .where(
         and(
@@ -202,16 +204,9 @@ export async function acceptResourceInvitation(
         applicationId: resource.applicationId,
         isActive: true,
       });
-    } else {
-      await tx
-        .update(userApplications)
-        .set({ isActive: true })
-        .where(
-          and(
-            eq(userApplications.userId, input.subjectId),
-            eq(userApplications.applicationId, resource.applicationId),
-          ),
-        );
+    } else if (!membership.isActive) {
+      // A suspension is lifted by a platform administrator, never by a link.
+      throw ERR.RES_004();
     }
 
     const grant = await insertResourceGrant(

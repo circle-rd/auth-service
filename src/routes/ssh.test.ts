@@ -9,6 +9,7 @@ import {
 } from "vitest";
 import { createTestApp } from "../tests/helpers/app.js";
 import { ERR } from "../errors.js";
+import { generateSshIdentity } from "../services/ssh/crypto.js";
 
 const {
   mockRequireSession,
@@ -200,18 +201,50 @@ describe("SSH user routes", () => {
     );
   });
 
-  it("registers a recipient key", async () => {
+  it("registers a recipient key with its proof", async () => {
+    const publicKey = generateSshIdentity().publicKey;
     const res = await app.inject({
       method: "POST",
       url: "/api/user/recipient-keys",
-      payload: { publicKey: `ssh-ed25519 ${"A".repeat(40)}`, label: "laptop" },
+      payload: {
+        publicKey,
+        challenge: "auth-service-ssh-key:x",
+        signature: "-----BEGIN SSH SIGNATURE-----",
+        label: "laptop",
+      },
     });
     expect(res.statusCode).toBe(201);
     expect(mockRegisterKey).toHaveBeenCalledWith(
       "user-1",
-      `ssh-ed25519 ${"A".repeat(40)}`,
+      publicKey,
+      {
+        challenge: "auth-service-ssh-key:x",
+        signature: "-----BEGIN SSH SIGNATURE-----",
+      },
       "laptop",
     );
+  });
+
+  it("refuses a recipient key without a proof", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/recipient-keys",
+      payload: { publicKey: generateSshIdentity().publicKey },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockRegisterKey).not.toHaveBeenCalled();
+  });
+
+  it("issues a challenge bound to the key", async () => {
+    const identity = generateSshIdentity();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/recipient-keys/challenge",
+      payload: { publicKey: identity.publicKey },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().challenge).toContain(identity.fingerprint);
+    expect(res.json().namespace).toBe("auth-service");
   });
 });
 

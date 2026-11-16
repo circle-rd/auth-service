@@ -14,6 +14,7 @@ import {
   loginHistory,
 } from "../../db/schema.js";
 import { assignDefaultRoleIfNeeded } from "../../services/claims.js";
+import { GUEST_ROLE } from "../../services/resources/authority.js";
 import {
   assertPlanBelongsToApp,
   assignDefaultPlanIfNeeded,
@@ -71,7 +72,7 @@ import {
 } from "../../services/backchannel-logout-uri.js";
 import { publishEvent } from "../../services/event-bus.js";
 const DEFAULT_PLAN_NAME = "free";
-import { DEFAULT_MACHINE_SCOPES } from "../../services/machine-auth.js";
+import { DEFAULT_MACHINE_SCOPES } from "../../services/machine-scopes.js";
 
 /** Hash a plaintext client secret using SHA-256 base64url (matches BetterAuth's defaultHasher). */
 function hashClientSecret(secret: string): string {
@@ -599,13 +600,15 @@ export async function applicationRoutes(
     // Run outside the main transaction so that failures here don't roll back
     // the application/oauthClient creation.
 
-    // a) Create predefined roles: "user" (default) and "admin"
+    // a) Create predefined roles: "user" (default), "admin" and "guest"
+    // (signs in and accepts shares, creates no resource)
     const [userRole, adminRole] = await db.transaction(async (tx) => {
       const inserted = await tx
         .insert(appRoles)
         .values([
           { applicationId: app!.id, name: "user", isDefault: true },
           { applicationId: app!.id, name: "admin", isDefault: false },
+          { applicationId: app!.id, name: GUEST_ROLE, isDefault: false },
         ])
         .returning();
       return inserted;

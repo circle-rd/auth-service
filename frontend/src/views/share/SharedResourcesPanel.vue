@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SchemeIcon from '@/components/ui/SchemeIcon.vue';
 import { useToast } from '@/composables/useToast';
+import { useAuthStore } from '@/stores/auth';
 import {
   createAppResource,
   createResource,
@@ -37,6 +38,7 @@ const emit = defineEmits<{ changed: [] }>();
 
 const { t } = useI18n();
 const toast = useToast();
+const auth = useAuthStore();
 
 const resources = ref<Resource[]>([]);
 const schemes = ref<ResourceScheme[]>([]);
@@ -52,6 +54,16 @@ const sshResource = ref<Resource | null>(null);
 const validatorLink = ref<string | null>(null);
 
 const schemeByName = computed(() => new Map(schemes.value.map((entry) => [entry.scheme, entry])));
+
+// Gateway objects are declared by the application, never by a member.
+const creatableSchemes = computed(() =>
+  props.scope === 'mine' ? schemes.value.filter((entry) => entry.adapter !== 'litellm') : schemes.value,
+);
+
+// Choosing which gateway objects an application exposes is a platform decision.
+function awaitsPlatformValidation(resource: Resource): boolean {
+  return schemeByName.value.get(resource.scheme)?.adapter === 'litellm' && !auth.isAdmin();
+}
 
 function statusVariant(status: Resource['status']): 'success' | 'warning' | 'neutral' {
   if (status === 'validated') return 'success';
@@ -217,6 +229,12 @@ onMounted(() => void load());
           <p v-if="resource.validationError" class="text-[11px] text-red-400 mt-1">
             {{ resource.validationError }}
           </p>
+          <p
+            v-if="resource.status === 'pending_validation' && awaitsPlatformValidation(resource)"
+            class="text-[11px] text-surface-500 mt-1"
+          >
+            {{ t('share.resources.gatewayHint') }}
+          </p>
         </div>
         <span class="hidden xl:block text-xs text-surface-500 shrink-0">
           {{ formatDateTime(resource.updatedAt) }}
@@ -231,7 +249,7 @@ onMounted(() => void load());
             <Terminal class="w-3.5 h-3.5" />{{ t('share.ssh.configure') }}
           </BaseButton>
           <BaseButton
-            v-else-if="resource.status === 'pending_validation' || resource.status === 'validation_failed'"
+            v-else-if="(resource.status === 'pending_validation' || resource.status === 'validation_failed') && !awaitsPlatformValidation(resource)"
             variant="ghost"
             size="sm"
             @click="validate(resource)"
@@ -257,7 +275,7 @@ onMounted(() => void load());
 
     <ResourceFormModal
       :open="showForm"
-      :schemes="schemes"
+      :schemes="creatableSchemes"
       :fixed-scheme="scheme"
       :editing="editing"
       :saving="saving"

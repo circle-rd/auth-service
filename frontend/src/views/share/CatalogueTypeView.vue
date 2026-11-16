@@ -30,6 +30,11 @@ const shared = computed(
   ) ?? [],
 );
 
+// Gateway objects are declared by the application's administrators, not by members.
+const gatewayManaged = computed(() => scheme.value?.adapter === 'litellm');
+const canCreate = computed(() => store.byId.get(appId.value)?.canCreate ?? false);
+const userCreatable = computed(() => !gatewayManaged.value && canCreate.value);
+
 // A type that is not enabled for this application has no page.
 watch(
   [overview, scheme],
@@ -68,7 +73,7 @@ function refresh() {
 
     <SshIdentityBanner v-if="scheme.scheme === 'ssh'" />
 
-    <section class="space-y-3">
+    <section v-if="userCreatable" class="space-y-3">
       <h2 class="text-sm font-semibold text-surface-200">{{ t('share.catalogue.type.created') }}</h2>
       <SharedResourcesPanel
         :key="scheme.scheme"
@@ -80,6 +85,10 @@ function refresh() {
         @changed="refresh"
       />
     </section>
+
+    <p v-else class="text-sm text-surface-500">
+      {{ gatewayManaged ? t('share.catalogue.type.gatewayManaged') : t('share.catalogue.type.guestReadOnly') }}
+    </p>
 
     <section class="space-y-3">
       <h2 class="text-sm font-semibold text-surface-200">{{ t('share.catalogue.type.shared') }}</h2>

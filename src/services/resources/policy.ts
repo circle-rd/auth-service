@@ -1,19 +1,13 @@
 import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import {
-  appRoles,
-  userAppRoles,
-  userApplications,
-  userSubscriptions,
-} from "../../db/schema.js";
+import { userApplications, userSubscriptions } from "../../db/schema.js";
 import { member, user as userTable } from "../../db/auth-schema.js";
 import {
   applicationSchemes,
   resourceGrants,
   resourceSchemes,
 } from "../../db/resource-schema.js";
-import { isActiveMember, isApplicationAdmin } from "./authority.js";
-import { ADMIN_ROLES, hasAnyRole } from "../roles.js";
+import { isActiveMember } from "./authority.js";
 import { resolveGrantsForSubject, type ResourceGrantRow } from "./grants.js";
 import { findResourceByUri, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
@@ -45,7 +39,7 @@ export interface AccessFacts {
   now?: Date;
 }
 
-export type AccessKind = "owner" | "admin" | "grant";
+export type AccessKind = "owner" | "grant";
 
 export interface AllowDecision {
   decision: "allow";
@@ -99,7 +93,6 @@ interface AccessProvider {
   accountActive: () => Promise<boolean>;
   activeMember: () => Promise<boolean>;
   isOwner: () => boolean;
-  isAdmin: () => Promise<boolean>;
   grants: () => Promise<ResourceGrantRow[]>;
 }
 
@@ -116,7 +109,6 @@ async function decide(
   if (!(await provider.accountActive())) return deny("account_disabled");
   if (!(await provider.activeMember())) return deny("no_membership");
   if (provider.isOwner()) return allow(resource, "owner");
-  if (await provider.isAdmin()) return allow(resource, "admin");
   const grant = (await provider.grants())[0];
   if (!grant) return deny("no_grant");
   return allow(resource, "grant", grant.subjectType);
@@ -135,9 +127,10 @@ export function isBanned(
 }
 
 /**
- * Membership is the gate; ownership, an application-admin role or an active
- * grant is the admission. The resource application must also keep sharing
- * enabled, and the scheme must be active for it.
+ * Membership is the gate; ownership or an active grant is the admission.
+ * An administrator is not a recipient: nothing here admits one implicitly.
+ * The resource application must also keep sharing enabled, and the scheme
+ * must be active for it.
  */
 export async function evaluateResourceAccess(
   facts: AccessFacts,
@@ -157,7 +150,6 @@ export async function evaluateResourceAccess(
     activeMember: () => isActiveMember(subjectId, resource.applicationId),
     isOwner: () =>
       resource.ownerType === "user" && resource.ownerId === subjectId,
-    isAdmin: () => isApplicationAdmin(subjectId, resource.applicationId),
     grants: () =>
       resolveGrantsForSubject(subjectId, resource.id, facts.now ?? new Date()),
   });
@@ -166,9 +158,7 @@ export async function evaluateResourceAccess(
 interface BatchAccessContext {
   subjectId: string;
   accountActive: boolean;
-  platformAdmin: boolean;
   memberships: Set<string>;
-  adminApplications: Set<string>;
   enabledSchemes: Set<string>;
   organizationIds: Set<string>;
   planIds: Map<string, Set<string>>;
@@ -217,7 +207,6 @@ async function loadBatchAccessContext(
   ] = await Promise.all([
     db
       .select({
-        role: userTable.role,
         banned: userTable.banned,
         banExpires: userTable.banExpires,
       })
@@ -287,31 +276,8 @@ async function loadBatchAccessContext(
       ),
   ]);
 
-  const platformAdmin = hasAnyRole(platformRows[0]?.role, ADMIN_ROLES);
   const accountActive =
     platformRows[0] !== undefined && !isBanned(platformRows[0], now);
-
-  const adminApplications = new Set<string>();
-  if (!platformAdmin) {
-    const adminRows = await db
-      .select({ applicationId: appRoles.applicationId })
-      .from(userAppRoles)
-      .innerJoin(
-        appRoles,
-        and(
-          eq(userAppRoles.roleId, appRoles.id),
-          eq(appRoles.applicationId, userAppRoles.applicationId),
-        ),
-      )
-      .where(
-        and(
-          eq(userAppRoles.userId, subjectId),
-          inArray(appRoles.applicationId, applicationIds),
-          eq(appRoles.name, "admin"),
-        ),
-      );
-    for (const row of adminRows) adminApplications.add(row.applicationId);
-  }
 
   const planIds = new Map<string, Set<string>>();
   for (const row of planRows) {
@@ -333,9 +299,7 @@ async function loadBatchAccessContext(
   return {
     subjectId,
     accountActive,
-    platformAdmin,
     memberships: new Set(membershipRows.map((row) => row.applicationId)),
-    adminApplications,
     enabledSchemes: new Set(
       schemeRows.map((row) => schemeKey(row.applicationId, row.scheme)),
     ),
@@ -373,9 +337,6 @@ export async function evaluateResourceAccessBatch(
           context.memberships.has(resource.applicationId),
         isOwner: () =>
           resource.ownerType === "user" && resource.ownerId === subjectId,
-        isAdmin: async () =>
-          context.platformAdmin ||
-          context.adminApplications.has(resource.applicationId),
         grants: async () =>
           (context.grants.get(resource.id) ?? []).filter((grant) =>
             grantApplies(grant, resource.applicationId, context),

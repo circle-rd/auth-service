@@ -3,6 +3,7 @@ import { db } from "../../db/index.js";
 import { sshRecipientKeys } from "../../db/ssh-schema.js";
 import { ERR } from "../../errors.js";
 import { parseSshPublicKey } from "./crypto.js";
+import { assertKeyPossession } from "./key-proof.js";
 
 export interface RecipientKeyView {
   id: string;
@@ -15,9 +16,11 @@ export interface RecipientKeyView {
 export async function registerRecipientKey(
   userId: string,
   value: string,
+  proof: { challenge: string; signature: string },
   label?: string | null,
 ): Promise<RecipientKeyView> {
   const parsed = parseSshPublicKey(value);
+  assertKeyPossession(userId, parsed, proof);
   const [existing] = await db
     .select()
     .from(sshRecipientKeys)

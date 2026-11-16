@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../errors.js";
+import { config } from "../config.js";
 
 const { mockDb, mockVerify, state } = vi.hoisted(() => {
   const state = { client: [] as unknown[] };
@@ -75,6 +76,32 @@ describe("requireMachineScope", () => {
     );
     expect(err.statusCode).toBe(403);
     expect(err.code).toBe("AUTH_011");
+  });
+
+  it("answers 403 for a JWT minted for another resource server", async () => {
+    mockVerify.mockResolvedValue(
+      verified({ audiences: ["https://other-api.example"] }),
+    );
+    const err = await rejection(
+      requireMachineScope("Bearer tok", "wallet:read"),
+    );
+    expect(err.statusCode).toBe(403);
+    expect(err.code).toBe("AUTH_011");
+  });
+
+  it("accepts a JWT whose audience includes this API, and an opaque token", async () => {
+    mockVerify.mockResolvedValue(
+      verified({
+        audiences: ["https://other-api.example", config.betterAuth.url],
+      }),
+    );
+    await expect(
+      requireMachineScope("Bearer tok", "wallet:read"),
+    ).resolves.toEqual({ clientId: "gateway" });
+    mockVerify.mockResolvedValue(verified({ audiences: [] }));
+    await expect(
+      requireMachineScope("Bearer tok", "wallet:read"),
+    ).resolves.toEqual({ clientId: "gateway" });
   });
 
   it("answers 403 when the token lacks the scope", async () => {

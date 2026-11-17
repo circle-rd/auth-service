@@ -34,6 +34,26 @@ export interface TopupOptions {
   currency: 'eur'
   minCents: number
   maxCents: number
+  /** Terms linked next to the automatic top-up consent, when the operator set one. */
+  autoTopupTermsUrl: string | null
+}
+
+export type AutoTopupDisabledReason =
+  'payment_failed' | 'authentication_required' | 'payment_method_removed'
+
+export interface AutoTopup {
+  enabled: boolean
+  amountCents: number | null
+  /** When the last automatic top-up was credited. */
+  lastTopupAt: string | null
+  /** Why the system turned the option off, until the user acts again. */
+  disabledReason: AutoTopupDisabledReason | null
+}
+
+export interface AutoTopupUpdate {
+  autoTopup: AutoTopup
+  /** Stripe page that saves a card first; the option turns on once it is saved. */
+  setupUrl: string | null
 }
 
 export interface WalletDailyPoint {

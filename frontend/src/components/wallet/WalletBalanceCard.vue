@@ -66,5 +66,7 @@ const amountClass = computed(() =>
     <div v-if="$slots.actions" class="mt-5 flex flex-wrap gap-2">
       <slot name="actions" />
     </div>
+
+    <slot name="footer" />
   </div>
 </template>

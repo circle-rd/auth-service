@@ -278,6 +278,10 @@ const envSchema = z
     WALLET_TOPUP_MIN_EUR: z.coerce.number().int().positive().default(5),
     WALLET_TOPUP_MAX_EUR: z.coerce.number().int().positive().default(500),
 
+    // Terms the user accepts when saving a card for automatic top-ups; linked
+    // from the Stripe Checkout consent text.
+    WALLET_AUTO_TOPUP_TERMS_URL: z.string().url().optional(),
+
     // Pricing of LLM usage reported by the gateway in US dollars: the rate is
     // explicit on purpose (no silent default for money) and the margin is a
     // percentage added on top of the provider cost.
@@ -513,6 +517,7 @@ export const config = {
   wallet: {
     minTopupCents: parsed.data.WALLET_TOPUP_MIN_EUR * 100,
     maxTopupCents: parsed.data.WALLET_TOPUP_MAX_EUR * 100,
+    autoTopupTermsUrl: parsed.data.WALLET_AUTO_TOPUP_TERMS_URL,
     usdToEurRate: parsed.data.WALLET_USD_TO_EUR_RATE,
     marginPercent: parsed.data.WALLET_MARGIN_PERCENT,
   },

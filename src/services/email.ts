@@ -178,6 +178,19 @@ export async function sendRegistrationInvitationEmail(
   );
 }
 
+export async function sendAutoTopupDisabledEmail(
+  email: string,
+  args: {
+    reason:
+      "payment_failed" | "authentication_required" | "payment_method_removed";
+    /** The configured top-up amount, already formatted with its currency. */
+    amount: string;
+    url: string;
+  },
+): Promise<void> {
+  await sendEmail("wallet-auto-topup-disabled", email, { ...args, email });
+}
+
 // Re-export config getter for callers that wish to display the configured
 // from-address (e.g. admin diagnostics page).
 export const smtpFrom = config.smtp.from;

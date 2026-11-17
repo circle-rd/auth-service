@@ -46,6 +46,7 @@ describe("getTopupOptions", () => {
       currency: "eur",
       minCents: config.wallet.minTopupCents,
       maxCents: config.wallet.maxTopupCents,
+      autoTopupTermsUrl: config.wallet.autoTopupTermsUrl ?? null,
     });
     holder.stripe = null;
     expect(getTopupOptions().enabled).toBe(false);

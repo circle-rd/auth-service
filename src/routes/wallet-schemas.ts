@@ -24,6 +24,14 @@ export const positiveDecimalSchema = z
 
 export const idempotencyKeySchema = z.string().min(1).max(255);
 
+export const autoTopupBodySchema = z.discriminatedUnion("enabled", [
+  z.object({
+    enabled: z.literal(true),
+    amountCents: z.number().int().positive(),
+  }),
+  z.object({ enabled: z.literal(false) }),
+]);
+
 export const reasonSchema = z.string().trim().min(1).max(500);
 
 export const userParamsSchema = z.object({

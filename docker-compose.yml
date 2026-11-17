@@ -135,6 +135,7 @@ services:
       WALLET_MARGIN_PERCENT: ${WALLET_MARGIN_PERCENT:-0}
       WALLET_TOPUP_MIN_EUR: ${WALLET_TOPUP_MIN_EUR:-5}
       WALLET_TOPUP_MAX_EUR: ${WALLET_TOPUP_MAX_EUR:-500}
+      WALLET_AUTO_TOPUP_TERMS_URL: ${WALLET_AUTO_TOPUP_TERMS_URL:-https://circle-cyber.com/conditions-generales#recharge-automatique}
 
       # LiteLLM gateway (profile "llm"): auth-service mirrors the gateway
       # inventory with the read-only key litellm-provision delivers, then resolves

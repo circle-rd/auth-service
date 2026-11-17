@@ -1,6 +1,8 @@
 import { apiFetch, USE_MOCK } from './client';
 import type {
   AdminWalletStats,
+  AutoTopup,
+  AutoTopupUpdate,
   PricingChange,
   PricingResponse,
   TopupOptions,
@@ -66,7 +68,7 @@ export async function getMySpendStats(days = 30): Promise<UserSpendStats> {
 }
 
 export async function getTopupOptions(): Promise<TopupOptions> {
-  if (USE_MOCK) return { enabled: true, currency: 'eur', minCents: 500, maxCents: 50000 };
+  if (USE_MOCK) return { enabled: true, currency: 'eur', minCents: 500, maxCents: 50000, autoTopupTermsUrl: 'https://circle-cyber.com/conditions-generales#recharge-automatique' };
   return apiFetch<TopupOptions>('/user/wallet/topup-options');
 }
 
@@ -75,6 +77,34 @@ export async function createCheckout(amountCents: number): Promise<{ url: string
   return apiFetch<{ url: string }>('/user/wallet/checkout', {
     method: 'POST',
     body: JSON.stringify({ amountCents }),
+  });
+}
+
+let mockAutoTopup: AutoTopup = {
+  enabled: false,
+  amountCents: null,
+  lastTopupAt: null,
+  disabledReason: null,
+};
+
+export async function getAutoTopup(): Promise<AutoTopup> {
+  if (USE_MOCK) return { ...mockAutoTopup };
+  return apiFetch<AutoTopup>('/user/wallet/auto-topup');
+}
+
+/** Turn it on at `amountCents` (null turns it off). */
+export async function setAutoTopup(amountCents: number | null): Promise<AutoTopupUpdate> {
+  if (USE_MOCK) {
+    mockAutoTopup = amountCents === null
+      ? { enabled: false, amountCents: null, lastTopupAt: null, disabledReason: null }
+      : { enabled: true, amountCents, lastTopupAt: mockAutoTopup.lastTopupAt, disabledReason: null };
+    return { autoTopup: { ...mockAutoTopup }, setupUrl: null };
+  }
+  return apiFetch<AutoTopupUpdate>('/user/wallet/auto-topup', {
+    method: 'PUT',
+    body: JSON.stringify(
+      amountCents === null ? { enabled: false } : { enabled: true, amountCents },
+    ),
   });
 }
 

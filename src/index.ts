@@ -22,6 +22,7 @@ import { syncBuiltinSchemes } from "./services/resources/scheme-service.js";
 import { startResourceMonitoringRetention } from "./services/resources/usage.js";
 import { closeRedisClient } from "./services/redis-client.js";
 import { startBillingMeterRetry } from "./services/billing/usage.js";
+import { startAutoTopupSweeper } from "./services/wallet/index.js";
 import { ensureSigningKey } from "./compat/signing-keys.js";
 import { reconcileTokenAuthMethod } from "./compat/token-auth.js";
 
@@ -86,6 +87,7 @@ async function start(): Promise<void> {
   startGatewayInventorySync();
   startResourceMonitoringRetention();
   startBillingMeterRetry();
+  startAutoTopupSweeper();
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.once(signal, () => {

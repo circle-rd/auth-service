@@ -10,6 +10,8 @@ export interface TopupOptions {
   currency: "eur";
   minCents: number;
   maxCents: number;
+  /** Terms shown with the automatic top-up consent, when the operator set one. */
+  autoTopupTermsUrl: string | null;
 }
 
 export function getTopupOptions(): TopupOptions {
@@ -18,7 +20,16 @@ export function getTopupOptions(): TopupOptions {
     currency: "eur",
     minCents: config.wallet.minTopupCents,
     maxCents: config.wallet.maxTopupCents,
+    autoTopupTermsUrl: config.wallet.autoTopupTermsUrl ?? null,
   };
+}
+
+export function assertTopupAmount(amountCents: number): void {
+  const minCents = config.wallet.minTopupCents;
+  const maxCents = config.wallet.maxTopupCents;
+  if (amountCents < minCents || amountCents > maxCents) {
+    throw ERR.WAL_004("Top-up amount out of range", { minCents, maxCents });
+  }
 }
 
 /**
@@ -36,11 +47,7 @@ export async function createTopupCheckout(input: {
 }): Promise<{ url: string }> {
   if (!stripe) throw ERR.WAL_006();
 
-  const minCents = config.wallet.minTopupCents;
-  const maxCents = config.wallet.maxTopupCents;
-  if (input.amountCents < minCents || input.amountCents > maxCents) {
-    throw ERR.WAL_004("Top-up amount out of range", { minCents, maxCents });
-  }
+  assertTopupAmount(input.amountCents);
   const creditMicro = BigInt(input.amountCents) * CENTS_TO_MICRO;
   const metadata = {
     purpose: "wallet_topup",

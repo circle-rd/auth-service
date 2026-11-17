@@ -1,28 +1,29 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { Receipt, RefreshCw } from '@lucide/vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
-import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import InvoicesPanel from '@/components/profile/InvoicesPanel.vue';
+import AutoTopupModal from '@/components/wallet/AutoTopupModal.vue';
+import AutoTopupSummary from '@/components/wallet/AutoTopupSummary.vue';
+import TopupAmountPicker from '@/components/wallet/TopupAmountPicker.vue';
 import WalletBalanceCard from '@/components/wallet/WalletBalanceCard.vue';
 import WalletSpendCard from '@/components/wallet/WalletSpendCard.vue';
 import WalletDailyTable from '@/components/wallet/WalletDailyTable.vue';
-import { createCheckout, getMySpendStats, getMyWallet, getTopupOptions } from '@/api/wallet';
+import { createCheckout, getAutoTopup, getMySpendStats, getMyWallet, getTopupOptions, setAutoTopup } from '@/api/wallet';
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
 import { useWalletData } from '@/composables/useWalletData';
 import { eurToCents } from '@/utils/money';
-import type { TopupOptions } from '@/types/wallet';
+import type { AutoTopup, TopupOptions } from '@/types/wallet';
 
 // Users have no event channel (SSE is admin-only), so the panel polls while visible.
 const POLL_MS = 15_000;
 // After a payment the webhook lands asynchronously: poll faster for a short while.
 const POST_PAYMENT_POLL_MS = 3_000;
 const POST_PAYMENT_POLLS = 10;
-const PRESET_EUR = [5, 10, 25, 50];
 
 const { t } = useI18n();
 const { fmt } = useMoney();
@@ -30,10 +31,26 @@ const toast = useToast();
 const route = useRoute();
 const router = useRouter();
 
-const { account, stats, loading, error, refresh } = useWalletData({
+const { account, stats, loading, error, refresh: refreshWallet } = useWalletData({
   getAccount: getMyWallet,
   getStats: getMySpendStats,
 }, 30);
+
+const autoTopup = ref<AutoTopup | null>(null);
+const showAutoTopup = ref(false);
+const autoTopupBusy = ref(false);
+
+async function loadAutoTopup(): Promise<void> {
+  try {
+    autoTopup.value = await getAutoTopup();
+  } catch {
+    // The wallet itself still shows; the option just stays unavailable.
+  }
+}
+
+async function refresh(): Promise<void> {
+  await Promise.all([refreshWallet(), loadAutoTopup()]);
+}
 
 const options = ref<TopupOptions | null>(null);
 const amount = ref('10');
@@ -51,10 +68,31 @@ const rangeLabel = computed(() => ({
   max: options.value ? fmt(BigInt(options.value.maxCents) * 10_000n) : '',
 }));
 
-function pickPreset(eur: number): void {
-  amount.value = String(eur);
-  amountError.value = '';
+const showAutoTopupSection = computed(() =>
+  options.value?.enabled === true && account.value !== null && !account.value.isUnlimited,
+);
+
+async function saveAutoTopup(amountCents: number | null): Promise<void> {
+  autoTopupBusy.value = true;
+  try {
+    const result = await setAutoTopup(amountCents);
+    if (result.setupUrl) {
+      window.location.assign(result.setupUrl);
+      return;
+    }
+    autoTopup.value = result.autoTopup;
+    showAutoTopup.value = false;
+    toast.success(t(amountCents === null ? 'wallet.autoTopup.turnedOff' : 'wallet.autoTopup.turnedOn'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('wallet.autoTopup.error'));
+  } finally {
+    autoTopupBusy.value = false;
+  }
 }
+
+watch(amount, () => {
+  amountError.value = '';
+});
 
 async function startCheckout(): Promise<void> {
   if (!inRange.value || cents.value === null) {
@@ -93,19 +131,27 @@ function onVisible(): void {
 onMounted(async () => {
   document.addEventListener('visibilitychange', onVisible);
   const outcome = route.query.topup;
+  const autoOutcome = route.query.autotopup;
   if (outcome === 'success') {
     toast.success(t('wallet.topup.success'));
     fastPolls = POST_PAYMENT_POLLS;
   } else if (outcome === 'cancelled') {
     toast.info(t('wallet.topup.cancelled'));
   }
-  if (outcome !== undefined) {
-    // Drop the marker so a reload does not replay the message.
-    const { topup: _topup, ...rest } = route.query;
+  if (autoOutcome === 'success') {
+    toast.success(t('wallet.autoTopup.savedCard'));
+    // The webhook turns the option on a moment after the return.
+    fastPolls = POST_PAYMENT_POLLS;
+  } else if (autoOutcome === 'cancelled') {
+    toast.info(t('wallet.autoTopup.cancelled'));
+  }
+  if (outcome !== undefined || autoOutcome !== undefined) {
+    // Drop the markers so a reload does not replay the message.
+    const { topup: _topup, autotopup: _autotopup, ...rest } = route.query;
     await router.replace({ query: rest });
   }
   await Promise.all([refresh(), getTopupOptions().then((o) => { options.value = o; }).catch(() => {
-    options.value = { enabled: false, currency: 'eur', minCents: 0, maxCents: 0 };
+    options.value = { enabled: false, currency: 'eur', minCents: 0, maxCents: 0, autoTopupTermsUrl: null };
   })]);
   schedule();
 });
@@ -134,33 +180,21 @@ onUnmounted(() => {
             <Receipt class="w-3.5 h-3.5" /> {{ t('wallet.invoices') }}
           </BaseButton>
         </template>
+        <template v-if="showAutoTopupSection" #footer>
+          <AutoTopupSummary
+            :auto-topup="autoTopup"
+            :busy="autoTopupBusy"
+            @configure="showAutoTopup = true"
+            @disable="saveAutoTopup(null)"
+          />
+        </template>
       </WalletBalanceCard>
 
       <div class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-4 sm:p-6" data-testid="wallet-topup">
         <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-4">{{ t('wallet.topup.title') }}</h3>
 
         <template v-if="options?.enabled">
-          <div class="flex flex-wrap gap-2 mb-4">
-            <button
-              v-for="eur in PRESET_EUR"
-              :key="eur"
-              type="button"
-              :class="[
-                'px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors',
-                amount === String(eur)
-                  ? 'bg-primary-600/20 border-primary-500/50 text-primary-300'
-                  : 'border-surface-700 text-surface-300 hover:bg-surface-800',
-              ]"
-              @click="pickPreset(eur)"
-            >{{ fmt(BigInt(eur) * 1_000_000n) }}</button>
-          </div>
-          <BaseInput
-            v-model="amount"
-            :label="t('wallet.topup.amount')"
-            inputmode="decimal"
-            :error="amountError"
-            :hint="t('wallet.topup.range', rangeLabel)"
-          />
+          <TopupAmountPicker v-model="amount" :options="options" :error="amountError" />
           <BaseButton class="mt-4 w-full" :loading="redirecting" :disabled="!inRange" @click="startCheckout">
             {{ redirecting ? t('wallet.topup.redirecting') : t('wallet.topup.buy') }}
           </BaseButton>
@@ -188,5 +222,15 @@ onUnmounted(() => {
     <BaseModal :open="showInvoices" :title="t('profile.billingPanel.invoicesTitle')" size="xl" @close="showInvoices = false">
       <InvoicesPanel />
     </BaseModal>
+
+    <AutoTopupModal
+      v-if="options?.enabled"
+      :open="showAutoTopup"
+      :options="options"
+      :current="autoTopup"
+      :saving="autoTopupBusy"
+      @close="showAutoTopup = false"
+      @submit="saveAutoTopup"
+    />
   </div>
 </template>

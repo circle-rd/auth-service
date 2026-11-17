@@ -142,6 +142,9 @@ export async function stripeWebhookRoutes(
         case "invoice.paid":
         case "invoice.payment_succeeded":
           await applyInvoicePaid(event.data.object as Stripe.Invoice, log);
+          // An automatic top-up invoice carries no subscription: the wallet
+          // credits it here.
+          await handleWalletStripeEvent(event);
           break;
 
         case "invoice.payment_failed":

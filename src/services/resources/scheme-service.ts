@@ -1,9 +1,10 @@
-import { and, asc, eq, or } from "drizzle-orm";
+import { and, asc, eq, ne, or } from "drizzle-orm";
 import { config } from "../../config.js";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
 import {
   applicationSchemes,
+  resources,
   resourceSchemes,
 } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
@@ -301,6 +302,61 @@ export async function createApplicationScheme(
       validatorUrl: row.validatorUrl,
       enabled: true,
     };
+  });
+}
+
+/**
+ * Remove an application-owned scheme. Refused while a live resource uses it.
+ * Resources that were all disabled keep their audit trail, so the scheme is
+ * retired instead of dropped (the foreign key is RESTRICT).
+ */
+export async function deleteApplicationScheme(
+  applicationId: string,
+  scheme: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    // The row lock serialises with resource inserts, which take a key-share
+    // lock on the scheme through their foreign key.
+    const [owned] = await tx
+      .select({ scheme: resourceSchemes.scheme })
+      .from(resourceSchemes)
+      .where(
+        and(
+          eq(resourceSchemes.scheme, scheme),
+          eq(resourceSchemes.source, "application"),
+          eq(resourceSchemes.ownerType, "application"),
+          eq(resourceSchemes.ownerId, applicationId),
+          eq(resourceSchemes.status, "active"),
+        ),
+      )
+      .limit(1)
+      .for("update");
+    if (!owned) throw ERR.RES_004();
+
+    const [live] = await tx
+      .select({ id: resources.id })
+      .from(resources)
+      .where(
+        and(eq(resources.scheme, scheme), ne(resources.status, "disabled")),
+      )
+      .limit(1);
+    if (live) throw ERR.RES_013();
+
+    const [any] = await tx
+      .select({ id: resources.id })
+      .from(resources)
+      .where(eq(resources.scheme, scheme))
+      .limit(1);
+    if (any) {
+      await tx
+        .update(resourceSchemes)
+        .set({ status: "disabled", updatedAt: new Date() })
+        .where(eq(resourceSchemes.scheme, scheme));
+    } else {
+      await tx
+        .delete(resourceSchemes)
+        .where(eq(resourceSchemes.scheme, scheme));
+    }
   });
 }
 

@@ -754,6 +754,50 @@ export const walletAccountEvents = pgTable(
   ],
 );
 
+// ── Wallet Auto Top-up ────────────────────────────────────────────────────────
+// Opt-in automatic purchase of credit when the balance runs low. One row per
+// account. The payment method reference is dropped whenever the option is
+// turned off: re-enabling is a fresh consent. `last_attempt_at` doubles as the
+// claim that keeps two concurrent triggers from charging twice.
+export const walletAutoTopups = pgTable(
+  "wallet_auto_topups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => walletAccounts.id, { onDelete: "restrict" }),
+    enabled: boolean("enabled").notNull().default(false),
+    amountCents: integer("amount_cents").notNull(),
+    stripePaymentMethodId: text("stripe_payment_method_id"),
+    // Why the option was turned off by the system; null when it never was or
+    // when the user turned it off.
+    disabledReason: text("disabled_reason"),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    // True from the claim of a charge until its credit lands (or it fails): a
+    // charge whose webhook is late must not be repeated.
+    chargePending: boolean("charge_pending").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("wallet_auto_topups_account_idx").on(t.accountId),
+    index("wallet_auto_topups_payment_method_idx").on(t.stripePaymentMethodId),
+    check("wallet_auto_topups_amount_check", sql`${t.amountCents} > 0`),
+    check(
+      "wallet_auto_topups_reason_check",
+      sql`${t.disabledReason} IS NULL OR ${t.disabledReason} IN ('payment_failed', 'authentication_required', 'payment_method_removed')`,
+    ),
+    check(
+      "wallet_auto_topups_enabled_check",
+      sql`NOT ${t.enabled} OR ${t.stripePaymentMethodId} IS NOT NULL`,
+    ),
+  ],
+);
+
 // ── Wallet Pricing Settings ───────────────────────────────────────────────────
 // Append-only: the current pricing is the newest row, so every change keeps its
 // author and reason, and the ledger metadata of past charges stays explainable.

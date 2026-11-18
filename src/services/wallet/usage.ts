@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
 import { debitWallet } from "./ledger.js";
+import { AUTO_TOPUP_THRESHOLD_MICRO } from "./auto-topup.js";
+import { triggerAutoTopup } from "./auto-topup-charge.js";
 import type { WalletMetadata, WalletOperationResult } from "./types.js";
 
 export interface RecordUsageInput {
@@ -33,7 +35,7 @@ export async function recordUsage(
     applicationId = app?.id;
   }
 
-  return debitWallet({
+  const result = await debitWallet({
     accountId: input.accountId,
     type: "usage",
     amount: input.amount,
@@ -46,4 +48,11 @@ export async function recordUsage(
         : {}),
     },
   });
+  if (
+    !result.replayed &&
+    result.transaction.balanceAfter <= AUTO_TOPUP_THRESHOLD_MICRO
+  ) {
+    triggerAutoTopup(input.accountId);
+  }
+  return result;
 }

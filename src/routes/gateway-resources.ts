@@ -5,7 +5,9 @@ import { listAccessibleResources } from "../services/resources/access.js";
 import {
   authorize,
   type AccessDecision,
+  type DenialReason,
 } from "../services/resources/policy.js";
+import { findResourceByUri } from "../services/resources/registry.js";
 import {
   recordAccessEvent,
   recordUsageEvent,
@@ -119,6 +121,20 @@ function schemeOf(uri: string): string {
   return separator > 0 ? uri.slice(0, separator).slice(0, 50) : "unknown";
 }
 
+// A denial of an existing resource keeps its owner and application, so the
+// people who manage it can see attempts on it; the gateway answer stays uniform.
+async function denialContext(reason: DenialReason, uri: string) {
+  if (reason === "invalid_input" || reason === "not_found") return {};
+  const resource = await findResourceByUri(uri);
+  if (!resource) return {};
+  return {
+    resourceId: resource.id,
+    ownerType: resource.ownerType,
+    ownerId: resource.ownerId,
+    applicationId: resource.applicationId,
+  };
+}
+
 async function logDecision(
   decision: AccessDecision,
   input: {
@@ -148,6 +164,7 @@ async function logDecision(
     return;
   }
   await recordAccessEvent({
+    ...(await denialContext(decision.reason, input.uri)),
     uri: input.uri,
     scheme: schemeOf(input.uri),
     subjectType: "user",

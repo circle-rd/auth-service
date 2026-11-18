@@ -8,6 +8,7 @@ import { eq, or } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { publishEvent } from "./services/event-bus.js";
 import { replaceClientResource } from "./services/oauth-resources.js";
+import { ensureReverseAgent } from "./services/reverse-agent.js";
 import { AUTH_SERVICE_SLUG } from "./services/system-apps.js";
 import { backfillMfaFlags } from "./services/mfa.js";
 
@@ -159,6 +160,7 @@ async function ensureAuthServiceApplication(): Promise<boolean> {
  */
 export async function bootstrap(): Promise<void> {
   const authServiceAppChanged = await ensureAuthServiceApplication();
+  await ensureReverseAgent();
 
   if (config.features.mfaBackfill) {
     const mfaBackfilled = await backfillMfaFlags();

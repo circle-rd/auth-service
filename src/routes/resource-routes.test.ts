@@ -17,6 +17,7 @@ const {
   mockListAccessible,
   mockListSharingApps,
   mockAssertActiveMember,
+  mockIsPlatformAdmin,
   mockAssertCanManage,
   mockAssertCanManageGrants,
   mockCreateGrant,
@@ -29,7 +30,7 @@ const {
   mockListInvitations,
   mockRevokeInvitation,
   mockCreateResource,
-  mockDisableResource,
+  mockRemoveResource,
   mockGetResource,
   mockListMyResources,
   mockRequestValidation,
@@ -41,6 +42,7 @@ const {
   mockListSchemeCatalog,
   mockCreateScheme,
   mockUpdateScheme,
+  mockDeleteScheme,
   mockEnableScheme,
   mockDisableScheme,
   mockGetUsage,
@@ -59,6 +61,7 @@ const {
   mockListAccessible: vi.fn(),
   mockListSharingApps: vi.fn(),
   mockAssertActiveMember: vi.fn(),
+  mockIsPlatformAdmin: vi.fn(),
   mockAssertCanManage: vi.fn(),
   mockAssertCanManageGrants: vi.fn(),
   mockCreateGrant: vi.fn(),
@@ -71,7 +74,7 @@ const {
   mockListInvitations: vi.fn(),
   mockRevokeInvitation: vi.fn(),
   mockCreateResource: vi.fn(),
-  mockDisableResource: vi.fn(),
+  mockRemoveResource: vi.fn(),
   mockGetResource: vi.fn(),
   mockListMyResources: vi.fn(),
   mockRequestValidation: vi.fn(),
@@ -83,6 +86,7 @@ const {
   mockListSchemeCatalog: vi.fn(),
   mockCreateScheme: vi.fn(),
   mockUpdateScheme: vi.fn(),
+  mockDeleteScheme: vi.fn(),
   mockEnableScheme: vi.fn(),
   mockDisableScheme: vi.fn(),
   mockGetUsage: vi.fn(),
@@ -116,6 +120,7 @@ vi.mock("../services/resources/authority.js", () => ({
   assertActiveMember: mockAssertActiveMember,
   assertCanManageResource: mockAssertCanManage,
   assertCanManageGrants: mockAssertCanManageGrants,
+  isPlatformAdmin: mockIsPlatformAdmin,
 }));
 vi.mock("../services/resources/grants.js", () => ({
   createResourceGrant: mockCreateGrant,
@@ -135,7 +140,7 @@ vi.mock("../services/resources/invitations.js", () => ({
 }));
 vi.mock("../services/resources/registry.js", () => ({
   createResource: mockCreateResource,
-  disableResource: mockDisableResource,
+  removeResource: mockRemoveResource,
   getResource: mockGetResource,
   listResourcesForOwner: mockListMyResources,
   listResourcesForApplication: mockListAppResources,
@@ -148,6 +153,7 @@ vi.mock("../services/gateway-inventory.js", () => ({
 }));
 vi.mock("../services/resources/scheme-service.js", () => ({
   createApplicationScheme: mockCreateScheme,
+  deleteApplicationScheme: mockDeleteScheme,
   disableSchemeForApplication: mockDisableScheme,
   enableSchemeForApplication: mockEnableScheme,
   getResourceScheme: mockGetScheme,
@@ -212,6 +218,7 @@ beforeEach(() => {
     mockListAccessible,
     mockListSharingApps,
     mockAssertActiveMember,
+    mockIsPlatformAdmin,
     mockAssertCanManage,
     mockAssertCanManageGrants,
     mockCreateGrant,
@@ -224,7 +231,7 @@ beforeEach(() => {
     mockListInvitations,
     mockRevokeInvitation,
     mockCreateResource,
-    mockDisableResource,
+    mockRemoveResource,
     mockGetResource,
     mockListMyResources,
     mockRequestValidation,
@@ -236,6 +243,7 @@ beforeEach(() => {
     mockListSchemeCatalog,
     mockCreateScheme,
     mockUpdateScheme,
+    mockDeleteScheme,
     mockEnableScheme,
     mockDisableScheme,
     mockGetUsage,
@@ -262,6 +270,7 @@ beforeEach(() => {
   });
   mockListAccessible.mockResolvedValue([]);
   mockListSharingApps.mockResolvedValue([]);
+  mockIsPlatformAdmin.mockResolvedValue(true);
   mockListMyResources.mockResolvedValue([resource]);
   mockGetResource.mockResolvedValue(resource);
   mockGetScheme.mockResolvedValue({
@@ -330,6 +339,22 @@ describe("user resource routes", () => {
     expect(res.json().resource.uri).toBe("gine://project_1");
   });
 
+  it("refuses oversized free-form metadata", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        locator: "project_1",
+        displayName: "Project 1",
+        metadata: { blob: "x".repeat(5000) },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockCreateResource).not.toHaveBeenCalled();
+  });
+
   it("rejects an invalid resource body", async () => {
     const res = await app.inject({
       method: "POST",
@@ -370,6 +395,46 @@ describe("user resource routes", () => {
     expect(mockMarkValidated).toHaveBeenCalledWith(RESOURCE);
     expect(res.json().resource.status).toBe("validated");
     expect(res.json().validatorUrl).toBeNull();
+  });
+
+  it("leaves a gateway resource pending when a non-administrator validates it", async () => {
+    mockIsPlatformAdmin.mockResolvedValue(false);
+    mockRequestValidation.mockResolvedValue({
+      ...resource,
+      scheme: "llm",
+      status: "pending_validation",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/resources/${RESOURCE}/validation-request`,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockLinkInventory).not.toHaveBeenCalled();
+    expect(mockMarkValidated).not.toHaveBeenCalled();
+  });
+
+  it("tells the caller whether the resource was deleted or only disabled", async () => {
+    mockRemoveResource.mockResolvedValueOnce({ resource, removed: true });
+    let res = await app.inject({
+      method: "DELETE",
+      url: `/api/user/resources/${RESOURCE}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().removed).toBe(true);
+    expect(mockRemoveResource).toHaveBeenCalledWith(RESOURCE, "user-1");
+
+    mockRemoveResource.mockResolvedValueOnce({
+      resource: { ...resource, status: "disabled" },
+      removed: false,
+    });
+    res = await app.inject({
+      method: "DELETE",
+      url: `/api/user/resources/${RESOURCE}`,
+    });
+    expect(res.json()).toMatchObject({
+      removed: false,
+      resource: { status: "disabled" },
+    });
   });
 
   it("lists grants through the grant-specific authority", async () => {
@@ -442,19 +507,44 @@ describe("application resource routes", () => {
     );
   });
 
-  it("adds an existing user to the application", async () => {
-    mockAddMember.mockResolvedValue({
-      userId: "user-2",
-      name: "Invitee",
-      email: "invitee@example.com",
-      created: true,
-    });
+  it("deletes an application scheme for an application admin only", async () => {
     const res = await app.inject({
+      method: "DELETE",
+      url: `/api/user/apps/${APP}/schemes/gine`,
+    });
+    expect(res.statusCode).toBe(204);
+    expect(mockDeleteScheme).toHaveBeenCalledWith(APP, "gine");
+
+    mockDeleteScheme.mockClear();
+    mockRequireResourceAppAdmin.mockResolvedValue(null);
+    const denied = await app.inject({
+      method: "DELETE",
+      url: `/api/user/apps/${APP}/schemes/gine`,
+    });
+    expect(denied.statusCode).not.toBe(204);
+    expect(mockDeleteScheme).not.toHaveBeenCalled();
+  });
+
+  it("answers an add-member request the same way whether or not it added anyone", async () => {
+    mockAddMember.mockResolvedValueOnce({
+      email: "invitee@example.com",
+      applicationName: "App",
+      applicationSlug: "app",
+    });
+    const added = await app.inject({
       method: "POST",
       url: `/api/user/apps/${APP}/members`,
       payload: { email: "invitee@example.com" },
     });
-    expect(res.statusCode).toBe(201);
+    mockAddMember.mockResolvedValueOnce(null);
+    const ignored = await app.inject({
+      method: "POST",
+      url: `/api/user/apps/${APP}/members`,
+      payload: { email: "unknown@example.com" },
+    });
+    expect(added.statusCode).toBe(202);
+    expect(ignored.statusCode).toBe(202);
+    expect(ignored.body).toBe(added.body);
     expect(mockAddMember).toHaveBeenCalledWith(
       "user-1",
       APP,

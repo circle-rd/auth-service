@@ -128,7 +128,12 @@ async function createWalletClient(
 ): Promise<WalletClient> {
   const created = await api("POST", "/api/admin/applications", {
     cookie: superadmin.cookie,
-    body: { name: "Wallet client", slug: "wallet-client", url },
+    body: {
+      name: "Wallet client",
+      slug: "wallet-client",
+      url,
+      allowedResources: [config.betterAuth.url],
+    },
   });
   expect(created.status).toBe(201);
   const id = created.body.application.id as string;
@@ -317,7 +322,11 @@ describe("application machine scopes", () => {
 describe("internal wallet API", () => {
   async function setup(scopes = ["wallet:debit", "wallet:read"], url?: string) {
     const client = await createWalletClient(scopes, url);
-    const token = await machineToken(client, scopes.join(" "), url);
+    const token = await machineToken(
+      client,
+      scopes.join(" "),
+      url ? config.betterAuth.url : undefined,
+    );
     return { superadmin, customer, client, token };
   }
 
@@ -577,7 +586,7 @@ describe("internal wallet API", () => {
     const jwt = await machineToken(
       client,
       "wallet:read",
-      "https://wallet-client.example.com",
+      config.betterAuth.url,
     );
     expect(
       (await api("GET", balanceUrl(customer.id), { bearer: jwt })).status,
@@ -591,12 +600,27 @@ describe("internal wallet API", () => {
     ).toBe(403);
   });
 
+  it("refuses a JWT minted for the client's own API", async () => {
+    const { customer, client } = await setup(
+      ["wallet:read"],
+      "https://wallet-client.example.com",
+    );
+    const jwt = await machineToken(
+      client,
+      "wallet:read",
+      "https://wallet-client.example.com",
+    );
+    const res = await api("GET", balanceUrl(customer.id), { bearer: jwt });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("AUTH_011");
+  });
+
   it("stops serving a disabled client", async () => {
     const { superadmin, customer, client } = await setup(
       ["wallet:read"],
       "https://wallet-client.example.com",
     );
-    const jwt = await machineToken(client, "wallet:read", "https://wallet-client.example.com");
+    const jwt = await machineToken(client, "wallet:read", config.betterAuth.url);
     expect((await api("GET", balanceUrl(customer.id), { bearer: jwt })).status).toBe(200);
     await api("PATCH", `/api/admin/applications/${client.id}`, {
       cookie: superadmin.cookie,

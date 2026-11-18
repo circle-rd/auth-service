@@ -93,6 +93,11 @@ services:
       HAVEIBEENPWNED_ENABLED: ${HAVEIBEENPWNED_ENABLED:-false}
       LAST_LOGIN_METHOD_ENABLED: ${LAST_LOGIN_METHOD_ENABLED:-true}
       DEVICE_AUTHORIZATION_ENABLED: ${DEVICE_AUTHORIZATION_ENABLED:-false}
+      OAUTH_DEVICE_GRANT_ENABLED: ${OAUTH_DEVICE_GRANT_ENABLED:-false}
+      REVERSE_AGENT_CLIENT_ID: ${REVERSE_AGENT_CLIENT_ID:-reverse-agent}
+      REVERSE_AGENT_RESOURCE: ${REVERSE_AGENT_RESOURCE:-}
+      REVERSE_AGENT_RESOURCE_NAME: ${REVERSE_AGENT_RESOURCE_NAME:-reverse-relay}
+      REVERSE_AGENT_ACCESS_TOKEN_TTL_SECONDS: ${REVERSE_AGENT_ACCESS_TOKEN_TTL_SECONDS:-900}
       MFA_BACKFILL_ENABLED: ${MFA_BACKFILL_ENABLED:-false}
       CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
       CAPTCHA_PROVIDER: ${CAPTCHA_PROVIDER:-}
@@ -135,6 +140,7 @@ services:
       WALLET_MARGIN_PERCENT: ${WALLET_MARGIN_PERCENT:-0}
       WALLET_TOPUP_MIN_EUR: ${WALLET_TOPUP_MIN_EUR:-5}
       WALLET_TOPUP_MAX_EUR: ${WALLET_TOPUP_MAX_EUR:-500}
+      WALLET_AUTO_TOPUP_TERMS_URL: ${WALLET_AUTO_TOPUP_TERMS_URL:-https://circle-cyber.com/conditions-generales#recharge-automatique}
 
       # LiteLLM gateway (profile "llm"): auth-service mirrors the gateway
       # inventory with the read-only key litellm-provision delivers, then resolves
@@ -237,9 +243,12 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Gives auth-service its read-only gateway inventory key, then exits. The key
-  # is owned by a proxy_admin_viewer and restricted to the inventory routes: it
-  # cannot add models, agents, MCP servers, issue keys or make LLM calls.
+  # Gives auth-service its read-only gateway inventory key and writes the
+  # management key reverse-relay uses for its own deployments, then exits. The
+  # inventory key is owned by a proxy_admin_viewer and restricted to the
+  # inventory routes: it cannot add models, agents, MCP servers, issue keys or
+  # make LLM calls. The relay key is owned by a proxy_admin but allowlisted to
+  # /model/info, /model/new and /model/delete only.
   litellm-provision:
     image: ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:nightly}
     profiles: ["llm"]
@@ -249,6 +258,8 @@ services:
       LITELLM_URL: http://litellm:4000
       LITELLM_STATE_FILE: /config/secrets.env
       LITELLM_INVENTORY_KEY_FILE: /run/litellm-provisioner/inventory-key
+      # Read by the reverse-relay container, which mounts the same volume.
+      LITELLM_RELAY_KEY_FILE: /run/litellm-provisioner/relay-key
     volumes:
       - litellm_config:/config:ro
       - litellm_provisioner:/run/litellm-provisioner

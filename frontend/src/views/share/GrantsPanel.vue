@@ -10,6 +10,7 @@ import BaseSelect from '@/components/ui/BaseSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useToast } from '@/composables/useToast';
+import { useAuthStore } from '@/stores/auth';
 import {
   createGrant,
   listAppGrants,
@@ -33,6 +34,7 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const toast = useToast();
+const auth = useAuthStore();
 
 const grants = ref<ResourceGrant[]>([]);
 const resources = ref<Resource[]>([]);
@@ -51,8 +53,17 @@ const form = reactive({
   expiresAt: '',
 });
 
+// An administrator is not a recipient: only the owner shares a personal
+// resource, so the others are listed here for oversight but never granted.
+function isGrantable(resource: Resource): boolean {
+  return resource.ownerType === 'application' || resource.ownerId === auth.user?.id;
+}
+
+const grantableIds = computed(
+  () => new Set(resources.value.filter(isGrantable).map((resource) => resource.id)),
+);
 const resourceOptions = computed<SelectOption[]>(() =>
-  resources.value.map((resource) => ({
+  resources.value.filter(isGrantable).map((resource) => ({
     value: resource.id,
     label: resource.displayName,
     description: resource.uri,
@@ -83,7 +94,7 @@ async function load() {
     grants.value = grantRes.grants;
     resources.value = resourceRes.resources;
     plans.value = planRes.plans;
-    if (!form.resourceId && resources.value[0]) form.resourceId = resources.value[0].id;
+    if (!form.resourceId) form.resourceId = resourceOptions.value[0]?.value ?? '';
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
@@ -93,7 +104,7 @@ async function load() {
 
 function openCreate() {
   Object.assign(form, {
-    resourceId: resources.value[0]?.id ?? '',
+    resourceId: resourceOptions.value[0]?.value ?? '',
     subjectType: 'user',
     subjectId: '',
     expiresAt: '',
@@ -196,7 +207,7 @@ onMounted(() => void load());
               </BaseBadge>
             </td>
             <td class="px-4 py-3">
-              <div v-if="canManage && !grant.revokedAt" class="flex justify-end gap-1">
+              <div v-if="canManage && !grant.revokedAt && grantableIds.has(grant.resourceId)" class="flex justify-end gap-1">
                 <BaseButton variant="ghost" size="sm" @click="requestRevoke(grant)">
                   <ShieldOff class="w-3.5 h-3.5" />{{ t('share.grants.revoke') }}
                 </BaseButton>

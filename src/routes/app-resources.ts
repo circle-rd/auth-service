@@ -25,6 +25,7 @@ import {
 } from "../services/resources/invitations.js";
 import {
   createApplicationScheme,
+  deleteApplicationScheme,
   disableSchemeForApplication,
   enableSchemeForApplication,
   listApplicationSchemeCatalog,
@@ -46,6 +47,7 @@ import {
   sendResourceInvitationEmail,
 } from "../services/email.js";
 import { isMailConfigured } from "../services/mail/index.js";
+import { resourceMetadataSchema } from "./resource-metadata.js";
 
 const appParamsSchema = z.object({ appId: z.string().uuid() });
 const schemeParamsSchema = appParamsSchema.extend({
@@ -71,7 +73,7 @@ const appResourceCreateSchema = z
     scheme: z.string().regex(RESOURCE_SCHEME_RE),
     locator: z.string().trim().min(1).max(255).optional(),
     displayName: z.string().trim().min(1).max(200),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: resourceMetadataSchema.optional(),
   })
   .strict();
 
@@ -83,12 +85,24 @@ const validatorUrlSchema = z
     message: "Validator URL must use HTTP or HTTPS",
   });
 
+const schemeIconSchema = z
+  .string()
+  .trim()
+  .max(200)
+  .refine(
+    (value) =>
+      /^[a-z][a-z0-9-]{0,49}$/.test(value) || /^https:\/\/\S+$/.test(value),
+    {
+      message: "Icon must be an icon name or an HTTPS URL",
+    },
+  );
+
 const schemeCreateSchema = z
   .object({
     scheme: z.string().regex(RESOURCE_SCHEME_RE),
     displayName: z.string().trim().min(1).max(200),
     description: z.string().trim().max(2000).nullable().optional(),
-    icon: z.string().trim().max(200).nullable().optional(),
+    icon: schemeIconSchema.nullable().optional(),
     validatorUrl: validatorUrlSchema.nullable().optional(),
   })
   .strict();
@@ -97,7 +111,7 @@ const schemePatchSchema = z
   .object({
     displayName: z.string().trim().min(1).max(200).optional(),
     description: z.string().trim().max(2000).nullable().optional(),
-    icon: z.string().trim().max(200).nullable().optional(),
+    icon: schemeIconSchema.nullable().optional(),
     validatorUrl: validatorUrlSchema.nullable().optional(),
   })
   .strict()
@@ -150,7 +164,7 @@ export async function appResourceRoutes(
     );
     if (!userId) return;
     const query = memberQuerySchema.parse(req.query);
-    const page = await listOwnerMembers(appId, query);
+    const page = await listOwnerMembers(appId, query, userId);
     await reply.send({
       members: page.members,
       hasMore: page.hasMore,
@@ -163,21 +177,17 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     const body = memberBodySchema.parse(req.body);
-    const member = await addExistingUserToApplication(
-      userId,
-      appId,
-      body.email,
-    );
-    if (member.created && isMailConfigured()) {
+    const added = await addExistingUserToApplication(userId, appId, body.email);
+    if (added && isMailConfigured()) {
       const session = await getRequestSession(req);
-      await sendApplicationAccessEmail(member.email, {
-        url: `${config.betterAuth.url}/share/catalogue`,
-        appName: member.applicationName,
-        appSlug: member.applicationSlug,
+      await sendApplicationAccessEmail(added.email, {
+        url: `${config.betterAuth.url}/catalogue`,
+        appName: added.applicationName,
+        appSlug: added.applicationSlug,
         inviterName: session?.user.name ?? undefined,
       });
     }
-    await reply.status(member.created ? 201 : 200).send({ member });
+    await reply.status(202).send({ accepted: true });
   });
 
   fastify.get("/apps/:appId/plans", async (req, reply) => {
@@ -263,6 +273,14 @@ export async function appResourceRoutes(
     const body = schemePatchSchema.parse(req.body);
     const updated = await updateApplicationScheme(appId, scheme, body);
     await reply.send({ scheme: updated });
+  });
+
+  fastify.delete("/apps/:appId/schemes/:scheme", async (req, reply) => {
+    const { appId, scheme } = schemeParamsSchema.parse(req.params);
+    const userId = await requireResourceAppAdmin(req, reply, appId);
+    if (!userId) return;
+    await deleteApplicationScheme(appId, scheme);
+    await reply.status(204).send();
   });
 
   fastify.put("/apps/:appId/schemes/:scheme/enable", async (req, reply) => {

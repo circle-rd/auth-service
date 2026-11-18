@@ -47,10 +47,8 @@ async function add() {
   if (!email.value.trim()) return;
   adding.value = true;
   try {
-    const result = await addOwnerMember(props.appId, email.value.trim());
-    toast.success(
-      result.member.created ? t('share.members.added') : t('share.members.alreadyMember'),
-    );
+    await addOwnerMember(props.appId, email.value.trim());
+    toast.success(t('share.members.requested'));
     showForm.value = false;
     await load();
   } catch (err) {
@@ -98,7 +96,7 @@ onMounted(() => void load());
         <tbody>
           <tr v-for="member in members" :key="member.userId" class="border-t border-surface-800/60">
             <td class="px-4 py-3 text-surface-200">{{ member.name }}</td>
-            <td class="px-4 py-3 text-surface-300">{{ member.email }}</td>
+            <td class="px-4 py-3 text-surface-300">{{ member.email ?? '—' }}</td>
             <td class="px-4 py-3 text-surface-400">{{ member.roles.join(', ') || '—' }}</td>
             <td class="px-4 py-3">
               <BaseBadge :variant="member.isActive ? 'success' : 'neutral'" dot>

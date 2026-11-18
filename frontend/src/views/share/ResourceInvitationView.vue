@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter } from 'vue-router';
 import { CircleCheck, CircleAlert } from '@lucide/vue';
-import AppLayout from '@/components/layout/AppLayout.vue';
+import ProfileLayout from '@/components/layout/ProfileLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import { ApiError } from '@/api/client';
@@ -34,7 +34,7 @@ async function accept() {
 </script>
 
 <template>
-  <AppLayout :title="t('share.invitation.title')" :subtitle="t('share.invitation.subtitle')">
+  <ProfileLayout :title="t('share.invitation.title')" :subtitle="t('share.invitation.subtitle')">
     <div class="max-w-xl">
       <div v-if="!token" class="rounded-2xl border border-red-500/30 bg-red-500/5 p-5">
         <div class="flex items-start gap-3">
@@ -64,7 +64,7 @@ async function accept() {
             <dd class="text-surface-200 mt-0.5">{{ grant.expiresAt ? new Date(grant.expiresAt).toLocaleString() : '—' }}</dd>
           </div>
         </dl>
-        <BaseButton variant="outline" @click="router.push('/share/catalogue')">{{ t('share.invitation.back') }}</BaseButton>
+        <BaseButton variant="outline" @click="router.push('/catalogue')">{{ t('share.invitation.back') }}</BaseButton>
       </div>
 
       <div v-else-if="error" class="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 space-y-3">
@@ -84,5 +84,5 @@ async function accept() {
         <BaseButton :loading="accepting" @click="accept">{{ t('share.invitation.accept') }}</BaseButton>
       </div>
     </div>
-  </AppLayout>
+  </ProfileLayout>
 </template>

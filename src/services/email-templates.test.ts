@@ -218,6 +218,10 @@ subject: Tenant A magic link
     ["org-invitation", { inviterName: "Ada", orgName: "Acme", role: "admin" }],
     ["registration-invitation", { inviterName: "Ada", expiresInHours: 72 }],
     [
+      "wallet-auto-topup-disabled",
+      { reason: "payment_failed", amount: "€10.00" },
+    ],
+    [
       "application-access-granted",
       {
         inviterName: "Ada",

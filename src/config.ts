@@ -164,7 +164,44 @@ const envSchema = z
     LAST_LOGIN_METHOD_ENABLED: envBoolean(true),
     // OAuth 2.0 Device Authorization Grant (RFC 8628). Adds the `deviceCode`
     // table and /device approval page; opt-in because it widens the schema.
+    // This is the first-party variant (a device obtains a session).
     DEVICE_AUTHORIZATION_ENABLED: envBoolean(false),
+    // RFC 8628 device grant through the OAuth provider: a public client polls
+    // /oauth2/token and receives a JWT access token plus a rotating refresh
+    // token. Mutually exclusive with DEVICE_AUTHORIZATION_ENABLED because both
+    // variants install the same device-authorization plugin.
+    OAUTH_DEVICE_GRANT_ENABLED: envBoolean(false),
+    // Public client provisioned at startup for reverse-agent enrolment. The
+    // resource is the relay's public URL (the token audience); both are required
+    // when OAUTH_DEVICE_GRANT_ENABLED is on so a deployment cannot half-configure
+    // the flow.
+    REVERSE_AGENT_CLIENT_ID: z
+      .string()
+      .regex(
+        /^[a-z0-9][a-z0-9_-]{1,62}$/,
+        "must be 2-63 lowercase letters, digits, '_' or '-'",
+      )
+      .default("reverse-agent"),
+    // The reverse agent sends the relay's origin as `resource`, so store the
+    // same canonical form instead of whatever path the operator typed.
+    REVERSE_AGENT_RESOURCE: z
+      .string()
+      .url()
+      .transform((value) => new URL(value).origin)
+      .optional(),
+    REVERSE_AGENT_RESOURCE_NAME: z
+      .string()
+      .min(1)
+      .max(100)
+      .default("reverse-relay"),
+    // Short access-token lifetime on the relay resource; the refresh token keeps
+    // the agent enrolled and rotates on every use.
+    REVERSE_AGENT_ACCESS_TOKEN_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(60)
+      .max(3600)
+      .default(900),
     // One-shot reconciliation of `two_factor_enabled` for pre-existing MFA
     // factors. Off by default because it scans the historical user table.
     MFA_BACKFILL_ENABLED: envBoolean(false),
@@ -278,6 +315,10 @@ const envSchema = z
     WALLET_TOPUP_MIN_EUR: z.coerce.number().int().positive().default(5),
     WALLET_TOPUP_MAX_EUR: z.coerce.number().int().positive().default(500),
 
+    // Terms the user accepts when saving a card for automatic top-ups; linked
+    // from the Stripe Checkout consent text.
+    WALLET_AUTO_TOPUP_TERMS_URL: z.string().url().optional(),
+
     // Pricing of LLM usage reported by the gateway in US dollars: the rate is
     // explicit on purpose (no silent default for money) and the margin is a
     // percentage added on top of the provider cost.
@@ -335,6 +376,21 @@ const envSchema = z
         path: ["LOG_SQL"],
         message:
           "must not be enabled in production (query parameters may contain credentials)",
+      });
+    }
+    if (data.OAUTH_DEVICE_GRANT_ENABLED && data.DEVICE_AUTHORIZATION_ENABLED) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["OAUTH_DEVICE_GRANT_ENABLED"],
+        message:
+          "cannot be combined with DEVICE_AUTHORIZATION_ENABLED; both install the device-authorization plugin",
+      });
+    }
+    if (data.OAUTH_DEVICE_GRANT_ENABLED && !data.REVERSE_AGENT_RESOURCE) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["REVERSE_AGENT_RESOURCE"],
+        message: "is required when OAUTH_DEVICE_GRANT_ENABLED is on",
       });
     }
     if (data.TRUST_PROXY_HOPS !== undefined) {
@@ -467,8 +523,15 @@ export const config = {
     haveIBeenPwned: parsed.data.HAVEIBEENPWNED_ENABLED,
     lastLoginMethod: parsed.data.LAST_LOGIN_METHOD_ENABLED,
     deviceAuthorization: parsed.data.DEVICE_AUTHORIZATION_ENABLED,
+    oauthDeviceGrant: parsed.data.OAUTH_DEVICE_GRANT_ENABLED,
     mfaBackfill: parsed.data.MFA_BACKFILL_ENABLED,
     resourceSharing: parsed.data.RESOURCE_SHARING_ENABLED,
+  },
+  reverseAgent: {
+    clientId: parsed.data.REVERSE_AGENT_CLIENT_ID,
+    resource: parsed.data.REVERSE_AGENT_RESOURCE,
+    resourceName: parsed.data.REVERSE_AGENT_RESOURCE_NAME,
+    accessTokenTtlSeconds: parsed.data.REVERSE_AGENT_ACCESS_TOKEN_TTL_SECONDS,
   },
   resources: {
     enabledSchemes: parsed.data.RESOURCE_SCHEMES_ENABLED.split(",")
@@ -513,6 +576,7 @@ export const config = {
   wallet: {
     minTopupCents: parsed.data.WALLET_TOPUP_MIN_EUR * 100,
     maxTopupCents: parsed.data.WALLET_TOPUP_MAX_EUR * 100,
+    autoTopupTermsUrl: parsed.data.WALLET_AUTO_TOPUP_TERMS_URL,
     usdToEurRate: parsed.data.WALLET_USD_TO_EUR_RATE,
     marginPercent: parsed.data.WALLET_MARGIN_PERCENT,
   },

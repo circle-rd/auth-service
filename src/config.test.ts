@@ -30,6 +30,12 @@ const FLAG_KEYS = [
   "TRUST_PROXY",
   "TRUST_PROXY_HOPS",
   "LOG_SQL",
+  "DEVICE_AUTHORIZATION_ENABLED",
+  "OAUTH_DEVICE_GRANT_ENABLED",
+  "REVERSE_AGENT_CLIENT_ID",
+  "REVERSE_AGENT_RESOURCE",
+  "REVERSE_AGENT_RESOURCE_NAME",
+  "REVERSE_AGENT_ACCESS_TOKEN_TTL_SECONDS",
 ];
 
 async function loadConfig(overrides: Record<string, string>) {
@@ -127,6 +133,51 @@ describe("config logo variants", () => {
   });
 });
 
+describe("reverse-agent device grant", () => {
+  it("provisions the configured public client and relay origin", async () => {
+    const config = await loadConfig({
+      NODE_ENV: "test",
+      OAUTH_DEVICE_GRANT_ENABLED: "true",
+      REVERSE_AGENT_CLIENT_ID: "reverse-agent-test",
+      REVERSE_AGENT_RESOURCE: "https://relay.example.com/some/path",
+    });
+    expect(config.features.oauthDeviceGrant).toBe(true);
+    expect(config.reverseAgent).toMatchObject({
+      clientId: "reverse-agent-test",
+      resource: "https://relay.example.com",
+      resourceName: "reverse-relay",
+      accessTokenTtlSeconds: 900,
+    });
+  });
+
+  it("requires a relay resource when the device grant is enabled", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+    await expect(
+      loadConfig({ NODE_ENV: "test", OAUTH_DEVICE_GRANT_ENABLED: "true" }),
+    ).rejects.toThrow("exit");
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it("refuses to combine both device-authorization variants", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+    const exit = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("exit");
+    }) as never);
+    await expect(
+      loadConfig({
+        NODE_ENV: "test",
+        OAUTH_DEVICE_GRANT_ENABLED: "true",
+        DEVICE_AUTHORIZATION_ENABLED: "true",
+        REVERSE_AGENT_RESOURCE: "https://relay.example.com",
+      }),
+    ).rejects.toThrow("exit");
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+});
+
 describe("config compatibility profile", () => {
   it("defaults to the current behaviour", async () => {
     const config = await loadConfig({ NODE_ENV: "test" });
@@ -136,6 +187,14 @@ describe("config compatibility profile", () => {
       signingAlg: "ES256",
       defaultAudience: false,
     });
+  });
+
+  it("accepts EdDSA as an explicit signing algorithm", async () => {
+    const config = await loadConfig({
+      NODE_ENV: "test",
+      JWT_PRIMARY_ALG: "EdDSA",
+    });
+    expect(config.compat.signingAlg).toBe("EdDSA");
   });
 
   it("applies a profile and lets an explicit variable override it", async () => {
@@ -169,7 +228,6 @@ describe("config compatibility profile", () => {
   it.each([
     ["COMPAT_PROFILE", "azure"],
     ["JWT_PRIMARY_ALG", "HS256"],
-    ["JWT_PRIMARY_ALG", "EdDSA"],
     ["TOKEN_ENDPOINT_AUTH_METHOD", "none"],
     ["CLAIM_MAPPINGS", "not json"],
     ["CLAIM_MAPPINGS", '[{"claim":"sub","source":"roles"}]'],

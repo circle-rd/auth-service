@@ -237,6 +237,9 @@ function.
 
 - **Target ≤ 500 lines per file** — default expectation.
 - **Hard limit 1000 lines** — must be split before merge, no exceptions.
+- **Exception: translation files** (`frontend/src/i18n/*.ts`) have no limit:
+  they are data, one file per language, and splitting them by key only makes
+  a missing translation harder to find.
 - Split by sub-domain, not by layer (`applications.ts` →
   `applications.ts` + `application-users.ts`, not `applications-helpers.ts`).
 

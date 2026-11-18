@@ -139,10 +139,11 @@ describe("applicationRoutes integration", () => {
       .select()
       .from(appRoles)
       .where(eq(appRoles.applicationId, body.application.id));
-    expect(roles).toHaveLength(2);
+    expect(roles).toHaveLength(3);
     const roleNames = roles.map((r) => r.name).sort();
-    expect(roleNames).toEqual(["admin", "user"]);
+    expect(roleNames).toEqual(["admin", "guest", "user"]);
     expect(roles.find((r) => r.name === "user")?.isDefault).toBe(true);
+    expect(roles.find((r) => r.name === "guest")?.isDefault).toBe(false);
 
     // Verify default plan was created
     const plans = await db

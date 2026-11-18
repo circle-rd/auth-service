@@ -77,6 +77,9 @@ Full documentation: **https://docs.circle-cyber.com/auth-service**
 
 - OAuth 2.1 / OIDC provider with discovery, PKCE, consent and refresh-token rotation.
 - Opt-in device authorization grant and OIDC back-channel logout.
+- Public-client device flow for reverse-agent enrolment: short-lived JWT
+  access tokens bound to the relay resource, rotating refresh tokens and a
+  `preferred_username` identity claim.
 - Compatibility profiles (Okta, Auth0, Keycloak) and migration guides to switch
   from another identity provider with as few application changes as possible.
 - Applications as first-class OAuth clients with per-app scopes and redirect URIs.

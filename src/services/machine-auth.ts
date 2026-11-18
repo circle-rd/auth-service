@@ -1,44 +1,11 @@
 import { eq } from "drizzle-orm";
+import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { oauthClient } from "../db/auth-schema.js";
 import { applications } from "../db/schema.js";
 import { ERR } from "../errors.js";
+import type { MachineScope } from "./machine-scopes.js";
 import { verifyBearerAccessToken } from "./oauth-tokens.js";
-
-export const MACHINE_SCOPES = [
-  "m2m",
-  "wallet:debit",
-  "wallet:read",
-  "billing:read",
-  "consumption:read",
-  "consumption:write",
-  "resources:authorize",
-  "resources:usage:write",
-  "resources:validate",
-  "gateway:entitlements:read",
-  "ssh:target:read",
-  "ssh:resource:read",
-  "device:session:validate",
-] as const;
-export type MachineScope = (typeof MACHINE_SCOPES)[number];
-
-/**
- * Scopes that only reach the calling application's own data: the routes take
- * the application from the token, never from the request. They are safe to
- * grant by default, unlike the wallet scopes, which reach any user's wallet.
- */
-export const APPLICATION_MACHINE_SCOPES = [
-  "billing:read",
-  "consumption:read",
-  "consumption:write",
-  "resources:validate",
-] as const satisfies readonly MachineScope[];
-
-/** What a new confidential application may request through client_credentials. */
-export const DEFAULT_MACHINE_SCOPES: readonly MachineScope[] = [
-  "m2m",
-  ...APPLICATION_MACHINE_SCOPES,
-];
 
 /**
  * Authorize a machine-to-machine call: a valid `client_credentials` token
@@ -56,6 +23,14 @@ export async function requireMachineScope(
   if (!verified) throw ERR.AUTH_001("Invalid or expired access token");
   if (verified.userId) {
     throw ERR.AUTH_011("A client_credentials token is required");
+  }
+  // A JWT minted for another resource server must not be replayed here; an
+  // opaque token carries no audience and is bound to its client by its row.
+  if (
+    verified.audiences.length > 0 &&
+    !verified.audiences.includes(config.betterAuth.url)
+  ) {
+    throw ERR.AUTH_011("Access token audience does not include this API");
   }
   if (!verified.scopes.includes(scope)) {
     throw ERR.AUTH_011(`Missing required scope: ${scope}`);

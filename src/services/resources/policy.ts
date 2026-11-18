@@ -1,18 +1,13 @@
 import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import {
-  appRoles,
-  userAppRoles,
-  userApplications,
-  userSubscriptions,
-} from "../../db/schema.js";
+import { userApplications, userSubscriptions } from "../../db/schema.js";
 import { member, user as userTable } from "../../db/auth-schema.js";
 import {
   applicationSchemes,
   resourceGrants,
   resourceSchemes,
 } from "../../db/resource-schema.js";
-import { isActiveMember, isApplicationAdmin } from "./authority.js";
+import { isActiveMember } from "./authority.js";
 import { resolveGrantsForSubject, type ResourceGrantRow } from "./grants.js";
 import { findResourceByUri, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
@@ -24,6 +19,7 @@ export type DenialReason =
   | "not_found"
   | "application_inactive"
   | "sharing_disabled"
+  | "account_disabled"
   | "no_membership"
   | "scheme_disabled"
   | "not_validated"
@@ -43,7 +39,7 @@ export interface AccessFacts {
   now?: Date;
 }
 
-export type AccessKind = "owner" | "admin" | "grant";
+export type AccessKind = "owner" | "grant";
 
 export interface AllowDecision {
   decision: "allow";
@@ -94,9 +90,9 @@ function allow(
 
 interface AccessProvider {
   schemeEnabled: () => Promise<boolean>;
+  accountActive: () => Promise<boolean>;
   activeMember: () => Promise<boolean>;
   isOwner: () => boolean;
-  isAdmin: () => Promise<boolean>;
   grants: () => Promise<ResourceGrantRow[]>;
 }
 
@@ -110,18 +106,31 @@ async function decide(
   if (!resource.applicationActive) return deny("application_inactive");
   if (!resource.resourceSharingEnabled) return deny("sharing_disabled");
   if (!(await provider.schemeEnabled())) return deny("scheme_disabled");
+  if (!(await provider.accountActive())) return deny("account_disabled");
   if (!(await provider.activeMember())) return deny("no_membership");
   if (provider.isOwner()) return allow(resource, "owner");
-  if (await provider.isAdmin()) return allow(resource, "admin");
   const grant = (await provider.grants())[0];
   if (!grant) return deny("no_grant");
   return allow(resource, "grant", grant.subjectType);
 }
 
 /**
- * Membership is the gate; ownership, an application-admin role or an active
- * grant is the admission. The resource application must also keep sharing
- * enabled, and the scheme must be active for it.
+ * A ban blocks token issuance, but tokens already issued stay valid until they
+ * expire: the resource decision must not outlive the ban.
+ */
+export function isBanned(
+  row: { banned: boolean | null; banExpires: Date | null },
+  now: Date,
+): boolean {
+  if (row.banned !== true) return false;
+  return row.banExpires === null || row.banExpires.getTime() > now.getTime();
+}
+
+/**
+ * Membership is the gate; ownership or an active grant is the admission.
+ * An administrator is not a recipient: nothing here admits one implicitly.
+ * The resource application must also keep sharing enabled, and the scheme
+ * must be active for it.
  */
 export async function evaluateResourceAccess(
   facts: AccessFacts,
@@ -130,10 +139,17 @@ export async function evaluateResourceAccess(
   return decide(resource, {
     schemeEnabled: () =>
       isSchemeEnabledForApplication(resource.applicationId, resource.scheme),
+    accountActive: async () => {
+      const [row] = await db
+        .select({ banned: userTable.banned, banExpires: userTable.banExpires })
+        .from(userTable)
+        .where(eq(userTable.id, subjectId))
+        .limit(1);
+      return row !== undefined && !isBanned(row, facts.now ?? new Date());
+    },
     activeMember: () => isActiveMember(subjectId, resource.applicationId),
     isOwner: () =>
       resource.ownerType === "user" && resource.ownerId === subjectId,
-    isAdmin: () => isApplicationAdmin(subjectId, resource.applicationId),
     grants: () =>
       resolveGrantsForSubject(subjectId, resource.id, facts.now ?? new Date()),
   });
@@ -141,9 +157,8 @@ export async function evaluateResourceAccess(
 
 interface BatchAccessContext {
   subjectId: string;
-  platformAdmin: boolean;
+  accountActive: boolean;
   memberships: Set<string>;
-  adminApplications: Set<string>;
   enabledSchemes: Set<string>;
   organizationIds: Set<string>;
   planIds: Map<string, Set<string>>;
@@ -191,7 +206,10 @@ async function loadBatchAccessContext(
     grantRows,
   ] = await Promise.all([
     db
-      .select({ role: userTable.role })
+      .select({
+        banned: userTable.banned,
+        banExpires: userTable.banExpires,
+      })
       .from(userTable)
       .where(eq(userTable.id, subjectId))
       .limit(1),
@@ -258,30 +276,8 @@ async function loadBatchAccessContext(
       ),
   ]);
 
-  const role = platformRows[0]?.role;
-  const platformAdmin = role === "admin" || role === "superadmin";
-
-  const adminApplications = new Set<string>();
-  if (!platformAdmin) {
-    const adminRows = await db
-      .select({ applicationId: appRoles.applicationId })
-      .from(userAppRoles)
-      .innerJoin(
-        appRoles,
-        and(
-          eq(userAppRoles.roleId, appRoles.id),
-          eq(appRoles.applicationId, userAppRoles.applicationId),
-        ),
-      )
-      .where(
-        and(
-          eq(userAppRoles.userId, subjectId),
-          inArray(appRoles.applicationId, applicationIds),
-          eq(appRoles.name, "admin"),
-        ),
-      );
-    for (const row of adminRows) adminApplications.add(row.applicationId);
-  }
+  const accountActive =
+    platformRows[0] !== undefined && !isBanned(platformRows[0], now);
 
   const planIds = new Map<string, Set<string>>();
   for (const row of planRows) {
@@ -302,9 +298,8 @@ async function loadBatchAccessContext(
 
   return {
     subjectId,
-    platformAdmin,
+    accountActive,
     memberships: new Set(membershipRows.map((row) => row.applicationId)),
-    adminApplications,
     enabledSchemes: new Set(
       schemeRows.map((row) => schemeKey(row.applicationId, row.scheme)),
     ),
@@ -337,13 +332,11 @@ export async function evaluateResourceAccessBatch(
           context.enabledSchemes.has(
             schemeKey(resource.applicationId, resource.scheme),
           ),
+        accountActive: async () => context.accountActive,
         activeMember: async () =>
           context.memberships.has(resource.applicationId),
         isOwner: () =>
           resource.ownerType === "user" && resource.ownerId === subjectId,
-        isAdmin: async () =>
-          context.platformAdmin ||
-          context.adminApplications.has(resource.applicationId),
         grants: async () =>
           (context.grants.get(resource.id) ?? []).filter((grant) =>
             grantApplies(grant, resource.applicationId, context),

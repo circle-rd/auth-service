@@ -18,7 +18,9 @@ import { createResource, getResource } from "../services/resources/registry.js";
 import { completeResourceValidation } from "../services/resources/validation.js";
 import { createResourceGrant } from "../services/resources/grants.js";
 import { authorize } from "../services/resources/policy.js";
-import { generateSshIdentity } from "../services/ssh/crypto.js";
+import { parseSshPublicKey } from "../services/ssh/crypto.js";
+import { issueKeyChallenge } from "../services/ssh/key-proof.js";
+import { ed25519Signer } from "./helpers/ssh-proof.js";
 import {
   createSshMetaUser,
   getSshGatewayDetail,
@@ -120,7 +122,7 @@ describe("SSH resource contract", () => {
     expect(detail.account).toBe("test");
     expect(detail.publicKey.startsWith("ssh-ed25519 ")).toBe(true);
     expect(detail.authorizedKeysLine).toContain(`auth-service:${resource.id}`);
-    expect(detail.authorizedKeysLine.startsWith("restrict,pty,from=")).toBe(true);
+    expect(detail.authorizedKeysLine.startsWith('restrict,pty,from="')).toBe(true);
     expect(detail.validationCommand).toBe(
       `ssh -p 2222 validate-${resource.id}@gateway.test`,
     );
@@ -271,21 +273,45 @@ describe("SSH resource contract", () => {
     ).toHaveLength(1);
   });
 
-  it("maps a registered recipient key to its user", async () => {
+  it("maps a registered recipient key to its user, and only for who holds it", async () => {
     const seedData = await seed();
-    const identity = generateSshIdentity();
-    const key = await registerRecipientKey(
+    const signer = ed25519Signer();
+    const key = parseSshPublicKey(signer.publicKey);
+    const proofFor = (userId: string) => {
+      const { challenge } = issueKeyChallenge(userId, key);
+      return { challenge, signature: signer.sign(challenge) };
+    };
+    const registered = await registerRecipientKey(
       seedData.memberId,
-      identity.publicKey,
+      signer.publicKey,
+      proofFor(seedData.memberId),
       "laptop",
     );
-    expect(key.fingerprint).toBe(identity.fingerprint);
-    await expect(resolveRecipientKeyUserId(identity.publicKey)).resolves.toBe(
+    expect(registered.fingerprint).toBe(key.fingerprint);
+    await expect(resolveRecipientKeyUserId(signer.publicKey)).resolves.toBe(
       seedData.memberId,
     );
     await expect(
-      registerRecipientKey(seedData.ownerId, identity.publicKey),
+      registerRecipientKey(
+        seedData.ownerId,
+        signer.publicKey,
+        proofFor(seedData.ownerId),
+      ),
     ).rejects.toMatchObject({ code: "RES_003" });
+
+    // Knowing a public key is not holding it: a stranger cannot claim it first.
+    const victim = ed25519Signer();
+    const victimKey = parseSshPublicKey(victim.publicKey);
+    const { challenge } = issueKeyChallenge(seedData.ownerId, victimKey);
+    await expect(
+      registerRecipientKey(seedData.ownerId, victim.publicKey, {
+        challenge,
+        signature: ed25519Signer().sign(challenge),
+      }),
+    ).rejects.toMatchObject({ code: "AUTH_011" });
+    await expect(
+      resolveRecipientKeyUserId(victim.publicKey),
+    ).rejects.toMatchObject({ code: "RES_004" });
   });
 
   it("validates an active device session and rejects an expired one", async () => {

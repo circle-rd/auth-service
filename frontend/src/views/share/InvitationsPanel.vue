@@ -10,6 +10,7 @@ import BaseSelect from '@/components/ui/BaseSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useToast } from '@/composables/useToast';
+import { useAuthStore } from '@/stores/auth';
 import {
   createInvitation,
   listAppResources,
@@ -25,6 +26,7 @@ const props = defineProps<{ appId: string }>();
 
 const { t } = useI18n();
 const toast = useToast();
+const auth = useAuthStore();
 
 const invitations = ref<ResourceInvitation[]>([]);
 const resources = ref<Resource[]>([]);
@@ -43,8 +45,15 @@ const form = reactive({
   ttlHours: 72,
 });
 
+// Only whoever may grant a resource can invite to it: never an administrator
+// on someone else's personal resource.
+const invitable = computed(() =>
+  resources.value.filter(
+    (resource) => resource.ownerType === 'application' || resource.ownerId === auth.user?.id,
+  ),
+);
 const resourceOptions = computed<SelectOption[]>(() =>
-  resources.value.map((resource) => ({
+  invitable.value.map((resource) => ({
     value: resource.id,
     label: resource.displayName,
     description: resource.uri,
@@ -69,7 +78,7 @@ async function load() {
     ]);
     invitations.value = invitationRes.invitations;
     resources.value = resourceRes.resources;
-    if (!form.resourceId && resources.value[0]) form.resourceId = resources.value[0].id;
+    if (!form.resourceId && invitable.value[0]) form.resourceId = invitable.value[0].id;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
@@ -80,7 +89,7 @@ async function load() {
 function openCreate() {
   Object.assign(form, {
     email: '',
-    resourceId: resources.value[0]?.id ?? '',
+    resourceId: invitable.value[0]?.id ?? '',
     ttlHours: 72,
   });
   inviteUrl.value = '';

@@ -50,6 +50,28 @@ describe("Email — rate limit (integration)", () => {
     expect(body.error.code).toBe("MAIL_003");
   });
 
+  it.each(["invitations", "members"])(
+    "throttles POST /api/user/apps/:appId/%s like the other mail senders",
+    async (route) => {
+      const url = `/api/user/apps/11111111-1111-4111-8111-111111111111/${route}`;
+      // A dedicated address keeps this window apart from the other tests.
+      const remoteAddress = route === "members" ? "10.20.0.1" : "10.20.0.2";
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i++) {
+        const res = await handle.app.inject({
+          method: "POST",
+          url,
+          remoteAddress,
+          payload: { email: `x${i}@example.com` },
+          headers: { "content-type": "application/json" },
+        });
+        statuses.push(res.statusCode);
+      }
+      expect(statuses.slice(0, 5)).not.toContain(429);
+      expect(statuses[5]).toBe(429);
+    },
+  );
+
   it("does not spend the email bucket on invitation reads or preflights", async () => {
     const url =
       "/api/user/apps/11111111-1111-4111-8111-111111111111/invitations";

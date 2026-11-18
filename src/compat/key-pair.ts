@@ -4,14 +4,14 @@ import type { SigningAlg } from "./profiles.js";
 const ONE_MONTH_S = 60 * 60 * 24 * 30;
 
 /**
- * Key-pair parameters for an algorithm, as the jwt plugin expects them. `EdDSA`
- * is not offered: RFC 9864 deprecates that name, and the plugin does not
- * support its fully specified replacement `Ed25519` yet.
+ * Key-pair parameters for an algorithm, as the jwt plugin expects them.
+ * `EdDSA` is Ed25519, the compact default for resource servers that can
+ * verify it; ES256 stays the cross-provider default.
  */
 export function signingKeyPairConfig(alg: SigningAlg): JWKOptions {
-  return alg === "RS256"
-    ? { alg: "RS256", modulusLength: 2048 }
-    : { alg: "ES256" };
+  if (alg === "RS256") return { alg: "RS256", modulusLength: 2048 };
+  if (alg === "EdDSA") return { alg: "EdDSA", crv: "Ed25519" };
+  return { alg: "ES256" };
 }
 
 /**

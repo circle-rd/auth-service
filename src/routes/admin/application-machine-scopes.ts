@@ -6,7 +6,7 @@ import { oauthClient } from "../../db/auth-schema.js";
 import { applications } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
 import { getCallerRole, requireAdmin } from "../../middleware.js";
-import { MACHINE_SCOPES } from "../../services/machine-auth.js";
+import { MACHINE_SCOPES } from "../../services/machine-scopes.js";
 import { revokeClientTokens } from "../../services/oauth-tokens.js";
 import { publishEvent } from "../../services/event-bus.js";
 

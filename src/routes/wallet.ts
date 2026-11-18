@@ -4,16 +4,21 @@ import { ERR } from "../errors.js";
 import { getRequestSession, requireUserOrBearer } from "../middleware.js";
 import {
   createTopupCheckout,
+  disableAutoTopup,
+  enableAutoTopup,
+  getAutoTopupView,
   getOrCreateWalletAccount,
   getSessionUsage,
   getTopupOptions,
   getUserSpendStats,
   listWalletTransactions,
   toAccountView,
+  triggerAutoTopup,
 } from "../services/wallet/index.js";
 import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
 import { billingCustomerIdBestEffort } from "../services/billing/customers.js";
 import {
+  autoTopupBodySchema,
   listTransactionsQuerySchema,
   sessionUsageQuerySchema,
   statsQuerySchema,
@@ -93,6 +98,41 @@ export async function walletRoutes(fastify: FastifyInstance): Promise<void> {
       customerId: await billingCustomerIdBestEffort("user", session.user.id),
     });
     await reply.status(201).send(checkout);
+  });
+
+  // GET /api/user/wallet/auto-topup
+  fastify.get("/auto-topup", async (req, reply) => {
+    const session = await getRequestSession(req);
+    if (!session) throw ERR.AUTH_001();
+    const account = await getOrCreateWalletAccount("user", session.user.id);
+    await reply.send(await getAutoTopupView(account.id));
+  });
+
+  // PUT /api/user/wallet/auto-topup
+  // Turning it on may need a card first: the answer then carries the Checkout
+  // URL that saves it, and the webhook finishes the activation.
+  fastify.put("/auto-topup", async (req, reply) => {
+    const session = await getRequestSession(req);
+    if (!session) throw ERR.AUTH_001();
+    const body = autoTopupBodySchema.parse(req.body);
+    const account = await getOrCreateWalletAccount("user", session.user.id);
+
+    let setupUrl: string | null = null;
+    if (body.enabled) {
+      const result = await enableAutoTopup({
+        userId: session.user.id,
+        accountId: account.id,
+        amountCents: body.amountCents,
+      });
+      if (result.enabled) triggerAutoTopup(account.id);
+      else setupUrl = result.setupUrl;
+    } else {
+      await disableAutoTopup(account.id);
+    }
+    await reply.send({
+      autoTopup: await getAutoTopupView(account.id),
+      setupUrl,
+    });
   });
 
   // GET /api/user/wallet/transactions

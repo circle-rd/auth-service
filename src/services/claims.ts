@@ -91,7 +91,9 @@ export async function getUserClaims(
       if (profile.username) claims.nickname = profile.username;
       else if (givenName) claims.nickname = givenName;
       if (profile.username) {
-        claims.preferred_username = profile.username;
+        // The stored identifier is validated lowercase; resource servers
+        // compare the claim case-insensitively, so emit one canonical form.
+        claims.preferred_username = profile.username.toLowerCase();
       } else if (profile.email) {
         claims.preferred_username = profile.email.split("@")[0];
       } else if (givenName) {

@@ -24,6 +24,7 @@ import { makeAuthServer, type AuthServerHandle } from "./helpers/server.js";
 let handle: AuthServerHandle;
 let appId: string;
 let resourceId: string;
+let sharedResourceId: string;
 
 async function seedUser(id: string): Promise<void> {
   await db.insert(userTable).values({
@@ -97,6 +98,21 @@ beforeEach(async () => {
     .returning();
   if (!resource) throw new Error("resource seed failed");
   resourceId = resource.id;
+  const [shared] = await db
+    .insert(resources)
+    .values({
+      applicationId: appId,
+      scheme: "llm",
+      locator: "grant-app/shared",
+      uri: "llm://grant-app/shared",
+      displayName: "Shared model",
+      ownerType: "application",
+      ownerId: appId,
+      status: "validated",
+    })
+    .returning();
+  if (!shared) throw new Error("resource seed failed");
+  sharedResourceId = shared.id;
 });
 
 function asUser(id: string): void {
@@ -107,25 +123,36 @@ function asUser(id: string): void {
   );
 }
 
-async function getGrants(): Promise<number> {
+async function getGrants(id: string = resourceId): Promise<number> {
   const res = await handle.app.inject({
     method: "GET",
-    url: `/api/user/resources/${resourceId}/grants`,
+    url: `/api/user/resources/${id}/grants`,
   });
   return res.statusCode;
 }
 
 describe("resource grant administration over HTTP", () => {
-  it("allows the owner, a grants:manage delegate, and denies resources:manage only", async () => {
+  it("leaves a personal resource's grants to its owner alone", async () => {
     asUser("owner");
     expect(await getGrants()).toBe(200);
 
     asUser("grant-manager");
-    expect(await getGrants()).toBe(200);
+    expect(await getGrants()).toBe(404);
+
+    asUser("resource-manager");
+    expect(await getGrants()).toBe(404);
+  });
+
+  it("allows a grants:manage delegate on an application-owned resource, and denies resources:manage only", async () => {
+    asUser("grant-manager");
+    expect(await getGrants(sharedResourceId)).toBe(200);
+
+    asUser("owner");
+    expect(await getGrants(sharedResourceId)).toBe(404);
 
     asUser("resource-manager");
     // Grant administration is concealed from resource managers as a 404.
-    expect(await getGrants()).toBe(404);
+    expect(await getGrants(sharedResourceId)).toBe(404);
   });
 
   it("returns the deployment's enabled schemes with the catalogue", async () => {

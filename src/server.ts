@@ -43,6 +43,7 @@ import { adminConsumptionRoutes } from "./routes/admin/adminConsumption.js";
 import { usersRoutes } from "./routes/admin/users.js";
 import { sessionsRoutes } from "./routes/admin/sessions.js";
 import { statsRoutes } from "./routes/admin/stats.js";
+import { monitoringRoutes } from "./routes/admin/monitoring.js";
 import { eventsRoutes } from "./routes/admin/events.js";
 import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
@@ -136,8 +137,11 @@ const EMAIL_SEND_PATHS = [
   "/api/auth/email-otp/request-password-reset",
 ];
 // Dynamic owner paths cannot be listed as static prefixes without throttling
-// unrelated owner APIs, so the invitation endpoint is matched exactly.
-const EMAIL_SEND_PATH_PATTERNS = [/^\/api\/user\/apps\/[^/]+\/invitations$/];
+// unrelated owner APIs, so the endpoints that send mail are matched exactly.
+const EMAIL_SEND_PATH_PATTERNS = [
+  /^\/api\/user\/apps\/[^/]+\/invitations$/,
+  /^\/api\/user\/apps\/[^/]+\/members$/,
+];
 const EMAIL_SEND_MAX = 5;
 const EMAIL_SEND_WINDOW = 60_000;
 
@@ -569,7 +573,10 @@ export async function buildServer(
 
   // ── Device authorization approval page (RFC 8628, opt-in) ───────
   fastify.get("/device", async (req, reply) => {
-    if (!config.features.deviceAuthorization) {
+    if (
+      !config.features.deviceAuthorization &&
+      !config.features.oauthDeviceGrant
+    ) {
       return reply
         .status(404)
         .send({ error: { code: "SRV_001", message: "Not found" } });
@@ -690,7 +697,8 @@ export async function buildServer(
       }
     }
     if (
-      config.features.deviceAuthorization &&
+      (config.features.deviceAuthorization ||
+        config.features.oauthDeviceGrant) &&
       DEVICE_RATE_PATHS.some(
         (p) => urlPath === p || urlPath.startsWith(p + "/"),
       )
@@ -792,6 +800,7 @@ export async function buildServer(
   await fastify.register(usersRoutes, { prefix: "/api/admin/users" });
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
   await fastify.register(statsRoutes, { prefix: "/api/admin/stats" });
+  await fastify.register(monitoringRoutes, { prefix: "/api/admin/monitoring" });
   await fastify.register(eventsRoutes, { prefix: "/api/admin/events" });
   await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
   await fastify.register(organizationsRoutes, {

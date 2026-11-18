@@ -105,6 +105,38 @@ describe("resolveAudiencePatch", () => {
     expect(lookup).toHaveBeenCalledWith("m2m");
   });
 
+  it("keeps the issuer audience of a token that asks for a machine scope", async () => {
+    settings.compat.defaultAudience = true;
+    for (const scope of ["wallet:debit", "m2m billing:read"]) {
+      expect(
+        await resolveAudiencePatch(
+          {
+            path: "/oauth2/token",
+            body: { grant_type: "client_credentials", scope },
+            headers: basic("m2m"),
+          },
+          lookup,
+        ),
+      ).toBeUndefined();
+    }
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("still defaults the audience when the scope opens no auth-service route", async () => {
+    settings.compat.defaultAudience = true;
+    const patch = await resolveAudiencePatch(
+      {
+        path: "/oauth2/token",
+        body: { grant_type: "client_credentials", scope: "m2m orders:read" },
+        headers: basic("m2m"),
+      },
+      lookup,
+    );
+    expect(patch).toEqual({
+      context: { body: { resource: "https://app.example.com" } },
+    });
+  });
+
   it("does not default the resource of a code exchange or a refresh", async () => {
     settings.compat.defaultAudience = true;
     for (const grant_type of ["authorization_code", "refresh_token"]) {

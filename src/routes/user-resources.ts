@@ -12,6 +12,7 @@ import {
   assertActiveMember,
   assertCanManageGrants,
   assertCanManageResource,
+  isPlatformAdmin,
 } from "../services/resources/authority.js";
 import {
   createResourceGrant,
@@ -20,12 +21,13 @@ import {
   revokeResourceGrant,
 } from "../services/resources/grants.js";
 import { acceptResourceInvitation } from "../services/resources/invitations.js";
+import { getUserActivity } from "../services/resources/monitoring.js";
 import {
   createResource,
-  disableResource,
   getResource,
   listResourcesForOwner,
   markResourceValidated,
+  removeResource,
   requestResourceValidation,
   updateResource,
 } from "../services/resources/registry.js";
@@ -34,6 +36,7 @@ import { buildSshValidationCommand } from "../services/ssh/targets.js";
 import { getResourceScheme } from "../services/resources/scheme-service.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
 import { RESOURCE_SUBJECT_TYPES } from "../services/resources/types.js";
+import { resourceMetadataSchema } from "./resource-metadata.js";
 
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
@@ -52,13 +55,20 @@ const accessibleQuerySchema = z
   })
   .strict();
 
+const activityQuerySchema = z
+  .object({
+    applicationId: z.string().uuid(),
+    range: z.enum(["7d", "30d"]).default("7d"),
+  })
+  .strict();
+
 const resourceCreateSchema = z
   .object({
     applicationId: z.string().uuid(),
     scheme: z.string().regex(RESOURCE_SCHEME_RE),
     locator: z.string().trim().min(1).max(255).optional(),
     displayName: z.string().trim().min(1).max(200),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: resourceMetadataSchema.optional(),
   })
   .strict();
 
@@ -66,7 +76,7 @@ const resourcePatchSchema = z
   .object({
     displayName: z.string().trim().min(1).max(200).optional(),
     listed: z.boolean().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    metadata: resourceMetadataSchema.optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -176,6 +186,16 @@ export async function userResourceRoutes(
     await reply.send({ applications: await listMemberApplications(userId) });
   });
 
+  fastify.get("/resource-activity", async (req, reply) => {
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    const query = activityQuerySchema.parse(req.query);
+    await assertActiveMember(userId, query.applicationId);
+    await reply.send(
+      await getUserActivity(userId, query.applicationId, query.range),
+    );
+  });
+
   fastify.get("/resources", async (req, reply) => {
     const userId = await requireSession(req, reply);
     if (!userId) return;
@@ -227,9 +247,9 @@ export async function userResourceRoutes(
     const userId = await requireSession(req, reply);
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
-    const resource = await disableResource(resourceId, userId);
+    const { resource, removed } = await removeResource(resourceId, userId);
     const scheme = await getResourceScheme(resource.scheme);
-    await reply.send({ resource: publicResource(resource, scheme) });
+    await reply.send({ resource: publicResource(resource, scheme), removed });
   });
 
   fastify.post(
@@ -245,6 +265,13 @@ export async function userResourceRoutes(
         resource.scheme === "agent" ||
         resource.scheme === "mcp"
       ) {
+        // The inventory is shared by every application: choosing which of its
+        // objects an application may expose is a platform decision.
+        if (!(await isPlatformAdmin(userId))) {
+          throw ERR.AUTH_011(
+            "Only a platform administrator validates a gateway resource",
+          );
+        }
         if (!(await linkResourceToGatewayObject(resource))) {
           throw ERR.RES_011("Resource is not present in the gateway inventory");
         }

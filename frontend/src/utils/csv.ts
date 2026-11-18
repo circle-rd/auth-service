@@ -49,6 +49,14 @@ export function toCsvCell(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
+/**
+ * Defuse a value that a spreadsheet would run as a formula (`=`, `+`, `-`, `@`,
+ * tab, CR): account names and resource identifiers are user-controlled.
+ */
+export function neutralizeFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
 export function toCsv(rows: string[][]): string {
   return rows.map((r) => r.map(toCsvCell).join(",")).join("\n");
 }

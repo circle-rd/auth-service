@@ -61,10 +61,27 @@ const routes = [
     meta: { requiresAdmin: true },
   },
   {
-    path: '/share/catalogue',
-    name: 'share-catalogue',
-    component: () => import('@/views/share/SubjectCatalogueView.vue'),
+    // `/catalogue` alone resolves to the last visited application (see the shell).
+    path: '/catalogue',
+    component: () => import('@/views/share/CatalogueShell.vue'),
     meta: { requiresAdmin: false },
+    children: [
+      {
+        path: ':appId/dashboard',
+        name: 'catalogue-dashboard',
+        component: () => import('@/views/share/CatalogueDashboardView.vue'),
+      },
+      {
+        path: ':appId/types/:scheme',
+        name: 'catalogue-type',
+        component: () => import('@/views/share/CatalogueTypeView.vue'),
+      },
+      {
+        path: ':appId/manage',
+        name: 'catalogue-manage',
+        component: () => import('@/views/share/CatalogueManageView.vue'),
+      },
+    ],
   },
   {
     path: '/resource-invitation',

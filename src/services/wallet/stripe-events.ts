@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../../db/index.js";
 import { walletTransactions } from "../../db/schema.js";
 import { getOrCreateWalletAccount } from "./accounts.js";
+import { handleAutoTopupStripeEvent } from "./auto-topup-events.js";
 import { creditWallet, debitWallet } from "./ledger.js";
 
 const topupMetadataSchema = z.object({
@@ -144,6 +145,7 @@ async function reverseDisputedCharge(
 export async function handleWalletStripeEvent(
   event: Stripe.Event,
 ): Promise<boolean> {
+  if (await handleAutoTopupStripeEvent(event)) return true;
   switch (event.type) {
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded":

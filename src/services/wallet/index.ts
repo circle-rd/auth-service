@@ -13,6 +13,16 @@ export {
 export type { TopupOptions } from "./checkout.js";
 export { handleWalletStripeEvent } from "./stripe-events.js";
 export {
+  disableAutoTopup,
+  enableAutoTopup,
+  getAutoTopupView,
+} from "./auto-topup.js";
+export type { AutoTopupView, EnableAutoTopupResult } from "./auto-topup.js";
+export {
+  startAutoTopupSweeper,
+  triggerAutoTopup,
+} from "./auto-topup-charge.js";
+export {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
   listWalletTransactions,

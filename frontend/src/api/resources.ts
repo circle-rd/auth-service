@@ -27,6 +27,7 @@ export interface OwnerApplication {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   url: string | null;
   icon: string | null;
   permissions: OwnerPermission[];
@@ -43,7 +44,7 @@ export interface OwnerPlan {
 export interface OwnerMember {
   userId: string;
   name: string;
-  email: string;
+  email: string | null;
   isActive: boolean;
   roles: string[];
 }
@@ -110,16 +111,14 @@ export interface ResourceInvitation {
   state: 'pending' | 'consumed' | 'revoked' | 'expired';
 }
 
-export interface CatalogueApplication {
-  slug: string;
-  name: string;
-}
-
 export interface MemberApplication {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   icon: string | null;
+  // False for a guest: it receives shares but creates no resource.
+  canCreate: boolean;
 }
 
 export interface AccessibleResource {
@@ -132,7 +131,7 @@ export interface AccessibleResource {
   applicationName: string;
   ownerType: ResourceOwnerType;
   ownerId: string;
-  accessKind: 'owner' | 'admin' | 'grant';
+  accessKind: 'owner' | 'grant';
   grantSubjectType?: ResourceSubjectType;
 }
 
@@ -305,14 +304,6 @@ function queryString(params: Record<string, string | number | undefined>): strin
   return encoded ? `?${encoded}` : '';
 }
 
-export async function listResourceCatalogue(): Promise<{
-  applications: CatalogueApplication[];
-  resources: AccessibleResource[];
-  enabledSchemes: string[];
-}> {
-  return apiFetch('/user/resource-catalogue');
-}
-
 export async function listAccessibleResources(query: {
   applicationId?: string;
   scheme?: string;
@@ -345,7 +336,7 @@ export async function listOwnerMembers(
   return apiFetch(`/user/apps/${appId}/members${queryString(query)}`);
 }
 
-export async function addOwnerMember(appId: string, email: string): Promise<{ member: OwnerMember & { created: boolean } }> {
+export async function addOwnerMember(appId: string, email: string): Promise<{ accepted: true }> {
   return apiFetch(`/user/apps/${appId}/members`, {
     method: 'POST',
     body: JSON.stringify({ email }),
@@ -372,6 +363,10 @@ export async function updateScheme(appId: string, scheme: string, body: UpdateSc
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+}
+
+export async function deleteScheme(appId: string, scheme: string): Promise<void> {
+  await apiFetch(`/user/apps/${appId}/schemes/${scheme}`, { method: 'DELETE' });
 }
 
 export async function enableScheme(appId: string, scheme: string): Promise<void> {
@@ -415,7 +410,7 @@ export async function updateResource(resourceId: string, body: UpdateResourceBod
   });
 }
 
-export async function disableResource(resourceId: string): Promise<{ resource: Resource }> {
+export async function removeResource(resourceId: string): Promise<{ resource: Resource; removed: boolean }> {
   return apiFetch(`/user/resources/${resourceId}`, { method: 'DELETE' });
 }
 
@@ -455,10 +450,25 @@ export async function listRecipientKeys(): Promise<{ keys: SshRecipientKey[] }> 
   return apiFetch('/user/recipient-keys');
 }
 
-export async function registerRecipientKey(publicKey: string, label?: string): Promise<{ key: SshRecipientKey }> {
+export interface SshKeyChallenge {
+  challenge: string;
+  namespace: string;
+  expiresAt: string;
+}
+
+export async function requestSshKeyChallenge(publicKey: string): Promise<SshKeyChallenge> {
+  return apiFetch('/user/recipient-keys/challenge', {
+    method: 'POST',
+    body: JSON.stringify({ publicKey }),
+  });
+}
+
+export async function registerRecipientKey(
+  body: { publicKey: string; challenge: string; signature: string; label?: string },
+): Promise<{ key: SshRecipientKey }> {
   return apiFetch('/user/recipient-keys', {
     method: 'POST',
-    body: JSON.stringify({ publicKey, label: label ?? null }),
+    body: JSON.stringify({ ...body, label: body.label ?? null }),
   });
 }
 

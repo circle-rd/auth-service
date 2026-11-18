@@ -262,6 +262,22 @@ CREATE TABLE "wallet_accounts" (
 	CONSTRAINT "wallet_accounts_owner_type_check" CHECK ("wallet_accounts"."owner_type" IN ('user', 'org'))
 );
 --> statement-breakpoint
+CREATE TABLE "wallet_auto_topups" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"account_id" uuid NOT NULL,
+	"enabled" boolean DEFAULT false NOT NULL,
+	"amount_cents" integer NOT NULL,
+	"stripe_payment_method_id" text,
+	"disabled_reason" text,
+	"last_attempt_at" timestamp with time zone,
+	"charge_pending" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "wallet_auto_topups_amount_check" CHECK ("wallet_auto_topups"."amount_cents" > 0),
+	CONSTRAINT "wallet_auto_topups_reason_check" CHECK ("wallet_auto_topups"."disabled_reason" IS NULL OR "wallet_auto_topups"."disabled_reason" IN ('payment_failed', 'authentication_required', 'payment_method_removed')),
+	CONSTRAINT "wallet_auto_topups_enabled_check" CHECK (NOT "wallet_auto_topups"."enabled" OR "wallet_auto_topups"."stripe_payment_method_id" IS NOT NULL)
+);
+--> statement-breakpoint
 CREATE TABLE "wallet_pricing_settings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"usd_to_eur_rate" text NOT NULL,
@@ -317,7 +333,9 @@ CREATE TABLE "device_code" (
 	"last_polled_at" timestamp,
 	"polling_interval" integer,
 	"client_id" text,
-	"scope" text
+	"scope" text,
+	"oauth_client_id" text,
+	"resources" text[]
 );
 --> statement-breakpoint
 CREATE TABLE "invitation" (
@@ -818,6 +836,7 @@ ALTER TABLE "user_subscription_events" ADD CONSTRAINT "user_subscription_events_
 ALTER TABLE "user_subscriptions" ADD CONSTRAINT "user_subscriptions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_subscriptions" ADD CONSTRAINT "user_subscriptions_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_account_events" ADD CONSTRAINT "wallet_account_events_account_id_wallet_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."wallet_accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "wallet_auto_topups" ADD CONSTRAINT "wallet_auto_topups_account_id_wallet_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."wallet_accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_transactions" ADD CONSTRAINT "wallet_transactions_account_id_wallet_accounts_id_fk" FOREIGN KEY ("account_id") REFERENCES "public"."wallet_accounts"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "wallet_transactions" ADD CONSTRAINT "wallet_transactions_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -884,6 +903,8 @@ CREATE UNIQUE INDEX "user_subscriptions_user_app_idx" ON "user_subscriptions" US
 CREATE UNIQUE INDEX "user_subscriptions_stripe_idx" ON "user_subscriptions" USING btree ("stripe_subscription_id");--> statement-breakpoint
 CREATE INDEX "wallet_account_events_account_created_idx" ON "wallet_account_events" USING btree ("account_id","created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_accounts_owner_idx" ON "wallet_accounts" USING btree ("owner_type","owner_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "wallet_auto_topups_account_idx" ON "wallet_auto_topups" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX "wallet_auto_topups_payment_method_idx" ON "wallet_auto_topups" USING btree ("stripe_payment_method_id");--> statement-breakpoint
 CREATE INDEX "wallet_pricing_settings_created_idx" ON "wallet_pricing_settings" USING btree ("created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "wallet_transactions_account_key_idx" ON "wallet_transactions" USING btree ("account_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "wallet_transactions_account_created_idx" ON "wallet_transactions" USING btree ("account_id","created_at");--> statement-breakpoint
@@ -916,6 +937,7 @@ CREATE INDEX "passkey_credentialID_idx" ON "passkey" USING btree ("credential_id
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "twoFactor_secret_idx" ON "two_factor" USING btree ("secret");--> statement-breakpoint
 CREATE INDEX "twoFactor_userId_idx" ON "two_factor" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_username_lower_idx" ON "user" USING btree (lower("username")) WHERE "user"."username" is not null;--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
 CREATE INDEX "application_schemes_scheme_idx" ON "application_schemes" USING btree ("scheme");--> statement-breakpoint
 CREATE INDEX "resource_access_events_occurred_idx" ON "resource_access_events" USING btree ("occurred_at");--> statement-breakpoint

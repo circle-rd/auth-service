@@ -1,29 +1,28 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ExternalLink, Plus, Pencil, PowerOff, RefreshCw, Terminal } from '@lucide/vue';
+import { ExternalLink, Plus, Pencil, PowerOff, RefreshCw, Terminal, Trash2 } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
-import BaseInput from '@/components/ui/BaseInput.vue';
-import BaseModal from '@/components/ui/BaseModal.vue';
-import BaseSelect from '@/components/ui/BaseSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import SchemeIcon from '@/components/ui/SchemeIcon.vue';
 import { useToast } from '@/composables/useToast';
+import { useAuthStore } from '@/stores/auth';
 import {
   createAppResource,
   createResource,
-  disableResource,
   listAppResources,
   listMemberSchemes,
   listMyResources,
+  removeResource,
   requestValidation,
   updateResource,
   type Resource,
   type ResourceScheme,
 } from '@/api/resources';
-import type { SelectOption } from '@/types/select';
 import { formatDateTime } from './format';
+import ResourceFormModal, { type ResourceFormPayload } from './ResourceFormModal.vue';
 import SshTargetDialog from './SshTargetDialog.vue';
 
 const props = defineProps<{
@@ -31,10 +30,15 @@ const props = defineProps<{
   scope: 'app' | 'mine';
   canManage: boolean;
   canRead: boolean;
+  // Restricts the list, and the creation form, to one resource type.
+  scheme?: string;
 }>();
+
+const emit = defineEmits<{ changed: [] }>();
 
 const { t } = useI18n();
 const toast = useToast();
+const auth = useAuthStore();
 
 const resources = ref<Resource[]>([]);
 const schemes = ref<ResourceScheme[]>([]);
@@ -43,33 +47,23 @@ const saving = ref(false);
 const disabling = ref(false);
 const showForm = ref(false);
 const showDisable = ref(false);
+const formError = ref('');
 const editing = ref<Resource | null>(null);
 const selected = ref<Resource | null>(null);
 const sshResource = ref<Resource | null>(null);
 const validatorLink = ref<string | null>(null);
 
-const form = reactive({
-  scheme: '',
-  displayName: '',
-  locator: '',
-});
+const schemeByName = computed(() => new Map(schemes.value.map((entry) => [entry.scheme, entry])));
 
-const schemeOptions = computed<SelectOption[]>(() =>
-  schemes.value.map((scheme) => ({
-    value: scheme.scheme,
-    label: scheme.displayName,
-    description: scheme.description ?? undefined,
-  })),
+// Gateway objects are declared by the application, never by a member.
+const creatableSchemes = computed(() =>
+  props.scope === 'mine' ? schemes.value.filter((entry) => entry.adapter !== 'litellm') : schemes.value,
 );
-const selectedScheme = computed(() =>
-  schemes.value.find((scheme) => scheme.scheme === form.scheme) ?? null,
-);
-const isSsh = computed(() => form.scheme === 'ssh');
-const canSave = computed(() => {
-  if (form.displayName.trim().length === 0) return false;
-  if (editing.value) return true;
-  return form.scheme.length > 0 && (isSsh.value || form.locator.trim().length > 0);
-});
+
+// Choosing which gateway objects an application exposes is a platform decision.
+function awaitsPlatformValidation(resource: Resource): boolean {
+  return schemeByName.value.get(resource.scheme)?.adapter === 'litellm' && !auth.isAdmin();
+}
 
 function statusVariant(status: Resource['status']): 'success' | 'warning' | 'neutral' {
   if (status === 'validated') return 'success';
@@ -88,11 +82,11 @@ async function load() {
       props.scope === 'app' ? listAppResources(props.appId) : listMyResources(),
       listMemberSchemes(props.appId),
     ]);
-    resources.value = props.scope === 'app'
+    resources.value = (props.scope === 'app'
       ? resourceRes.resources
-      : resourceRes.resources.filter((resource) => resource.applicationId === props.appId);
+      : resourceRes.resources.filter((resource) => resource.applicationId === props.appId)
+    ).filter((resource) => !props.scheme || resource.scheme === props.scheme);
     schemes.value = schemeRes.schemes;
-    if (!form.scheme && schemes.value[0]) form.scheme = schemes.value[0].scheme;
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
   } finally {
@@ -102,37 +96,25 @@ async function load() {
 
 function openCreate() {
   editing.value = null;
-  Object.assign(form, {
-    scheme: schemes.value[0]?.scheme ?? '',
-    displayName: '',
-    locator: '',
-  });
+  formError.value = '';
   showForm.value = true;
 }
 
 function openEdit(resource: Resource) {
   editing.value = resource;
-  Object.assign(form, {
-    scheme: resource.scheme,
-    displayName: resource.displayName,
-    locator: '',
-  });
+  formError.value = '';
   showForm.value = true;
 }
 
-async function save() {
-  if (!canSave.value) return;
+async function save(form: ResourceFormPayload) {
   saving.value = true;
+  formError.value = '';
   try {
     if (editing.value) {
-      await updateResource(editing.value.id, { displayName: form.displayName.trim() });
+      await updateResource(editing.value.id, { displayName: form.displayName });
       toast.success(t('share.resources.saved'));
     } else {
-      const payload = {
-        scheme: form.scheme,
-        displayName: form.displayName.trim(),
-        locator: isSsh.value ? undefined : form.locator.trim(),
-      };
+      const payload = { scheme: form.scheme, displayName: form.displayName, locator: form.locator };
       if (props.scope === 'app') {
         await createAppResource(props.appId, payload);
       } else {
@@ -142,8 +124,9 @@ async function save() {
     }
     showForm.value = false;
     await load();
+    emit('changed');
   } catch (err) {
-    toast.error(err instanceof Error ? err.message : t('share.saveError'));
+    formError.value = err instanceof Error ? err.message : t('share.saveError');
   } finally {
     saving.value = false;
   }
@@ -162,13 +145,10 @@ async function validate(resource: Resource) {
       validatorLink.value = null;
     }
     await load();
+    emit('changed');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.saveError'));
   }
-}
-
-function openSsh(resource: Resource) {
-  sshResource.value = resource;
 }
 
 function requestDisable(resource: Resource) {
@@ -180,10 +160,11 @@ async function disable() {
   if (!selected.value) return;
   disabling.value = true;
   try {
-    await disableResource(selected.value.id);
-    toast.success(t('share.resources.disabledToast'));
+    const { removed } = await removeResource(selected.value.id);
+    toast.success(t(removed ? 'share.resources.deletedToast' : 'share.resources.disabledToast'));
     showDisable.value = false;
     await load();
+    emit('changed');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.saveError'));
   } finally {
@@ -191,7 +172,12 @@ async function disable() {
   }
 }
 
-watch(() => props.appId, () => void load());
+// A resource that was never validated could not be used: removing it deletes it.
+function neverValidated(resource: Resource): boolean {
+  return resource.validatedAt === null;
+}
+
+watch([() => props.appId, () => props.scheme], () => void load());
 onMounted(() => void load());
 </script>
 
@@ -199,7 +185,7 @@ onMounted(() => void load());
   <div class="space-y-4">
     <div class="flex items-center justify-between gap-3">
       <p class="text-sm text-surface-400">{{ t('share.resources.hint') }}</p>
-      <BaseButton v-if="canManage" size="sm" @click="openCreate">
+      <BaseButton v-if="canManage" size="sm" class="shrink-0" @click="openCreate">
         <Plus class="w-3.5 h-3.5" />{{ t('share.resources.add') }}
       </BaseButton>
     </div>
@@ -218,111 +204,85 @@ onMounted(() => void load());
       :message="t('share.resources.emptyHint')"
     />
 
-    <div v-else class="rounded-2xl border border-surface-700/40 overflow-x-auto bg-surface-900/40">
-      <table class="w-full text-sm">
-        <thead class="bg-surface-800/50 text-surface-400">
-          <tr>
-            <th class="text-left font-medium px-4 py-3">{{ t('share.resources.name') }}</th>
-            <th class="text-left font-medium px-4 py-3 hidden md:table-cell">{{ t('share.resources.scheme') }}</th>
-            <th class="text-left font-medium px-4 py-3 hidden lg:table-cell">{{ t('share.resources.uri') }}</th>
-            <th class="text-left font-medium px-4 py-3">{{ t('common.status') }}</th>
-            <th class="text-left font-medium px-4 py-3 hidden xl:table-cell">{{ t('share.resources.updatedAt') }}</th>
-            <th class="px-4 py-3 text-right">{{ t('common.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="resource in resources" :key="resource.id" class="border-t border-surface-800/60">
-            <td class="px-4 py-3">
-              <p class="font-medium text-surface-200">{{ resource.displayName }}</p>
-              <p class="text-xs text-surface-500">{{ resource.applicationName }}</p>
-            </td>
-            <td class="px-4 py-3 text-surface-400 hidden md:table-cell">
-              {{ resource.schemeDisplayName ?? resource.scheme }}
-            </td>
-            <td class="px-4 py-3 font-mono text-xs text-surface-500 hidden lg:table-cell break-all">
-              {{ resource.uri }}
-            </td>
-            <td class="px-4 py-3">
-              <BaseBadge :variant="statusVariant(resource.status)" dot>
-                {{ t(`share.resourceStatuses.${resource.status}`) }}
-              </BaseBadge>
-              <p v-if="resource.validationError" class="text-[11px] text-danger-400 mt-1 max-w-64">
-                {{ resource.validationError }}
-              </p>
-            </td>
-            <td class="px-4 py-3 text-xs text-surface-500 hidden xl:table-cell">
-              {{ formatDateTime(resource.updatedAt) }}
-            </td>
-            <td class="px-4 py-3">
-              <div v-if="canManage" class="flex justify-end gap-1">
-                <BaseButton
-                  v-if="resource.scheme === 'ssh'"
-                  variant="ghost"
-                  size="sm"
-                  @click="openSsh(resource)"
-                >
-                  <Terminal class="w-3.5 h-3.5" />{{ t('share.ssh.configure') }}
-                </BaseButton>
-                <BaseButton
-                  v-else-if="resource.status === 'pending_validation' || resource.status === 'validation_failed'"
-                  variant="ghost"
-                  size="sm"
-                  @click="validate(resource)"
-                >
-                  <RefreshCw class="w-3.5 h-3.5" />{{ t('share.resources.validate') }}
-                  <ExternalLink v-if="resource.status === 'pending_validation'" class="w-3 h-3" />
-                </BaseButton>
-                <BaseButton variant="ghost" size="sm" @click="openEdit(resource)">
-                  <Pencil class="w-3.5 h-3.5" />{{ t('common.edit') }}
-                </BaseButton>
-                <BaseButton
-                  v-if="resource.status !== 'disabled'"
-                  variant="ghost"
-                  size="sm"
-                  @click="requestDisable(resource)"
-                >
-                  <PowerOff class="w-3.5 h-3.5" />{{ t('share.resources.disable') }}
-                </BaseButton>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <ul v-else class="space-y-2" data-testid="resource-list">
+      <li
+        v-for="resource in resources"
+        :key="resource.id"
+        data-testid="resource-row"
+        class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl border border-surface-700/40 bg-surface-900/40 px-4 py-3"
+      >
+        <SchemeIcon
+          :icon="schemeByName.get(resource.scheme)?.icon"
+          :scheme="resource.scheme"
+        />
+        <div class="min-w-0 flex-1 basis-60">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <p class="font-medium text-surface-100 truncate">{{ resource.displayName }}</p>
+            <BaseBadge :variant="statusVariant(resource.status)" dot>
+              {{ t(`share.resourceStatuses.${resource.status}`) }}
+            </BaseBadge>
+          </div>
+          <p class="font-mono text-xs text-surface-500 truncate">{{ resource.uri }}</p>
+          <p v-if="!scheme" class="text-[11px] text-surface-600">
+            {{ resource.schemeDisplayName ?? resource.scheme }} · {{ resource.applicationName }}
+          </p>
+          <p v-if="resource.validationError" class="text-[11px] text-red-400 mt-1">
+            {{ resource.validationError }}
+          </p>
+          <p
+            v-if="resource.status === 'pending_validation' && awaitsPlatformValidation(resource)"
+            class="text-[11px] text-surface-500 mt-1"
+          >
+            {{ t('share.resources.gatewayHint') }}
+          </p>
+        </div>
+        <span class="hidden xl:block text-xs text-surface-500 shrink-0">
+          {{ formatDateTime(resource.updatedAt) }}
+        </span>
+        <div v-if="canManage" class="flex items-center gap-1 shrink-0">
+          <BaseButton
+            v-if="resource.scheme === 'ssh'"
+            variant="ghost"
+            size="sm"
+            @click="sshResource = resource"
+          >
+            <Terminal class="w-3.5 h-3.5" />{{ t('share.ssh.configure') }}
+          </BaseButton>
+          <BaseButton
+            v-else-if="(resource.status === 'pending_validation' || resource.status === 'validation_failed') && !awaitsPlatformValidation(resource)"
+            variant="ghost"
+            size="sm"
+            @click="validate(resource)"
+          >
+            <RefreshCw class="w-3.5 h-3.5" />{{ t('share.resources.validate') }}
+            <ExternalLink v-if="resource.status === 'pending_validation'" class="w-3 h-3" />
+          </BaseButton>
+          <BaseButton variant="ghost" size="sm" @click="openEdit(resource)">
+            <Pencil class="w-3.5 h-3.5" />{{ t('common.edit') }}
+          </BaseButton>
+          <BaseButton
+            v-if="neverValidated(resource) || resource.status !== 'disabled'"
+            variant="ghost"
+            size="sm"
+            @click="requestDisable(resource)"
+          >
+            <component :is="neverValidated(resource) ? Trash2 : PowerOff" class="w-3.5 h-3.5" />
+            {{ neverValidated(resource) ? t('common.delete') : t('share.resources.disable') }}
+          </BaseButton>
+        </div>
+      </li>
+    </ul>
 
-    <BaseModal
+    <ResourceFormModal
       :open="showForm"
-      :title="editing ? t('share.resources.editTitle') : t('share.resources.createTitle')"
-      size="md"
+      :schemes="creatableSchemes"
+      :fixed-scheme="scheme"
+      :editing="editing"
+      :saving="saving"
+      :error="formError"
       @close="showForm = false"
-    >
-      <div class="space-y-4">
-        <BaseSelect
-          v-if="!editing"
-          v-model="form.scheme"
-          :label="t('share.resources.scheme')"
-          :options="schemeOptions"
-        />
-        <p v-if="selectedScheme?.description" class="text-xs text-surface-500 -mt-2">
-          {{ selectedScheme.description }}
-        </p>
-        <BaseInput v-model="form.displayName" :label="t('share.resources.name')" required />
-        <BaseInput
-          v-if="!editing && !isSsh"
-          v-model="form.locator"
-          :label="t('share.resources.locator')"
-          required
-          :hint="t('share.resources.locatorHint')"
-        />
-        <p v-if="!editing && isSsh" class="text-xs text-surface-500">
-          {{ t('share.resources.sshLocatorHint') }}
-        </p>
-      </div>
-      <template #footer>
-        <BaseButton variant="ghost" @click="showForm = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="saving" :disabled="!canSave" @click="save">{{ t('common.save') }}</BaseButton>
-      </template>
-    </BaseModal>
+      @submit="save"
+    />
 
     <SshTargetDialog
       v-if="sshResource"
@@ -330,14 +290,14 @@ onMounted(() => void load());
       :resource-id="sshResource.id"
       :resource-name="sshResource.displayName"
       @close="sshResource = null"
-      @updated="load"
+      @updated="load().then(() => emit('changed'))"
     />
 
     <ConfirmDialog
       :open="showDisable"
-      :title="t('share.resources.disableTitle')"
-      :message="t('share.resources.disableMessage')"
-      :confirm-label="t('share.resources.disable')"
+      :title="selected && neverValidated(selected) ? t('share.resources.deleteTitle') : t('share.resources.disableTitle')"
+      :message="selected && neverValidated(selected) ? t('share.resources.deleteMessage') : t('share.resources.disableMessage')"
+      :confirm-label="selected && neverValidated(selected) ? t('common.delete') : t('share.resources.disable')"
       :loading="disabling"
       @confirm="disable"
       @cancel="showDisable = false"

@@ -64,6 +64,9 @@ export async function appConfigRoutes(fastify: FastifyInstance): Promise<void> {
           emailVerificationEnabled,
           showcase: config.showcase,
           resourceSharing: config.features.resourceSharing,
+          sshSharing:
+            config.features.resourceSharing &&
+            config.resources.enabledSchemes.includes("ssh"),
         });
       }
 

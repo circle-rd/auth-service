@@ -182,12 +182,12 @@ function formatDate(iso: string) {
 
       <div
         v-if="store.loading"
-        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+        class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,32rem),1fr))] gap-4"
       >
         <div
           v-for="i in 3"
           :key="i"
-          class="h-48 bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-2xl"
+          class="h-32 bg-gradient-to-r from-surface-800 via-surface-700 to-surface-800 bg-[length:200%_100%] animate-shimmer rounded-2xl"
         />
       </div>
 
@@ -204,31 +204,33 @@ function formatDate(iso: string) {
         </template>
       </EmptyState>
 
-      <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(min(100%,32rem),1fr))] gap-4">
         <div
           v-for="app in filtered"
           :key="app.id"
-          class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 hover:border-surface-600/60 transition-all duration-200 group cursor-pointer"
+          class="@container relative rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5 hover:border-surface-600/60 transition-all duration-200 group cursor-pointer"
           @click="router.push(`/applications/${app.id}`)"
         >
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-surface-800 flex items-center justify-center">
-              <img v-if="app.icon" :src="app.icon" class="w-full h-full object-cover" />
-              <span v-else class="text-sm font-bold text-surface-400">
-                {{ app.name[0].toUpperCase() }}
-              </span>
+          <div class="flex flex-col gap-4 @lg:flex-row @lg:items-start @lg:gap-6">
+            <div class="flex min-w-0 flex-1 items-start gap-3 pr-8 @lg:pr-0">
+              <div class="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-surface-800 flex items-center justify-center">
+                <img v-if="app.icon" :src="app.icon" class="w-full h-full object-cover" />
+                <span v-else class="text-sm font-bold text-surface-400">
+                  {{ app.name[0].toUpperCase() }}
+                </span>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold text-surface-200 truncate">{{ app.name }}</p>
+                <p class="text-xs font-mono text-surface-500 truncate">{{ app.slug }}</p>
+                <p v-if="app.description" class="text-xs text-surface-500 mt-1.5 line-clamp-2">
+                  {{ app.description }}
+                </p>
+              </div>
             </div>
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-semibold text-surface-200 truncate">{{ app.name }}</p>
-              <p class="text-xs font-mono text-surface-500 truncate">{{ app.slug }}</p>
-              <p v-if="app.description" class="text-xs text-surface-500 mt-1.5 line-clamp-2">
-                {{ app.description }}
-              </p>
-            </div>
-            <div class="relative shrink-0" @click.stop>
+            <div class="absolute top-3 right-3 z-10" @click.stop>
               <button
                 @click.stop="actionMenu = actionMenu === app.id ? null : app.id"
-                class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors opacity-0 group-hover:opacity-100"
+                class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100"
               >
                 <MoreHorizontal class="w-4 h-4" />
               </button>
@@ -279,59 +281,61 @@ function formatDate(iso: string) {
                 </button>
               </div>
             </div>
-          </div>
 
-          <div class="mt-4 flex flex-wrap items-center justify-end gap-1.5">
-            <BaseBadge
-              :variant="app.isActive ? 'success' : 'neutral'"
-              size="sm"
-              dot
-            >
-              {{ app.isActive ? t('common.active') : t('common.inactive') }}
-            </BaseBadge>
-            <BaseBadge variant="neutral" size="sm">
-              <component :is="app.isPublic ? Globe : Lock" class="w-3 h-3" />
-              {{ app.isPublic ? t('applications.public') : t('applications.confidential') }}
-            </BaseBadge>
-            <BaseBadge v-if="app.isMfaRequired" variant="warning" size="sm">
-              MFA
-            </BaseBadge>
-            <BaseBadge v-if="app.isSystem" variant="info" size="sm">
-              {{ t('applications.system') }}
-            </BaseBadge>
-            <BaseBadge
-              v-if="resourceSharing && app.resourceSharingEnabled"
-              variant="info"
-              size="sm"
-            >
-              <Share2 class="w-3 h-3" />
-              {{ t('applications.resourceSharing') }}
-            </BaseBadge>
-          </div>
+            <div class="space-y-2 @lg:w-64 @lg:shrink-0 @lg:pr-8 @lg:text-right">
+              <div class="flex flex-wrap items-center gap-1.5 @lg:justify-end">
+                <BaseBadge
+                  :variant="app.isActive ? 'success' : 'neutral'"
+                  size="sm"
+                  dot
+                >
+                  {{ app.isActive ? t('common.active') : t('common.inactive') }}
+                </BaseBadge>
+                <BaseBadge variant="neutral" size="sm">
+                  <component :is="app.isPublic ? Globe : Lock" class="w-3 h-3" />
+                  {{ app.isPublic ? t('applications.public') : t('applications.confidential') }}
+                </BaseBadge>
+                <BaseBadge v-if="app.isMfaRequired" variant="warning" size="sm">
+                  MFA
+                </BaseBadge>
+                <BaseBadge v-if="app.isSystem" variant="info" size="sm">
+                  {{ t('applications.system') }}
+                </BaseBadge>
+                <BaseBadge
+                  v-if="resourceSharing && app.resourceSharingEnabled"
+                  variant="info"
+                  size="sm"
+                >
+                  <Share2 class="w-3 h-3" />
+                  {{ t('applications.resourceSharing') }}
+                </BaseBadge>
+              </div>
 
-          <p class="mt-2 text-right text-xs text-surface-600">
-            {{ app.redirectUris.length }} redirect URIs · {{ formatDate(app.createdAt) }}
-          </p>
+              <p class="text-xs text-surface-600">
+                {{ app.redirectUris.length }} redirect URIs · {{ formatDate(app.createdAt) }}
+              </p>
 
-          <div class="mt-3 pt-3 border-t border-surface-800/40 flex items-center justify-between">
-            <div class="flex items-center gap-3 text-xs">
-              <span
-                class="inline-flex items-center gap-1.5"
-                :class="(activity.get(app.id)?.online ?? 0) > 0 ? 'text-emerald-400' : 'text-surface-600'"
-                :title="t('applications.activity.online')"
-              >
-                <Activity class="w-3 h-3" />
-                {{ activity.get(app.id)?.online ?? 0 }}
-              </span>
-              <span class="text-surface-500">
-                {{ activity.get(app.id)?.last7dLogins ?? 0 }} · {{ t('applications.activity.last7d') }}
-              </span>
+              <div class="flex items-center justify-between gap-3 @lg:justify-end">
+                <div class="flex items-center gap-3 text-xs">
+                  <span
+                    class="inline-flex items-center gap-1.5"
+                    :class="(activity.get(app.id)?.online ?? 0) > 0 ? 'text-emerald-400' : 'text-surface-600'"
+                    :title="t('applications.activity.online')"
+                  >
+                    <Activity class="w-3 h-3" />
+                    {{ activity.get(app.id)?.online ?? 0 }}
+                  </span>
+                  <span class="text-surface-500">
+                    {{ activity.get(app.id)?.last7dLogins ?? 0 }} · {{ t('applications.activity.last7d') }}
+                  </span>
+                </div>
+                <Sparkline
+                  :values="activity.get(app.id)?.sparkline ?? []"
+                  :width="72"
+                  :height="20"
+                />
+              </div>
             </div>
-            <Sparkline
-              :values="activity.get(app.id)?.sparkline ?? []"
-              :width="72"
-              :height="20"
-            />
           </div>
         </div>
       </div>

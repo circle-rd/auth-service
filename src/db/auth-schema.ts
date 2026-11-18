@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -10,49 +10,61 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").default(false).notNull(),
-  image: text("image"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
-  twoFactorEnabled: boolean("two_factor_enabled").default(false),
-  role: text("role"),
-  banned: boolean("banned").default(false),
-  banReason: text("ban_reason"),
-  banExpires: timestamp("ban_expires"),
-  isMfaRequired: boolean("is_mfa_required").default(false),
-  phone: text("phone"),
-  firstName: text("first_name"),
-  lastName: text("last_name"),
-  username: text("username"),
-  company: text("company"),
-  position: text("position"),
-  address: text("address"),
-  postalCode: text("postal_code"),
-  city: text("city"),
-  region: text("region"),
-  country: text("country"),
-  // Optional OpenID Connect profile claims. Kept separate from the display
-  // name so the UserInfo endpoint can return the standard claim set.
-  middleName: text("middle_name"),
-  profileUrl: text("profile_url"),
-  website: text("website"),
-  gender: text("gender"),
-  birthdate: text("birthdate"),
-  zoneinfo: text("zoneinfo"),
-  locale: text("locale"),
-  // Denormalised timestamp of the user's most recent successful login,
-  // updated by recordLogin() in src/services/login-history.ts. Allows the
-  // admin users listing to render a "last seen" column without joining the
-  // login_history table.
-  lastLoginAt: timestamp("last_login_at"),
-});
+export const user = pgTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: boolean("email_verified").default(false).notNull(),
+    image: text("image"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .notNull(),
+    twoFactorEnabled: boolean("two_factor_enabled").default(false),
+    role: text("role"),
+    banned: boolean("banned").default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires"),
+    isMfaRequired: boolean("is_mfa_required").default(false),
+    phone: text("phone"),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    username: text("username"),
+    company: text("company"),
+    position: text("position"),
+    address: text("address"),
+    postalCode: text("postal_code"),
+    city: text("city"),
+    region: text("region"),
+    country: text("country"),
+    // Optional OpenID Connect profile claims. Kept separate from the display
+    // name so the UserInfo endpoint can return the standard claim set.
+    middleName: text("middle_name"),
+    profileUrl: text("profile_url"),
+    website: text("website"),
+    gender: text("gender"),
+    birthdate: text("birthdate"),
+    zoneinfo: text("zoneinfo"),
+    locale: text("locale"),
+    // Denormalised timestamp of the user's most recent successful login,
+    // updated by recordLogin() in src/services/login-history.ts. Allows the
+    // admin users listing to render a "last seen" column without joining the
+    // login_history table.
+    lastLoginAt: timestamp("last_login_at"),
+  },
+  (table) => [
+    // `preferred_username` is an account-wide identifier: two tenants sharing a
+    // username would still collide at the resource server, so uniqueness is global
+    // and case-insensitive. Nullable rows stay allowed for accounts that never set
+    // the optional profile field.
+    uniqueIndex("user_username_lower_idx")
+      .on(sql`lower(${table.username})`)
+      .where(sql`${table.username} is not null`),
+  ],
+);
 
 export const session = pgTable(
   "session",
@@ -453,6 +465,10 @@ export const deviceCode = pgTable(
     pollingInterval: integer("polling_interval"),
     clientId: text("client_id"),
     scope: text("scope"),
+    // Added by the OAuth-provider device grant: the public client that owns
+    // the code and the resources the device may redeem it for.
+    oauthClientId: text("oauth_client_id"),
+    resources: text("resources").array(),
   },
   (table) => [
     uniqueIndex("deviceCode_deviceCode_idx").on(table.deviceCode),

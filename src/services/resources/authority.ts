@@ -10,6 +10,7 @@ import {
 import { user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import type { ResourceOwnerType, ResourceSubjectType } from "./types.js";
+import { ADMIN_ROLES, hasAnyRole } from "../roles.js";
 
 export const APP_DELEGATION_PERMISSIONS = [
   "resources:read",
@@ -41,7 +42,7 @@ export async function isPlatformAdmin(userId: string): Promise<boolean> {
     .from(userTable)
     .where(eq(userTable.id, userId))
     .limit(1);
-  return row?.role === "admin" || row?.role === "superadmin";
+  return hasAnyRole(row?.role, ADMIN_ROLES);
 }
 
 export async function isApplicationAdmin(
@@ -71,6 +72,45 @@ export async function isApplicationAdmin(
     )
     .limit(1);
   return row !== undefined;
+}
+
+/** The built-in `guest` role may receive shares but never create resources. */
+export const GUEST_ROLE = "guest";
+
+export async function isGuest(
+  userId: string,
+  applicationId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ roleId: appRoles.id })
+    .from(userAppRoles)
+    .innerJoin(
+      appRoles,
+      and(
+        eq(userAppRoles.roleId, appRoles.id),
+        eq(appRoles.applicationId, applicationId),
+      ),
+    )
+    .where(
+      and(
+        eq(userAppRoles.userId, userId),
+        eq(userAppRoles.applicationId, applicationId),
+        eq(appRoles.name, GUEST_ROLE),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/** An active member without the guest role: the only accounts that own resources. */
+export async function canOwnResources(
+  userId: string,
+  applicationId: string,
+): Promise<boolean> {
+  return (
+    (await isActiveMember(userId, applicationId)) &&
+    !(await isGuest(userId, applicationId))
+  );
 }
 
 export async function hasDelegatedPermission(
@@ -187,9 +227,11 @@ export async function assertCanManageResource(
 }
 
 /**
- * A standard owner or `grants:manage` delegate may only share with an existing
- * member of the resource application. Organisations, plans, everyone and
- * non-members require an application admin, who can add the recipient.
+ * An owner shares a personal resource with existing members one by one.
+ * Administrators and delegates never grant on a personal resource: they are
+ * not its recipients, so they cannot add themselves. An application-owned
+ * resource is granted by application admins (any subject) and `grants:manage`
+ * delegates (existing members only).
  */
 export async function canGrantToSubject(
   userId: string,
@@ -197,19 +239,18 @@ export async function canGrantToSubject(
   subjectType: ResourceSubjectType,
   subjectId: string | null,
 ): Promise<boolean> {
-  if (await isPlatformAdmin(userId)) return true;
-  if (await isApplicationAdmin(userId, resource.applicationId)) return true;
-
-  const isOwner =
-    resource.ownerType === "user" &&
-    resource.ownerId === userId &&
-    (await isActiveMember(userId, resource.applicationId));
-  const delegated = await hasDelegatedPermission(
-    userId,
-    resource.applicationId,
-    "grants:manage",
-  );
-  if (!isOwner && !delegated) return false;
+  if (resource.ownerType === "user") {
+    if (resource.ownerId !== userId) return false;
+    if (!(await canOwnResources(userId, resource.applicationId))) return false;
+  } else {
+    if (await isApplicationAdmin(userId, resource.applicationId)) return true;
+    const delegated = await hasDelegatedPermission(
+      userId,
+      resource.applicationId,
+      "grants:manage",
+    );
+    if (!delegated) return false;
+  }
   if (subjectType !== "user" || subjectId === null) return false;
   return isActiveMember(subjectId, resource.applicationId);
 }
@@ -219,13 +260,11 @@ export async function canManageGrants(
   userId: string,
   resource: ResourceAuthorityRow,
 ): Promise<boolean> {
-  if (await isPlatformAdmin(userId)) return true;
-  if (
-    resource.ownerType === "user" &&
-    resource.ownerId === userId &&
-    (await isActiveMember(userId, resource.applicationId))
-  ) {
-    return true;
+  if (resource.ownerType === "user") {
+    return (
+      resource.ownerId === userId &&
+      (await isActiveMember(userId, resource.applicationId))
+    );
   }
   if (await isApplicationAdmin(userId, resource.applicationId)) return true;
   return hasDelegatedPermission(

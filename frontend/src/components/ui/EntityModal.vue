@@ -79,14 +79,16 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
             </button>
 
             <div class="flex items-start gap-4 sm:gap-5 px-4 sm:px-6 pt-6 pb-5 border-b border-surface-800/60 bg-surface-950/40 shrink-0">
-              <EntityIcon
-                :icon-url="iconUrl"
-                :letter="iconLetter"
-                :name="name"
-                :color="iconColor"
-                :shape="iconShape"
-                class="w-14 sm:w-16 h-14 sm:h-16"
-              />
+              <slot name="icon">
+                <EntityIcon
+                  :icon-url="iconUrl"
+                  :letter="iconLetter"
+                  :name="name"
+                  :color="iconColor"
+                  :shape="iconShape"
+                  class="w-14 sm:w-16 h-14 sm:h-16"
+                />
+              </slot>
 
               <div class="flex-1 min-w-0 pt-0.5">
                 <h2 class="text-lg sm:text-xl font-bold text-surface-50 leading-tight truncate">

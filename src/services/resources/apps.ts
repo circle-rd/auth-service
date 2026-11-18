@@ -13,7 +13,7 @@ import { ERR } from "../../errors.js";
 import { assignDefaultRoleIfNeeded } from "../claims.js";
 import { publishEvent } from "../event-bus.js";
 import { assignDefaultPlanIfNeeded } from "../subscriptions.js";
-import { assertAppAdmin } from "./authority.js";
+import { assertAppAdmin, GUEST_ROLE, isApplicationAdmin } from "./authority.js";
 import type { AppDelegationPermission } from "./authority.js";
 
 export const OWNER_PERMISSIONS: readonly AppDelegationPermission[] = [
@@ -26,6 +26,7 @@ export interface OwnerApplicationSummary {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   url: string | null;
   icon: string | null;
   permissions: AppDelegationPermission[];
@@ -36,17 +37,20 @@ export interface MemberApplicationSummary {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   icon: string | null;
+  canCreate: boolean;
 }
 
 export async function listMemberApplications(
   userId: string,
 ): Promise<MemberApplicationSummary[]> {
-  return db
+  const rows = await db
     .select({
       id: applications.id,
       name: applications.name,
       slug: applications.slug,
+      description: applications.description,
       icon: applications.icon,
     })
     .from(userApplications)
@@ -63,6 +67,24 @@ export async function listMemberApplications(
       ),
     )
     .orderBy(asc(applications.name));
+  if (rows.length === 0) return [];
+
+  const guestRows = await db
+    .select({ applicationId: appRoles.applicationId })
+    .from(userAppRoles)
+    .innerJoin(appRoles, eq(userAppRoles.roleId, appRoles.id))
+    .where(
+      and(
+        eq(userAppRoles.userId, userId),
+        eq(appRoles.name, GUEST_ROLE),
+        inArray(
+          appRoles.applicationId,
+          rows.map((row) => row.id),
+        ),
+      ),
+    );
+  const guestIn = new Set(guestRows.map((row) => row.applicationId));
+  return rows.map((row) => ({ ...row, canCreate: !guestIn.has(row.id) }));
 }
 
 export async function listOwnerApplications(
@@ -73,6 +95,7 @@ export async function listOwnerApplications(
       id: applications.id,
       name: applications.name,
       slug: applications.slug,
+      description: applications.description,
       url: applications.url,
       icon: applications.icon,
     })
@@ -102,6 +125,7 @@ export async function listOwnerApplications(
       id: applications.id,
       name: applications.name,
       slug: applications.slug,
+      description: applications.description,
       url: applications.url,
       icon: applications.icon,
       permission: appDelegations.permission,
@@ -147,6 +171,7 @@ export async function listOwnerApplications(
       id: row.id,
       name: row.name,
       slug: row.slug,
+      description: row.description,
       url: row.url,
       icon: row.icon,
       permissions: [row.permission as AppDelegationPermission],
@@ -159,7 +184,8 @@ export async function listOwnerApplications(
 export interface OwnerApplicationMember {
   userId: string;
   name: string;
-  email: string;
+  // Null for a delegate who does not administer the application.
+  email: string | null;
   isActive: boolean;
   roles: string[];
 }
@@ -177,7 +203,12 @@ export interface OwnerMemberPage {
 export async function listOwnerMembers(
   ownerApplicationId: string,
   query: OwnerMemberQuery,
+  viewerUserId: string,
 ): Promise<OwnerMemberPage> {
+  const includeEmail = await isApplicationAdmin(
+    viewerUserId,
+    ownerApplicationId,
+  );
   // Page on distinct users first: a user with several roles must not consume
   // several rows of the limit.
   const userPage = await db
@@ -233,7 +264,7 @@ export async function listOwnerMembers(
     byUser.set(row.userId, {
       userId: row.userId,
       name: "",
-      email: "",
+      email: null,
       isActive: row.isActive,
       roles: row.role ? [row.role] : [],
     });
@@ -243,7 +274,7 @@ export async function listOwnerMembers(
     const member = byUser.get(row.userId);
     if (!member) continue;
     member.name = row.name;
-    member.email = row.email;
+    member.email = includeEmail ? row.email : null;
     members.push(member);
   }
   return { members, hasMore };
@@ -272,10 +303,7 @@ export async function listOwnerPlans(
 }
 
 export interface AddedApplicationMember {
-  userId: string;
-  name: string;
   email: string;
-  created: boolean;
   applicationName: string;
   applicationSlug: string;
 }
@@ -284,20 +312,25 @@ export interface AddedApplicationMember {
  * Application admins add an existing AuthService account to the resource
  * application. Default role and plan use the same post-commit path as an
  * invitation, so the two membership routes cannot diverge.
+ *
+ * Returns null when nothing was added (unknown account, or a membership that
+ * already exists, active or suspended): the caller answers the same either
+ * way, so the call discloses nothing about the account, and a suspension set
+ * by a platform administrator is never lifted from here.
  */
 export async function addExistingUserToApplication(
   actorUserId: string,
   applicationId: string,
   email: string,
-): Promise<AddedApplicationMember> {
+): Promise<AddedApplicationMember | null> {
   await assertAppAdmin(actorUserId, applicationId);
   const normalized = email.trim().toLowerCase();
   const [user] = await db
-    .select({ id: userTable.id, name: userTable.name, email: userTable.email })
+    .select({ id: userTable.id, email: userTable.email })
     .from(userTable)
     .where(eq(userTable.email, normalized))
     .limit(1);
-  if (!user) throw ERR.AUTH_013();
+  if (!user) return null;
   const [app] = await db
     .select({ name: applications.name, slug: applications.slug })
     .from(applications)
@@ -312,31 +345,13 @@ export async function addExistingUserToApplication(
       target: [userApplications.userId, userApplications.applicationId],
     })
     .returning({ id: userApplications.id });
-  const created = inserted.length > 0;
-  if (!created) {
-    // A concurrent request may have created the row, or reactivated it.
-    await db
-      .update(userApplications)
-      .set({ isActive: true })
-      .where(
-        and(
-          eq(userApplications.userId, user.id),
-          eq(userApplications.applicationId, applicationId),
-          eq(userApplications.isActive, false),
-        ),
-      );
-  }
+  if (inserted.length === 0) return null;
 
-  if (created) {
-    await assignDefaultRoleIfNeeded(user.id, applicationId);
-    await assignDefaultPlanIfNeeded(user.id, applicationId);
-    publishEvent("user.changed");
-  }
+  await assignDefaultRoleIfNeeded(user.id, applicationId);
+  await assignDefaultPlanIfNeeded(user.id, applicationId);
+  publishEvent("user.changed");
   return {
-    userId: user.id,
-    name: user.name,
     email: user.email,
-    created,
     applicationName: app.name,
     applicationSlug: app.slug,
   };

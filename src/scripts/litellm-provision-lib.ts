@@ -98,12 +98,7 @@ interface Probe {
   method: "GET" | "POST";
   path: string;
   body?: unknown;
-  /**
-   * "allowed" accepts any non-forbidden answer below 500: a validation error
-   * still proves the route reached the handler, while 401/403 proves the key
-   * cannot use it.
-   */
-  expect: number | "allowed";
+  expect: number;
 }
 
 interface KeySpec {
@@ -112,9 +107,28 @@ interface KeySpec {
   alias: string;
   role: string;
   routes: readonly string[];
-  probes: readonly Probe[];
+  verifyScope: (env: ProvisionEnv, key: string) => Promise<boolean>;
   scopeFailure: string;
 }
+
+const INVENTORY_PROBES: readonly Probe[] = [
+  { method: "GET", path: "/v1/models", expect: 200 },
+  { method: "GET", path: "/v1/agents", expect: 200 },
+  { method: "GET", path: "/v1/mcp/server", expect: 200 },
+  {
+    method: "POST",
+    path: "/v1/mcp/server",
+    expect: 403,
+    body: { server_name: "probe", url: "http://127.0.0.1" },
+  },
+  {
+    method: "POST",
+    path: "/team/new",
+    expect: 403,
+    body: { team_alias: "probe" },
+  },
+  { method: "POST", path: "/key/generate", expect: 403, body: {} },
+];
 
 const INVENTORY_SPEC: KeySpec = {
   label: "inventory",
@@ -122,26 +136,30 @@ const INVENTORY_SPEC: KeySpec = {
   alias: INVENTORY_KEY_ALIAS,
   role: "proxy_admin_viewer",
   routes: INVENTORY_ROUTES,
-  probes: [
-    { method: "GET", path: "/v1/models", expect: 200 },
-    { method: "GET", path: "/v1/agents", expect: 200 },
-    { method: "GET", path: "/v1/mcp/server", expect: 200 },
-    {
-      method: "POST",
-      path: "/v1/mcp/server",
-      expect: 403,
-      body: { server_name: "probe", url: "http://127.0.0.1" },
-    },
-    {
-      method: "POST",
-      path: "/team/new",
-      expect: 403,
-      body: { team_alias: "probe" },
-    },
-    { method: "POST", path: "/key/generate", expect: 403, body: {} },
-  ],
+  verifyScope: (env, key) => scopeMatches(env, key, INVENTORY_PROBES),
   scopeFailure: "does not enforce its read-only inventory scope",
 };
+
+// Reserved probe name: the model management check owns and removes these rows.
+const RELAY_PROBE_MODEL = "relay-key-probe";
+const RELAY_PROBE_DEPLOYMENT = {
+  model_name: RELAY_PROBE_MODEL,
+  litellm_params: {
+    model: "openai/gpt-4o",
+    api_key: "relay-probe-placeholder",
+  },
+};
+
+const RELAY_NEGATIVE_PROBES: readonly Probe[] = [
+  { method: "POST", path: "/key/generate", expect: 403, body: {} },
+  {
+    method: "POST",
+    path: "/team/new",
+    expect: 403,
+    body: { team_alias: "probe" },
+  },
+  { method: "GET", path: "/key/info", expect: 403 },
+];
 
 const RELAY_SPEC: KeySpec = {
   label: "relay",
@@ -149,24 +167,105 @@ const RELAY_SPEC: KeySpec = {
   alias: RELAY_KEY_ALIAS,
   role: "proxy_admin",
   routes: RELAY_ROUTES,
-  probes: [
-    { method: "GET", path: "/model/info", expect: 200 },
-    { method: "POST", path: "/model/new", expect: "allowed", body: {} },
-    { method: "POST", path: "/model/delete", expect: "allowed", body: {} },
-    { method: "POST", path: "/key/generate", expect: 403, body: {} },
-    { method: "POST", path: "/team/new", expect: 403, body: {} },
-    { method: "GET", path: "/key/info", expect: 403 },
-  ],
+  verifyScope: relayScopeMatches,
   scopeFailure: "does not enforce its relay management scope",
 };
 
-function probeMatches(probe: Probe, answer: { status: number }): boolean {
-  if (probe.expect === "allowed") {
-    return (
-      answer.status < 500 && answer.status !== 401 && answer.status !== 403
-    );
+const modelInfoSchema = z
+  .object({
+    data: z.array(
+      z
+        .object({
+          model_name: z.string(),
+          model_info: z.object({ id: z.string().min(1) }).optional(),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
+interface ModelInfoEntry {
+  model_name: string;
+  model_info?: { id: string };
+}
+
+function parseModelInfo(text: string): ModelInfoEntry[] | null {
+  try {
+    const parsed = modelInfoSchema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data.data : null;
+  } catch {
+    return null;
   }
-  return answer.status === probe.expect;
+}
+
+async function listModels(
+  env: ProvisionEnv,
+  key: string,
+): Promise<ModelInfoEntry[] | null> {
+  const answer = await gatewayCall(env, key, "GET", "/model/info");
+  if (answer.status !== 200) return null;
+  return parseModelInfo(answer.text);
+}
+
+function probeDeployments(entries: readonly ModelInfoEntry[]): string[] | null {
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (entry.model_name !== RELAY_PROBE_MODEL) continue;
+    const id = entry.model_info?.id;
+    if (!id) return null;
+    ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * LiteLLM answers 500 on POST /model/new when litellm_params is incomplete, so
+ * a status-only probe cannot tell a broken handler from a missing route. The
+ * relay check therefore creates a throwaway deployment and removes it by id,
+ * including any copy a failed earlier run left behind.
+ */
+async function cleanupProbeDeployments(
+  env: ProvisionEnv,
+  key: string,
+): Promise<boolean> {
+  const entries = await listModels(env, key);
+  if (!entries) return false;
+  const ids = probeDeployments(entries);
+  if (!ids) return false;
+  if (ids.length === 0) return true;
+
+  for (const id of ids) {
+    const deleted = await gatewayCall(env, key, "POST", "/model/delete", {
+      id,
+    });
+    if (deleted.status !== 200 && deleted.status !== 404) return false;
+  }
+
+  const remaining = await listModels(env, key);
+  if (!remaining) return false;
+  return probeDeployments(remaining)?.length === 0;
+}
+
+async function relayScopeMatches(
+  env: ProvisionEnv,
+  key: string,
+): Promise<boolean> {
+  if (!(await cleanupProbeDeployments(env, key))) return false;
+
+  const created = await gatewayCall(
+    env,
+    key,
+    "POST",
+    "/model/new",
+    RELAY_PROBE_DEPLOYMENT,
+  );
+  if (created.status !== 200) {
+    await cleanupProbeDeployments(env, key);
+    return false;
+  }
+  if (!(await cleanupProbeDeployments(env, key))) return false;
+
+  return scopeMatches(env, key, RELAY_NEGATIVE_PROBES);
 }
 
 async function scopeMatches(
@@ -182,7 +281,7 @@ async function scopeMatches(
       probe.path,
       probe.body,
     );
-    if (!probeMatches(probe, answer)) return false;
+    if (answer.status !== probe.expect) return false;
   }
   return true;
 }
@@ -251,13 +350,13 @@ async function provisionKey(
   keyFile: string,
 ): Promise<ProvisionOutcome> {
   const existing = readFileOrNull(keyFile)?.trim();
-  if (existing && (await scopeMatches(env, existing, spec.probes))) {
+  if (existing && (await spec.verifyScope(env, existing))) {
     return "kept";
   }
 
   const masterKey = masterKeyOf(env);
   const key = await issueKey(env, masterKey, spec);
-  if (!(await scopeMatches(env, key, spec.probes))) {
+  if (!(await spec.verifyScope(env, key))) {
     // Fail closed: a key wider than its requested allowlist must not be kept.
     await gatewayCall(env, masterKey, "POST", "/key/delete", {
       key_aliases: [spec.alias],

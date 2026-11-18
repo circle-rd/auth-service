@@ -333,7 +333,9 @@ CREATE TABLE "device_code" (
 	"last_polled_at" timestamp,
 	"polling_interval" integer,
 	"client_id" text,
-	"scope" text
+	"scope" text,
+	"oauth_client_id" text,
+	"resources" text[]
 );
 --> statement-breakpoint
 CREATE TABLE "invitation" (
@@ -935,6 +937,7 @@ CREATE INDEX "passkey_credentialID_idx" ON "passkey" USING btree ("credential_id
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "twoFactor_secret_idx" ON "two_factor" USING btree ("secret");--> statement-breakpoint
 CREATE INDEX "twoFactor_userId_idx" ON "two_factor" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "user_username_lower_idx" ON "user" USING btree (lower("username")) WHERE "user"."username" is not null;--> statement-breakpoint
 CREATE INDEX "verification_identifier_idx" ON "verification" USING btree ("identifier");--> statement-breakpoint
 CREATE INDEX "application_schemes_scheme_idx" ON "application_schemes" USING btree ("scheme");--> statement-breakpoint
 CREATE INDEX "resource_access_events_occurred_idx" ON "resource_access_events" USING btree ("occurred_at");--> statement-breakpoint

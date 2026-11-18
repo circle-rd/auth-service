@@ -46,6 +46,7 @@ import {
   profileFieldsSchema,
   profileUpdateSet,
 } from "../profile-fields.js";
+import { assertUsernameAvailable } from "../../services/usernames.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = profileFieldsSchema.extend({
@@ -359,6 +360,14 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       .where(eq(userTable.id, req.params.id))
       .limit(1);
     if (!targetRow) throw ERR.USR_001();
+
+    if (parsed.data.username) {
+      try {
+        await assertUsernameAvailable(parsed.data.username, req.params.id);
+      } catch {
+        throw ERR.USR_003("Username is already taken");
+      }
+    }
 
     const callerRole = await getCallerRole(req);
     const targetRole = targetRow.role ?? "user";

@@ -10,6 +10,8 @@ export const NATIVE_SCOPES = [
   "permissions",
   "features",
   "wallet:self:read",
+  // Authorises opening a reverse tunnel to the relay (reverse-agent).
+  "tunnel:serve",
   // Injects org_id (activeOrganizationId) in the access token. Clients that
   // need org-scoped data request it with `resource=<audience>` to get a JWT.
   "org",

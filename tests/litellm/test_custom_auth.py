@@ -112,6 +112,11 @@ class ClientRoutePolicy(unittest.TestCase):
 
 
 class EntitlementIdentity(unittest.TestCase):
+    def test_accepts_eddsa_and_es256_tokens(self) -> None:
+        self.assertIn("EdDSA", custom_auth.ALGORITHMS)
+        self.assertIn("ES256", custom_auth.ALGORITHMS)
+        self.assertEqual(custom_auth.AUDIENCES, ["https://llm.test"])
+
     def test_entitlements_become_a_key_object_permission(self) -> None:
         entitlements = Entitlements(
             models=("gpt-x", "claude-x"),
@@ -132,8 +137,12 @@ class EntitlementIdentity(unittest.TestCase):
                 ),
             ),
         )
-        identity = custom_auth._identity({"sub": "user-1", "azp": "acme"}, entitlements)
+        identity = custom_auth._identity(
+            {"sub": "user-1", "azp": "acme", "preferred_username": "alice"},
+            entitlements,
+        )
         self.assertEqual(identity.models, ["gpt-x", "claude-x"])
+        self.assertEqual(identity.metadata["preferredUsername"], "alice")
         self.assertIsNone(identity.team_id)
         permission = identity.object_permission
         self.assertIsNotNone(permission)

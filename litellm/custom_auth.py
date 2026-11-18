@@ -57,10 +57,15 @@ def _required_env(name: str) -> str:
 
 JWKS_URL = _required_env("JWT_PUBLIC_KEY_URL")
 ISSUER = _required_env("JWT_ISSUER")
-AUDIENCE = _required_env("JWT_AUDIENCE")
+# Comma-separated so a gateway can also accept tokens minted for another
+# auth-service resource, such as the reverse relay, without losing its own
+# audience check.
+AUDIENCES = [
+    value.strip() for value in _required_env("JWT_AUDIENCE").split(",") if value.strip()
+]
 MASTER_KEY = _required_env("LITELLM_MASTER_KEY")
 _required_env("LITELLM_SALT_KEY")
-ALGORITHMS = ["ES256", "RS256"]
+ALGORITHMS = ["EdDSA", "ES256", "RS256"]
 REFRESH_COOLDOWN_S = 30
 
 # An empty LiteLLM model allowlist means "all models". A non-existent sentinel
@@ -173,6 +178,7 @@ def _identity(claims: dict, entitlements: Entitlements) -> UserAPIKeyAuth:
         object_permission=_permission(entitlements),
         metadata={
             "azp": client_id,
+            "preferredUsername": str(claims.get("preferred_username", "")),
             ENTITLEMENTS_METADATA_KEY: {
                 "models": list(entitlements.models),
                 "agents": list(entitlements.agents),
@@ -206,7 +212,7 @@ async def user_api_key_auth(
             api_key,
             key.key,
             algorithms=ALGORITHMS,
-            audience=AUDIENCE,
+            audience=AUDIENCES,
             issuer=ISSUER,
             options={"require": ["exp", "iss", "aud", "sub", "azp"]},
         )

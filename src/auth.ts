@@ -14,7 +14,10 @@ import {
   deviceAuthorization,
 } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
-import { oauthProvider } from "@better-auth/oauth-provider";
+import {
+  oauthDeviceAuthorization,
+  oauthProvider,
+} from "@better-auth/oauth-provider";
 import { db } from "./db/index.js";
 import * as customSchema from "./db/schema.js";
 import * as authSchema from "./db/auth-schema.js";
@@ -811,9 +814,15 @@ export const auth = betterAuth({
           } as Parameters<typeof captcha>[0]),
         ]
       : []),
-    ...(config.features.deviceAuthorization
-      ? [deviceAuthorization({ verificationUri: "/device" })]
-      : []),
+    // RFC 8628. The OAuth variant issues provider tokens (JWT + rotating
+    // refresh token) through /oauth2/token; the first-party variant issues a
+    // session through /device/token. Both install the same plugin, so config.ts
+    // rejects enabling both.
+    ...(config.features.oauthDeviceGrant
+      ? [oauthDeviceAuthorization({ verificationUri: "/device" })]
+      : config.features.deviceAuthorization
+        ? [deviceAuthorization({ verificationUri: "/device" })]
+        : []),
     // Organization support — only admins/superadmins can create orgs via admin API.
     // Regular users can be members of orgs but cannot create them.
     organization({

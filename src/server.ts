@@ -573,7 +573,10 @@ export async function buildServer(
 
   // ── Device authorization approval page (RFC 8628, opt-in) ───────
   fastify.get("/device", async (req, reply) => {
-    if (!config.features.deviceAuthorization) {
+    if (
+      !config.features.deviceAuthorization &&
+      !config.features.oauthDeviceGrant
+    ) {
       return reply
         .status(404)
         .send({ error: { code: "SRV_001", message: "Not found" } });
@@ -694,7 +697,8 @@ export async function buildServer(
       }
     }
     if (
-      config.features.deviceAuthorization &&
+      (config.features.deviceAuthorization ||
+        config.features.oauthDeviceGrant) &&
       DEVICE_RATE_PATHS.some(
         (p) => urlPath === p || urlPath.startsWith(p + "/"),
       )

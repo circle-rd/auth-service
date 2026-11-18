@@ -158,6 +158,13 @@ describe("getUserClaims", () => {
     });
   });
 
+  it("canonicalises the preferred_username claim", async () => {
+    const claims = await getUserClaims("user-1", "client-1", ["profile"], {
+      username: "Alice_01",
+    });
+    expect(claims.preferred_username).toBe("alice_01");
+  });
+
   it("only emits phone claims when a phone number exists", async () => {
     const withPhone = await getUserClaims("user-1", "client-1", ["phone"], {
       phone: "+33612345678",

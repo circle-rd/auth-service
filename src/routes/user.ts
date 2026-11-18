@@ -26,6 +26,7 @@ import { listInvoices } from "../services/billing/invoices.js";
 import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
+import { assertUsernameAvailable } from "../services/usernames.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
 import { mutateUserAndRefreshSnapshots } from "../services/session-snapshot.js";
 import { revokeOtherUserRefreshTokens } from "../services/oauth-tokens.js";
@@ -495,6 +496,13 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     const parsed = updateProfileSchema.safeParse(req.body);
     if (!parsed.success) {
       throw ERR.USR_003("Invalid profile data", parsed.error.flatten());
+    }
+    if (parsed.data.username) {
+      try {
+        await assertUsernameAvailable(parsed.data.username, userId);
+      } catch {
+        throw ERR.USR_003("Username is already taken");
+      }
     }
 
     await mutateUserAndRefreshSnapshots(

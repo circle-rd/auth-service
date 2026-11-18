@@ -85,7 +85,20 @@ export const profileFieldsSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   firstName: nullableText(100),
   lastName: nullableText(100),
-  username: nullableText(50),
+  // Normalised to lowercase because it becomes the OAuth preferred_username
+  // claim, which resource servers key by. The same alphabet as a client id
+  // keeps the claim usable by the reverse relay.
+  username: z
+    .string()
+    .trim()
+    .min(2)
+    .max(63)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, {
+      message: "Use 2-63 letters, digits, underscores or hyphens",
+    })
+    .transform((value) => value.toLowerCase())
+    .nullable()
+    .optional(),
   phone: z.string().max(30).nullable().optional(),
   company: z.string().max(100).nullable().optional(),
   position: z.string().max(100).nullable().optional(),

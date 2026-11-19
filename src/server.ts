@@ -606,6 +606,7 @@ export async function buildServer(
           redirectTo: "",
           appSlug: "",
           authUrl: config.betterAuth.url,
+          sessionEmail: session.user.email,
         },
         null,
         config.templatesDir,

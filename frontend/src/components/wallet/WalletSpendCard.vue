@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ChevronDown, ChevronUp } from '@lucide/vue';
 import SpendChart from '@/components/wallet/SpendChart.vue';
 import type { SpendChartSeries } from '@/components/wallet/SpendChart.vue';
-import SpendBreakdown from '@/components/wallet/SpendBreakdown.vue';
+import SpendDetails from '@/components/wallet/SpendDetails.vue';
 import { useMoney } from '@/composables/useMoney';
 import { modelColor } from '@/utils/chartPalette';
 import type { UserSpendStats } from '@/types/wallet';
@@ -49,7 +48,6 @@ const datasets = computed<SpendChartSeries[]>(() => {
 });
 
 const useStacks = computed(() => datasets.value.length > 0);
-const detailsOpen = ref(false);
 </script>
 
 <template>
@@ -81,18 +79,7 @@ const detailsOpen = ref(false);
     </SpendChart>
 
     <div v-if="stats && stats.calls > 0" class="mt-6 pt-6 border-t border-surface-700/40">
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 text-xs font-medium text-surface-400 hover:text-surface-200 transition-colors"
-        :aria-expanded="detailsOpen"
-        @click="detailsOpen = !detailsOpen"
-      >
-        <component :is="detailsOpen ? ChevronUp : ChevronDown" class="w-3.5 h-3.5" />
-        {{ t('wallet.spend.details') }}
-      </button>
-      <SpendBreakdown
-        v-if="detailsOpen"
-        class="mt-4"
+      <SpendDetails
         :by-application="stats.byApplication"
         :by-kind="stats.byKind"
         :by-model="stats.byModel"

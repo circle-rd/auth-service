@@ -9,7 +9,7 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SpendChart from '@/components/wallet/SpendChart.vue';
-import SpendBreakdown from '@/components/wallet/SpendBreakdown.vue';
+import SpendDetails from '@/components/wallet/SpendDetails.vue';
 import PricingCard from '@/components/wallet/PricingCard.vue';
 import { getWalletStats, listWallets } from '@/api/wallet';
 import { useAdminEvents } from '@/composables/useAdminEvents';
@@ -152,7 +152,7 @@ function formatDate(iso: string): string {
             <template #empty>{{ t('wallet.spend.none') }}</template>
           </SpendChart>
           <div v-if="stats && stats.spend.calls > 0" class="mt-6 pt-6 border-t border-surface-700/40">
-            <SpendBreakdown :by-application="stats.byApplication" :by-kind="stats.byKind" :by-model="stats.byModel" />
+            <SpendDetails :by-application="stats.byApplication" :by-kind="stats.byKind" :by-model="stats.byModel" />
           </div>
         </div>
 

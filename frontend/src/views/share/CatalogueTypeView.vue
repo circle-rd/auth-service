@@ -18,6 +18,7 @@ const store = useCatalogueStore();
 const appId = computed(() => String(route.params.appId));
 const schemeName = computed(() => String(route.params.scheme));
 const overview = computed(() => store.overviews[appId.value] ?? null);
+const app = computed(() => store.byId.get(appId.value) ?? null);
 const scheme = computed(
   () => overview.value?.schemes.find((entry) => entry.scheme === schemeName.value) ?? null,
 );
@@ -33,7 +34,11 @@ const shared = computed(
 // Gateway objects are declared by the application's administrators, not by members.
 const gatewayManaged = computed(() => scheme.value?.adapter === 'litellm');
 const canCreate = computed(() => store.byId.get(appId.value)?.canCreate ?? false);
-const userCreatable = computed(() => !gatewayManaged.value && canCreate.value);
+const isAppAdmin = computed(() => app.value?.owner?.isAdmin === true);
+const userCreatable = computed(() =>
+  gatewayManaged.value ? isAppAdmin.value && canCreate.value : canCreate.value,
+);
+const showMine = computed(() => userCreatable.value || mine.value.length > 0);
 
 // A type that is not enabled for this application has no page.
 watch(
@@ -73,13 +78,15 @@ function refresh() {
 
     <SshIdentityBanner v-if="scheme.scheme === 'ssh'" />
 
-    <section v-if="userCreatable" class="space-y-3">
+    <section v-if="showMine" class="space-y-3">
       <h2 class="text-sm font-semibold text-surface-200">{{ t('share.catalogue.type.created') }}</h2>
       <SharedResourcesPanel
         :key="scheme.scheme"
         :app-id="appId"
         scope="mine"
         :scheme="scheme.scheme"
+        :allow-gateway="isAppAdmin"
+        :can-create="userCreatable"
         can-manage
         can-read
         @changed="refresh"

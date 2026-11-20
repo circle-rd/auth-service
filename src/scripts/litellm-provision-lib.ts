@@ -12,6 +12,7 @@ export const INVENTORY_KEY_ALIAS = "auth-service-inventory";
 /** Path-only allowlist (LiteLLM does not filter allowed_routes by method). */
 export const INVENTORY_ROUTES = [
   "/v1/models",
+  "/model/info",
   "/v1/agents",
   "/v1/mcp/server",
 ] as const;
@@ -113,6 +114,7 @@ interface KeySpec {
 
 const INVENTORY_PROBES: readonly Probe[] = [
   { method: "GET", path: "/v1/models", expect: 200 },
+  { method: "GET", path: "/model/info", expect: 200 },
   { method: "GET", path: "/v1/agents", expect: 200 },
   { method: "GET", path: "/v1/mcp/server", expect: 200 },
   {

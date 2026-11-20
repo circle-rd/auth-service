@@ -14,8 +14,12 @@ import {
   listOwnerMembers,
   listOwnerPlans,
 } from "../services/resources/apps.js";
-import { assertActiveMember } from "../services/resources/authority.js";
+import {
+  assertActiveMember,
+  isApplicationAdmin,
+} from "../services/resources/authority.js";
 import { listGrantsForApplication } from "../services/resources/grants.js";
+import { listModelCandidates } from "../services/resources/model-candidates.js";
 import {
   buildResourceInvitationUrl,
   createResourceInvitation,
@@ -234,6 +238,38 @@ export async function appResourceRoutes(
       metadata: body.metadata,
     });
     await reply.status(201).send({ resource });
+  });
+
+  fastify.get("/apps/:appId/model-candidates/managed", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    if (!(await isApplicationAdmin(userId, appId))) {
+      await assertActiveMember(userId, appId);
+    }
+    await reply.send({
+      models: await listModelCandidates({
+        appId,
+        userId,
+        source: "managed",
+      }),
+    });
+  });
+
+  fastify.get("/apps/:appId/model-candidates/native", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    if (!(await isApplicationAdmin(userId, appId))) {
+      await assertActiveMember(userId, appId);
+    }
+    await reply.send({
+      models: await listModelCandidates({
+        appId,
+        userId,
+        source: "native",
+      }),
+    });
   });
 
   fastify.get("/apps/:appId/schemes", async (req, reply) => {

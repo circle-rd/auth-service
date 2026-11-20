@@ -8,6 +8,7 @@ import type { DbExecutor } from "../credential-user.js";
 import {
   assertCanManageResource,
   isActiveMember,
+  isApplicationAdmin,
   isGuest,
 } from "./authority.js";
 import { assertSchemeEnabledForApplication } from "./scheme-service.js";
@@ -107,13 +108,19 @@ export async function createResource(
     .limit(1);
   if (!app) throw ERR.RES_004();
   if (adapterForScheme(input.scheme) === "litellm") {
-    // The gateway inventory is platform-wide and proves no ownership: only the
-    // application may declare its own objects, under its own slug.
-    if (input.ownerType !== "application") {
-      throw ERR.RES_001("Gateway resources belong to the application");
-    }
     if (locator.split("/")[0] !== app.slug) {
       throw ERR.RES_005("The locator must start with the application slug");
+    }
+    // Gateway ownership metadata now makes personal model resources safe: an
+    // application administrator may declare one for their own catalogue, while
+    // application-owned resources stay available to delegates.
+    if (
+      input.ownerType === "user" &&
+      !(await isApplicationAdmin(input.ownerId, input.applicationId))
+    ) {
+      throw ERR.RES_001(
+        "Only an application administrator declares a personal gateway resource",
+      );
     }
   }
 

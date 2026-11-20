@@ -1459,6 +1459,15 @@ export default {
       createTitle: 'Créer une ressource',
       locator: 'Identifiant',
       locatorImmutable: 'L’identifiant ne peut plus changer une fois la ressource créée.',
+      model: 'Modèle',
+      modelsLoading: 'Chargement des modèles…',
+      modelsPlaceholder: 'Sélectionner un modèle',
+      modelsEmpty: 'Aucun modèle disponible. Les modèles créés dans la passerelle apparaissent après la prochaine synchronisation de l’inventaire.',
+      modelOwned: 'Vous appartient',
+      modelSources: {
+        managed: 'Appris par reverse-relay',
+        native: 'Configuré dans la passerelle',
+      },
       locatorHints: {
         llm: 'Slug de l’application, puis nom du modèle tel que déclaré dans la passerelle.',
         agent: 'Slug de l’application, puis nom de l’agent tel que déclaré dans la passerelle.',

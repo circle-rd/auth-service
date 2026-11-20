@@ -18,6 +18,8 @@ const {
   mockListSharingApps,
   mockAssertActiveMember,
   mockIsPlatformAdmin,
+  mockIsApplicationAdmin,
+  mockListModelCandidates,
   mockAssertCanManage,
   mockAssertCanManageGrants,
   mockCreateGrant,
@@ -62,6 +64,8 @@ const {
   mockListSharingApps: vi.fn(),
   mockAssertActiveMember: vi.fn(),
   mockIsPlatformAdmin: vi.fn(),
+  mockIsApplicationAdmin: vi.fn(),
+  mockListModelCandidates: vi.fn(),
   mockAssertCanManage: vi.fn(),
   mockAssertCanManageGrants: vi.fn(),
   mockCreateGrant: vi.fn(),
@@ -121,6 +125,7 @@ vi.mock("../services/resources/authority.js", () => ({
   assertCanManageResource: mockAssertCanManage,
   assertCanManageGrants: mockAssertCanManageGrants,
   isPlatformAdmin: mockIsPlatformAdmin,
+  isApplicationAdmin: mockIsApplicationAdmin,
 }));
 vi.mock("../services/resources/grants.js", () => ({
   createResourceGrant: mockCreateGrant,
@@ -164,6 +169,9 @@ vi.mock("../services/resources/usage.js", () => ({
   getApplicationUsage: mockGetUsage,
   listAccessEvents: mockListAccessEvents,
   USAGE_GROUP_BY: ["user", "resource"],
+}));
+vi.mock("../services/resources/model-candidates.js", () => ({
+  listModelCandidates: mockListModelCandidates,
 }));
 vi.mock("../services/email.js", () => ({
   sendResourceInvitationEmail: mockSendInvitation,
@@ -219,6 +227,8 @@ beforeEach(() => {
     mockListSharingApps,
     mockAssertActiveMember,
     mockIsPlatformAdmin,
+    mockIsApplicationAdmin,
+    mockListModelCandidates,
     mockAssertCanManage,
     mockAssertCanManageGrants,
     mockCreateGrant,
@@ -271,6 +281,8 @@ beforeEach(() => {
   mockListAccessible.mockResolvedValue([]);
   mockListSharingApps.mockResolvedValue([]);
   mockIsPlatformAdmin.mockResolvedValue(true);
+  mockIsApplicationAdmin.mockResolvedValue(true);
+  mockListModelCandidates.mockResolvedValue([]);
   mockListMyResources.mockResolvedValue([resource]);
   mockGetResource.mockResolvedValue(resource);
   mockGetScheme.mockResolvedValue({
@@ -312,6 +324,44 @@ describe("user resource routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().resources).toHaveLength(1);
     expect(Array.isArray(res.json().enabledSchemes)).toBe(true);
+  });
+
+  it("lists managed model candidates to an application administrator", async () => {
+    mockListModelCandidates.mockResolvedValue([
+      {
+        name: "bmz/qwen",
+        locator: "app-a/bmz/qwen",
+        source: "managed",
+        owned: false,
+      },
+    ]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/user/apps/${APP}/model-candidates/managed`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().models).toHaveLength(1);
+    expect(mockListModelCandidates).toHaveBeenCalledWith({
+      appId: APP,
+      userId: "user-1",
+      source: "managed",
+    });
+    expect(mockAssertActiveMember).not.toHaveBeenCalled();
+  });
+
+  it("checks membership before listing native candidates to a member", async () => {
+    mockIsApplicationAdmin.mockResolvedValue(false);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/user/apps/${APP}/model-candidates/native`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockAssertActiveMember).toHaveBeenCalledWith("user-1", APP);
+    expect(mockListModelCandidates).toHaveBeenCalledWith({
+      appId: APP,
+      userId: "user-1",
+      source: "native",
+    });
   });
 
   it("creates a user-owned resource in an application the user belongs to", async () => {

@@ -25,14 +25,19 @@ import { formatDateTime } from './format';
 import ResourceFormModal, { type ResourceFormPayload } from './ResourceFormModal.vue';
 import SshTargetDialog from './SshTargetDialog.vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   appId: string;
   scope: 'app' | 'mine';
   canManage: boolean;
   canRead: boolean;
+  canCreate?: boolean;
   // Restricts the list, and the creation form, to one resource type.
   scheme?: string;
-}>();
+  // Gateway types are offered only to application administrators in the mine scope.
+  allowGateway?: boolean;
+}>(), {
+  canCreate: true,
+});
 
 const emit = defineEmits<{ changed: [] }>();
 
@@ -55,9 +60,11 @@ const validatorLink = ref<string | null>(null);
 
 const schemeByName = computed(() => new Map(schemes.value.map((entry) => [entry.scheme, entry])));
 
-// Gateway objects are declared by the application, never by a member.
+// Gateway objects are declared by the application, never by a regular member.
 const creatableSchemes = computed(() =>
-  props.scope === 'mine' ? schemes.value.filter((entry) => entry.adapter !== 'litellm') : schemes.value,
+  props.scope === 'app' || props.allowGateway
+    ? schemes.value
+    : schemes.value.filter((entry) => entry.adapter !== 'litellm'),
 );
 
 // Choosing which gateway objects an application exposes is a platform decision.
@@ -185,7 +192,7 @@ onMounted(() => void load());
   <div class="space-y-4">
     <div class="flex items-center justify-between gap-3">
       <p class="text-sm text-surface-400">{{ t('share.resources.hint') }}</p>
-      <BaseButton v-if="canManage" size="sm" class="shrink-0" @click="openCreate">
+      <BaseButton v-if="canCreate" size="sm" class="shrink-0" @click="openCreate">
         <Plus class="w-3.5 h-3.5" />{{ t('share.resources.add') }}
       </BaseButton>
     </div>
@@ -275,6 +282,7 @@ onMounted(() => void load());
 
     <ResourceFormModal
       :open="showForm"
+      :app-id="appId"
       :schemes="creatableSchemes"
       :fixed-scheme="scheme"
       :editing="editing"

@@ -103,6 +103,11 @@ Full documentation: **https://docs.circle-cyber.com/auth-service**
   bills the cost afterwards; the admin interface signs in through auth-service.
 - Exchange rate and margin editable by superadmins; a reconciliation script
   compares the gateway's spend logs with the ledger.
+- Resource catalogue for gateway models: application administrators can select
+  any model learned by `reverse-relay` or configured directly in LiteLLM and
+  declare it from the model's catalogue page, while other members only see the
+  models their account owns. Candidate lists are served per application by
+  `/api/user/apps/:appId/model-candidates/{managed,native}`.
 
 **Platform**
 

@@ -66,6 +66,7 @@ interface Seed {
   planUserId: string;
   outsiderId: string;
   adminId: string;
+  appAdminId: string;
   orgId: string;
 }
 
@@ -112,6 +113,7 @@ async function seed(): Promise<Seed> {
   await seedUser("everyone-user");
   await seedUser("outsider");
   await seedUser("admin", "superadmin");
+  await seedUser("app-admin");
 
   for (const userId of ["owner", "member", "org-user", "plan-user", "everyone-user"]) {
     await db.insert(userApplications).values({
@@ -124,6 +126,21 @@ async function seed(): Promise<Seed> {
     userId: "outsider",
     applicationId: appB.id,
     isActive: true,
+  });
+  await db.insert(userApplications).values({
+    userId: "app-admin",
+    applicationId: appA.id,
+    isActive: true,
+  });
+  const [adminRole] = await db
+    .insert(appRoles)
+    .values({ applicationId: appA.id, name: "admin" })
+    .returning();
+  if (!adminRole) throw new Error("admin role seed failed");
+  await db.insert(userAppRoles).values({
+    userId: "app-admin",
+    applicationId: appA.id,
+    roleId: adminRole.id,
   });
 
   const [planA] = await db
@@ -177,6 +194,7 @@ async function seed(): Promise<Seed> {
     planUserId: "plan-user",
     outsiderId: "outsider",
     adminId: "admin",
+    appAdminId: "app-admin",
     orgId: org.id,
   };
 }
@@ -250,6 +268,36 @@ describe("generic resource core", () => {
         audience: "https://auth.example",
       }),
     ).resolves.toMatchObject({ decision: "allow", accessKind: "owner" });
+  });
+
+  it("lets an application administrator declare a personal gateway resource", async () => {
+    const seedData = await seed();
+    const resource = await createResource({
+      applicationId: seedData.appAId,
+      scheme: "llm",
+      locator: "app-a/bmz/qwen3",
+      displayName: "Qwen 3",
+      ownerType: "user",
+      ownerId: seedData.appAdminId,
+    });
+    expect(resource.status).toBe("pending_validation");
+    expect(resource.ownerType).toBe("user");
+    expect(resource.ownerId).toBe(seedData.appAdminId);
+    expect(resource.uri).toBe("llm://app-a/bmz/qwen3");
+  });
+
+  it("rejects a personal gateway resource from a regular member", async () => {
+    const seedData = await seed();
+    await expect(
+      createResource({
+        applicationId: seedData.appAId,
+        scheme: "llm",
+        locator: "app-a/bmz/qwen3",
+        displayName: "Qwen 3",
+        ownerType: "user",
+        ownerId: seedData.memberId,
+      }),
+    ).rejects.toMatchObject({ code: "RES_001" });
   });
 
   it("deletes an application scheme only when no live resource uses it", async () => {

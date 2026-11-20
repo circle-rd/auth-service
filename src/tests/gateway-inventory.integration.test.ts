@@ -48,6 +48,26 @@ describe("gateway inventory sync", () => {
         if (url.endsWith("/v1/models")) {
           return json({ data: [{ id: "gpt-x" }, { id: "claude-x" }] });
         }
+        if (url.endsWith("/model/info")) {
+          return json({
+            data: [
+              {
+                model_name: "gpt-x",
+                model_info: {
+                  managed_by: "reverse-relay",
+                  created_by: "bmz",
+                  client_id: "bmz",
+                  tags: ["text", "tools"],
+                  supports_function_calling: true,
+                },
+              },
+              {
+                model_name: "claude-x",
+                model_info: { created_by: "alice" },
+              },
+            ],
+          });
+        }
         if (url.endsWith("/v1/agents")) {
           return json([{ agent_id: "a1", agent_name: "analyst" }]);
         }
@@ -68,6 +88,16 @@ describe("gateway inventory sync", () => {
     expect(
       rows.filter((row) => row.kind === "mcp_tool").map((row) => row.objectName).sort(),
     ).toEqual(["read", "search"]);
+    const managed = rows.find((row) => row.objectName === "gpt-x");
+    expect(managed?.metadata).toMatchObject({
+      managedBy: "reverse-relay",
+      createdBy: "bmz",
+      clientId: "bmz",
+      tags: ["text", "tools"],
+      supports: { functionCalling: true },
+    });
+    const native = rows.find((row) => row.objectName === "claude-x");
+    expect(native?.metadata).toMatchObject({ createdBy: "alice" });
     expect(rows.every((row) => row.isActive)).toBe(true);
   });
 
@@ -77,6 +107,7 @@ describe("gateway inventory sync", () => {
       "fetch",
       vi.fn(async (url: string) => {
         if (url.endsWith("/v1/models")) return json({ data: models });
+        if (url.endsWith("/model/info")) return json({ data: [] });
         if (url.endsWith("/v1/agents")) return json([]);
         return json([]);
       }),
@@ -98,6 +129,7 @@ describe("gateway inventory sync", () => {
       "fetch",
       vi.fn(async (url: string) => {
         if (url.endsWith("/v1/models")) return json({ data: [{ id: "gpt-x" }] });
+        if (url.endsWith("/model/info")) return json({ data: [] });
         if (url.endsWith("/v1/agents")) return json([]);
         return json([]);
       }),

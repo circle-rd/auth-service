@@ -61,6 +61,26 @@ export interface ResourceScheme {
   owned?: boolean;
 }
 
+export type ModelCandidateSource = 'managed' | 'native';
+
+export interface ModelCandidate {
+  name: string;
+  locator: string;
+  source: ModelCandidateSource;
+  owned: boolean;
+  createdBy: string | null;
+  clientId: string | null;
+  tags: string[];
+  mode: string | null;
+  supports: {
+    functionCalling: boolean;
+    vision: boolean;
+    videoInput: boolean;
+    audioInput: boolean;
+    audioOutput: boolean;
+  };
+}
+
 export interface Resource {
   id: string;
   applicationId: string;
@@ -345,6 +365,14 @@ export async function addOwnerMember(appId: string, email: string): Promise<{ ac
 
 export async function listMemberSchemes(appId: string): Promise<{ schemes: ResourceScheme[] }> {
   return apiFetch(`/user/apps/${appId}/schemes`);
+}
+
+export async function listManagedModelCandidates(appId: string): Promise<{ models: ModelCandidate[] }> {
+  return apiFetch(`/user/apps/${appId}/model-candidates/managed`);
+}
+
+export async function listNativeModelCandidates(appId: string): Promise<{ models: ModelCandidate[] }> {
+  return apiFetch(`/user/apps/${appId}/model-candidates/native`);
 }
 
 export async function listSchemeCatalog(appId: string): Promise<{ schemes: ResourceScheme[] }> {

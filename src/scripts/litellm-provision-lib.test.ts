@@ -157,6 +157,7 @@ describe("provisionInventoryKey", () => {
     });
     expect(INVENTORY_ROUTES).toEqual([
       "/v1/models",
+      "/model/info",
       "/v1/agents",
       "/v1/mcp/server",
     ]);
@@ -169,6 +170,7 @@ describe("provisionInventoryKey", () => {
     expect(await provisionInventoryKey(env)).toBe("kept");
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
       "GET /v1/models",
+      "GET /model/info",
       "GET /v1/agents",
       "GET /v1/mcp/server",
       "POST /v1/mcp/server",

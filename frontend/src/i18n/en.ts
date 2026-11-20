@@ -1458,6 +1458,15 @@ export default {
       createTitle: 'Create resource',
       locator: 'Identifier',
       locatorImmutable: 'The identifier cannot change once the resource exists.',
+      model: 'Model',
+      modelsLoading: 'Loading models…',
+      modelsPlaceholder: 'Select a model',
+      modelsEmpty: 'No model available. Models created in the gateway appear after the next inventory sync.',
+      modelOwned: 'Owned by you',
+      modelSources: {
+        managed: 'Learned by reverse-relay',
+        native: 'Configured in the gateway',
+      },
       locatorHints: {
         llm: 'Application slug, then the model name as declared in the gateway.',
         agent: 'Application slug, then the agent name as declared in the gateway.',

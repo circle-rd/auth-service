@@ -49,6 +49,91 @@ const mcpServerSchema = z.object({
 });
 const mcpListSchema = z.array(mcpServerSchema);
 
+const modelDetailsSchema = z.object({
+  data: z.array(
+    z
+      .object({
+        model_name: z.string().min(1),
+        model_info: z
+          .object({
+            managed_by: z.string().nullish(),
+            created_by: z.string().nullish(),
+            client_id: z.string().nullish(),
+            tags: z.array(z.string()).optional(),
+            mode: z.string().nullish(),
+            supports_function_calling: z.boolean().nullish(),
+            supports_vision: z.boolean().nullish(),
+            supports_video_input: z.boolean().nullish(),
+            supports_audio_input: z.boolean().nullish(),
+            supports_audio_output: z.boolean().nullish(),
+          })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough(),
+  ),
+});
+
+interface ModelDetails {
+  managedBy?: string;
+  createdBy?: string;
+  clientId?: string;
+  tags: Set<string>;
+  mode: string | null;
+  supports: {
+    functionCalling: boolean;
+    vision: boolean;
+    videoInput: boolean;
+    audioInput: boolean;
+    audioOutput: boolean;
+  };
+}
+
+function mergeModelDetails(
+  target: ModelDetails,
+  info: z.infer<typeof modelDetailsSchema>["data"][number]["model_info"],
+): void {
+  if (!info) return;
+  target.managedBy ??= info.managed_by ?? undefined;
+  target.createdBy ??= info.created_by ?? undefined;
+  target.clientId ??= info.client_id ?? undefined;
+  target.mode ??= info.mode ?? null;
+  for (const tag of info.tags ?? []) target.tags.add(tag);
+  target.supports.functionCalling ||= info.supports_function_calling === true;
+  target.supports.vision ||= info.supports_vision === true;
+  target.supports.videoInput ||= info.supports_video_input === true;
+  target.supports.audioInput ||= info.supports_audio_input === true;
+  target.supports.audioOutput ||= info.supports_audio_output === true;
+}
+
+async function fetchModelDetails(): Promise<Map<string, ModelDetails>> {
+  try {
+    const parsed = modelDetailsSchema.parse(await gatewayGet("/model/info"));
+    const details = new Map<string, ModelDetails>();
+    for (const row of parsed.data) {
+      const entry = details.get(row.model_name) ?? {
+        tags: new Set<string>(),
+        mode: null,
+        supports: {
+          functionCalling: false,
+          vision: false,
+          videoInput: false,
+          audioInput: false,
+          audioOutput: false,
+        },
+      };
+      mergeModelDetails(entry, row.model_info);
+      details.set(row.model_name, entry);
+    }
+    return details;
+  } catch (err) {
+    // The listing still works without ownership details; provisioning the
+    // inventory key with /model/info restores them.
+    logger.warn({ err }, "[res] LiteLLM model details are unavailable");
+    return new Map();
+  }
+}
+
 interface InventoryRow {
   kind: GatewayObjectKind;
   litellmId: string;
@@ -126,16 +211,18 @@ function activeMcpServer(server: z.infer<typeof mcpServerSchema>): boolean {
 }
 
 async function fetchInventory(): Promise<InventoryRow[]> {
-  const [modelsRaw, agentsRaw, mcpRaw] = await Promise.all([
+  const [modelsRaw, agentsRaw, mcpRaw, details] = await Promise.all([
     gatewayGet("/v1/models"),
     gatewayGet("/v1/agents"),
     gatewayGet("/v1/mcp/server"),
+    fetchModelDetails(),
   ]);
 
   const rows = new Map<string, InventoryRow>();
   const parsedModels = modelListSchema.parse(modelsRaw);
   const models = Array.isArray(parsedModels) ? parsedModels : parsedModels.data;
   for (const model of models) {
+    const detail = details.get(model.id);
     rows.set(`model:${model.id}`, {
       kind: "model",
       litellmId: model.id,
@@ -143,7 +230,19 @@ async function fetchInventory(): Promise<InventoryRow[]> {
       parentName: "",
       displayName: model.id,
       isActive: true,
-      metadata: model.owned_by ? { ownedBy: model.owned_by } : {},
+      metadata: {
+        ...(model.owned_by ? { ownedBy: model.owned_by } : {}),
+        ...(detail
+          ? {
+              managedBy: detail.managedBy,
+              createdBy: detail.createdBy,
+              clientId: detail.clientId,
+              tags: [...detail.tags].sort(),
+              mode: detail.mode,
+              supports: detail.supports,
+            }
+          : {}),
+      },
     });
   }
   for (const agent of agentListSchema.parse(agentsRaw)) {
@@ -265,6 +364,26 @@ type InventoryTarget =
   | { kind: "model" | "agent"; name: string; parentName: "" }
   | { kind: "mcp_server"; name: string; parentName: "" }
   | { kind: "mcp_tool"; name: string; parentName: string };
+
+export interface GatewayModel {
+  name: string;
+  metadata: Record<string, unknown>;
+}
+
+/** Active models as the inventory mirror last saw them. */
+export async function listGatewayModels(): Promise<GatewayModel[]> {
+  const rows = await db
+    .select({
+      name: gatewayObjects.objectName,
+      metadata: gatewayObjects.metadata,
+    })
+    .from(gatewayObjects)
+    .where(
+      and(eq(gatewayObjects.kind, "model"), eq(gatewayObjects.isActive, true)),
+    )
+    .orderBy(gatewayObjects.objectName);
+  return rows;
+}
 
 export function gatewayTargetForResource(
   scheme: string,

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, or } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import {
   appDelegations,
@@ -193,6 +193,11 @@ export interface OwnerApplicationMember {
 export interface OwnerMemberQuery {
   limit: number;
   offset: number;
+  q?: string;
+}
+
+function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 export interface OwnerMemberPage {
@@ -219,7 +224,17 @@ export async function listOwnerMembers(
     })
     .from(userApplications)
     .innerJoin(userTable, eq(userTable.id, userApplications.userId))
-    .where(eq(userApplications.applicationId, ownerApplicationId))
+    .where(
+      and(
+        eq(userApplications.applicationId, ownerApplicationId),
+        query.q
+          ? or(
+              ilike(userTable.name, `%${escapeLike(query.q)}%`),
+              ilike(userTable.email, `%${escapeLike(query.q)}%`),
+            )
+          : undefined,
+      ),
+    )
     .orderBy(asc(userTable.name), asc(userTable.email))
     .limit(query.limit + 1)
     .offset(query.offset);

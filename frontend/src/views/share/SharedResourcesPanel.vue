@@ -33,8 +33,8 @@ const props = withDefaults(defineProps<{
   canCreate?: boolean;
   // Restricts the list, and the creation form, to one resource type.
   scheme?: string;
-  // Gateway types are offered only to application administrators in the mine scope.
-  allowGateway?: boolean;
+  // Application administrators declare gateway objects and choose wider audiences.
+  appAdmin?: boolean;
 }>(), {
   canCreate: true,
 });
@@ -60,12 +60,6 @@ const validatorLink = ref<string | null>(null);
 
 const schemeByName = computed(() => new Map(schemes.value.map((entry) => [entry.scheme, entry])));
 
-// Gateway objects are declared by the application, never by a regular member.
-const creatableSchemes = computed(() =>
-  props.scope === 'app' || props.allowGateway
-    ? schemes.value
-    : schemes.value.filter((entry) => entry.adapter !== 'litellm'),
-);
 
 // Choosing which gateway objects an application exposes is a platform decision.
 function awaitsPlatformValidation(resource: Resource): boolean {
@@ -125,7 +119,7 @@ async function save(form: ResourceFormPayload) {
       if (props.scope === 'app') {
         await createAppResource(props.appId, payload);
       } else {
-        await createResource({ applicationId: props.appId, ...payload });
+        await createResource({ applicationId: props.appId, ...payload, audience: form.audience });
       }
       toast.success(t('share.resources.created'));
     }
@@ -282,8 +276,10 @@ onMounted(() => void load());
 
     <ResourceFormModal
       :open="showForm"
+      :audience-enabled="scope === 'mine'"
+      :is-app-admin="appAdmin === true"
       :app-id="appId"
-      :schemes="creatableSchemes"
+      :schemes="schemes"
       :fixed-scheme="scheme"
       :editing="editing"
       :saving="saving"

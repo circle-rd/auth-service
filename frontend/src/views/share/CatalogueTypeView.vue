@@ -35,9 +35,7 @@ const shared = computed(
 const gatewayManaged = computed(() => scheme.value?.adapter === 'litellm');
 const canCreate = computed(() => store.byId.get(appId.value)?.canCreate ?? false);
 const isAppAdmin = computed(() => app.value?.owner?.isAdmin === true);
-const userCreatable = computed(() =>
-  gatewayManaged.value ? isAppAdmin.value && canCreate.value : canCreate.value,
-);
+const userCreatable = computed(() => canCreate.value);
 const showMine = computed(() => userCreatable.value || mine.value.length > 0);
 
 // A type that is not enabled for this application has no page.
@@ -85,7 +83,7 @@ function refresh() {
         :app-id="appId"
         scope="mine"
         :scheme="scheme.scheme"
-        :allow-gateway="isAppAdmin"
+        :app-admin="isAppAdmin"
         :can-create="userCreatable"
         can-manage
         can-read

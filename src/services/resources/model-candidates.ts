@@ -20,9 +20,13 @@ export interface ModelSupports {
   audioOutput: boolean;
 }
 
+export const MODEL_CANDIDATE_KINDS = ["model", "router"] as const;
+export type ModelCandidateKind = (typeof MODEL_CANDIDATE_KINDS)[number];
+
 export interface ModelCandidate {
   name: string;
   locator: string;
+  kind: ModelCandidateKind;
   source: ModelCandidateSource;
   owned: boolean;
   createdBy: string | null;
@@ -111,6 +115,7 @@ function candidateOf(
   return {
     name: model.name,
     locator,
+    kind: model.metadata.router === true ? "router" : "model",
     source,
     owned,
     createdBy: textField(model.metadata, "createdBy"),

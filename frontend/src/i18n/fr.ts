@@ -1464,6 +1464,32 @@ export default {
       modelsPlaceholder: 'Sélectionner un modèle',
       modelsEmpty: 'Aucun modèle disponible. Les modèles créés dans la passerelle apparaissent après la prochaine synchronisation de l’inventaire.',
       modelOwned: 'Vous appartient',
+      modelGroups: { routers: 'Routeurs', models: 'Modèles' },
+      modelKinds: { router: 'Routeur automatique' },
+      audience: {
+        label: 'Partagé avec',
+        pendingHint: 'Les utilisateurs pourront l’utiliser une fois validée par un administrateur de la plateforme.',
+        private: { label: 'Moi uniquement', description: 'Visible par vous tant que vous ne la partagez pas' },
+        everyone: { label: 'Tous les membres', description: 'Tous les membres actifs de l’application' },
+        plan: {
+          label: 'Un abonnement',
+          description: 'Les membres abonnés à un plan de cette application',
+          target: 'Plan',
+          placeholder: 'Sélectionner un plan',
+        },
+        organization: {
+          label: 'Une organisation',
+          description: 'Les membres d’une organisation dont vous faites partie',
+          target: 'Organisation',
+          placeholder: 'Sélectionner une organisation',
+        },
+        user: {
+          label: 'Un membre précis',
+          description: 'Un membre actif de l’application',
+          target: 'Membre',
+          placeholder: 'Rechercher par nom ou e-mail',
+        },
+      },
       modelSources: {
         managed: 'Appris par reverse-relay',
         native: 'Configuré dans la passerelle',

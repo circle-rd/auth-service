@@ -7,7 +7,7 @@ import {
   userAppRoles,
   userApplications,
 } from "../../db/schema.js";
-import { user as userTable } from "../../db/auth-schema.js";
+import { member, user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import type { ResourceOwnerType, ResourceSubjectType } from "./types.js";
 import { ADMIN_ROLES, hasAnyRole } from "../roles.js";
@@ -242,17 +242,69 @@ export async function canGrantToSubject(
   if (resource.ownerType === "user") {
     if (resource.ownerId !== userId) return false;
     if (!(await canOwnResources(userId, resource.applicationId))) return false;
-  } else {
-    if (await isApplicationAdmin(userId, resource.applicationId)) return true;
-    const delegated = await hasDelegatedPermission(
+    // A member shares a personal resource with individual members only. An
+    // application administrator may open it to a whole audience, within what
+    // they belong to themselves.
+    // The owner already reaches the resource: granting it to oneself is a no-op.
+    if (subjectType === "user" && subjectId === userId) return false;
+    if (!(await isApplicationAdmin(userId, resource.applicationId))) {
+      if (subjectType !== "user" || subjectId === null) return false;
+      return isActiveMember(subjectId, resource.applicationId);
+    }
+    return audienceWithinReach(
       userId,
       resource.applicationId,
-      "grants:manage",
+      subjectType,
+      subjectId,
     );
-    if (!delegated) return false;
   }
+  if (await isApplicationAdmin(userId, resource.applicationId)) return true;
+  const delegated = await hasDelegatedPermission(
+    userId,
+    resource.applicationId,
+    "grants:manage",
+  );
+  if (!delegated) return false;
   if (subjectType !== "user" || subjectId === null) return false;
   return isActiveMember(subjectId, resource.applicationId);
+}
+
+async function audienceWithinReach(
+  userId: string,
+  applicationId: string,
+  subjectType: ResourceSubjectType,
+  subjectId: string | null,
+): Promise<boolean> {
+  switch (subjectType) {
+    case "everyone":
+      return subjectId === null;
+    case "plan":
+      return subjectId !== null;
+    case "organization":
+      return (
+        subjectId !== null && (await isOrganizationMember(userId, subjectId))
+      );
+    case "user":
+      return (
+        subjectId !== null && (await isActiveMember(subjectId, applicationId))
+      );
+    default:
+      return false;
+  }
+}
+
+export async function isOrganizationMember(
+  userId: string,
+  organizationId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(eq(member.userId, userId), eq(member.organizationId, organizationId)),
+    )
+    .limit(1);
+  return row !== undefined;
 }
 
 /** Grant administration is separate from resource administration. */

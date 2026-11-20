@@ -62,10 +62,12 @@ export interface ResourceScheme {
 }
 
 export type ModelCandidateSource = 'managed' | 'native';
+export type ModelCandidateKind = 'model' | 'router';
 
 export interface ModelCandidate {
   name: string;
   locator: string;
+  kind: ModelCandidateKind;
   source: ModelCandidateSource;
   owned: boolean;
   createdBy: string | null;
@@ -239,12 +241,20 @@ export interface SshMetaUser {
   createdAt: string;
 }
 
+export type ResourceAudience =
+  | { type: 'everyone' }
+  | { type: 'plan'; planId: string }
+  | { type: 'organization'; organizationId: string }
+  | { type: 'user'; userId: string }
+  | { type: 'user'; email: string };
+
 export interface CreateResourceBody {
   applicationId: string;
   scheme: string;
   locator?: string;
   displayName: string;
   metadata?: Record<string, unknown>;
+  audience?: ResourceAudience;
 }
 
 export interface CreateAppResourceBody {
@@ -351,7 +361,7 @@ export interface OwnerMemberPage {
 
 export async function listOwnerMembers(
   appId: string,
-  query: { limit?: number; offset?: number } = {},
+  query: { limit?: number; offset?: number; q?: string } = {},
 ): Promise<OwnerMemberPage> {
   return apiFetch(`/user/apps/${appId}/members${queryString(query)}`);
 }

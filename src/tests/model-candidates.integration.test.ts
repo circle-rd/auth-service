@@ -58,6 +58,10 @@ beforeEach(async () => {
   await seedModel("owned-native", { createdBy: "bmz" });
   await seedModel("alice-model", { createdBy: "alice" });
   await seedModel("unowned-native", {});
+  await seedModel("bmz/router", {
+    createdBy: "bmz",
+    router: true,
+  });
 });
 
 describe("model candidates", () => {
@@ -84,9 +88,13 @@ describe("model candidates", () => {
     });
     expect(native.map((model) => model.name)).toEqual([
       "alice-model",
+      "bmz/router",
       "owned-native",
       "unowned-native",
     ]);
+    expect(native.find((model) => model.name === "bmz/router")?.kind).toBe(
+      "router",
+    );
   });
 
   it("shows a member only the managed models they own", async () => {
@@ -105,7 +113,11 @@ describe("model candidates", () => {
       userId: "owner",
       source: "native",
     });
-    expect(models.map((model) => model.name)).toEqual(["owned-native"]);
+    expect(models.map((model) => model.name)).toEqual([
+      "bmz/router",
+      "owned-native",
+    ]);
+    expect(models.map((model) => model.kind)).toEqual(["router", "model"]);
   });
 
   it("hides unowned native models and other accounts from members", async () => {

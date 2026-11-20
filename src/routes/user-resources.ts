@@ -20,6 +20,9 @@ import {
   listGrantsForResource,
   revokeResourceGrant,
 } from "../services/resources/grants.js";
+import { resolveAudience } from "../services/resources/audience.js";
+import { validateRelayDeclaration } from "../services/resources/gateway-declaration.js";
+import { getUserIdentity } from "../services/usernames.js";
 import { acceptResourceInvitation } from "../services/resources/invitations.js";
 import { getUserActivity } from "../services/resources/monitoring.js";
 import {
@@ -62,6 +65,26 @@ const activityQuerySchema = z
   })
   .strict();
 
+const resourceAudienceSchema = z.union([
+  z.object({ type: z.literal("everyone") }).strict(),
+  z.object({ type: z.literal("plan"), planId: z.string().uuid() }).strict(),
+  z
+    .object({
+      type: z.literal("organization"),
+      organizationId: z.string().min(1).max(128),
+    })
+    .strict(),
+  z
+    .object({ type: z.literal("user"), userId: z.string().min(1).max(128) })
+    .strict(),
+  z
+    .object({
+      type: z.literal("user"),
+      email: z.string().trim().email().max(320),
+    })
+    .strict(),
+]);
+
 const resourceCreateSchema = z
   .object({
     applicationId: z.string().uuid(),
@@ -69,6 +92,7 @@ const resourceCreateSchema = z
     locator: z.string().trim().min(1).max(255).optional(),
     displayName: z.string().trim().min(1).max(200),
     metadata: resourceMetadataSchema.optional(),
+    audience: resourceAudienceSchema.optional(),
   })
   .strict();
 
@@ -208,7 +232,10 @@ export async function userResourceRoutes(
     if (!userId) return;
     const body = resourceCreateSchema.parse(req.body);
     await assertActiveMember(userId, body.applicationId);
-    const resource = await createResource({
+    const audience = body.audience
+      ? await resolveAudience(body.audience, body.applicationId)
+      : null;
+    let resource = await createResource({
       applicationId: body.applicationId,
       scheme: body.scheme,
       locator: body.locator ?? null,
@@ -217,6 +244,25 @@ export async function userResourceRoutes(
       ownerId: userId,
       metadata: body.metadata,
     });
+    if (audience) {
+      try {
+        await createResourceGrant({
+          resourceId: resource.id,
+          subjectType: audience.subjectType,
+          subjectId: audience.subjectId,
+          actorUserId: userId,
+        });
+      } catch (err) {
+        // The grant is refused by policy: never leave a half-declared resource behind.
+        await removeResource(resource.id, userId);
+        throw err;
+      }
+    }
+    const identity = await getUserIdentity(userId);
+    resource = await validateRelayDeclaration(
+      resource,
+      identity?.username ?? null,
+    );
     const scheme = await getResourceScheme(resource.scheme);
     await reply
       .status(201)

@@ -33,6 +33,7 @@ const {
   mockRevokeInvitation,
   mockCreateResource,
   mockRemoveResource,
+  mockResolveAudience,
   mockGetResource,
   mockListMyResources,
   mockRequestValidation,
@@ -79,6 +80,7 @@ const {
   mockRevokeInvitation: vi.fn(),
   mockCreateResource: vi.fn(),
   mockRemoveResource: vi.fn(),
+  mockResolveAudience: vi.fn(),
   mockGetResource: vi.fn(),
   mockListMyResources: vi.fn(),
   mockRequestValidation: vi.fn(),
@@ -142,6 +144,15 @@ vi.mock("../services/resources/invitations.js", () => ({
   listResourceInvitationsForApplication: mockListInvitations,
   revokeResourceInvitation: mockRevokeInvitation,
   toPublicResourceInvitation: (invitation: unknown) => invitation,
+}));
+vi.mock("../services/resources/audience.js", () => ({
+  resolveAudience: mockResolveAudience,
+}));
+vi.mock("../services/resources/gateway-declaration.js", () => ({
+  validateRelayDeclaration: async (resource: unknown) => resource,
+}));
+vi.mock("../services/usernames.js", () => ({
+  getUserIdentity: async () => null,
 }));
 vi.mock("../services/resources/registry.js", () => ({
   createResource: mockCreateResource,
@@ -362,6 +373,60 @@ describe("user resource routes", () => {
       userId: "user-1",
       source: "native",
     });
+  });
+
+  it("grants the declared audience at creation and removes the resource when refused", async () => {
+    mockCreateResource.mockResolvedValue(resource);
+    mockResolveAudience.mockResolvedValue({
+      subjectType: "organization",
+      subjectId: "org-1",
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        displayName: "Project 1",
+        audience: { type: "organization", organizationId: "org-1" },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(mockCreateGrant).toHaveBeenCalledWith({
+      resourceId: resource.id,
+      subjectType: "organization",
+      subjectId: "org-1",
+      actorUserId: "user-1",
+    });
+
+    mockCreateGrant.mockRejectedValueOnce(new Error("refused"));
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        displayName: "Project 1",
+        audience: { type: "everyone" },
+      },
+    });
+    expect(refused.statusCode).toBe(500);
+    expect(mockRemoveResource).toHaveBeenCalledWith(resource.id, "user-1");
+  });
+
+  it("rejects an audience that mixes an e-mail and a user id", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        displayName: "Project 1",
+        audience: { type: "user", userId: "u2", email: "a@example.com" },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockCreateResource).not.toHaveBeenCalled();
   });
 
   it("creates a user-owned resource in an application the user belongs to", async () => {

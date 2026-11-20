@@ -1463,6 +1463,32 @@ export default {
       modelsPlaceholder: 'Select a model',
       modelsEmpty: 'No model available. Models created in the gateway appear after the next inventory sync.',
       modelOwned: 'Owned by you',
+      modelGroups: { routers: 'Routers', models: 'Models' },
+      modelKinds: { router: 'Auto-router' },
+      audience: {
+        label: 'Shared with',
+        pendingHint: 'Users reach the resource once a platform administrator validates it.',
+        private: { label: 'Only me', description: 'Visible to you until you share it' },
+        everyone: { label: 'Every member', description: 'All active members of the application' },
+        plan: {
+          label: 'A subscription plan',
+          description: 'Members subscribed to a plan of this application',
+          target: 'Plan',
+          placeholder: 'Select a plan',
+        },
+        organization: {
+          label: 'An organization',
+          description: 'Members of an organization you belong to',
+          target: 'Organization',
+          placeholder: 'Select an organization',
+        },
+        user: {
+          label: 'A specific member',
+          description: 'One active member of the application',
+          target: 'Member',
+          placeholder: 'Search by name or email',
+        },
+      },
       modelSources: {
         managed: 'Learned by reverse-relay',
         native: 'Configured in the gateway',

@@ -54,11 +54,16 @@ const modelDetailsSchema = z.object({
     z
       .object({
         model_name: z.string().min(1),
+        litellm_params: z
+          .object({ model: z.string().nullish() })
+          .passthrough()
+          .optional(),
         model_info: z
           .object({
             managed_by: z.string().nullish(),
             created_by: z.string().nullish(),
             client_id: z.string().nullish(),
+            reverse_name: z.string().nullish(),
             tags: z.array(z.string()).optional(),
             mode: z.string().nullish(),
             supports_function_calling: z.boolean().nullish(),
@@ -78,6 +83,8 @@ interface ModelDetails {
   managedBy?: string;
   createdBy?: string;
   clientId?: string;
+  reverseName?: string;
+  router: boolean;
   tags: Set<string>;
   mode: string | null;
   supports: {
@@ -92,11 +99,14 @@ interface ModelDetails {
 function mergeModelDetails(
   target: ModelDetails,
   info: z.infer<typeof modelDetailsSchema>["data"][number]["model_info"],
+  litellmModel: string | null | undefined,
 ): void {
+  target.router ||= isAutoRouter(litellmModel);
   if (!info) return;
   target.managedBy ??= info.managed_by ?? undefined;
   target.createdBy ??= info.created_by ?? undefined;
   target.clientId ??= info.client_id ?? undefined;
+  target.reverseName ??= info.reverse_name ?? undefined;
   target.mode ??= info.mode ?? null;
   for (const tag of info.tags ?? []) target.tags.add(tag);
   target.supports.functionCalling ||= info.supports_function_calling === true;
@@ -106,12 +116,20 @@ function mergeModelDetails(
   target.supports.audioOutput ||= info.supports_audio_output === true;
 }
 
+// LiteLLM auto routers are deployments whose provider is the `auto_router` pseudo-provider.
+function isAutoRouter(litellmModel: string | null | undefined): boolean {
+  return (
+    typeof litellmModel === "string" && litellmModel.startsWith("auto_router/")
+  );
+}
+
 async function fetchModelDetails(): Promise<Map<string, ModelDetails>> {
   try {
     const parsed = modelDetailsSchema.parse(await gatewayGet("/model/info"));
     const details = new Map<string, ModelDetails>();
     for (const row of parsed.data) {
       const entry = details.get(row.model_name) ?? {
+        router: false,
         tags: new Set<string>(),
         mode: null,
         supports: {
@@ -122,7 +140,7 @@ async function fetchModelDetails(): Promise<Map<string, ModelDetails>> {
           audioOutput: false,
         },
       };
-      mergeModelDetails(entry, row.model_info);
+      mergeModelDetails(entry, row.model_info, row.litellm_params?.model);
       details.set(row.model_name, entry);
     }
     return details;
@@ -237,6 +255,8 @@ async function fetchInventory(): Promise<InventoryRow[]> {
               managedBy: detail.managedBy,
               createdBy: detail.createdBy,
               clientId: detail.clientId,
+              reverseName: detail.reverseName,
+              router: detail.router,
               tags: [...detail.tags].sort(),
               mode: detail.mode,
               supports: detail.supports,

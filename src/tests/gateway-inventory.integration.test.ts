@@ -46,7 +46,9 @@ describe("gateway inventory sync", () => {
       "fetch",
       vi.fn(async (url: string) => {
         if (url.endsWith("/v1/models")) {
-          return json({ data: [{ id: "gpt-x" }, { id: "claude-x" }] });
+          return json({
+            data: [{ id: "gpt-x" }, { id: "claude-x" }, { id: "smart-router" }],
+          });
         }
         if (url.endsWith("/model/info")) {
           return json({
@@ -65,6 +67,11 @@ describe("gateway inventory sync", () => {
                 model_name: "claude-x",
                 model_info: { created_by: "alice" },
               },
+              {
+                model_name: "smart-router",
+                litellm_params: { model: "auto_router/complexity_router" },
+                model_info: { created_by: "bmz" },
+              },
             ],
           });
         }
@@ -82,9 +89,9 @@ describe("gateway inventory sync", () => {
       }),
     );
 
-    await expect(syncGatewayInventory()).resolves.toBe(6);
+    await expect(syncGatewayInventory()).resolves.toBe(7);
     const rows = await db.select().from(gatewayObjects);
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
     expect(
       rows.filter((row) => row.kind === "mcp_tool").map((row) => row.objectName).sort(),
     ).toEqual(["read", "search"]);
@@ -98,6 +105,9 @@ describe("gateway inventory sync", () => {
     });
     const native = rows.find((row) => row.objectName === "claude-x");
     expect(native?.metadata).toMatchObject({ createdBy: "alice" });
+    const router = rows.find((row) => row.objectName === "smart-router");
+    expect(router?.metadata).toMatchObject({ createdBy: "bmz", router: true });
+    expect(managed?.metadata).toMatchObject({ router: false });
     expect(rows.every((row) => row.isActive)).toBe(true);
   });
 

@@ -145,6 +145,8 @@ export const MOCK_APPLICATIONS: Application[] = [
     allowRegister: false,
     billingMode: 'none',
     resourceSharingEnabled: true,
+    resourceWebhookUrl: null,
+    resourceWebhookSecret: null,
     allowedScopes: ['openid', 'profile', 'email'],
     redirectUris: ['https://dashboard.circle.internal/auth/callback'],
     isPublic: false,
@@ -174,6 +176,8 @@ export const MOCK_APPLICATIONS: Application[] = [
     allowRegister: true,
     billingMode: 'none',
     resourceSharingEnabled: true,
+    resourceWebhookUrl: 'https://app.acme.com/webhooks/auth-service/resources',
+    resourceWebhookSecret: 'whsec_mock_acme',
     allowedScopes: ['openid', 'profile', 'email', 'offline_access'],
     redirectUris: ['https://app.acme.com/callback', 'http://localhost:3000/callback'],
     isPublic: true,
@@ -203,6 +207,8 @@ export const MOCK_APPLICATIONS: Application[] = [
     allowRegister: false,
     billingMode: 'none',
     resourceSharingEnabled: true,
+    resourceWebhookUrl: null,
+    resourceWebhookSecret: null,
     allowedScopes: ['openid'],
     redirectUris: ['https://internal.circle.io/cb'],
     isPublic: false,
@@ -411,6 +417,8 @@ function appRecord(over: Partial<Application> & Pick<Application, 'id' | 'name' 
     createdAt: daysAgo(120),
     updatedAt: daysAgo(12),
     ...over,
+    resourceWebhookUrl: over.resourceWebhookUrl ?? null,
+    resourceWebhookSecret: over.resourceWebhookSecret ?? null,
   };
 }
 

@@ -1,34 +1,42 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import BaseSelect from '@/components/ui/BaseSelect.vue';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
-import StringListField from './StringListField.vue';
 import { SCOPE_GROUPS, selectableScopes } from './scopes';
-import type { ApplicationFormState } from './state';
+import type { ApplicationFormState, ProviderKey } from './state';
 
 const props = defineProps<{
   form: ApplicationFormState;
-  hiddenResources: string[];
-  isSystem: boolean;
+  availableProviders: ProviderKey[];
 }>();
 
 const { t } = useI18n();
-
-const tokenAuthOptions = computed(() => [
-  { value: 'client_secret_basic', label: t('applications.tokenAuthBasic') },
-  { value: 'client_secret_post', label: t('applications.tokenAuthPost') },
-]);
-
-function setTokenAuthMethod(value: string) {
-  props.form.tokenEndpointAuthMethod =
-    value === 'client_secret_post' ? 'client_secret_post' : 'client_secret_basic';
-}
 
 function toggleScope(scope: string) {
   const scopes = props.form.allowedScopes;
   props.form.allowedScopes = scopes.includes(scope) ? scopes.filter((s) => s !== scope) : [...scopes, scope];
 }
+
+function isProviderSelected(p: ProviderKey): boolean {
+  // null = inherit, i.e. every globally enabled provider is on.
+  return props.form.enabledSocialProviders === null || props.form.enabledSocialProviders.includes(p);
+}
+
+function toggleProvider(p: ProviderKey) {
+  const current = props.form.enabledSocialProviders;
+  if (current === null) {
+    // First toggle materializes the inherited list.
+    props.form.enabledSocialProviders = props.availableProviders.filter((x) => x !== p);
+    return;
+  }
+  props.form.enabledSocialProviders = current.includes(p) ? current.filter((x) => x !== p) : [...current, p];
+}
+
+const providersHint = computed(() =>
+  props.form.enabledSocialProviders === null
+    ? t('applications.providersInherited')
+    : t('applications.providersOverridden'),
+);
 </script>
 
 <template>
@@ -59,62 +67,38 @@ function toggleScope(scope: string) {
       </section>
     </div>
 
-    <StringListField
-      v-model="form.redirectUris"
-      :label="t('applications.redirectUris')"
-      :add-label="t('applications.addRedirectUri')"
-      placeholder="https://your-app.com/callback"
-    />
-
-    <!-- Consulted only when RP-Initiated Logout is on; matched as plain string equality. -->
-    <StringListField
-      v-if="form.enableEndSession"
-      v-model="form.postLogoutRedirectUris"
-      :label="t('applications.postLogoutRedirectUris')"
-      :add-label="t('applications.addPostLogoutRedirectUri')"
-      :hint="t('applications.postLogoutRedirectUrisHint')"
-      placeholder="https://your-app.com/"
-    />
-
-    <!-- Confidential clients: PKCE requirement and token endpoint authentication. -->
-    <section v-if="!form.isPublic && !isSystem" class="space-y-3">
-      <div>
+    <!-- Which identity providers this application offers at sign-in. -->
+    <section v-if="availableProviders.length > 0">
+      <div class="flex items-center justify-between mb-2">
         <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
-          {{ t('applications.optionsGroupOidcClient') }}
+          {{ t('applications.socialProviders') }}
         </p>
-        <p class="text-xs text-surface-500 mt-1">
-          {{ t('applications.oauthClientHint') }}
-        </p>
+        <button
+          v-if="form.enabledSocialProviders !== null"
+          type="button"
+          @click="form.enabledSocialProviders = null"
+          class="text-xs text-primary-400 hover:text-primary-300 font-medium"
+        >
+          {{ t('applications.inheritProviders') }}
+        </button>
       </div>
-      <div class="rounded-lg border border-surface-700/50 divide-y divide-surface-800/60 bg-surface-800/20">
-        <BaseToggle
-          v-model="form.requirePKCE"
-          class="p-3.5"
-          :label="t('applications.requirePKCE')"
-          :description="t('applications.requirePKCEHint')"
-        />
-        <div class="p-3.5">
-          <BaseSelect
-            :model-value="form.tokenEndpointAuthMethod"
-            :label="t('applications.tokenEndpointAuthMethod')"
-            :options="tokenAuthOptions"
-            @update:model-value="setTokenAuthMethod"
-          />
-          <p class="text-xs text-surface-500 mt-1.5">
-            {{ t('applications.tokenEndpointAuthMethodHint') }}
-          </p>
-        </div>
+      <p class="text-xs text-surface-500 mb-2">{{ providersHint }}</p>
+      <div class="flex flex-wrap gap-1.5">
+        <button
+          v-for="p in availableProviders"
+          :key="p"
+          type="button"
+          @click="toggleProvider(p)"
+          :class="[
+            'px-3 py-1.5 rounded-md text-xs font-medium border transition-colors capitalize',
+            isProviderSelected(p)
+              ? 'bg-primary-600/20 border-primary-500/40 text-primary-300'
+              : 'bg-surface-800/60 border-surface-700/60 text-surface-500 hover:border-surface-500 hover:text-surface-300',
+          ]"
+        >
+          {{ p }}
+        </button>
       </div>
     </section>
-
-    <!-- Other applications (e.g. the LLM gateway) this one may request tokens for, via RFC 8707 `resource`. -->
-    <StringListField
-      v-model="form.allowedResources"
-      :label="t('applications.allowedResources')"
-      :add-label="t('applications.addAllowedResource')"
-      :hint="t('applications.allowedResourcesHint')"
-      placeholder="https://llm.your-domain.com"
-      :hidden="hiddenResources"
-    />
   </div>
 </template>

@@ -423,14 +423,14 @@ function onEnter() {
       <StepAuthorization
         v-else-if="step === STEP_AUTHORIZATION"
         :form="form"
-        :hidden-resources="hiddenResources"
-        :is-system="props.application?.isSystem ?? false"
+        :available-providers="availableProviders"
       />
       <StepAdvanced
         v-else
         :form="form"
-        :available-providers="availableProviders"
         :webhook-secret="application?.resourceWebhookSecret ?? null"
+        :is-system="props.application?.isSystem ?? false"
+        :hidden-resources="hiddenResources"
       />
     </form>
 

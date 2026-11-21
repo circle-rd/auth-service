@@ -6,8 +6,7 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import SchemeIcon from '@/components/ui/SchemeIcon.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { useCatalogueStore } from '@/stores/catalogue';
-import AccessibleResourceList from './AccessibleResourceList.vue';
-import SharedResourcesPanel from './SharedResourcesPanel.vue';
+import CatalogueResourceTable from './CatalogueResourceTable.vue';
 import SshIdentityBanner from './SshIdentityBanner.vue';
 
 const { t } = useI18n();
@@ -35,8 +34,6 @@ const shared = computed(
 const gatewayManaged = computed(() => scheme.value?.adapter === 'litellm');
 const canCreate = computed(() => store.byId.get(appId.value)?.canCreate ?? false);
 const isAppAdmin = computed(() => app.value?.owner?.isAdmin === true);
-const userCreatable = computed(() => canCreate.value);
-const showMine = computed(() => userCreatable.value || mine.value.length > 0);
 
 // A type that is not enabled for this application has no page.
 watch(
@@ -76,28 +73,22 @@ function refresh() {
 
     <SshIdentityBanner v-if="scheme.scheme === 'ssh'" />
 
-    <section v-if="showMine" class="space-y-3">
-      <h2 class="text-sm font-semibold text-surface-200">{{ t('share.catalogue.type.created') }}</h2>
-      <SharedResourcesPanel
-        :key="scheme.scheme"
-        :app-id="appId"
-        scope="mine"
-        :scheme="scheme.scheme"
-        :app-admin="isAppAdmin"
-        :can-create="userCreatable"
-        can-manage
-        can-read
-        @changed="refresh"
-      />
-    </section>
-
-    <p v-else class="text-sm text-surface-500">
+    <p
+      v-if="!canCreate && mine.length === 0"
+      class="text-sm text-surface-500"
+    >
       {{ gatewayManaged ? t('share.catalogue.type.gatewayManaged') : t('share.catalogue.type.guestReadOnly') }}
     </p>
 
-    <section class="space-y-3">
-      <h2 class="text-sm font-semibold text-surface-200">{{ t('share.catalogue.type.shared') }}</h2>
-      <AccessibleResourceList :resources="shared" :icon="scheme.icon" />
-    </section>
+    <CatalogueResourceTable
+      :key="scheme.scheme"
+      :app-id="appId"
+      :scheme="scheme"
+      :mine="mine"
+      :shared="shared"
+      :can-create="canCreate"
+      :app-admin="isAppAdmin"
+      @changed="refresh"
+    />
   </div>
 </template>

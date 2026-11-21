@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, onBeforeUnmount, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { BookOpen, Share2 } from '@lucide/vue';
@@ -42,6 +42,35 @@ function sync() {
 
 watch(() => [store.appsLoaded, appId.value], sync);
 void store.loadApps().then(sync);
+
+// Resource types and shares change outside this tab (an administrator enabling
+// a scheme, another user sharing a resource). Refresh the overview on a short
+// interval and when the tab becomes visible, so the sidebar and the type pages
+// converge without a full reload.
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+function refreshOverview() {
+  if (appId.value && store.byId.has(appId.value)) {
+    void store.loadOverview(appId.value, true);
+  }
+}
+function onVisibility() {
+  if (document.visibilityState === 'visible') refreshOverview();
+}
+watch(
+  appId,
+  (value) => {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = null;
+    if (!value) return;
+    refreshTimer = setInterval(refreshOverview, 15_000);
+    document.addEventListener('visibilitychange', onVisibility);
+  },
+  { immediate: true },
+);
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer);
+  document.removeEventListener('visibilitychange', onVisibility);
+});
 </script>
 
 <template>

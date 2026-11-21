@@ -84,7 +84,7 @@ export const useCatalogueStore = defineStore('catalogue', () => {
       // application still gets the management area.
       const [schemes, mine, accessible] = await Promise.allSettled([
         listMemberSchemes(appId),
-        listMyResources(),
+        listMyResources(true),
         listAccessibleResources({ applicationId: appId }),
       ]);
       overviews.value = {

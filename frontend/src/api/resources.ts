@@ -100,6 +100,9 @@ export interface Resource {
   validationRequestedAt: string | null;
   validatedAt: string | null;
   validationError: string | null;
+  // Active grants; present on the owned listing, optionally with `grants`.
+  grantCount?: number;
+  grants?: ResourceGrant[];
   createdAt: string;
   updatedAt: string;
 }
@@ -116,7 +119,11 @@ export interface ResourceGrant {
   createdAt: string;
   resourceUri?: string;
   resourceDisplayName?: string;
+  resourceScheme?: string;
   applicationId?: string;
+  // Resolved by auth-service: name/email for a user, name for an
+  // organization or plan, null for `everyone`.
+  subjectLabel?: string | null;
 }
 
 export interface ResourceInvitation {
@@ -188,6 +195,7 @@ export interface UsageTotals {
 
 export interface UsageUserRow extends UsageTotals {
   subjectId: string;
+  subjectLabel: string | null;
 }
 
 export interface UsageResourceRow extends UsageTotals {
@@ -273,6 +281,8 @@ export interface UpdateResourceBody {
 export interface CreateGrantBody {
   subjectType: ResourceSubjectType;
   subjectId?: string | null;
+  // A user grant may name an e-mail; auth-service resolves it among active members.
+  subjectEmail?: string | null;
   expiresAt?: string | null;
 }
 
@@ -426,8 +436,8 @@ export async function createAppResource(appId: string, body: CreateAppResourceBo
   });
 }
 
-export async function listMyResources(): Promise<{ resources: Resource[] }> {
-  return apiFetch('/user/resources');
+export async function listMyResources(includeGrants = false): Promise<{ resources: Resource[] }> {
+  return apiFetch(`/user/resources${includeGrants ? '?include=grants' : ''}`);
 }
 
 export async function createResource(body: CreateResourceBody): Promise<{ resource: Resource }> {

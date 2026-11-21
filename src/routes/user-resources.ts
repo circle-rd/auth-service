@@ -22,7 +22,9 @@ import {
 import {
   createResourceGrant,
   getGrantForResource,
+  listActiveGrantCounts,
   listGrantsForResource,
+  listGrantsForResources,
   revokeResourceGrant,
 } from "../services/resources/grants.js";
 import {
@@ -260,8 +262,32 @@ export async function userResourceRoutes(
   fastify.get("/resources", async (req, reply) => {
     const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
+    const query = z
+      .object({ include: z.enum(["grants"]).optional() })
+      .parse(req.query);
     const resources = await listResourcesForOwner("user", userId);
-    await reply.send({ resources });
+    const resourceIds = resources.map((resource) => resource.id);
+    const [counts, grants] = await Promise.all([
+      listActiveGrantCounts(resourceIds),
+      query.include === "grants"
+        ? listGrantsForResources(resourceIds)
+        : Promise.resolve([]),
+    ]);
+    const grantsByResource = new Map<string, typeof grants>();
+    for (const grant of grants) {
+      const list = grantsByResource.get(grant.resourceId) ?? [];
+      list.push(grant);
+      grantsByResource.set(grant.resourceId, list);
+    }
+    await reply.send({
+      resources: resources.map((resource) => ({
+        ...resource,
+        grantCount: counts.get(resource.id) ?? 0,
+        ...(query.include === "grants"
+          ? { grants: grantsByResource.get(resource.id) ?? [] }
+          : {}),
+      })),
+    });
   });
 
   fastify.post("/resources", async (req, reply) => {

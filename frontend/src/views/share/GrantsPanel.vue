@@ -9,17 +9,20 @@ import BaseModal from '@/components/ui/BaseModal.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import SchemeIcon from '@/components/ui/SchemeIcon.vue';
 import { useToast } from '@/composables/useToast';
 import { useAuthStore } from '@/stores/auth';
 import {
   createGrant,
   listAppGrants,
   listAppResources,
+  listMemberSchemes,
   listOwnerPlans,
   revokeGrant,
   RESOURCE_SUBJECT_TYPES,
   type OwnerPlan,
   type Resource,
+  type ResourceScheme,
   type ResourceGrant,
   type ResourceSubjectType,
 } from '@/api/resources';
@@ -39,6 +42,7 @@ const auth = useAuthStore();
 const grants = ref<ResourceGrant[]>([]);
 const resources = ref<Resource[]>([]);
 const plans = ref<OwnerPlan[]>([]);
+const schemes = ref<ResourceScheme[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const revoking = ref(false);
@@ -78,6 +82,14 @@ const subjectOptions = computed<SelectOption[]>(() =>
 const planOptions = computed<SelectOption[]>(() =>
   plans.value.map((plan) => ({ value: plan.id, label: plan.name, description: plan.description ?? undefined })),
 );
+const schemeByName = computed(() => new Map(schemes.value.map((scheme) => [scheme.scheme, scheme])));
+function resourceIcon(grant: ResourceGrant): string | null {
+  return schemeByName.value.get(grant.resourceScheme ?? '')?.icon ?? null;
+}
+function subjectLabel(grant: ResourceGrant): string {
+  if (grant.subjectType === 'everyone') return t('share.grants.everyone');
+  return grant.subjectLabel || grant.subjectId || '—';
+}
 const needsSubjectId = computed(() => form.subjectType !== 'everyone');
 const canSave = computed(
   () => form.resourceId.length > 0 && (!needsSubjectId.value || form.subjectId.trim().length > 0),
@@ -86,14 +98,16 @@ const canSave = computed(
 async function load() {
   loading.value = true;
   try {
-    const [grantRes, resourceRes, planRes] = await Promise.all([
+    const [grantRes, resourceRes, planRes, schemeRes] = await Promise.all([
       listAppGrants(props.appId),
       listAppResources(props.appId),
       listOwnerPlans(props.appId),
+      listMemberSchemes(props.appId).catch(() => ({ schemes: [] as ResourceScheme[] })),
     ]);
     grants.value = grantRes.grants;
     resources.value = resourceRes.resources;
     plans.value = planRes.plans;
+    schemes.value = schemeRes.schemes;
     if (!form.resourceId) form.resourceId = resourceOptions.value[0]?.value ?? '';
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.loadError'));
@@ -191,12 +205,17 @@ onMounted(() => void load());
         <tbody>
           <tr v-for="grant in grants" :key="grant.id" class="border-t border-surface-800/60">
             <td class="px-4 py-3">
-              <p class="text-surface-200">{{ grant.resourceDisplayName ?? grant.resourceUri ?? grant.resourceId }}</p>
-              <p class="font-mono text-[11px] text-surface-500 break-all">{{ grant.resourceUri }}</p>
+              <div class="flex items-center gap-3 min-w-0">
+                <SchemeIcon :icon="resourceIcon(grant)" :scheme="grant.resourceScheme ?? 'unknown'" size="sm" />
+                <div class="min-w-0">
+                  <p class="text-surface-200">{{ grant.resourceDisplayName ?? grant.resourceUri ?? grant.resourceId }}</p>
+                  <p class="font-mono text-[11px] text-surface-500 break-all">{{ grant.resourceUri }}</p>
+                </div>
+              </div>
             </td>
             <td class="px-4 py-3 text-surface-400">{{ t(`share.subjectTypes.${grant.subjectType}`) }}</td>
-            <td class="px-4 py-3 font-mono text-xs text-surface-300 break-all">
-              {{ grant.subjectId ?? t('share.grants.everyone') }}
+            <td class="px-4 py-3 text-xs text-surface-300">
+              {{ subjectLabel(grant) }}
             </td>
             <td class="px-4 py-3 text-xs text-surface-500 hidden lg:table-cell">
               {{ grant.expiresAt ? formatDateTime(grant.expiresAt) : '—' }}

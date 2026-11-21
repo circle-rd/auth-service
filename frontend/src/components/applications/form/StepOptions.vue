@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
-import type { ApplicationFormState } from './state';
+import { RESOURCE_SELF_SCOPE, type ApplicationFormState } from './state';
 
-defineProps<{
+const props = defineProps<{
   form: ApplicationFormState;
   isEdit: boolean;
   litellmAvailable: boolean;
@@ -11,6 +12,17 @@ defineProps<{
 }>();
 
 const litellmSupport = defineModel<boolean>('litellm', { required: true });
+
+// The user-resource scope is not a separate choice: it is what the Resource
+// sharing option turns on, like the wallet scope behind LiteLLM support.
+const resourceSharingSupport = computed({
+  get: () => props.form.resourceSharingEnabled,
+  set: (enabled: boolean) => {
+    props.form.resourceSharingEnabled = enabled;
+    const scopes = props.form.allowedScopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE);
+    props.form.allowedScopes = enabled ? [...scopes, RESOURCE_SELF_SCOPE] : scopes;
+  },
+});
 
 const { t } = useI18n();
 </script>
@@ -97,7 +109,7 @@ const { t } = useI18n();
           :disabled="!litellmAvailable"
         />
         <BaseToggle
-          v-model="form.resourceSharingEnabled"
+          v-model="resourceSharingSupport"
           class="p-3.5"
           :label="t('applications.resourceSharing')"
           :description="resourceSharingAvailable ? t('applications.resourceSharingHint') : t('applications.resourceSharingUnavailable')"

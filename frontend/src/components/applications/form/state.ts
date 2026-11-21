@@ -1,5 +1,7 @@
 import type { Application } from '@/types';
 
+export const RESOURCE_SELF_SCOPE = 'resources:self:manage';
+
 export const ALL_PROVIDERS = ['google', 'github', 'linkedin', 'microsoft', 'apple'] as const;
 export type ProviderKey = (typeof ALL_PROVIDERS)[number];
 
@@ -90,7 +92,10 @@ export function formFromApplication(a: Application): ApplicationFormState {
     billingDelegated: a.billingMode === 'delegated',
     resourceSharingEnabled: a.resourceSharingEnabled,
     resourceWebhookUrl: a.resourceWebhookUrl ?? '',
-    allowedScopes: [...a.allowedScopes],
+    // The scope is owned by the Resource sharing option, not picked by hand.
+    allowedScopes: a.resourceSharingEnabled
+      ? [...new Set([...a.allowedScopes, RESOURCE_SELF_SCOPE])]
+      : a.allowedScopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE),
     redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
     allowedResources: [...(a.allowedResources ?? [])],
     enabledSocialProviders: a.enabledSocialProviders ? [...a.enabledSocialProviders] : null,

@@ -35,6 +35,7 @@ const SCOPE_LABELS: Record<string, { key: string }> = {
   features:       { key: 'consent.scopes.features' },
   org:            { key: 'consent.scopes.org' },
   'wallet:self:read': { key: 'consent.scopes.walletSelfRead' },
+  'resources:self:manage': { key: 'consent.scopes.resourceSelfManage' },
 };
 
 const appName = ref('');

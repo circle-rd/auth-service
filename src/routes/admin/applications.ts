@@ -48,6 +48,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { withResourceSharingScope } from "../../compat/scopes.js";
 import { ERR } from "../../errors.js";
 import { clientSecretAuthMethod } from "../../compat/token-auth.js";
 import { randomBytes, createHash } from "node:crypto";
@@ -574,7 +575,10 @@ export async function applicationRoutes(
           resourceWebhookSecret: resourceWebhookSecret
             ? encryptResourceWebhookSecret(resourceWebhookSecret)
             : null,
-          allowedScopes: data.allowedScopes,
+          allowedScopes: withResourceSharingScope(
+            data.allowedScopes,
+            data.resourceSharingEnabled,
+          ),
           redirectUris: data.redirectUris,
           url: data.url,
           allowedResources: data.allowedResources,
@@ -812,6 +816,8 @@ export async function applicationRoutes(
         isPublic: applications.isPublic,
         isSystem: applications.isSystem,
         resourceWebhookSecret: applications.resourceWebhookSecret,
+        allowedScopes: applications.allowedScopes,
+        resourceSharingEnabled: applications.resourceSharingEnabled,
       })
       .from(applications)
       .where(eq(applications.id, req.params.id))
@@ -859,9 +865,26 @@ export async function applicationRoutes(
               : null,
           };
 
+    const scopesUpdate =
+      parsed.data.allowedScopes !== undefined ||
+      parsed.data.resourceSharingEnabled !== undefined
+        ? {
+            allowedScopes: withResourceSharingScope(
+              parsed.data.allowedScopes ?? before.allowedScopes,
+              parsed.data.resourceSharingEnabled ??
+                before.resourceSharingEnabled,
+            ),
+          }
+        : {};
+
     const [app] = await db
       .update(applications)
-      .set({ ...applicationData, ...webhookUpdate, updatedAt: new Date() })
+      .set({
+        ...applicationData,
+        ...webhookUpdate,
+        ...scopesUpdate,
+        updatedAt: new Date(),
+      })
       .where(eq(applications.id, req.params.id))
       .returning();
     if (!app) throw ERR.APP_002();

@@ -1280,6 +1280,7 @@ export default {
       permissions: 'Read your permissions',
       features: 'Read your enabled features',
       walletSelfRead: 'Read your own wallet through the API',
+      resourceSelfManage: 'Manage and share your own resources through the API',
     },
   },
   landing: {

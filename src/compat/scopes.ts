@@ -2,6 +2,15 @@ import { compatExtraScopes, type CompatSettings } from "./profiles.js";
 
 export const RESOURCE_SELF_SCOPE = "resources:self:manage";
 
+/** The user-resource scope is owned by the application's Resource sharing flag. */
+export function withResourceSharingScope(
+  scopes: readonly string[],
+  enabled: boolean,
+): string[] {
+  const without = scopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE);
+  return enabled ? [...without, RESOURCE_SELF_SCOPE] : without;
+}
+
 export const NATIVE_SCOPES = [
   "openid",
   "profile",

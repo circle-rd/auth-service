@@ -1281,6 +1281,7 @@ export default {
       permissions: 'Lire vos permissions',
       features: 'Lire vos fonctionnalités activées',
       walletSelfRead: 'Lire votre propre portefeuille via l’API',
+      resourceSelfManage: 'Gérer et partager vos propres ressources via l’API',
     },
   },
   landing: {

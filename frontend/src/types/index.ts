@@ -109,6 +109,10 @@ export interface Application {
   billingMode: 'none' | 'delegated'
   /** Per-application owner sharing switch; effective only with the global flag. */
   resourceSharingEnabled: boolean
+  /** Endpoint auth-service POSTs signed resource-sharing events to. */
+  resourceWebhookUrl: string | null
+  /** HMAC secret of the webhook, admin-only. */
+  resourceWebhookSecret: string | null
   allowedScopes: string[]
   redirectUris: string[]
   isPublic: boolean

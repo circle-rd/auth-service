@@ -227,11 +227,11 @@ export async function assertCanManageResource(
 }
 
 /**
- * An owner shares a personal resource with existing members one by one.
- * Administrators and delegates never grant on a personal resource: they are
- * not its recipients, so they cannot add themselves. An application-owned
- * resource is granted by application admins (any subject) and `grants:manage`
- * delegates (existing members only).
+ * An owner shares a personal resource with existing members one by one, or
+ * with an organisation they belong to. Administrators and delegates never grant
+ * on a personal resource: they are not its recipients, so they cannot add
+ * themselves. An application-owned resource is granted by application admins
+ * (any subject) and `grants:manage` delegates (existing members only).
  */
 export async function canGrantToSubject(
   userId: string,
@@ -242,14 +242,21 @@ export async function canGrantToSubject(
   if (resource.ownerType === "user") {
     if (resource.ownerId !== userId) return false;
     if (!(await canOwnResources(userId, resource.applicationId))) return false;
-    // A member shares a personal resource with individual members only. An
-    // application administrator may open it to a whole audience, within what
-    // they belong to themselves.
+    // A member shares a personal resource with individual members, or with an
+    // organisation they belong to (recipients still need application
+    // membership at access time). An application administrator may open it to
+    // any audience within what they belong to themselves.
     // The owner already reaches the resource: granting it to oneself is a no-op.
     if (subjectType === "user" && subjectId === userId) return false;
     if (!(await isApplicationAdmin(userId, resource.applicationId))) {
-      if (subjectType !== "user" || subjectId === null) return false;
-      return isActiveMember(subjectId, resource.applicationId);
+      if (subjectId === null) return false;
+      if (subjectType === "user") {
+        return isActiveMember(subjectId, resource.applicationId);
+      }
+      if (subjectType === "organization") {
+        return isOrganizationMember(userId, subjectId);
+      }
+      return false;
     }
     return audienceWithinReach(
       userId,

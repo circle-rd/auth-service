@@ -16,9 +16,14 @@ import {
   organization as organizationTable,
 } from "../db/auth-schema.js";
 import { and, eq, gt, inArray } from "drizzle-orm";
+import { RESOURCE_SELF_SCOPE } from "../compat/scopes.js";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
-import { requireSession, requireFullSession } from "../middleware.js";
+import {
+  requireSession,
+  requireFullSession,
+  requireUserOrBearer,
+} from "../middleware.js";
 import { publishEvent } from "../services/event-bus.js";
 import { isStripeConfigured } from "../services/stripe.js";
 import { setUserSubscription } from "../services/subscriptions.js";
@@ -464,7 +469,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/user/organizations
   // Returns the organizations the current user is a member of.
   fastify.get("/organizations", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
 
     const rows = await db

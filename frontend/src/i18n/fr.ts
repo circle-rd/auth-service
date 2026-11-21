@@ -452,6 +452,7 @@ export default {
       permissions: 'Les permissions accord\u00e9es par ces r\u00f4les, sous forme de liste permissions : la ressource pour la lecture, ressource.write pour l\u2019\u00e9criture.',
       features: 'Les fonctionnalit\u00e9s de l\u2019abonnement actif de l\u2019utilisateur \u00e0 cette application, et le nom de son plan.',
       org: 'L\u2019organisation dans laquelle agit l\u2019utilisateur (org_id). Un utilisateur membre de plusieurs organisations doit en choisir une \u00e0 la connexion.',
+      'resources:self:manage': "Permet \u00e0 l\u2019application d\u2019agir pour l\u2019utilisateur connect\u00e9 sur ses propres ressources partag\u00e9es : les cr\u00e9er, les valider et les partager via l\u2019API utilisateur.",
     },
     redirectUris: 'URIs de redirection',
     enableEndSession: 'Autoriser le logout RP-Initiated',

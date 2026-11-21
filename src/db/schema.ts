@@ -36,6 +36,11 @@ export const applications = pgTable(
     resourceSharingEnabled: boolean("resource_sharing_enabled")
       .notNull()
       .default(false),
+    // Public endpoint auth-service POSTs signed resource-sharing events to.
+    resourceWebhookUrl: text("resource_webhook_url"),
+    // AES-256-GCM ciphertext of the HMAC secret; never logged or returned
+    // outside the admin application view.
+    resourceWebhookSecret: text("resource_webhook_secret"),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()

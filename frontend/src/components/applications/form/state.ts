@@ -26,6 +26,7 @@ export interface ApplicationFormState {
   allowRegister: boolean;
   billingDelegated: boolean;
   resourceSharingEnabled: boolean;
+  resourceWebhookUrl: string;
   allowedScopes: string[];
   redirectUris: string[];
   allowedResources: string[];
@@ -60,6 +61,7 @@ export function emptyApplicationForm(
     allowRegister: true,
     billingDelegated: false,
     resourceSharingEnabled: false,
+    resourceWebhookUrl: '',
     allowedScopes: [...DEFAULT_SCOPES],
     redirectUris: [''],
     allowedResources: [],
@@ -87,6 +89,7 @@ export function formFromApplication(a: Application): ApplicationFormState {
     allowRegister: a.allowRegister,
     billingDelegated: a.billingMode === 'delegated',
     resourceSharingEnabled: a.resourceSharingEnabled,
+    resourceWebhookUrl: a.resourceWebhookUrl ?? '',
     allowedScopes: [...a.allowedScopes],
     redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
     allowedResources: [...(a.allowedResources ?? [])],

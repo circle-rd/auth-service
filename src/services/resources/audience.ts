@@ -48,7 +48,7 @@ export async function resolveAudience(
   }
 }
 
-async function activeMemberIdByEmail(
+export async function activeMemberIdByEmail(
   email: string,
   applicationId: string,
 ): Promise<string> {

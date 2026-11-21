@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   jsonb,
   numeric,
   pgTable,
@@ -383,6 +384,50 @@ export const resourceUsageRecords = pgTable(
         AND ${t.completionTokens} IS NULL
         AND ${t.totalTokens} IS NULL
       )`,
+    ),
+  ],
+);
+
+// ── Resource Webhook Deliveries ───────────────────────────────────────────────
+// Durable outbox for application callbacks. A row is claimed atomically before
+// the HTTP POST so replicas do not send the same event twice; the payload is
+// stored as delivered so a retry after a restart keeps the same event id.
+export const resourceWebhookDeliveries = pgTable(
+  "resource_webhook_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    eventId: uuid("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    status: text("status")
+      .$type<"pending" | "delivered" | "failed">()
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("resource_webhook_deliveries_event_idx").on(
+      t.applicationId,
+      t.eventId,
+    ),
+    index("resource_webhook_deliveries_pending_idx").on(
+      t.status,
+      t.nextAttemptAt,
+    ),
+    check(
+      "resource_webhook_deliveries_status_check",
+      sql`${t.status} IN ('pending', 'delivered', 'failed')`,
     ),
   ],
 );

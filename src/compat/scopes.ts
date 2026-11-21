@@ -1,5 +1,7 @@
 import { compatExtraScopes, type CompatSettings } from "./profiles.js";
 
+export const RESOURCE_SELF_SCOPE = "resources:self:manage";
+
 export const NATIVE_SCOPES = [
   "openid",
   "profile",
@@ -10,6 +12,9 @@ export const NATIVE_SCOPES = [
   "permissions",
   "features",
   "wallet:self:read",
+  // Lets a third-party backend act for the signed-in user on their own shared
+  // resources (create, validate, grant) through `/api/user/resources*`.
+  RESOURCE_SELF_SCOPE,
   // Authorises opening a reverse tunnel to the relay (reverse-agent).
   "tunnel:serve",
   // Injects org_id (activeOrganizationId) in the access token. Clients that

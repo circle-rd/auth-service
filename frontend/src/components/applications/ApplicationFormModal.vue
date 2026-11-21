@@ -292,6 +292,7 @@ async function submit() {
       allowRegister: form.value.allowRegister,
       billingMode: form.value.billingDelegated ? ('delegated' as const) : ('none' as const),
       resourceSharingEnabled: form.value.resourceSharingEnabled,
+      resourceWebhookUrl: form.value.resourceWebhookUrl || null,
       allowedScopes: form.value.allowedScopes,
       redirectUris: form.value.redirectUris.filter(Boolean),
       allowedResources: form.value.allowedResources.filter(Boolean),
@@ -425,7 +426,12 @@ function onEnter() {
         :hidden-resources="hiddenResources"
         :is-system="props.application?.isSystem ?? false"
       />
-      <StepAdvanced v-else :form="form" :available-providers="availableProviders" />
+      <StepAdvanced
+        v-else
+        :form="form"
+        :available-providers="availableProviders"
+        :webhook-secret="application?.resourceWebhookSecret ?? null"
+      />
     </form>
 
     <template #footer>

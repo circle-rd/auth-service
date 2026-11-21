@@ -70,6 +70,13 @@ import {
   assertReachableBackchannelLogoutUri,
   backchannelLogoutUriSchema,
 } from "../../services/backchannel-logout-uri.js";
+import {
+  assertReachableResourceWebhookUrl,
+  decryptResourceWebhookSecret,
+  encryptResourceWebhookSecret,
+  generateResourceWebhookSecret,
+  resourceWebhookUrlSchema,
+} from "../../services/resources/webhooks.js";
 import { publishEvent } from "../../services/event-bus.js";
 const DEFAULT_PLAN_NAME = "free";
 import { DEFAULT_MACHINE_SCOPES } from "../../services/machine-scopes.js";
@@ -193,6 +200,25 @@ function mergeOauthView<T extends { slug: string }>(
 }
 
 /**
+ * The admin view exposes the webhook secret so an operator can configure the
+ * receiver. The stored value is ciphertext; callers never see that form.
+ */
+function withResourceWebhookSecret<
+  T extends { resourceWebhookSecret: string | null },
+>(
+  app: T,
+): Omit<T, "resourceWebhookSecret"> & {
+  resourceWebhookSecret: string | null;
+} {
+  return {
+    ...app,
+    resourceWebhookSecret: app.resourceWebhookSecret
+      ? decryptResourceWebhookSecret(app.resourceWebhookSecret)
+      : null,
+  };
+}
+
+/**
  * Compute the effective `postLogoutRedirectUris` whitelist at create time.
  * If the operator did not provide any but supplied a `url`, seed it with the
  * canonical root URL (`${url}/`). This matches the most common SPA pattern
@@ -310,6 +336,8 @@ const createAppSchema = z.object({
   allowRegister: z.boolean().default(false),
   billingMode: z.enum(["none", "delegated"]).default("none"),
   resourceSharingEnabled: z.boolean().default(false),
+  // Optional callback auth-service POSTs signed resource-sharing events to.
+  resourceWebhookUrl: resourceWebhookUrlSchema.nullable().optional(),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
   redirectUris: z.array(z.string().url()).default([]),
   // OIDC RP-Initiated Logout 1.0. When true, the client may call
@@ -479,7 +507,9 @@ export async function applicationRoutes(
       .orderBy(applications.createdAt);
     const views = await fetchOauthClientViews(rows.map((r) => r.slug));
     const enriched = rows.map((r) =>
-      mergeOauthView(r, views.get(r.slug) ?? toOauthClientView(undefined)),
+      withResourceWebhookSecret(
+        mergeOauthView(r, views.get(r.slug) ?? toOauthClientView(undefined)),
+      ),
     );
     await reply.send({ applications: enriched });
   });
@@ -514,6 +544,12 @@ export async function applicationRoutes(
     if (data.backchannelLogoutUri) {
       await assertReachableBackchannelLogoutUri(data.backchannelLogoutUri);
     }
+    if (data.resourceWebhookUrl) {
+      await assertReachableResourceWebhookUrl(data.resourceWebhookUrl);
+    }
+    const resourceWebhookSecret = data.resourceWebhookUrl
+      ? generateResourceWebhookSecret()
+      : null;
     // Generate and hash the client secret (only for confidential clients)
     const rawSecret = data.isPublic ? null : randomBytes(32).toString("hex");
     const hashedSecret = rawSecret ? hashClientSecret(rawSecret) : null;
@@ -534,6 +570,10 @@ export async function applicationRoutes(
           allowRegister: data.allowRegister,
           billingMode: data.billingMode,
           resourceSharingEnabled: data.resourceSharingEnabled,
+          resourceWebhookUrl: data.resourceWebhookUrl ?? null,
+          resourceWebhookSecret: resourceWebhookSecret
+            ? encryptResourceWebhookSecret(resourceWebhookSecret)
+            : null,
           allowedScopes: data.allowedScopes,
           redirectUris: data.redirectUris,
           url: data.url,
@@ -694,18 +734,20 @@ export async function applicationRoutes(
     void userRole;
 
     const response: Record<string, unknown> = {
-      application: mergeOauthView(app!, {
-        enableEndSession: data.enableEndSession,
-        postLogoutRedirectUris: effectivePostLogoutRedirectUris(
-          data.postLogoutRedirectUris,
-          data.url,
-        ),
-        ...backchannelLogoutValues(data),
-        requirePKCE: effectiveRequirePKCE(data),
-        tokenEndpointAuthMethod: effectiveTokenEndpointAuthMethod(data),
-        tokenEndpointAuthMethodExplicit:
-          data.tokenEndpointAuthMethod !== undefined,
-      }),
+      application: withResourceWebhookSecret(
+        mergeOauthView(app!, {
+          enableEndSession: data.enableEndSession,
+          postLogoutRedirectUris: effectivePostLogoutRedirectUris(
+            data.postLogoutRedirectUris,
+            data.url,
+          ),
+          ...backchannelLogoutValues(data),
+          requirePKCE: effectiveRequirePKCE(data),
+          tokenEndpointAuthMethod: effectiveTokenEndpointAuthMethod(data),
+          tokenEndpointAuthMethodExplicit:
+            data.tokenEndpointAuthMethod !== undefined,
+        }),
+      ),
       clientId: data.slug,
     };
     // Secret shown once — not persisted in plaintext. Public clients have no secret.
@@ -739,7 +781,9 @@ export async function applicationRoutes(
       .limit(1);
     if (!app) throw ERR.APP_002();
     const view = await fetchOauthClientView(app.slug);
-    await reply.send({ application: mergeOauthView(app, view) });
+    await reply.send({
+      application: withResourceWebhookSecret(mergeOauthView(app, view)),
+    });
   });
 
   // PATCH /api/admin/applications/:id
@@ -753,6 +797,9 @@ export async function applicationRoutes(
         parsed.data.backchannelLogoutUri,
       );
     }
+    if (parsed.data.resourceWebhookUrl) {
+      await assertReachableResourceWebhookUrl(parsed.data.resourceWebhookUrl);
+    }
 
     // Fetch the current URL before applying the update so we can diff it.
     const [before] = await db
@@ -764,6 +811,7 @@ export async function applicationRoutes(
         allowedResources: applications.allowedResources,
         isPublic: applications.isPublic,
         isSystem: applications.isSystem,
+        resourceWebhookSecret: applications.resourceWebhookSecret,
       })
       .from(applications)
       .where(eq(applications.id, req.params.id))
@@ -792,6 +840,7 @@ export async function applicationRoutes(
       postLogoutRedirectUris: _plru,
       backchannelLogoutUri: _bclu,
       backchannelLogoutSessionRequired: _bclsr,
+      resourceWebhookUrl,
       ...applicationData
     } = parsed.data;
     void _ees;
@@ -799,9 +848,20 @@ export async function applicationRoutes(
     void _bclu;
     void _bclsr;
 
+    const webhookUpdate =
+      resourceWebhookUrl === undefined
+        ? {}
+        : {
+            resourceWebhookUrl,
+            resourceWebhookSecret: resourceWebhookUrl
+              ? (before.resourceWebhookSecret ??
+                encryptResourceWebhookSecret(generateResourceWebhookSecret()))
+              : null,
+          };
+
     const [app] = await db
       .update(applications)
-      .set({ ...applicationData, updatedAt: new Date() })
+      .set({ ...applicationData, ...webhookUpdate, updatedAt: new Date() })
       .where(eq(applications.id, req.params.id))
       .returning();
     if (!app) throw ERR.APP_002();
@@ -896,7 +956,9 @@ export async function applicationRoutes(
 
     const view = await fetchOauthClientView(app.slug);
     publishEvent("application.changed");
-    await reply.send({ application: mergeOauthView(app, view) });
+    await reply.send({
+      application: withResourceWebhookSecret(mergeOauthView(app, view)),
+    });
   });
 
   // DELETE /api/admin/applications/:id

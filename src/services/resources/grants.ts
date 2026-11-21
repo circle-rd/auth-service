@@ -15,6 +15,7 @@ import type { DbExecutor } from "../credential-user.js";
 import { assertCanGrantToSubject, assertCanManageGrants } from "./authority.js";
 import { getResource, type ResourceView } from "./registry.js";
 import type { ResourceSubjectType } from "./types.js";
+import { enqueueResourceWebhookEvent } from "./webhooks.js";
 
 export type ResourceGrantRow = typeof resourceGrants.$inferSelect;
 
@@ -48,13 +49,14 @@ export async function insertResourceGrant(
   const resource = await getResource(input.resourceId);
   await assertSubjectExists(resource, input.subjectType, input.subjectId);
   if (exec === db) {
-    return db.transaction((tx) => insertResourceGrantRow(input, tx));
+    return db.transaction((tx) => insertResourceGrantRow(input, resource, tx));
   }
-  return insertResourceGrantRow(input, exec);
+  return insertResourceGrantRow(input, resource, exec);
 }
 
 async function insertResourceGrantRow(
   input: InsertResourceGrantInput,
+  resource: ResourceView,
   exec: DbExecutor,
 ): Promise<ResourceGrantRow> {
   // Serialize concurrent inserts for this resource so the duplicate check and
@@ -95,6 +97,19 @@ async function insertResourceGrantRow(
     })
     .returning();
   if (!row) throw ERR.RES_001("Resource grant could not be created");
+  await enqueueResourceWebhookEvent(
+    {
+      type: "resource.grant.created",
+      resource,
+      grant: {
+        id: row.id,
+        subjectType: row.subjectType,
+        subjectId: row.subjectId,
+        expiresAt: row.expiresAt,
+      },
+    },
+    exec,
+  );
   return row;
 }
 
@@ -196,6 +211,16 @@ export async function revokeResourceGrant(
     .where(eq(resourceGrants.id, id))
     .returning();
   if (!row) throw ERR.RES_007();
+  await enqueueResourceWebhookEvent({
+    type: "resource.grant.revoked",
+    resource,
+    grant: {
+      id: row.id,
+      subjectType: row.subjectType,
+      subjectId: row.subjectId,
+      expiresAt: row.expiresAt,
+    },
+  });
   return row;
 }
 

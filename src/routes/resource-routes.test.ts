@@ -11,6 +11,7 @@ import { createTestApp } from "../tests/helpers/app.js";
 
 const {
   mockRequireSession,
+  mockRequireUserOrBearer,
   mockRequireAppDelegation,
   mockRequireResourceAppAdmin,
   mockGetRequestSession,
@@ -34,6 +35,7 @@ const {
   mockCreateResource,
   mockRemoveResource,
   mockResolveAudience,
+  mockActiveMemberIdByEmail,
   mockGetResource,
   mockListMyResources,
   mockRequestValidation,
@@ -58,6 +60,7 @@ const {
   mockMailConfigured,
 } = vi.hoisted(() => ({
   mockRequireSession: vi.fn(),
+  mockRequireUserOrBearer: vi.fn(),
   mockRequireAppDelegation: vi.fn(),
   mockRequireResourceAppAdmin: vi.fn(),
   mockGetRequestSession: vi.fn(),
@@ -81,6 +84,7 @@ const {
   mockCreateResource: vi.fn(),
   mockRemoveResource: vi.fn(),
   mockResolveAudience: vi.fn(),
+  mockActiveMemberIdByEmail: vi.fn(),
   mockGetResource: vi.fn(),
   mockListMyResources: vi.fn(),
   mockRequestValidation: vi.fn(),
@@ -108,6 +112,7 @@ const {
 vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../middleware.js", () => ({
   requireSession: mockRequireSession,
+  requireUserOrBearer: mockRequireUserOrBearer,
   requireAppDelegation: mockRequireAppDelegation,
   requireResourceAppAdmin: mockRequireResourceAppAdmin,
   getRequestSession: mockGetRequestSession,
@@ -146,6 +151,7 @@ vi.mock("../services/resources/invitations.js", () => ({
   toPublicResourceInvitation: (invitation: unknown) => invitation,
 }));
 vi.mock("../services/resources/audience.js", () => ({
+  activeMemberIdByEmail: mockActiveMemberIdByEmail,
   resolveAudience: mockResolveAudience,
 }));
 vi.mock("../services/resources/gateway-declaration.js", () => ({
@@ -231,6 +237,7 @@ afterAll(() => app.close());
 beforeEach(() => {
   for (const mock of [
     mockRequireSession,
+    mockRequireUserOrBearer,
     mockRequireAppDelegation,
     mockRequireResourceAppAdmin,
     mockGetRequestSession,
@@ -279,6 +286,7 @@ beforeEach(() => {
     mock.mockReset();
   }
   mockRequireSession.mockResolvedValue("user-1");
+  mockRequireUserOrBearer.mockResolvedValue("user-1");
   mockRequireAppDelegation.mockResolvedValue("user-1");
   mockRequireResourceAppAdmin.mockResolvedValue("user-1");
   mockGetRequestSession.mockResolvedValue({
@@ -585,6 +593,44 @@ describe("user resource routes", () => {
         actorUserId: "user-1",
       }),
     );
+  });
+
+  it("resolves a user grant named by e-mail", async () => {
+    mockActiveMemberIdByEmail.mockResolvedValue("user-9");
+    mockCreateGrant.mockResolvedValue({
+      id: GRANT,
+      resourceId: RESOURCE,
+      subjectType: "user",
+      subjectId: "user-9",
+      revokedAt: null,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/resources/${RESOURCE}/grants`,
+      payload: { subjectType: "user", subjectEmail: "member@example.com" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockActiveMemberIdByEmail).toHaveBeenCalledWith(
+      "member@example.com",
+      APP,
+    );
+    expect(mockCreateGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectId: "user-9" }),
+    );
+  });
+
+  it("refuses both a subject id and an e-mail", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/resources/${RESOURCE}/grants`,
+      payload: {
+        subjectType: "user",
+        subjectId: "user-2",
+        subjectEmail: "member@example.com",
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
   it("accepts an invitation for the authenticated verified subject", async () => {

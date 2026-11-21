@@ -11,6 +11,7 @@ import {
 const props = defineProps<{
   form: ApplicationFormState;
   availableProviders: ProviderKey[];
+  webhookSecret: string | null;
 }>();
 
 const { t } = useI18n();
@@ -46,6 +47,29 @@ function removeMetadataEntry(i: number) {
 
 <template>
   <div class="space-y-6">
+    <!--
+      Resource-sharing webhook: signed POSTs about grants so the application
+      can update dashboards without polling.
+    -->
+    <div>
+      <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
+        {{ t('applications.resourceWebhookUrl') }}
+      </p>
+      <input
+        v-model="form.resourceWebhookUrl"
+        placeholder="https://your-app.com/webhooks/auth-service/resources"
+        :class="[inputClass, 'w-full border-surface-700/60']"
+      />
+      <p class="text-xs text-surface-500 mt-2">{{ t('applications.resourceWebhookUrlHint') }}</p>
+      <div v-if="webhookSecret" class="mt-3">
+        <p class="text-xs font-medium text-surface-500 uppercase tracking-wider mb-2">
+          {{ t('applications.resourceWebhookSecret') }}
+        </p>
+        <code class="block px-3 py-2 text-xs bg-surface-800/80 border border-surface-700/60 rounded-md text-surface-200 break-all">{{ webhookSecret }}</code>
+        <p class="text-xs text-surface-500 mt-2">{{ t('applications.resourceWebhookSecretHint') }}</p>
+      </div>
+    </div>
+
     <!--
       OIDC Back-Channel Logout 1.0: when a session ends, AuthService POSTs a
       signed logout token to this endpoint. Must be an https URL.

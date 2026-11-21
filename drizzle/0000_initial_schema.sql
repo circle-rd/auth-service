@@ -44,6 +44,8 @@ CREATE TABLE "applications" (
 	"allow_register" boolean DEFAULT false NOT NULL,
 	"billing_mode" text DEFAULT 'none' NOT NULL,
 	"resource_sharing_enabled" boolean DEFAULT false NOT NULL,
+	"resource_webhook_url" text,
+	"resource_webhook_secret" text,
 	"allowed_scopes" text[] DEFAULT '{"openid","profile","email"}' NOT NULL,
 	"redirect_uris" text[] DEFAULT '{}' NOT NULL,
 	"is_public" boolean DEFAULT false NOT NULL,
@@ -702,6 +704,21 @@ CREATE TABLE "resource_usage_records" (
       ))
 );
 --> statement-breakpoint
+CREATE TABLE "resource_webhook_deliveries" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"application_id" uuid NOT NULL,
+	"event_id" uuid NOT NULL,
+	"event_type" text NOT NULL,
+	"payload" jsonb NOT NULL,
+	"status" text DEFAULT 'pending' NOT NULL,
+	"attempts" integer DEFAULT 0 NOT NULL,
+	"next_attempt_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_error" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"delivered_at" timestamp with time zone,
+	CONSTRAINT "resource_webhook_deliveries_status_check" CHECK ("resource_webhook_deliveries"."status" IN ('pending', 'delivered', 'failed'))
+);
+--> statement-breakpoint
 CREATE TABLE "resources" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"application_id" uuid NOT NULL,
@@ -868,6 +885,7 @@ ALTER TABLE "resource_grants" ADD CONSTRAINT "resource_grants_resource_id_resour
 ALTER TABLE "resource_invitations" ADD CONSTRAINT "resource_invitations_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_webhook_deliveries" ADD CONSTRAINT "resource_webhook_deliveries_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_scheme_resource_schemes_scheme_fk" FOREIGN KEY ("scheme") REFERENCES "public"."resource_schemes"("scheme") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_gateway_links" ADD CONSTRAINT "resource_gateway_links_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -953,6 +971,8 @@ CREATE UNIQUE INDEX "resource_usage_records_event_idx" ON "resource_usage_record
 CREATE INDEX "resource_usage_records_owner_occurred_idx" ON "resource_usage_records" USING btree ("owner_type","owner_id","occurred_at");--> statement-breakpoint
 CREATE INDEX "resource_usage_records_application_occurred_idx" ON "resource_usage_records" USING btree ("application_id","occurred_at");--> statement-breakpoint
 CREATE INDEX "resource_usage_records_subject_occurred_idx" ON "resource_usage_records" USING btree ("subject_id","occurred_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "resource_webhook_deliveries_event_idx" ON "resource_webhook_deliveries" USING btree ("application_id","event_id");--> statement-breakpoint
+CREATE INDEX "resource_webhook_deliveries_pending_idx" ON "resource_webhook_deliveries" USING btree ("status","next_attempt_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "resources_uri_idx" ON "resources" USING btree ("uri");--> statement-breakpoint
 CREATE UNIQUE INDEX "resources_scheme_locator_idx" ON "resources" USING btree ("scheme","locator");--> statement-breakpoint
 CREATE INDEX "resources_application_status_idx" ON "resources" USING btree ("application_id","status");--> statement-breakpoint

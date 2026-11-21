@@ -9,6 +9,7 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { useCatalogueStore } from '@/stores/catalogue';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -43,34 +44,19 @@ function sync() {
 watch(() => [store.appsLoaded, appId.value], sync);
 void store.loadApps().then(sync);
 
-// Resource types and shares change outside this tab (an administrator enabling
-// a scheme, another user sharing a resource). Refresh the overview on a short
-// interval and when the tab becomes visible, so the sidebar and the type pages
-// converge without a full reload.
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
+// Resource types, shares and grants change outside this tab (an administrator
+// enabling a scheme, another user sharing a resource). The server only addresses
+// the frames this session may see; the overview is re-read on each of them.
 function refreshOverview() {
   if (appId.value && store.byId.has(appId.value)) {
     void store.loadOverview(appId.value, true);
   }
 }
-function onVisibility() {
-  if (document.visibilityState === 'visible') refreshOverview();
-}
-watch(
-  appId,
-  (value) => {
-    if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = null;
-    if (!value) return;
-    refreshTimer = setInterval(refreshOverview, 15_000);
-    document.addEventListener('visibilitychange', onVisibility);
-  },
-  { immediate: true },
+const events = useRealtimeEvents(
+  { 'catalogue.changed': refreshOverview, 'resource.changed': refreshOverview },
+  { onResync: refreshOverview },
 );
-onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer);
-  document.removeEventListener('visibilitychange', onVisibility);
-});
+onBeforeUnmount(() => events.close());
 </script>
 
 <template>

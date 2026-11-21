@@ -23,7 +23,7 @@ import { ERR } from "../errors.js";
 import { logger } from "../logger.js";
 import { assignDefaultRoleIfNeeded } from "./claims.js";
 import { insertCredentialUser, type DbExecutor } from "./credential-user.js";
-import { publishEvent } from "./event-bus.js";
+import { ADMIN_ROOM, publishEvent, userRoom } from "./event-bus.js";
 import { assignDefaultPlanIfNeeded } from "./subscriptions.js";
 import { ensureBillingCustomerBestEffort } from "./billing/customers.js";
 
@@ -187,7 +187,7 @@ async function applyDefaultApplicationAccess(
 ): Promise<void> {
   await assignDefaultRoleIfNeeded(userId, applicationId);
   await assignDefaultPlanIfNeeded(userId, applicationId);
-  publishEvent("user.changed");
+  publishEvent("user.changed", [ADMIN_ROOM, userRoom(userId)]);
 }
 
 /**

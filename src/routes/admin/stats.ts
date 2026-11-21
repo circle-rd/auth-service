@@ -1,13 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { db } from "../../db/index.js";
-import { session as sessionTable } from "../../db/auth-schema.js";
 import { applications, loginHistory } from "../../db/schema.js";
-import { and, countDistinct, eq, gt, gte, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { ERR } from "../../errors.js";
 import { requireAdmin } from "../../middleware.js";
 import { denseDailySeries, rangeToDays } from "../../services/daily-series.js";
 import { getBillingStats } from "../../services/billing/stats.js";
+import { countOnlineUsers } from "../../services/presence.js";
 
 const rangeSchema = z.enum(["7d", "30d"]).default("7d");
 const loginsQuerySchema = z.object({
@@ -23,12 +23,7 @@ export async function statsRoutes(fastify: FastifyInstance): Promise<void> {
   // GET /api/admin/stats/active-users
   // Distinct users with at least one non-expired session — i.e. currently online.
   fastify.get("/active-users", async (_req, reply) => {
-    const now = new Date();
-    const [{ count }] = await db
-      .select({ count: countDistinct(sessionTable.userId) })
-      .from(sessionTable)
-      .where(gt(sessionTable.expiresAt, now));
-    await reply.send({ count });
+    await reply.send({ count: await countOnlineUsers() });
   });
 
   // GET /api/admin/stats/logins?range=7d|30d&appId=<uuid>

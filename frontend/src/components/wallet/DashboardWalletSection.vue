@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Coins, TrendingDown, Wallet } from '@lucide/vue';
 import StatCard from '@/components/ui/StatCard.vue';
@@ -9,7 +9,6 @@ import { useMoney } from '@/composables/useMoney';
 import type { AdminWalletStats } from '@/types/wallet';
 
 const DAYS = 30;
-const POLL_MS = 30_000;
 
 const { t } = useI18n();
 const { fmt } = useMoney();
@@ -35,13 +34,8 @@ async function refresh(): Promise<void> {
 // The dashboard owns the single admin event subscription and calls this on `wallet.changed`.
 defineExpose({ refresh });
 
-let poll: ReturnType<typeof setInterval> | null = null;
 onMounted(() => {
   void refresh();
-  poll = setInterval(() => { if (!document.hidden) void refresh(); }, POLL_MS);
-});
-onUnmounted(() => {
-  if (poll) clearInterval(poll);
 });
 </script>
 

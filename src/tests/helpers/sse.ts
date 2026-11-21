@@ -1,5 +1,5 @@
 /**
- * Integration helpers for the admin SSE channel.
+ * Integration helpers for the real-time SSE channel.
  *
  * A hijacked `text/event-stream` response never ends, so `app.inject()` cannot
  * be used on it — it waits for `end`. These helpers talk to a really listening
@@ -17,13 +17,13 @@ export interface SseStream {
 
 const TIMEOUT = Symbol("timeout");
 
-/** Open `/api/admin/events` on a listening test server. */
+/** Open `/api/events` on a listening test server. */
 export async function openEventStream(
   baseUrl: string,
   cookie?: string,
 ): Promise<SseStream> {
   const controller = new AbortController();
-  const res = await fetch(`${baseUrl}/api/admin/events`, {
+  const res = await fetch(`${baseUrl}/api/events`, {
     headers: {
       accept: "text/event-stream",
       ...(cookie ? { cookie } : {}),

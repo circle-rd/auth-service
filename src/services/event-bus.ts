@@ -1,10 +1,10 @@
 /**
- * Domain-event bus behind the admin real-time channel.
+ * Domain-event bus behind the real-time channel (`GET /api/events`).
  *
- * An event carries a type name and the instant it was published — never a
- * payload, never an identifier. Subscribers are the admin SSE connections; the
- * dashboard re-fetches whatever it needs through the REST endpoints it already
- * calls.
+ * An event carries a type name, the instant it was published and the rooms it
+ * is addressed to. Rooms are a server-side routing key only: they never reach
+ * the wire. A frame is `event: <type>` + `data: <at>` and nothing else, so the
+ * client learns that something changed, never who or what.
  *
  * The default is an in-process bus (single instance). When `REDIS_URL` is set,
  * `createEventBus` lazily loads `ioredis` and fans out over a pub/sub channel so
@@ -21,10 +21,11 @@ import { logger } from "../logger.js";
  *
  * Every type is a name and nothing else. A type that would need a payload to be
  * useful is a type that is wrong — the fix for it is a better type, never a
- * wider frame (see `src/routes/admin/events.ts`).
+ * wider frame (see `src/routes/events.ts`).
  */
 export const DOMAIN_EVENT_TYPES = [
   "login.recorded",
+  "presence.changed",
   "session.created",
   "session.revoked",
   "user.changed",
@@ -32,20 +33,57 @@ export const DOMAIN_EVENT_TYPES = [
   "organization.changed",
   "wallet.changed",
   "subscription.changed",
+  "resource.changed",
+  "catalogue.changed",
 ] as const;
 
 export type DomainEventType = (typeof DOMAIN_EVENT_TYPES)[number];
 
-/** Something worth telling the dashboard about: a type and a timestamp. */
+/**
+ * Types a non-admin session may receive. Every other type is administration
+ * data and is delivered to the admin room only.
+ */
+export const USER_EVENT_TYPES: readonly DomainEventType[] = [
+  "wallet.changed",
+  "subscription.changed",
+  "resource.changed",
+  "catalogue.changed",
+];
+
+/**
+ * Types that end the stream of every session they are addressed to. The
+ * session re-authenticates on reconnect, so a revoked session, a changed role or
+ * a removed membership takes effect without waiting for the lifetime cap.
+ */
+export const CLOSING_EVENT_TYPES: readonly DomainEventType[] = [
+  "session.revoked",
+  "user.changed",
+  "organization.changed",
+];
+
+export type Room =
+  "admin" | `user:${string}` | `org:${string}` | `app:${string}`;
+
+export const ADMIN_ROOM: Room = "admin";
+export const userRoom = (userId: string): Room => `user:${userId}`;
+export const orgRoom = (organizationId: string): Room =>
+  `org:${organizationId}`;
+export const appRoom = (applicationId: string): Room => `app:${applicationId}`;
+
+/** Every event names at least one room: an unaddressed event has no audience. */
+export type RoomList = readonly [Room, ...Room[]];
+
+/** Something worth telling a subscriber about: a type, a timestamp and its rooms. */
 export interface DomainEvent {
   type: DomainEventType;
   at: string;
+  rooms: RoomList;
 }
 
 export type EventSubscriber = (event: DomainEvent) => void;
 
 export interface EventBus {
-  publish(type: DomainEventType): void;
+  publish(type: DomainEventType, rooms: RoomList): void;
   subscribe(subscriber: EventSubscriber): () => void;
   /** Live subscriber count — the observable side of the leak guarantee. */
   readonly subscriberCount: number;
@@ -56,15 +94,21 @@ export interface EventBus {
 /** Redis pub/sub channel carrying the fan-out. */
 const REDIS_CHANNEL = "auth-service.events";
 
+const ROOM_PATTERN = /^(admin|(user|org|app):[A-Za-z0-9_-]+)$/;
+
 /** Envelope published to Redis; `origin` lets an instance drop its own echo. */
 const remoteEventSchema = z.object({
   origin: z.string(),
   type: z.enum(DOMAIN_EVENT_TYPES),
   at: z.string().datetime(),
+  rooms: z
+    .array(z.string().regex(ROOM_PATTERN))
+    .min(1)
+    .transform((rooms) => rooms as unknown as RoomList),
 });
 
-function createEvent(type: DomainEventType): DomainEvent {
-  return { type, at: new Date().toISOString() };
+function createEvent(type: DomainEventType, rooms: RoomList): DomainEvent {
+  return { type, at: new Date().toISOString(), rooms };
 }
 
 /** Shared subscriber bookkeeping for every bus implementation. */
@@ -77,7 +121,7 @@ abstract class BaseEventBus implements EventBus {
     return this.subscribers.size;
   }
 
-  abstract publish(type: DomainEventType): void;
+  abstract publish(type: DomainEventType, rooms: RoomList): void;
 
   subscribe(subscriber: EventSubscriber): () => void {
     this.subscribers.add(subscriber);
@@ -109,8 +153,8 @@ abstract class BaseEventBus implements EventBus {
 export class MemoryEventBus extends BaseEventBus {
   readonly name = "memory";
 
-  publish(type: DomainEventType): void {
-    this.dispatch(createEvent(type));
+  publish(type: DomainEventType, rooms: RoomList): void {
+    this.dispatch(createEvent(type, rooms));
   }
 }
 
@@ -145,8 +189,8 @@ export class RedisEventBus extends BaseEventBus {
     await this.client.subscribe(REDIS_CHANNEL);
   }
 
-  publish(type: DomainEventType): void {
-    const event = createEvent(type);
+  publish(type: DomainEventType, rooms: RoomList): void {
+    const event = createEvent(type, rooms);
     // Local subscribers are served first: a Redis outage must not silence the
     // dashboard of the instance the login happened on.
     this.dispatch(event);
@@ -176,7 +220,11 @@ function parseRemoteEvent(message: string, origin: string): DomainEvent | null {
   }
   const parsed = remoteEventSchema.safeParse(raw);
   if (!parsed.success || parsed.data.origin === origin) return null;
-  return { type: parsed.data.type, at: parsed.data.at };
+  return {
+    type: parsed.data.type,
+    at: parsed.data.at,
+    rooms: parsed.data.rooms,
+  };
 }
 
 export async function createEventBus(redisUrl?: string): Promise<EventBus> {
@@ -204,8 +252,7 @@ export async function createEventBus(redisUrl?: string): Promise<EventBus> {
 
 // ── Application seam ─────────────────────────────────────────────────────────
 // Mirrors the mail transport: a memoised default that the server replaces with
-// the bus it owns at boot, so `recordLogin()` publishes without importing the
-// server graph.
+// the bus it owns at boot, so publishers never import the server graph.
 
 let active: EventBus | null = null;
 
@@ -221,13 +268,16 @@ export function setEventBus(bus: EventBus | null): void {
 }
 
 /**
- * Publish a domain event. Non-fatal by construction: the emit happens inside
- * the login path, so a failing bus must never fail the login. A lost event is
- * not an error either — the dashboard's 30 s poll remains the safety net.
+ * Publish a domain event to the given rooms. Non-fatal by construction: the
+ * emit happens inside write paths, so a failing bus must never fail the write.
+ * A lost event is not an error either — clients re-read on reconnection.
+ *
+ * Call only after the write is committed: a signal that lands before its data
+ * makes the subscriber re-read stale state, and nothing announces the fix.
  */
-export function publishEvent(type: DomainEventType): void {
+export function publishEvent(type: DomainEventType, rooms: RoomList): void {
   try {
-    getEventBus().publish(type);
+    getEventBus().publish(type, rooms);
   } catch (err) {
     logger.warn({ err: String(err) }, "[events] failed to publish event");
   }

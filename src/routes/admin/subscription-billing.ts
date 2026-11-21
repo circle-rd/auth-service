@@ -29,7 +29,7 @@ export async function subscriptionBillingRoutes(
         applicationId: appId,
         cancel: true,
       });
-      notifySubscriptionChanged();
+      notifySubscriptionChanged(userId);
       await reply.send({ ok: true, cancelAtPeriodEnd: true });
     },
   );
@@ -44,7 +44,7 @@ export async function subscriptionBillingRoutes(
         applicationId: appId,
         cancel: false,
       });
-      notifySubscriptionChanged();
+      notifySubscriptionChanged(userId);
       await reply.send({ ok: true, cancelAtPeriodEnd: false });
     },
   );

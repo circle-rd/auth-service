@@ -78,7 +78,7 @@ import {
   generateResourceWebhookSecret,
   resourceWebhookUrlSchema,
 } from "../../services/resources/webhooks.js";
-import { publishEvent } from "../../services/event-bus.js";
+import { ADMIN_ROOM, appRoom, publishEvent } from "../../services/event-bus.js";
 const DEFAULT_PLAN_NAME = "free";
 import { DEFAULT_MACHINE_SCOPES } from "../../services/machine-scopes.js";
 
@@ -771,7 +771,7 @@ export async function applicationRoutes(
 
     // Announced last: the row and every bootstrap write above are committed by
     // now, so a client that reacts by re-reading sees the finished application.
-    publishEvent("application.changed");
+    publishEvent("application.changed", [ADMIN_ROOM]);
 
     await reply.status(201).send(response);
   });
@@ -978,7 +978,10 @@ export async function applicationRoutes(
     }
 
     const view = await fetchOauthClientView(app.slug);
-    publishEvent("application.changed");
+    publishEvent("application.changed", [ADMIN_ROOM]);
+    if (parsed.data.resourceSharingEnabled !== undefined) {
+      publishEvent("catalogue.changed", [appRoom(app.id)]);
+    }
     await reply.send({
       application: withResourceWebhookSecret(mergeOauthView(app, view)),
     });
@@ -1024,7 +1027,7 @@ export async function applicationRoutes(
 
     await archiveApplicationCatalogue(catalogue);
 
-    publishEvent("application.changed");
+    publishEvent("application.changed", [ADMIN_ROOM]);
 
     await reply.status(204).send();
   });
@@ -1667,7 +1670,7 @@ export async function applicationRoutes(
         .where(eq(applications.id, req.params.id))
         .returning();
 
-      publishEvent("application.changed");
+      publishEvent("application.changed", [ADMIN_ROOM]);
 
       await reply.send({ application: updated });
     },

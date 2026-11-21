@@ -11,7 +11,7 @@ import {
 import { ERR } from "../errors.js";
 import { logger } from "../logger.js";
 import { insertCredentialUser } from "./credential-user.js";
-import { publishEvent } from "./event-bus.js";
+import { ADMIN_ROOM, orgRoom, publishEvent, userRoom } from "./event-bus.js";
 import { ensureBillingCustomerBestEffort } from "./billing/customers.js";
 
 export type OrganizationInvitationState = "pending" | "expired" | "invalid";
@@ -141,8 +141,12 @@ export async function completeOrganizationRegistration(opts: {
     return id;
   });
 
-  publishEvent("organization.changed");
-  publishEvent("user.changed");
+  publishEvent("organization.changed", [
+    ADMIN_ROOM,
+    orgRoom(invitationRow.organizationId),
+    userRoom(userId),
+  ]);
+  publishEvent("user.changed", [ADMIN_ROOM, userRoom(userId)]);
   await ensureBillingCustomerBestEffort("user", userId);
   logger.info(
     {

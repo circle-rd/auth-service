@@ -9,7 +9,7 @@ import * as consumptionApi from '@/api/consumption';
 import { listUsers } from '@/api/users';
 import { listOrganizations } from '@/api/organizations';
 import { useToast } from '@/composables/useToast';
-import { useAdminEvents } from '@/composables/useAdminEvents';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 import { rotateSecret } from '@/api/applications';
 import type { Application, AppRole, AppPermission, SubscriptionPlan, UserApplication, ConsumptionAggregate } from '@/types';
 import type { AppSubscriptionRow } from '@/api/applications';
@@ -109,33 +109,37 @@ const noPlanSelectOptions = computed<SelectOption[]>(() => [
 // A `subscription.changed` frame refreshes the users tab; a `login.recorded`
 // frame refreshes the last-login columns (date/IP/device) and the activity
 // strip. The composable coalesces a burst into a single refresh.
-const events = useAdminEvents({
-  'subscription.changed': () => {
-    void reloadUsers();
-    refreshAnalytics();
+const events = useRealtimeEvents(
+  {
+    'subscription.changed': () => {
+      void reloadUsers();
+      refreshAnalytics();
+    },
+    'login.recorded': () => {
+      void reloadUsers();
+      void loadAppActivity();
+      // If the history modal is open, re-read it in place.
+      if (historyModalOpen.value) historyRefreshKey.value += 1;
+    },
+    'presence.changed': () => void loadAppActivity(),
   },
-  'login.recorded': () => {
-    void reloadUsers();
-    void loadAppActivity();
-    // If the history modal is open, re-read it in place.
-    if (historyModalOpen.value) historyRefreshKey.value += 1;
+  {
+    onResync: () => {
+      void reloadUsers();
+      void loadAppActivity();
+      refreshAnalytics();
+    },
   },
-});
-
-// The online counter drifts down on its own (session expiry), so the activity
-// strip is also polled — same 30 s cadence as the dashboard.
-let activityPollHandle: ReturnType<typeof setInterval> | null = null;
+);
 
 onMounted(async () => {
   await services.fetch();
   await loadAll();
   void loadAppActivity();
-  activityPollHandle = setInterval(() => void loadAppActivity(), 30_000);
 });
 
 onUnmounted(() => {
   events.close();
-  if (activityPollHandle) clearInterval(activityPollHandle);
 });
 
 async function reloadUsers() {

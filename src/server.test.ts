@@ -86,8 +86,12 @@ vi.mock("../routes/admin/sessions.js", () => ({
 vi.mock("../routes/admin/stats.js", () => ({
   statsRoutes: notFoundRoutes().statsRoutes,
 }));
-vi.mock("../routes/admin/events.js", () => ({
+vi.mock("../routes/events.js", () => ({
   eventsRoutes: notFoundRoutes().eventsRoutes,
+}));
+vi.mock("../services/presence.js", () => ({
+  startPresenceWatcher: () => () => undefined,
+  countOnlineUsers: async () => 0,
 }));
 vi.mock("../services/event-bus.js", () => ({
   createEventBus: async () => ({

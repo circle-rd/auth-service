@@ -116,7 +116,7 @@ describe("recordLogin", () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]!.type).toBe("login.recorded");
-    expect(Object.keys(seen[0]!).sort()).toEqual(["at", "type"]);
+    expect(Object.keys(seen[0]!).sort()).toEqual(["at", "rooms", "type"]);
     // The event must not carry what the row carries.
     expect(JSON.stringify(seen[0])).not.toContain("user-4");
     expect(JSON.stringify(seen[0])).not.toContain("app-9");

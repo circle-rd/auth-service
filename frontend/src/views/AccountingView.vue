@@ -13,7 +13,7 @@ import EmptyState from '@/components/ui/EmptyState.vue';
 import SearchSelect from '@/components/ui/SearchSelect.vue';
 import { listJournal } from '@/api/accounting';
 import { listUsers } from '@/api/users';
-import { useAdminEvents } from '@/composables/useAdminEvents';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
 import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
@@ -108,7 +108,10 @@ function scheduleRefresh(): void {
     void fetchJournal();
   }, LIVE_REFRESH_MS);
 }
-const events = useAdminEvents({ 'wallet.changed': scheduleRefresh, 'subscription.changed': scheduleRefresh });
+const events = useRealtimeEvents(
+  { 'wallet.changed': scheduleRefresh, 'subscription.changed': scheduleRefresh },
+  { onResync: scheduleRefresh },
+);
 
 onMounted(() => {
   void fetchJournal();

@@ -46,7 +46,10 @@ vi.mock("../../middleware.js", () => ({
 vi.mock("../../services/oauth-tokens.js", () => ({
   revokeClientTokens: mockRevoke,
 }));
-vi.mock("../../services/event-bus.js", () => ({ publishEvent: mockPublish }));
+vi.mock("../../services/event-bus.js", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  publishEvent: mockPublish,
+}));
 
 const { applicationMachineScopesRoutes } =
   await import("./application-machine-scopes.js");
@@ -137,7 +140,7 @@ describe("PUT /:id/machine-scopes", () => {
     expect(state.updates).toEqual([
       { clientCredentialsScopes: ["wallet:read", "wallet:debit", "m2m"] },
     ]);
-    expect(mockPublish).toHaveBeenCalledWith("application.changed");
+    expect(mockPublish).toHaveBeenCalledWith("application.changed", ["admin"]);
   });
 
   it("does not revoke tokens when scopes are only added", async () => {

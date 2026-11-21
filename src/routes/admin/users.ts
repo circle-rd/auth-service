@@ -36,7 +36,11 @@ import {
 } from "../../middleware.js";
 import { importUsers, importUsersSchema } from "../../services/user-import.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
-import { publishEvent } from "../../services/event-bus.js";
+import {
+  ADMIN_ROOM,
+  publishEvent,
+  userRoom,
+} from "../../services/event-bus.js";
 import { reconcileMfaFlag } from "../../services/mfa.js";
 import { acquireUserLock } from "../../services/user-lock.js";
 import { presentUserApplications } from "../../services/system-apps.js";
@@ -437,7 +441,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // profile change above are one edit of one user as far as the admin screen
     // is concerned.
     if (changed) {
-      publishEvent("user.changed");
+      publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
     }
     if (profileChanged) {
       await syncBillingCustomerBestEffort("user", req.params.id);
@@ -668,7 +672,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
           (await auth.$context).internalAdapter,
           req.params.id,
         );
-        publishEvent("user.changed");
+        publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
 
         await reply.send({ ok: true, mfa });
       } finally {
@@ -741,7 +745,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         }
         throw err;
       }
-      publishEvent("user.changed");
+      publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
       await reply.send({ ok: true });
     },
   );
@@ -772,7 +776,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             .where(eq(userTable.id, req.params.id));
         },
       );
-      publishEvent("user.changed");
+      publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
       await reply.send({ ok: true });
     },
   );
@@ -836,7 +840,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
 
     // After the transaction, so the row is really gone before any client
     // re-reads the user list.
-    publishEvent("user.changed");
+    publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
 
     await reply.status(204).send();
   });

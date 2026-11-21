@@ -71,7 +71,12 @@ import {
   listUserOrganizationIds,
   resolveOrganization,
 } from "./services/organization-selection.js";
-import { publishEvent } from "./services/event-bus.js";
+import {
+  ADMIN_ROOM,
+  orgRoom,
+  publishEvent,
+  userRoom,
+} from "./services/event-bus.js";
 import {
   ensureBillingCustomerBestEffort,
   syncBillingCustomerBestEffort,
@@ -607,12 +612,15 @@ export const auth = betterAuth({
           }
           // Outside the catch: the session row exists regardless of whether its
           // login row could be recorded, and the announcement is non-fatal.
-          publishEvent("session.created");
+          publishEvent("session.created", [ADMIN_ROOM]);
         },
       },
       delete: {
-        after: async () => {
-          publishEvent("session.revoked");
+        after: async (session) => {
+          publishEvent("session.revoked", [
+            ADMIN_ROOM,
+            userRoom(session.userId),
+          ]);
         },
       },
     },
@@ -635,7 +643,7 @@ export const auth = betterAuth({
           await assertInvitationFlowEmail(flow, String(email ?? ""));
         },
         after: async (user) => {
-          publishEvent("user.changed");
+          publishEvent("user.changed", [ADMIN_ROOM, userRoom(user.id)]);
           // Stripe needs a Customer before a subscription can exist; create it
           // eagerly but best-effort, so a Stripe incident cannot block sign-up.
           await ensureBillingCustomerBestEffort("user", user.id);
@@ -643,15 +651,15 @@ export const auth = betterAuth({
       },
       update: {
         after: async (user) => {
-          publishEvent("user.changed");
+          publishEvent("user.changed", [ADMIN_ROOM, userRoom(user.id)]);
           // Keep the Stripe Customer's name, e-mail, phone and address in line
           // with the profile the user just edited.
           await syncBillingCustomerBestEffort("user", user.id);
         },
       },
       delete: {
-        after: async () => {
-          publishEvent("user.changed");
+        after: async (user) => {
+          publishEvent("user.changed", [ADMIN_ROOM, userRoom(user.id)]);
         },
       },
     },
@@ -869,19 +877,63 @@ export const auth = betterAuth({
       // routes calling `auth.api.*`). One announcement per completed write; the
       // organization, its members and its invitations are the same admin screen.
       organizationHooks: {
-        afterCreateOrganization: async () =>
-          publishEvent("organization.changed"),
-        afterUpdateOrganization: async () =>
-          publishEvent("organization.changed"),
-        afterDeleteOrganization: async () =>
-          publishEvent("organization.changed"),
-        afterAddMember: async () => publishEvent("organization.changed"),
-        afterRemoveMember: async () => publishEvent("organization.changed"),
-        afterUpdateMemberRole: async () => publishEvent("organization.changed"),
-        afterCreateInvitation: async () => publishEvent("organization.changed"),
-        afterAcceptInvitation: async () => publishEvent("organization.changed"),
-        afterRejectInvitation: async () => publishEvent("organization.changed"),
-        afterCancelInvitation: async () => publishEvent("organization.changed"),
+        afterCreateOrganization: async ({ organization }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+          ]),
+        afterUpdateOrganization: async ({ organization }) =>
+          publishEvent(
+            "organization.changed",
+            organization
+              ? [ADMIN_ROOM, orgRoom(organization.id)]
+              : [ADMIN_ROOM],
+          ),
+        afterDeleteOrganization: async ({ organization }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+          ]),
+        afterAddMember: async ({ organization, user }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+            userRoom(user.id),
+          ]),
+        afterRemoveMember: async ({ organization, user }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+            userRoom(user.id),
+          ]),
+        afterUpdateMemberRole: async ({ organization, user }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+            userRoom(user.id),
+          ]),
+        afterCreateInvitation: async ({ organization }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+          ]),
+        afterAcceptInvitation: async ({ organization, user }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+            userRoom(user.id),
+          ]),
+        afterRejectInvitation: async ({ organization, user }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+            userRoom(user.id),
+          ]),
+        afterCancelInvitation: async ({ organization }) =>
+          publishEvent("organization.changed", [
+            ADMIN_ROOM,
+            orgRoom(organization.id),
+          ]),
       },
     }),
     admin({

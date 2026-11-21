@@ -13,6 +13,7 @@ import { getOrCreateBillingCustomer } from "../billing/customers.js";
 import { sendAutoTopupDisabledEmail } from "../email.js";
 import { stripe } from "../stripe.js";
 import { assertTopupAmount } from "./checkout.js";
+import { notifyWalletChanged } from "./events.js";
 
 /** Auto top-up fires when the balance is at or below one euro. */
 export const AUTO_TOPUP_THRESHOLD_MICRO = 1_000_000n;
@@ -111,6 +112,7 @@ export async function activateAutoTopup(input: {
     .insert(walletAutoTopups)
     .values({ accountId: input.accountId, ...values })
     .onConflictDoUpdate({ target: walletAutoTopups.accountId, set: values });
+  await announceAccountChanged(input.accountId);
 }
 
 /** The user turns the option off: the card reference is forgotten. */
@@ -125,6 +127,20 @@ export async function disableAutoTopup(accountId: string): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(walletAutoTopups.accountId, accountId));
+  await announceAccountChanged(accountId);
+}
+
+/** The auto top-up state of an account changed: its owner's screens re-read it. */
+async function announceAccountChanged(accountId: string): Promise<void> {
+  const [owner] = await db
+    .select({
+      ownerType: walletAccounts.ownerType,
+      ownerId: walletAccounts.ownerId,
+    })
+    .from(walletAccounts)
+    .where(eq(walletAccounts.id, accountId))
+    .limit(1);
+  if (owner) notifyWalletChanged(owner);
 }
 
 async function notifyDisabled(
@@ -177,7 +193,10 @@ export async function disableAutoTopupForReason(
       ),
     )
     .returning({ amountCents: walletAutoTopups.amountCents });
-  if (row) await notifyDisabled(accountId, row.amountCents, reason);
+  if (row) {
+    await announceAccountChanged(accountId);
+    await notifyDisabled(accountId, row.amountCents, reason);
+  }
 }
 
 /** Turn the option off for whichever account saved this card, if any. */

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "../config.js";
 import { ERR } from "../errors.js";
+import { appRoom, publishEvent } from "../services/event-bus.js";
 import {
   getRequestSession,
   requireAppDelegation,
@@ -149,6 +150,11 @@ const accessQuerySchema = z
     offset: z.coerce.number().int().min(0).default(0),
   })
   .strict();
+
+/** A scheme or its enablement changed: every user enrolled in the application may see it. */
+function announceCatalogueChanged(applicationId: string): void {
+  publishEvent("catalogue.changed", [appRoom(applicationId)]);
+}
 
 export async function appResourceRoutes(
   fastify: FastifyInstance,
@@ -300,6 +306,7 @@ export async function appResourceRoutes(
       applicationId: appId,
       ...body,
     });
+    announceCatalogueChanged(appId);
     await reply.status(201).send({ scheme });
   });
 
@@ -309,6 +316,7 @@ export async function appResourceRoutes(
     if (!userId) return;
     const body = schemePatchSchema.parse(req.body);
     const updated = await updateApplicationScheme(appId, scheme, body);
+    announceCatalogueChanged(appId);
     await reply.send({ scheme: updated });
   });
 
@@ -317,6 +325,7 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     await deleteApplicationScheme(appId, scheme);
+    announceCatalogueChanged(appId);
     await reply.status(204).send();
   });
 
@@ -325,6 +334,7 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     await enableSchemeForApplication(appId, scheme);
+    announceCatalogueChanged(appId);
     await reply.status(204).send();
   });
 
@@ -333,6 +343,7 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     await disableSchemeForApplication(appId, scheme);
+    announceCatalogueChanged(appId);
     await reply.status(204).send();
   });
 

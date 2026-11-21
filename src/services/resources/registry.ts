@@ -5,6 +5,7 @@ import { applications } from "../../db/schema.js";
 import { resources } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
 import type { DbExecutor } from "../credential-user.js";
+import { activeGrantSubjects, announceResourceChanged } from "./realtime.js";
 import {
   assertCanManageResource,
   isActiveMember,
@@ -130,6 +131,7 @@ export async function createResource(
     .returning();
   if (!row) throw ERR.RES_003();
 
+  await announceResourceChanged(row, []);
   return {
     ...row,
     applicationSlug: app.slug,
@@ -261,6 +263,7 @@ export async function updateResource(
     .where(eq(resources.id, id))
     .returning();
   if (!row) throw ERR.RES_002();
+  await announceResourceChanged(row);
   return { ...current, ...row };
 }
 
@@ -293,6 +296,7 @@ export async function markResourceValidated(
     .where(and(eq(resources.id, id), ne(resources.status, "disabled")))
     .returning();
   if (!row) throw ERR.RES_001("Resource is disabled");
+  await announceResourceChanged(row);
   return { ...current, ...row };
 }
 
@@ -312,6 +316,7 @@ export async function markResourceValidationFailed(
     .where(and(eq(resources.id, id), ne(resources.status, "disabled")))
     .returning();
   if (!row) throw ERR.RES_001("Resource is disabled");
+  await announceResourceChanged(row);
   return { ...current, ...row };
 }
 
@@ -330,6 +335,7 @@ export async function markResourceInvalidated(
     .where(eq(resources.id, id))
     .returning();
   if (!row) throw ERR.RES_002();
+  await announceResourceChanged(row);
   return { ...current, ...row };
 }
 
@@ -345,6 +351,7 @@ export async function disableResource(
     .where(eq(resources.id, id))
     .returning();
   if (!row) throw ERR.RES_002();
+  await announceResourceChanged(row);
   return { ...current, ...row };
 }
 
@@ -361,11 +368,15 @@ export async function removeResource(
   await assertCanManageResource(actorUserId, current);
   // The predicate is re-checked by the database: a validation that lands
   // between the read above and this delete leaves the row in place.
+  const subjects = await activeGrantSubjects(id);
   const deleted = await db
     .delete(resources)
     .where(and(eq(resources.id, id), isNull(resources.validatedAt)))
     .returning({ id: resources.id });
-  if (deleted.length > 0) return { resource: current, removed: true };
+  if (deleted.length > 0) {
+    await announceResourceChanged(current, subjects);
+    return { resource: current, removed: true };
+  }
   return { resource: await disableResource(id, actorUserId), removed: false };
 }
 
@@ -388,5 +399,6 @@ async function transitionValidation(
     .where(eq(resources.id, id))
     .returning();
   if (!row) throw ERR.RES_002();
+  await announceResourceChanged(row);
   return { ...current, ...row };
 }

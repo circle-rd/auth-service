@@ -2,7 +2,7 @@ import { and, count, eq, exists, isNull, or, sql } from "drizzle-orm";
 import { symmetricDecrypt } from "better-auth/crypto";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
-import { publishEvent } from "./event-bus.js";
+import { ADMIN_ROOM, publishEvent, userRoom } from "./event-bus.js";
 import {
   account as accountTable,
   passkey as passkeyTable,
@@ -178,7 +178,7 @@ export async function reconcileMfaFlag(userId: string): Promise<MfaState> {
     return next;
   });
 
-  if (changed) publishEvent("user.changed");
+  if (changed) publishEvent("user.changed", [ADMIN_ROOM, userRoom(userId)]);
   return state;
 }
 

@@ -11,7 +11,7 @@ import {
 import { user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import { assignDefaultRoleIfNeeded } from "../claims.js";
-import { publishEvent } from "../event-bus.js";
+import { ADMIN_ROOM, publishEvent, userRoom } from "../event-bus.js";
 import { assignDefaultPlanIfNeeded } from "../subscriptions.js";
 import { assertAppAdmin, GUEST_ROLE, isApplicationAdmin } from "./authority.js";
 import type { AppDelegationPermission } from "./authority.js";
@@ -364,7 +364,7 @@ export async function addExistingUserToApplication(
 
   await assignDefaultRoleIfNeeded(user.id, applicationId);
   await assignDefaultPlanIfNeeded(user.id, applicationId);
-  publishEvent("user.changed");
+  publishEvent("user.changed", [ADMIN_ROOM, userRoom(user.id)]);
   return {
     email: user.email,
     applicationName: app.name,

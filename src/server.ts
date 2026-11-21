@@ -44,7 +44,7 @@ import { usersRoutes } from "./routes/admin/users.js";
 import { sessionsRoutes } from "./routes/admin/sessions.js";
 import { statsRoutes } from "./routes/admin/stats.js";
 import { monitoringRoutes } from "./routes/admin/monitoring.js";
-import { eventsRoutes } from "./routes/admin/events.js";
+import { eventsRoutes } from "./routes/events.js";
 import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
@@ -80,6 +80,7 @@ import {
 } from "./services/templates.js";
 import { createRateLimitStore } from "./services/rate-limit-store.js";
 import { createEventBus, setEventBus } from "./services/event-bus.js";
+import { startPresenceWatcher } from "./services/presence.js";
 import {
   narrowSocialProvidersByLastUsed,
   parseLastUsedLoginMethod,
@@ -151,6 +152,9 @@ const EMAIL_SEND_WINDOW = 60_000;
 const DEVICE_RATE_PATHS = ["/api/auth/device"];
 const DEVICE_RATE_MAX = 60;
 const DEVICE_RATE_WINDOW = 60_000;
+
+/** Cadence of the online-user count that feeds the admin dashboard. */
+const PRESENCE_INTERVAL_MS = 30_000;
 
 /**
  * Accept a same-origin relative path and nothing else.
@@ -266,7 +270,7 @@ export async function buildServer(
   // ── Response compression ────────────────────────────────────────
   // zstd, brotli, then gzip by the client's preference; payloads under 1 KiB are
   // sent as they are. Registered before the static frontend, which the plugin
-  // requires. The admin event stream is hijacked and bypasses this hook.
+  // requires. The event stream is hijacked and bypasses this hook.
   await fastify.register(compress);
 
   // ── Strict rate buckets for sensitive auth + email endpoints ────
@@ -277,14 +281,16 @@ export async function buildServer(
     await rateLimitStore.close();
   });
 
-  // ── Admin event bus ─────────────────────────────────────────────
+  // ── Real-time event bus ─────────────────────────────────────────
   // In-process by default; when REDIS_URL is set the same optional-Redis
   // pattern as the rate-limit store fans events out across instances. The bus
-  // is installed process-wide so `recordLogin()` can publish without importing
+  // is installed process-wide so write paths can publish without importing
   // this module.
   const eventBus = await createEventBus(config.redis.url);
   setEventBus(eventBus);
+  const stopPresence = startPresenceWatcher(PRESENCE_INTERVAL_MS);
   fastify.addHook("onClose", async () => {
+    stopPresence();
     await eventBus.close();
     setEventBus(null);
   });
@@ -802,7 +808,7 @@ export async function buildServer(
   await fastify.register(sessionsRoutes, { prefix: "/api/admin/sessions" });
   await fastify.register(statsRoutes, { prefix: "/api/admin/stats" });
   await fastify.register(monitoringRoutes, { prefix: "/api/admin/monitoring" });
-  await fastify.register(eventsRoutes, { prefix: "/api/admin/events" });
+  await fastify.register(eventsRoutes, { prefix: "/api/events" });
   await fastify.register(servicesRoutes, { prefix: "/api/admin/services" });
   await fastify.register(organizationsRoutes, {
     prefix: "/api/admin/organizations",

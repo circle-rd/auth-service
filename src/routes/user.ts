@@ -24,7 +24,7 @@ import {
   requireFullSession,
   requireUserOrBearer,
 } from "../middleware.js";
-import { publishEvent } from "../services/event-bus.js";
+import { ADMIN_ROOM, publishEvent, userRoom } from "../services/event-bus.js";
 import { isStripeConfigured } from "../services/stripe.js";
 import { setUserSubscription } from "../services/subscriptions.js";
 import { listInvoices } from "../services/billing/invoices.js";
@@ -526,7 +526,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
     // A self-service profile edit is a user write like any other: the admin user
     // list renders these fields, so it must refresh too.
-    publishEvent("user.changed");
+    publishEvent("user.changed", [ADMIN_ROOM, userRoom(userId)]);
     // The Stripe Customer must carry the same identity as the local profile.
     await syncBillingCustomerBestEffort("user", userId);
 

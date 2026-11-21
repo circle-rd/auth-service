@@ -50,7 +50,13 @@ const { creditWallet, debitWallet } = await import("./ledger.js");
 const ACCOUNT_ID = "00000000-0000-0000-0000-000000000001";
 
 function account(balance: bigint, isUnlimited = false) {
-  return { id: ACCOUNT_ID, balance, isUnlimited };
+  return {
+    id: ACCOUNT_ID,
+    ownerType: "user",
+    ownerId: "user-1",
+    balance,
+    isUnlimited,
+  };
 }
 
 function stored(overrides: Partial<WalletTransaction>): WalletTransaction {

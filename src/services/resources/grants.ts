@@ -14,6 +14,7 @@ import { ERR } from "../../errors.js";
 import type { DbExecutor } from "../credential-user.js";
 import { assertCanGrantToSubject, assertCanManageGrants } from "./authority.js";
 import { getResource, type ResourceView } from "./registry.js";
+import { announceResourceChanged } from "./realtime.js";
 import type { ResourceSubjectType } from "./types.js";
 import { enqueueResourceWebhookEvent } from "./webhooks.js";
 
@@ -124,7 +125,7 @@ export async function createResourceGrant(
     input.subjectType,
     input.subjectId,
   );
-  return insertResourceGrant(
+  const grant = await insertResourceGrant(
     {
       resourceId: input.resourceId,
       subjectType: input.subjectType,
@@ -134,6 +135,10 @@ export async function createResourceGrant(
     },
     exec,
   );
+  await announceResourceChanged(resource, [
+    { subjectType: grant.subjectType, subjectId: grant.subjectId },
+  ]);
+  return grant;
 }
 
 async function assertSubjectExists(
@@ -221,6 +226,9 @@ export async function revokeResourceGrant(
       expiresAt: row.expiresAt,
     },
   });
+  await announceResourceChanged(resource, [
+    { subjectType: row.subjectType, subjectId: row.subjectId },
+  ]);
   return row;
 }
 

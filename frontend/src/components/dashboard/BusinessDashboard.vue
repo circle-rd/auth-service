@@ -6,7 +6,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } fro
 import { CircleDollarSign, Receipt, Repeat, TrendingUp, TriangleAlert } from '@lucide/vue';
 import StatCard from '@/components/ui/StatCard.vue';
 import DashboardWalletSection from '@/components/wallet/DashboardWalletSection.vue';
-import { useAdminEvents } from '@/composables/useAdminEvents';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 import { getBillingStats, type BillingStats } from '@/api/stats';
 import { getBusinessStats, type BusinessStats, type MonitoringRange } from '@/api/monitoring';
 import { formatMinorAmount } from '@/utils/money';
@@ -23,10 +23,18 @@ const billing = ref<BillingStats | null>(null);
 const failed = ref(false);
 const walletSection = ref<InstanceType<typeof DashboardWalletSection> | null>(null);
 
-const events = useAdminEvents({
-  'wallet.changed': () => void walletSection.value?.refresh(),
-  'subscription.changed': () => void load(),
-});
+const events = useRealtimeEvents(
+  {
+    'wallet.changed': () => void walletSection.value?.refresh(),
+    'subscription.changed': () => void load(),
+  },
+  {
+    onResync: () => {
+      void load();
+      void walletSection.value?.refresh();
+    },
+  },
+);
 
 function money(minor: number, currency: string): string {
   return formatMinorAmount(minor, currency, { locale: locale.value });

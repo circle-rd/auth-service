@@ -15,15 +15,10 @@ import WalletDailyTable from '@/components/wallet/WalletDailyTable.vue';
 import { createCheckout, getAutoTopup, getMySpendStats, getMyWallet, getTopupOptions, setAutoTopup } from '@/api/wallet';
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 import { useWalletData } from '@/composables/useWalletData';
 import { eurToCents } from '@/utils/money';
 import type { AutoTopup, TopupOptions } from '@/types/wallet';
-
-// Users have no event channel (SSE is admin-only), so the panel polls while visible.
-const POLL_MS = 15_000;
-// After a payment the webhook lands asynchronously: poll faster for a short while.
-const POST_PAYMENT_POLL_MS = 3_000;
-const POST_PAYMENT_POLLS = 10;
 
 const { t } = useI18n();
 const { fmt } = useMoney();
@@ -110,38 +105,20 @@ async function startCheckout(): Promise<void> {
   }
 }
 
-let timer: ReturnType<typeof setTimeout> | null = null;
-let fastPolls = 0;
-let stopped = false;
-
-function schedule(): void {
-  if (stopped) return;
-  const delay = fastPolls > 0 ? POST_PAYMENT_POLL_MS : POLL_MS;
-  timer = setTimeout(async () => {
-    if (fastPolls > 0) fastPolls -= 1;
-    if (!document.hidden) await refresh();
-    schedule();
-  }, delay);
-}
-
-function onVisible(): void {
-  if (!document.hidden) void refresh();
-}
+// The webhook that credits a top-up or enables auto top-up lands after the
+// return: the wallet announces each change, so the panel re-reads on that signal.
+const events = useRealtimeEvents({ 'wallet.changed': () => void refresh() }, { onResync: () => void refresh() });
 
 onMounted(async () => {
-  document.addEventListener('visibilitychange', onVisible);
   const outcome = route.query.topup;
   const autoOutcome = route.query.autotopup;
   if (outcome === 'success') {
     toast.success(t('wallet.topup.success'));
-    fastPolls = POST_PAYMENT_POLLS;
   } else if (outcome === 'cancelled') {
     toast.info(t('wallet.topup.cancelled'));
   }
   if (autoOutcome === 'success') {
     toast.success(t('wallet.autoTopup.savedCard'));
-    // The webhook turns the option on a moment after the return.
-    fastPolls = POST_PAYMENT_POLLS;
   } else if (autoOutcome === 'cancelled') {
     toast.info(t('wallet.autoTopup.cancelled'));
   }
@@ -153,13 +130,10 @@ onMounted(async () => {
   await Promise.all([refresh(), getTopupOptions().then((o) => { options.value = o; }).catch(() => {
     options.value = { enabled: false, currency: 'eur', minCents: 0, maxCents: 0, autoTopupTermsUrl: null };
   })]);
-  schedule();
 });
 
 onUnmounted(() => {
-  stopped = true;
-  if (timer) clearTimeout(timer);
-  document.removeEventListener('visibilitychange', onVisible);
+  events.close();
 });
 </script>
 

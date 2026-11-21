@@ -10,10 +10,11 @@ import {
 } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
 import { assignDefaultRoleIfNeeded } from "../claims.js";
-import { publishEvent } from "../event-bus.js";
+import { ADMIN_ROOM, publishEvent, userRoom } from "../event-bus.js";
 import { assignDefaultPlanIfNeeded } from "../subscriptions.js";
 import { assertAppAdmin, assertCanManageGrants } from "./authority.js";
 import { insertResourceGrant, type ResourceGrantRow } from "./grants.js";
+import { announceResourceChanged } from "./realtime.js";
 import { getResource, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
 
@@ -224,8 +225,11 @@ export async function acceptResourceInvitation(
   if (result.membershipCreated) {
     await assignDefaultRoleIfNeeded(input.subjectId, resource.applicationId);
     await assignDefaultPlanIfNeeded(input.subjectId, resource.applicationId);
-    publishEvent("user.changed");
+    publishEvent("user.changed", [ADMIN_ROOM, userRoom(input.subjectId)]);
   }
+  await announceResourceChanged(resource, [
+    { subjectType: "user", subjectId: input.subjectId },
+  ]);
   return result.grant;
 }
 

@@ -475,7 +475,7 @@ export default {
     baseUrlMissing: 'Not set',
     baseUrlMissingHint: 'Set the application URL in General to generate the URIs.',
     callbackBasePath: 'Callback base path',
-    callbackBasePathHint: 'Path under the application URL where identity routes live, for example /auth. The previews append /callback, /logout, /backchannel-logout and /resources/events.',
+    callbackBasePathHint: 'Path under the application URL where identity routes live, for example /auth. The previews append /callback, /logout/callback, /backchannel-logout and /resources/events.',
     derivedUriAuthorization: 'Authorization callback',
     derivedUriPostLogout: 'Post-logout redirect',
     derivedUriBackchannel: 'Back-channel logout',

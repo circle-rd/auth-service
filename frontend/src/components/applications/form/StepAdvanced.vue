@@ -85,7 +85,7 @@ const derivedUris = computed<DerivedUri[]>(() => {
     rows.splice(1, 0, {
       key: 'postLogout',
       label: t('applications.derivedUriPostLogout'),
-      value: `${base}/logout`,
+      value: `${base}/logout/callback`,
     });
   }
   return rows;
@@ -205,7 +205,7 @@ function setTokenAuthMethod(value: string) {
         :label="t('applications.postLogoutRedirectUris')"
         :add-label="t('applications.addPostLogoutRedirectUri')"
         :hint="t('applications.postLogoutRedirectUrisHint')"
-        placeholder="https://your-app.com/auth/logout"
+        placeholder="https://your-app.com/auth/logout/callback"
       />
 
       <!--

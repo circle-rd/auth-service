@@ -500,6 +500,11 @@ CREATE TABLE "organization" (
 	"slug" text NOT NULL,
 	"logo" text,
 	"domain" text,
+	"domain_verification_token" text,
+	"domain_verified_at" timestamp,
+	"domain_verified_by" text,
+	"domain_last_checked_at" timestamp,
+	"auto_enroll_enabled" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp NOT NULL,
 	"metadata" text,
 	CONSTRAINT "organization_slug_unique" UNIQUE("slug")
@@ -558,6 +563,13 @@ CREATE TABLE "user" (
 	"ban_expires" timestamp,
 	"is_mfa_required" boolean DEFAULT false,
 	"phone" text,
+	"phone_verified" boolean DEFAULT false NOT NULL,
+	"phone_verified_at" timestamp,
+	"phone_verification_method" text,
+	"age_verified" boolean DEFAULT false NOT NULL,
+	"age_verified_at" timestamp,
+	"age_verification_method" text,
+	"auto_enroll_eligible" boolean DEFAULT false NOT NULL,
 	"first_name" text,
 	"last_name" text,
 	"username" text,
@@ -934,6 +946,7 @@ CREATE INDEX "invitation_organizationId_idx" ON "invitation" USING btree ("organ
 CREATE INDEX "invitation_email_idx" ON "invitation" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "member_organizationId_idx" ON "member" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "member_userId_idx" ON "member" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "member_organizationId_userId_unique_idx" ON "member" USING btree ("organization_id","user_id");--> statement-breakpoint
 CREATE INDEX "oauthAccessToken_clientId_idx" ON "oauth_access_token" USING btree ("client_id");--> statement-breakpoint
 CREATE INDEX "oauthAccessToken_sessionId_idx" ON "oauth_access_token" USING btree ("session_id");--> statement-breakpoint
 CREATE INDEX "oauthAccessToken_userId_idx" ON "oauth_access_token" USING btree ("user_id");--> statement-breakpoint
@@ -950,6 +963,7 @@ CREATE INDEX "oauthRefreshToken_sessionId_idx" ON "oauth_refresh_token" USING bt
 CREATE INDEX "oauthRefreshToken_userId_idx" ON "oauth_refresh_token" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "oauthRefreshToken_authorizationCodeId_idx" ON "oauth_refresh_token" USING btree ("authorization_code_id");--> statement-breakpoint
 CREATE INDEX "oauthResource_identifier_idx" ON "oauth_resource" USING btree ("identifier");--> statement-breakpoint
+CREATE UNIQUE INDEX "organization_verified_domain_unique_idx" ON "organization" USING btree (lower("domain")) WHERE "organization"."domain" is not null and "organization"."domain_verified_at" is not null;--> statement-breakpoint
 CREATE INDEX "passkey_userId_idx" ON "passkey" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "passkey_credentialID_idx" ON "passkey" USING btree ("credential_id");--> statement-breakpoint
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint

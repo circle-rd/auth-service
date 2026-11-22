@@ -180,4 +180,29 @@ describe("getUserClaims", () => {
     expect(withoutPhone).not.toHaveProperty("phone_number");
     expect(withoutPhone).not.toHaveProperty("phone_number_verified");
   });
+
+  it("emits a verified phone and the 18+ claim when proven", async () => {
+    const claims = await getUserClaims(
+      "user-1",
+      "client-1",
+      ["profile", "phone"],
+      {
+        phone: "+33612345678",
+        phoneVerified: true,
+        ageVerified: true,
+      },
+    );
+    expect(claims).toMatchObject({
+      phone_number: "+33612345678",
+      phone_number_verified: true,
+      age_verified: true,
+    });
+  });
+
+  it("emits age_verified as false when the proof is missing or false", async () => {
+    const claims = await getUserClaims("user-1", "client-1", ["profile"], {
+      ageVerified: false,
+    });
+    expect(claims.age_verified).toBe(false);
+  });
 });

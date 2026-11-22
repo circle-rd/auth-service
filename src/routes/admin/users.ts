@@ -51,11 +51,15 @@ import {
   profileUpdateSet,
 } from "../profile-fields.js";
 import { assertUsernameAvailable } from "../../services/usernames.js";
+import { phoneVerificationResetSet } from "../../services/phone.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = profileFieldsSchema.extend({
   role: z.enum(["user", "admin"]).optional(),
   isMfaRequired: z.boolean().optional(),
+  // Manual overrides until the SMS and age providers are wired.
+  phoneVerified: z.boolean().optional(),
+  ageVerified: z.boolean().optional(),
 });
 
 const createUserSchema = z.object({
@@ -359,7 +363,12 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
 
     // Fetch target to enforce hierarchy checks
     const [targetRow] = await db
-      .select({ role: userTable.role })
+      .select({
+        role: userTable.role,
+        phone: userTable.phone,
+        phoneVerified: userTable.phoneVerified,
+        ageVerified: userTable.ageVerified,
+      })
       .from(userTable)
       .where(eq(userTable.id, req.params.id))
       .limit(1);
@@ -389,8 +398,16 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // platform out of its highest privilege level. The count is enforced in the
     // same statement as the update so concurrent demotions cannot both pass.
     const profileChanged = hasProfileChanges(parsed.data);
+    const phoneChanged =
+      parsed.data.phone !== undefined && parsed.data.phone !== targetRow.phone;
+    const verificationChanged =
+      parsed.data.phoneVerified !== undefined ||
+      parsed.data.ageVerified !== undefined;
     const changed =
-      role !== undefined || profileChanged || isMfaRequired !== undefined;
+      role !== undefined ||
+      profileChanged ||
+      isMfaRequired !== undefined ||
+      verificationChanged;
 
     if (changed) {
       const adapter = (await auth.$context).internalAdapter;
@@ -422,13 +439,40 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             }
           }
 
-          if (profileChanged || isMfaRequired !== undefined) {
+          if (
+            profileChanged ||
+            isMfaRequired !== undefined ||
+            verificationChanged
+          ) {
+            const now = new Date();
+            // Changing the number always revokes its proof, even when the
+            // administrator also asks to mark it verified in the same request.
+            const phoneVerified = phoneChanged
+              ? false
+              : parsed.data.phoneVerified;
+            const ageVerified = parsed.data.ageVerified;
             await tx
               .update(userTable)
               .set({
                 ...profileUpdateSet(parsed.data),
                 ...(isMfaRequired !== undefined ? { isMfaRequired } : {}),
-                updatedAt: new Date(),
+                ...(phoneVerified !== undefined
+                  ? {
+                      phoneVerified,
+                      phoneVerifiedAt: phoneVerified ? now : null,
+                      phoneVerificationMethod: phoneVerified ? "admin" : null,
+                    }
+                  : phoneChanged
+                    ? phoneVerificationResetSet()
+                    : {}),
+                ...(ageVerified !== undefined
+                  ? {
+                      ageVerified,
+                      ageVerifiedAt: ageVerified ? now : null,
+                      ageVerificationMethod: ageVerified ? "admin" : null,
+                    }
+                  : {}),
+                updatedAt: now,
               })
               .where(eq(userTable.id, req.params.id));
           }

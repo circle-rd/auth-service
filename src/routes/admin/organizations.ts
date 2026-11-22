@@ -17,20 +17,13 @@ import {
   publishEvent,
   userRoom,
 } from "../../services/event-bus.js";
-
-const domainSchema = z
-  .string()
-  .trim()
-  .max(253)
-  .transform((value) => value.toLowerCase())
-  .pipe(
-    z
-      .string()
-      .regex(
-        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
-        "Use a bare hostname such as example.com",
-      ),
-  );
+import {
+  domainVerificationRecord,
+  newDomainVerificationToken,
+  organizationDomainSchema,
+  requestDomainVerification,
+  verifyOrganizationDomain,
+} from "../../services/organization-domains.js";
 
 const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
@@ -40,7 +33,7 @@ const createOrgSchema = z.object({
     .max(50)
     .regex(/^[a-z0-9-]+$/),
   logo: z.string().url().optional(),
-  domain: domainSchema.optional(),
+  domain: organizationDomainSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -54,7 +47,8 @@ const updateOrgSchema = z
       .regex(/^[a-z0-9-]+$/)
       .optional(),
     logo: z.string().url().nullable().optional(),
-    domain: domainSchema.nullable().optional(),
+    domain: organizationDomainSchema.nullable().optional(),
+    autoEnrollEnabled: z.boolean().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
@@ -111,6 +105,9 @@ export async function organizationsRoutes(
           slug: organization.slug,
           logo: organization.logo,
           domain: organization.domain,
+          autoEnrollEnabled: organization.autoEnrollEnabled,
+          domainVerifiedAt: organization.domainVerifiedAt,
+          domainLastCheckedAt: organization.domainLastCheckedAt,
           createdAt: organization.createdAt,
           metadata: organization.metadata,
           memberCount: count(member.id),
@@ -137,7 +134,7 @@ export async function organizationsRoutes(
     const { name, slug, logo, domain, metadata } = parsed.data;
 
     try {
-      const org = await auth.api.createOrganization({
+      const created = await auth.api.createOrganization({
         body: {
           name,
           slug,
@@ -147,7 +144,22 @@ export async function organizationsRoutes(
         },
         headers: fromNodeHeaders(req.headers),
       });
-      await reply.status(201).send({ organization: org });
+      // A declared domain starts unverified. Hand the administrator the TXT
+      // challenge immediately so the create dialog can show it.
+      const verification = domain
+        ? await requestDomainVerification(created.id)
+        : null;
+      await reply.status(201).send({
+        organization: verification?.organization ?? created,
+        ...(verification
+          ? {
+              domainVerification: {
+                recordName: verification.recordName,
+                recordValue: verification.recordValue,
+              },
+            }
+          : {}),
+      });
     } catch (e: unknown) {
       const msg =
         e instanceof Error ? e.message : "Failed to create organization";
@@ -195,7 +207,11 @@ export async function organizationsRoutes(
       throw ERR.ORG_003("Invalid organization data", parsed.error.flatten());
 
     const existing = await db
-      .select({ id: organization.id })
+      .select({
+        id: organization.id,
+        domain: organization.domain,
+        domainVerifiedAt: organization.domainVerifiedAt,
+      })
       .from(organization)
       .where(eq(organization.id, id))
       .limit(1);
@@ -211,13 +227,48 @@ export async function organizationsRoutes(
       if (conflict.length > 0 && conflict[0].id !== id) throw ERR.ORG_002();
     }
 
+    const current = existing[0];
+    const domainChanged =
+      data.domain !== undefined && data.domain !== current.domain;
+
+    if (data.autoEnrollEnabled === true) {
+      if (domainChanged || !current.domain) {
+        throw ERR.ORG_009("Verify the domain before enabling auto-enrollment");
+      }
+      if (!current.domainVerifiedAt) throw ERR.ORG_009();
+    }
+
     const updates: Record<string, unknown> = {};
     if (data.name !== undefined) updates.name = data.name;
     if (data.slug !== undefined) updates.slug = data.slug;
     if (data.logo !== undefined) updates.logo = data.logo;
-    if (data.domain !== undefined) updates.domain = data.domain;
     if (data.metadata !== undefined)
       updates.metadata = JSON.stringify(data.metadata);
+    if (data.autoEnrollEnabled !== undefined)
+      updates.autoEnrollEnabled = data.autoEnrollEnabled;
+
+    let verification: {
+      recordName: string;
+      recordValue: string;
+    } | null = null;
+    if (domainChanged) {
+      updates.domain = data.domain;
+      // Changing the domain invalidates the proof and every membership it
+      // granted. A fresh challenge is issued when a domain remains.
+      const token = data.domain ? newDomainVerificationToken() : null;
+      updates.domainVerificationToken = token;
+      updates.domainVerifiedAt = null;
+      updates.domainVerifiedBy = null;
+      updates.domainLastCheckedAt = null;
+      updates.autoEnrollEnabled = false;
+      if (data.domain && token) {
+        const record = domainVerificationRecord(data.domain, token);
+        verification = {
+          recordName: record.name,
+          recordValue: record.value,
+        };
+      }
+    }
 
     const [updated] = await db
       .update(organization)
@@ -235,7 +286,32 @@ export async function organizationsRoutes(
             ? JSON.parse(updated.metadata)
             : updated.metadata,
       },
+      ...(verification ? { domainVerification: verification } : {}),
     });
+  });
+
+  // POST /api/admin/organizations/:id/domain/verification — issue a new TXT challenge
+  fastify.post("/:id/domain/verification", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const result = await requestDomainVerification(id);
+    await reply.send({
+      organization: result.organization,
+      domainVerification: {
+        recordName: result.recordName,
+        recordValue: result.recordValue,
+      },
+    });
+  });
+
+  // POST /api/admin/organizations/:id/domain/verify — check the published TXT record
+  fastify.post("/:id/domain/verify", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    if (!session) throw ERR.AUTH_001();
+    const updated = await verifyOrganizationDomain(id, session.user.id);
+    await reply.send({ organization: updated });
   });
 
   // GET /api/admin/organizations/:id/members — list members with embedded user data

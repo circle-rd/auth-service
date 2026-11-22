@@ -24,8 +24,8 @@ const defaultRunner: SessionSnapshotTransactionRunner = (fn) =>
   db.transaction(fn);
 
 // The session mirror is the user object returned by `get-session`. Every column
-// is part of that response except the display-only `lastLoginAt`, which is
-// deliberately not mirrored (see the resource-sharing plan's known limits).
+// is part of that response except the display-only `lastLoginAt` and the
+// internal `autoEnrollEligible` marker.
 const snapshotUserColumns = {
   id: userTable.id,
   name: userTable.name,
@@ -41,6 +41,12 @@ const snapshotUserColumns = {
   banExpires: userTable.banExpires,
   isMfaRequired: userTable.isMfaRequired,
   phone: userTable.phone,
+  phoneVerified: userTable.phoneVerified,
+  phoneVerifiedAt: userTable.phoneVerifiedAt,
+  phoneVerificationMethod: userTable.phoneVerificationMethod,
+  ageVerified: userTable.ageVerified,
+  ageVerifiedAt: userTable.ageVerifiedAt,
+  ageVerificationMethod: userTable.ageVerificationMethod,
   firstName: userTable.firstName,
   lastName: userTable.lastName,
   username: userTable.username,
@@ -60,7 +66,10 @@ const snapshotUserColumns = {
   locale: userTable.locale,
 } as const;
 
-type SessionUserSnapshot = Omit<typeof userTable.$inferSelect, "lastLoginAt">;
+type SessionUserSnapshot = Omit<
+  typeof userTable.$inferSelect,
+  "lastLoginAt" | "autoEnrollEligible"
+>;
 
 /**
  * The transaction-scoped advisory lock serialises snapshot writers for one

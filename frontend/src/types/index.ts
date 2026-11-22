@@ -13,6 +13,12 @@ export interface User {
   banExpires: string | null
   isMfaRequired: boolean | null
   phone: string | null
+  phoneVerified?: boolean
+  phoneVerifiedAt?: string | null
+  phoneVerificationMethod?: string | null
+  ageVerified?: boolean
+  ageVerifiedAt?: string | null
+  ageVerificationMethod?: string | null
   firstName?: string | null
   lastName?: string | null
   username?: string | null
@@ -309,6 +315,9 @@ export interface Organization {
   slug: string
   logo: string | null
   domain?: string | null
+  domainVerifiedAt?: string | null
+  domainLastCheckedAt?: string | null
+  autoEnrollEnabled?: boolean
   createdAt: string
   metadata: string | null
   memberCount?: number

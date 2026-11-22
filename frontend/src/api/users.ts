@@ -25,6 +25,8 @@ export interface UpdateUserBody {
   name?: string
   role?: 'user' | 'admin' | 'superadmin'
   isMfaRequired?: boolean
+  phoneVerified?: boolean
+  ageVerified?: boolean
   banned?: boolean
   banReason?: string | null
   banExpires?: string | null

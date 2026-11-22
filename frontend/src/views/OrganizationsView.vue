@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useOrganizationsStore } from '@/stores/organizations';
-import { createOrganization, updateOrganization, addMember, removeMember, sendInvitation, cancelInvitation } from '@/api/organizations';
+import { createOrganization, updateOrganization, addMember, removeMember, sendInvitation, cancelInvitation, requestDomainVerification, verifyOrganizationDomain, type DomainVerificationRecord } from '@/api/organizations';
 import { listUsers } from '@/api/users';
 import { useToast } from '@/composables/useToast';
 import { PAGE_SIZE_OPTIONS, usePersistentPageSize } from '@/composables/usePersistentPageSize';
@@ -18,6 +18,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import CopyField from '@/components/ui/CopyField.vue';
 import { Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 
@@ -40,6 +41,8 @@ const showInviteModal = ref(false);
 const formLoading = ref(false);
 const deleteLoading = ref(false);
 const selectedOrg = ref<Organization | null>(null);
+const domainChallenges = ref<Record<string, DomainVerificationRecord>>({});
+const domainBusy = ref<string | null>(null);
 
 const createForm = ref({ name: '', slug: '', logo: '', domain: '', metadata: '' });
 const editForm = ref({ name: '', slug: '', logo: '', domain: '', metadata: '' });
@@ -98,8 +101,12 @@ function loadMoreMembers(orgId: string) {
 async function handleCreate() {
   formLoading.value = true;
   try {
-    await createOrganization({ name: createForm.value.name, slug: createForm.value.slug, logo: createForm.value.logo || undefined, domain: createForm.value.domain || undefined, metadata: createForm.value.metadata || undefined });
+    const res = await createOrganization({ name: createForm.value.name, slug: createForm.value.slug, logo: createForm.value.logo || undefined, domain: createForm.value.domain || undefined, metadata: createForm.value.metadata || undefined });
+    if (res.domainVerification) {
+      domainChallenges.value = { ...domainChallenges.value, [res.organization.id]: res.domainVerification };
+    }
     await store.fetchOrganizations({ page: 1 });
+    expandedOrg.value = res.organization.id;
     toast.success('Organization created');
     showCreateModal.value = false;
     createForm.value = { name: '', slug: '', logo: '', domain: '', metadata: '' };
@@ -114,7 +121,11 @@ async function handleEdit() {
   if (!selectedOrg.value) return;
   formLoading.value = true;
   try {
-    await updateOrganization(selectedOrg.value.id, { name: editForm.value.name, slug: editForm.value.slug, logo: editForm.value.logo || null, domain: editForm.value.domain || null, metadata: editForm.value.metadata || undefined });
+    const res = await updateOrganization(selectedOrg.value.id, { name: editForm.value.name, slug: editForm.value.slug, logo: editForm.value.logo || null, domain: editForm.value.domain || null, metadata: editForm.value.metadata || undefined });
+    if (res.domainVerification) {
+      domainChallenges.value = { ...domainChallenges.value, [res.organization.id]: res.domainVerification };
+      expandedOrg.value = res.organization.id;
+    }
     await store.fetchOrganizations();
     toast.success('Organization updated');
     showEditModal.value = false;
@@ -187,6 +198,54 @@ function openEdit(org: Organization) {
   selectedOrg.value = org;
   editForm.value = { name: org.name, slug: org.slug, logo: org.logo ?? '', domain: org.domain ?? '', metadata: org.metadata ?? '' };
   showEditModal.value = true;
+}
+
+async function requestChallenge(org: Organization) {
+  if (!org.domain) {
+    toast.error(t('organizations.domainRequired'));
+    return;
+  }
+  domainBusy.value = org.id;
+  try {
+    const res = await requestDomainVerification(org.id);
+    domainChallenges.value = { ...domainChallenges.value, [org.id]: res.domainVerification };
+    await store.fetchOrganizations();
+    toast.success(t('organizations.dnsRecordGenerated'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('organizations.domainVerificationFailed'));
+  } finally {
+    domainBusy.value = null;
+  }
+}
+
+async function checkDomain(org: Organization) {
+  domainBusy.value = org.id;
+  try {
+    await verifyOrganizationDomain(org.id);
+    await store.fetchOrganizations();
+    toast.success(t('organizations.domainVerifiedSuccess'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('organizations.domainVerificationFailed'));
+  } finally {
+    domainBusy.value = null;
+  }
+}
+
+async function toggleAutoEnroll(org: Organization) {
+  if (!org.domainVerifiedAt) {
+    toast.error(t('organizations.domainRequired'));
+    return;
+  }
+  domainBusy.value = org.id;
+  try {
+    await updateOrganization(org.id, { autoEnrollEnabled: !org.autoEnrollEnabled });
+    await store.fetchOrganizations();
+    toast.success(org.autoEnrollEnabled ? t('organizations.autoEnrollDisabled') : t('organizations.autoEnrollEnabled'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('organizations.domainVerificationFailed'));
+  } finally {
+    domainBusy.value = null;
+  }
 }
 
 /** SearchSelect loader for users */
@@ -279,6 +338,53 @@ void cancelInvitation;
           </div>
 
           <div v-if="expandedOrg === org.id" class="border-t border-surface-700/30 px-5 py-4 space-y-5 animate-fade-in">
+            <div class="rounded-xl border border-surface-700/40 bg-surface-800/20 p-4 space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <h4 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">{{ t('organizations.domainVerification') }}</h4>
+                  <p class="mt-1 text-sm font-mono text-surface-200">{{ org.domain ?? '—' }}</p>
+                </div>
+                <BaseBadge :variant="org.domainVerifiedAt ? 'success' : 'warning'" size="sm" dot>
+                  {{ org.domainVerifiedAt ? t('organizations.domainVerified') : t('organizations.domainUnverified') }}
+                </BaseBadge>
+              </div>
+
+              <template v-if="org.domain">
+                <div class="flex items-center justify-between gap-4 pt-1">
+                  <div class="min-w-0">
+                    <p class="text-sm text-surface-200">{{ t('organizations.autoEnroll') }}</p>
+                    <p class="text-xs text-surface-500">{{ t('organizations.autoEnrollHint') }}</p>
+                  </div>
+                  <BaseButton
+                    variant="outline"
+                    size="sm"
+                    :disabled="!org.domainVerifiedAt || domainBusy === org.id"
+                    :loading="domainBusy === org.id"
+                    @click="toggleAutoEnroll(org)"
+                  >
+                    {{ org.autoEnrollEnabled ? t('common.deactivate') : t('common.activate') }}
+                  </BaseButton>
+                </div>
+
+                <div v-if="!org.domainVerifiedAt" class="space-y-3 pt-2 border-t border-surface-700/30">
+                  <p class="text-xs text-surface-500">{{ t('organizations.dnsRecordHint') }}</p>
+                  <template v-if="domainChallenges[org.id]">
+                    <CopyField :label="t('organizations.dnsRecordName')" :value="domainChallenges[org.id].recordName" />
+                    <CopyField :label="t('organizations.dnsRecordValue')" :value="domainChallenges[org.id].recordValue" />
+                  </template>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <BaseButton variant="outline" size="sm" :loading="domainBusy === org.id" @click="requestChallenge(org)">
+                      {{ t('organizations.generateDnsRecord') }}
+                    </BaseButton>
+                    <BaseButton size="sm" :loading="domainBusy === org.id" @click="checkDomain(org)">
+                      {{ t('organizations.verifyDns') }}
+                    </BaseButton>
+                  </div>
+                </div>
+              </template>
+              <p v-else class="text-xs text-surface-500">{{ t('organizations.domainRequired') }}</p>
+            </div>
+
             <div>
               <div class="flex items-center justify-between mb-3">
                 <h4 class="text-xs font-semibold text-surface-400 uppercase tracking-wide">Members</h4>

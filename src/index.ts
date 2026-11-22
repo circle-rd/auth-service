@@ -24,6 +24,7 @@ import { startResourceWebhookWorker } from "./services/resources/webhooks.js";
 import { closeRedisClient } from "./services/redis-client.js";
 import { startBillingMeterRetry } from "./services/billing/usage.js";
 import { startAutoTopupSweeper } from "./services/wallet/index.js";
+import { startAutoEnrollmentDomainMonitor } from "./services/organization-domains.js";
 import { ensureSigningKey } from "./compat/signing-keys.js";
 import { reconcileTokenAuthMethod } from "./compat/token-auth.js";
 
@@ -90,10 +91,12 @@ async function start(): Promise<void> {
   startResourceWebhookWorker();
   startBillingMeterRetry();
   startAutoTopupSweeper();
+  const stopDomainMonitor = startAutoEnrollmentDomainMonitor();
 
   for (const signal of ["SIGTERM", "SIGINT"] as const) {
     process.once(signal, () => {
       void (async () => {
+        stopDomainMonitor();
         try {
           await fastify.close();
         } catch (err) {

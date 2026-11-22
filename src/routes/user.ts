@@ -31,6 +31,7 @@ import { listInvoices } from "../services/billing/invoices.js";
 import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
+import { phoneVerificationResetSet } from "../services/phone.js";
 import { assertUsernameAvailable } from "../services/usernames.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
 import { mutateUserAndRefreshSnapshots } from "../services/session-snapshot.js";
@@ -510,6 +511,15 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
+    const [current] = await db
+      .select({ phone: userTable.phone })
+      .from(userTable)
+      .where(eq(userTable.id, userId))
+      .limit(1);
+    if (!current) throw ERR.USR_001();
+    const phoneChanged =
+      parsed.data.phone !== undefined && parsed.data.phone !== current.phone;
+
     await mutateUserAndRefreshSnapshots(
       (await auth.$context).internalAdapter,
       userId,
@@ -518,6 +528,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
           .update(userTable)
           .set({
             ...profileUpdateSet(parsed.data),
+            ...(phoneChanged ? phoneVerificationResetSet() : {}),
             updatedAt: new Date(),
           })
           .where(eq(userTable.id, userId));

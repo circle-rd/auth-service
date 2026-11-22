@@ -71,6 +71,7 @@ import {
   listUserOrganizationIds,
   resolveOrganization,
 } from "./services/organization-selection.js";
+import { maybeAutoEnrollByEmailDomain } from "./services/organization-domains.js";
 import {
   ADMIN_ROOM,
   orgRoom,
@@ -492,6 +493,20 @@ export const auth = betterAuth({
   emailVerification: {
     sendOnSignUp: true,
     autoSignInAfterVerification: false,
+    // The domain auto-enrollment decision belongs here: the address has just
+    // been proven, so an organization that verified the domain may receive the
+    // account. The service is idempotent and ignores accounts that registered
+    // through an invitation, an admin or an import.
+    afterEmailVerification: async (user) => {
+      try {
+        await maybeAutoEnrollByEmailDomain(user.id);
+      } catch (err) {
+        logger.warn(
+          { err: String(err), userId: user.id },
+          "[organization-domain] auto-enrollment after email verification failed",
+        );
+      }
+    },
     sendVerificationEmail: async (params: {
       user: { email: string };
       url: string;
@@ -544,6 +559,48 @@ export const auth = betterAuth({
         defaultValue: false,
         required: false,
         input: false,
+      },
+      // Verification states are written by trusted flows (admin routes today,
+      // SMS / age providers later) and are never accepted from a profile PATCH.
+      phoneVerified: {
+        type: "boolean",
+        defaultValue: false,
+        required: false,
+        input: false,
+      },
+      phoneVerifiedAt: {
+        type: "date",
+        required: false,
+        input: false,
+      },
+      phoneVerificationMethod: {
+        type: "string",
+        required: false,
+        input: false,
+      },
+      ageVerified: {
+        type: "boolean",
+        defaultValue: false,
+        required: false,
+        input: false,
+      },
+      ageVerifiedAt: {
+        type: "date",
+        required: false,
+        input: false,
+      },
+      ageVerificationMethod: {
+        type: "string",
+        required: false,
+        input: false,
+      },
+      // Internal routing flag, never part of a session response.
+      autoEnrollEligible: {
+        type: "boolean",
+        defaultValue: false,
+        required: false,
+        input: false,
+        returned: false,
       },
       phone: { type: "string", required: false },
       firstName: { type: "string", required: false },
@@ -631,22 +688,46 @@ export const auth = betterAuth({
         // was sent to. The invitation rides in BetterAuth's server-trusted
         // OAuth state; throwing here aborts the provider callback before any
         // user or account row is written.
-        before: async (userData) => {
+        before: async (userData, context) => {
           // The invitation is carried in BetterAuth's server-trusted OAuth
           // state, not in a cookie that a callback request could omit.
           const oauthState = await getOAuthState();
           const flow = toInvitationFlow(
             oauthState?.serverContext?.invitationFlow,
           );
-          if (!flow) return;
-          const email = (userData as { email?: unknown }).email;
-          await assertInvitationFlowEmail(flow, String(email ?? ""));
+          if (flow) {
+            const email = (userData as { email?: unknown }).email;
+            await assertInvitationFlowEmail(flow, String(email ?? ""));
+            return;
+          }
+          // Only self-service sign-ups may later join an organization by email
+          // domain. Admin-created accounts, imports and invitation-backed
+          // registrations either bypass this hook or carry a flow above.
+          const path = context?.path ?? "";
+          const selfService =
+            path === "/sign-up/email" || path.startsWith("/callback/");
+          if (selfService) {
+            return { data: { autoEnrollEligible: true } };
+          }
         },
         after: async (user) => {
           publishEvent("user.changed", [ADMIN_ROOM, userRoom(user.id)]);
           // Stripe needs a Customer before a subscription can exist; create it
           // eagerly but best-effort, so a Stripe incident cannot block sign-up.
           await ensureBillingCustomerBestEffort("user", user.id);
+          // Social providers return a verified address, so there is no later
+          // verification event to wait for. Email/password sign-ups are handled
+          // by `afterEmailVerification`.
+          if ((user as { emailVerified?: unknown }).emailVerified === true) {
+            try {
+              await maybeAutoEnrollByEmailDomain(user.id);
+            } catch (err) {
+              logger.warn(
+                { err: String(err), userId: user.id },
+                "[organization-domain] auto-enrollment after sign-up failed",
+              );
+            }
+          }
         },
       },
       update: {
@@ -845,6 +926,33 @@ export const auth = betterAuth({
         organization: {
           additionalFields: {
             domain: { type: "string", required: false },
+            // Written only by the controlled domain-verification routes.
+            domainVerificationToken: {
+              type: "string",
+              required: false,
+              input: false,
+            },
+            domainVerifiedAt: {
+              type: "date",
+              required: false,
+              input: false,
+            },
+            domainVerifiedBy: {
+              type: "string",
+              required: false,
+              input: false,
+            },
+            domainLastCheckedAt: {
+              type: "date",
+              required: false,
+              input: false,
+            },
+            autoEnrollEnabled: {
+              type: "boolean",
+              defaultValue: false,
+              required: false,
+              input: false,
+            },
           },
         },
       },
@@ -1087,6 +1195,10 @@ export const auth = betterAuth({
             string | null | undefined,
           phone: (user as Record<string, unknown>).phone as
             string | null | undefined,
+          phoneVerified: (user as Record<string, unknown>).phoneVerified as
+            boolean | null | undefined,
+          ageVerified: (user as Record<string, unknown>).ageVerified as
+            boolean | null | undefined,
           updatedAt: (user as Record<string, unknown>).updatedAt as
             Date | null | undefined,
         });
@@ -1167,6 +1279,10 @@ export const auth = betterAuth({
             string | null | undefined,
           phone: (user as Record<string, unknown>).phone as
             string | null | undefined,
+          phoneVerified: (user as Record<string, unknown>).phoneVerified as
+            boolean | null | undefined,
+          ageVerified: (user as Record<string, unknown>).ageVerified as
+            boolean | null | undefined,
           updatedAt: (user as Record<string, unknown>).updatedAt as
             Date | null | undefined,
         });
@@ -1238,6 +1354,10 @@ export const auth = betterAuth({
               string | null | undefined,
             phone: (user as Record<string, unknown>).phone as
               string | null | undefined,
+            phoneVerified: (user as Record<string, unknown>).phoneVerified as
+              boolean | null | undefined,
+            ageVerified: (user as Record<string, unknown>).ageVerified as
+              boolean | null | undefined,
             updatedAt: (user as Record<string, unknown>).updatedAt as
               Date | null | undefined,
           })),

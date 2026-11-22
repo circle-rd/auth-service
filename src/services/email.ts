@@ -82,6 +82,18 @@ export async function sendEmailOtp(
   );
 }
 
+export async function sendOrganizationDomainUnverifiedEmail(
+  email: string,
+  args: { organizationName: string; domain: string },
+): Promise<void> {
+  await sendEmail(
+    "organization-domain-unverified",
+    email,
+    { email, ...args },
+    null,
+  );
+}
+
 export async function sendOrganizationInvitationEmail(
   email: string,
   args: {

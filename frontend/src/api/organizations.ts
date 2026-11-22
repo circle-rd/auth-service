@@ -13,6 +13,7 @@ export interface OrganizationsListParams {
   page?: number;
   limit?: number;
   search?: string;
+  team?: boolean;
   sortBy?: 'name' | 'slug' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
 }
@@ -24,6 +25,7 @@ export async function listOrganizations(params: OrganizationsListParams = {}): P
       const s = params.search.toLowerCase();
       orgs = orgs.filter(o => o.name.toLowerCase().includes(s) || o.slug.toLowerCase().includes(s));
     }
+    if (params.team !== undefined) orgs = orgs.filter(o => o.team === params.team);
     const page = params.page ?? 1;
     const limit = params.limit ?? 20;
     const start = (page - 1) * limit;
@@ -33,6 +35,7 @@ export async function listOrganizations(params: OrganizationsListParams = {}): P
   if (params.page) qs.set('page', String(params.page));
   if (params.limit) qs.set('limit', String(params.limit));
   if (params.search) qs.set('search', params.search);
+  if (params.team !== undefined) qs.set('team', String(params.team));
   if (params.sortBy) qs.set('sortBy', params.sortBy);
   if (params.sortOrder) qs.set('sortOrder', params.sortOrder);
   const query = qs.toString();
@@ -66,7 +69,7 @@ function mockDomainVerification(domain: string): DomainVerificationRecord {
 
 export async function createOrganization(body: { name: string; slug: string; logo?: string; domain?: string; verifyDomain?: boolean; metadata?: string }): Promise<{ organization: Organization; domainVerification?: DomainVerificationRecord }> {
   if (USE_MOCK) {
-    const org: Organization = { id: `org_${Math.random().toString(36).slice(2)}`, name: body.name, slug: body.slug, logo: body.logo ?? null, domain: body.domain ?? null, autoEnrollEnabled: false, domainVerifiedAt: null, domainVerificationToken: null, createdAt: new Date().toISOString(), metadata: body.metadata ?? null, members: [] };
+    const org: Organization = { id: `org_${Math.random().toString(36).slice(2)}`, name: body.name, slug: body.slug, logo: body.logo ?? null, domain: body.domain ?? null, autoEnrollEnabled: false, team: false, domainVerifiedAt: null, domainVerificationToken: null, createdAt: new Date().toISOString(), metadata: body.metadata ?? null, members: [] };
     MOCK_ORGANIZATIONS.push(org);
     const verify = !!org.domain && body.verifyDomain !== false;
     if (verify) org.domainVerificationToken = 'mock-token';

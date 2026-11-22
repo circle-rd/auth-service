@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useOrganizationsStore } from '@/stores/organizations';
+import { useOrganizationsStore, type TeamFilter } from '@/stores/organizations';
 import { addMember, removeMember, sendInvitation, cancelInvitation } from '@/api/organizations';
 import { listUsers } from '@/api/users';
 import { useToast } from '@/composables/useToast';
@@ -17,7 +17,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { BadgeCheck, Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User, UserPlus } from '@lucide/vue';
+import { BadgeCheck, Building2, Plus, Search, ChevronDown, ChevronUp, Users, UsersRound, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User, UserPlus } from '@lucide/vue';
 import OrganizationFormModal from '@/components/organizations/OrganizationFormModal.vue';
 import type { SelectOption } from '@/types/select';
 
@@ -26,6 +26,11 @@ const store = useOrganizationsStore();
 const toast = useToast();
 
 const searchInput = ref('');
+const teamFilterOptions = computed<SelectOption[]>(() => [
+  { value: 'all', label: t('organizations.filterAll') },
+  { value: 'team', label: t('organizations.filterTeams') },
+  { value: 'company', label: t('organizations.filterCompanies') },
+]);
 const pageSize = usePersistentPageSize('organizations', 20);
 const orgMemberPageSize = usePersistentPageSize('organization-members', 20);
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -182,12 +187,20 @@ void cancelInvitation;
   <AppLayout :title="t('organizations.title')" :subtitle="t('organizations.subtitle')">
     <div class="space-y-5">
       <div class="flex items-center justify-between gap-3">
-        <div class="relative flex-1 max-w-xs">
-          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
-          <input
-            v-model="searchInput"
-            :placeholder="t('organizations.searchPlaceholder')"
-            class="w-full pl-9 pr-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+        <div class="flex flex-1 items-center gap-2">
+          <div class="relative flex-1 max-w-xs">
+            <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+            <input
+              v-model="searchInput"
+              :placeholder="t('organizations.searchPlaceholder')"
+              class="w-full pl-9 pr-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+            />
+          </div>
+          <BaseSelect
+            :model-value="store.teamFilter"
+            :options="teamFilterOptions"
+            class="w-44"
+            @update:model-value="(value: string) => store.fetchOrganizations({ teamFilter: value as TeamFilter, page: 1 })"
           />
         </div>
         <BaseButton @click="openOrgModal(null)">
@@ -225,6 +238,15 @@ void cancelInvitation;
             </div>
             <div class="flex items-center gap-4 shrink-0">
               <div class="flex items-center gap-1.5">
+                <BaseBadge
+                  v-if="org.team"
+                  variant="primary"
+                  size="sm"
+                  :icon="UsersRound"
+                  :title="t('organizations.teamBadge')"
+                >
+                  <span class="sr-only">{{ t('organizations.teamBadge') }}</span>
+                </BaseBadge>
                 <BaseBadge
                   v-if="org.domainVerifiedAt"
                   variant="info"

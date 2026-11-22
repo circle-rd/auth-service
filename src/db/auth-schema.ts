@@ -137,6 +137,12 @@ export const organization = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
     logo: text("logo"),
+    // Teams are created by users through the SDK and never carry a domain. Set
+    // once at creation; administrators cannot change it.
+    team: boolean("team").default(false).notNull(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
     // Bare hostname (example.com), used to qualify the organization in Stripe
     // and, once verified, for domain-based membership discovery. Never includes
     // a scheme or path.
@@ -157,6 +163,7 @@ export const organization = pgTable(
       .where(
         sql`${table.domain} is not null and ${table.domainVerifiedAt} is not null`,
       ),
+    index("organization_createdBy_idx").on(table.createdBy),
   ],
 );
 

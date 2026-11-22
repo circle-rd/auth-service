@@ -4,6 +4,8 @@ import type { Organization, OrganizationMember } from '@/types';
 import * as orgsApi from '@/api/organizations';
 import { ApiError } from '@/api/client';
 
+export type TeamFilter = 'all' | 'team' | 'company';
+
 export const useOrganizationsStore = defineStore('organizations', () => {
   const organizations = ref<Organization[]>([]);
   const orgMembers = ref<Record<string, OrganizationMember[]>>({});
@@ -18,16 +20,18 @@ export const useOrganizationsStore = defineStore('organizations', () => {
   const search = ref('');
   const sortBy = ref<'name' | 'slug' | 'createdAt'>('name');
   const sortOrder = ref<'asc' | 'desc'>('asc');
+  const teamFilter = ref<TeamFilter>('all');
 
   async function fetchOrganizations(params?: Partial<{
     page: number; limit: number; search: string;
-    sortBy: 'name' | 'slug' | 'createdAt'; sortOrder: 'asc' | 'desc';
+    sortBy: 'name' | 'slug' | 'createdAt'; sortOrder: 'asc' | 'desc'; teamFilter: TeamFilter;
   }>) {
     if (params?.page !== undefined) page.value = params.page;
     if (params?.limit !== undefined) limit.value = params.limit;
     if (params?.search !== undefined) search.value = params.search;
     if (params?.sortBy !== undefined) sortBy.value = params.sortBy;
     if (params?.sortOrder !== undefined) sortOrder.value = params.sortOrder;
+    if (params?.teamFilter !== undefined) teamFilter.value = params.teamFilter;
 
     loading.value = true;
     error.value = null;
@@ -38,6 +42,7 @@ export const useOrganizationsStore = defineStore('organizations', () => {
         search: search.value || undefined,
         sortBy: sortBy.value,
         sortOrder: sortOrder.value,
+        team: teamFilter.value === 'all' ? undefined : teamFilter.value === 'team',
       });
       organizations.value = res.organizations;
       total.value = res.total;
@@ -85,7 +90,7 @@ export const useOrganizationsStore = defineStore('organizations', () => {
 
   return {
     organizations, orgMembers, membersLoading, orgMembersLoadingMore, orgMemberTotals,
-    loading, error, total, page, limit, search, sortBy, sortOrder,
+    loading, error, total, page, limit, search, sortBy, sortOrder, teamFilter,
     fetchOrganizations, fetchOrgMembers, loadMoreOrgMembers, deleteOrganization,
   };
 });

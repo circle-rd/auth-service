@@ -379,6 +379,10 @@ export default {
     loadError: 'Could not load the accounting journal.',
   },
   organizations: {
+    filterAll: 'All organizations',
+    filterTeams: 'Teams',
+    filterCompanies: 'Companies',
+    teamBadge: 'Team',
     title: 'Organizations',
     subtitle: 'Manage organizations and their members',
     createOrg: 'Create Organization',
@@ -449,6 +453,8 @@ export default {
     saveFailed: 'Failed to save organization',
   },
   applications: {
+    teams: 'Teams',
+    teamsHint: 'Users of this application can create teams and join them with an invitation token. Turned on with the org claim; this switch can turn it off.',
     title: 'Applications',
     subtitle: 'Manage OAuth2 applications',
     createApp: 'Create Application',

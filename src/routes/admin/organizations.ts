@@ -24,14 +24,15 @@ import {
   requestDomainVerification,
   verifyOrganizationDomain,
 } from "../../services/organization-domains.js";
+import {
+  organizationNameSchema,
+  organizationSlugSchema,
+  teamFilterSchema,
+} from "../../services/organization-fields.js";
 
 const createOrgSchema = z.object({
-  name: z.string().min(1).max(100),
-  slug: z
-    .string()
-    .min(1)
-    .max(50)
-    .regex(/^[a-z0-9-]+$/),
+  name: organizationNameSchema,
+  slug: organizationSlugSchema,
   logo: z.string().url().optional(),
   domain: organizationDomainSchema.optional(),
   // Opt out of the DNS challenge when a domain is stored for display only.
@@ -41,13 +42,8 @@ const createOrgSchema = z.object({
 
 const updateOrgSchema = z
   .object({
-    name: z.string().min(1).max(100).optional(),
-    slug: z
-      .string()
-      .min(1)
-      .max(50)
-      .regex(/^[a-z0-9-]+$/)
-      .optional(),
+    name: organizationNameSchema.optional(),
+    slug: organizationSlugSchema.optional(),
     logo: z.string().url().nullable().optional(),
     domain: organizationDomainSchema.nullable().optional(),
     autoEnrollEnabled: z.boolean().optional(),
@@ -86,6 +82,12 @@ export async function organizationsRoutes(
     const sortOrder = q.sortOrder === "desc" ? "desc" : "asc";
     const offset = (page - 1) * limit;
 
+    const teamParam =
+      q.team === undefined ? undefined : teamFilterSchema.safeParse(q.team);
+    if (teamParam && !teamParam.success)
+      throw ERR.ORG_003("Invalid team filter", teamParam.error.flatten());
+    const teamFilter = teamParam?.success ? teamParam.data : undefined;
+
     const searchFilter = search
       ? or(
           ilike(organization.name, `%${search}%`),
@@ -93,6 +95,10 @@ export async function organizationsRoutes(
           ilike(organization.domain, `%${search}%`),
         )
       : undefined;
+    const listFilter = and(
+      searchFilter,
+      teamFilter === undefined ? undefined : eq(organization.team, teamFilter),
+    );
 
     const orderCol =
       sortBy === "createdAt"
@@ -114,18 +120,19 @@ export async function organizationsRoutes(
           autoEnrollEnabled: organization.autoEnrollEnabled,
           domainVerifiedAt: organization.domainVerifiedAt,
           domainLastCheckedAt: organization.domainLastCheckedAt,
+          team: organization.team,
           createdAt: organization.createdAt,
           metadata: organization.metadata,
           memberCount: count(member.id),
         })
         .from(organization)
         .leftJoin(member, eq(member.organizationId, organization.id))
-        .where(searchFilter)
+        .where(listFilter)
         .groupBy(organization.id)
         .orderBy(orderExpr)
         .limit(limit)
         .offset(offset),
-      db.select({ total: count() }).from(organization).where(searchFilter),
+      db.select({ total: count() }).from(organization).where(listFilter),
     ]);
 
     await reply.send({ organizations: rows, total, page, limit });

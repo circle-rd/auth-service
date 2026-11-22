@@ -1,4 +1,5 @@
 import type { Application } from '@/types';
+import { TEAMS_SCOPE, withManagedScope } from './scopes';
 
 export const RESOURCE_SELF_SCOPE = 'resources:self:manage';
 
@@ -28,6 +29,7 @@ export interface ApplicationFormState {
   allowRegister: boolean;
   billingDelegated: boolean;
   resourceSharingEnabled: boolean;
+  teamsEnabled: boolean;
   resourceWebhookUrl: string;
   allowedScopes: string[];
   redirectUris: string[];
@@ -63,6 +65,7 @@ export function emptyApplicationForm(
     allowRegister: true,
     billingDelegated: false,
     resourceSharingEnabled: false,
+    teamsEnabled: false,
     resourceWebhookUrl: '',
     allowedScopes: [...DEFAULT_SCOPES],
     redirectUris: [''],
@@ -92,10 +95,15 @@ export function formFromApplication(a: Application): ApplicationFormState {
     billingDelegated: a.billingMode === 'delegated',
     resourceSharingEnabled: a.resourceSharingEnabled,
     resourceWebhookUrl: a.resourceWebhookUrl ?? '',
-    // The scope is owned by the Resource sharing option, not picked by hand.
-    allowedScopes: a.resourceSharingEnabled
-      ? [...new Set([...a.allowedScopes, RESOURCE_SELF_SCOPE])]
-      : a.allowedScopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE),
+    teamsEnabled: a.teamsEnabled,
+    // The scopes are owned by the Resource sharing and Teams options, not picked by hand.
+    allowedScopes: withManagedScope(
+      a.resourceSharingEnabled
+        ? [...new Set([...a.allowedScopes, RESOURCE_SELF_SCOPE])]
+        : a.allowedScopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE),
+      TEAMS_SCOPE,
+      a.teamsEnabled,
+    ),
     redirectUris: a.redirectUris.length ? [...a.redirectUris] : [''],
     allowedResources: [...(a.allowedResources ?? [])],
     enabledSocialProviders: a.enabledSocialProviders ? [...a.enabledSocialProviders] : null,

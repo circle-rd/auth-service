@@ -12,7 +12,7 @@ import StepGeneral from './form/StepGeneral.vue';
 import StepOptions from './form/StepOptions.vue';
 import StepAuthorization from './form/StepAuthorization.vue';
 import StepAdvanced from './form/StepAdvanced.vue';
-import { WALLET_SCOPE } from './form/scopes';
+import { TEAMS_SCOPE, WALLET_SCOPE, withManagedScope } from './form/scopes';
 import { RESOURCE_SELF_SCOPE } from './form/state';
 import {
   ALL_PROVIDERS,
@@ -294,9 +294,12 @@ async function submit() {
       billingMode: form.value.billingDelegated ? ('delegated' as const) : ('none' as const),
       resourceSharingEnabled: form.value.resourceSharingEnabled,
       resourceWebhookUrl: form.value.resourceWebhookUrl || null,
-      allowedScopes: form.value.resourceSharingEnabled
-        ? [...form.value.allowedScopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE), RESOURCE_SELF_SCOPE]
-        : form.value.allowedScopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE),
+      teamsEnabled: form.value.teamsEnabled,
+      allowedScopes: withManagedScope(
+        withManagedScope(form.value.allowedScopes, RESOURCE_SELF_SCOPE, form.value.resourceSharingEnabled),
+        TEAMS_SCOPE,
+        form.value.teamsEnabled,
+      ),
       redirectUris: form.value.redirectUris.filter(Boolean),
       allowedResources: form.value.allowedResources.filter(Boolean),
       enabledSocialProviders: form.value.enabledSocialProviders,

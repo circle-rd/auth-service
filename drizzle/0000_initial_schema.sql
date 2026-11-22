@@ -44,6 +44,7 @@ CREATE TABLE "applications" (
 	"allow_register" boolean DEFAULT false NOT NULL,
 	"billing_mode" text DEFAULT 'none' NOT NULL,
 	"resource_sharing_enabled" boolean DEFAULT false NOT NULL,
+	"teams_enabled" boolean DEFAULT false NOT NULL,
 	"resource_webhook_url" text,
 	"resource_webhook_secret" text,
 	"allowed_scopes" text[] DEFAULT '{"openid","profile","email"}' NOT NULL,
@@ -192,6 +193,16 @@ CREATE TABLE "subscription_plans" (
 	"is_default" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "team_invitation_tokens" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" text NOT NULL,
+	"token_hash" text NOT NULL,
+	"created_by" text NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"revoked_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "user_app_roles" (
@@ -499,6 +510,8 @@ CREATE TABLE "organization" (
 	"name" text NOT NULL,
 	"slug" text NOT NULL,
 	"logo" text,
+	"team" boolean DEFAULT false NOT NULL,
+	"created_by" text,
 	"domain" text,
 	"domain_verification_token" text,
 	"domain_verified_at" timestamp,
@@ -855,6 +868,8 @@ ALTER TABLE "registration_invitations" ADD CONSTRAINT "registration_invitations_
 ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plan_prices" ADD CONSTRAINT "subscription_plan_prices_plan_id_subscription_plans_id_fk" FOREIGN KEY ("plan_id") REFERENCES "public"."subscription_plans"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "subscription_plans" ADD CONSTRAINT "subscription_plans_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "team_invitation_tokens" ADD CONSTRAINT "team_invitation_tokens_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "team_invitation_tokens" ADD CONSTRAINT "team_invitation_tokens_created_by_user_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_app_roles" ADD CONSTRAINT "user_app_roles_role_id_app_roles_id_fk" FOREIGN KEY ("role_id") REFERENCES "public"."app_roles"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_applications" ADD CONSTRAINT "user_applications_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -886,6 +901,7 @@ ALTER TABLE "oauth_consent" ADD CONSTRAINT "oauth_consent_user_id_user_id_fk" FO
 ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_client_id_oauth_client_client_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."oauth_client"("client_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_session_id_session_id_fk" FOREIGN KEY ("session_id") REFERENCES "public"."session"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "oauth_refresh_token" ADD CONSTRAINT "oauth_refresh_token_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "organization" ADD CONSTRAINT "organization_created_by_user_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "passkey" ADD CONSTRAINT "passkey_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -926,6 +942,8 @@ CREATE UNIQUE INDEX "stripe_invoices_stripe_idx" ON "stripe_invoices" USING btre
 CREATE INDEX "stripe_invoices_owner_idx" ON "stripe_invoices" USING btree ("user_id","application_id","stripe_created_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plan_prices_plan_feature_idx" ON "subscription_plan_prices" USING btree ("plan_id","feature_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "subscription_plans_app_name_idx" ON "subscription_plans" USING btree ("application_id","name");--> statement-breakpoint
+CREATE UNIQUE INDEX "team_invitation_tokens_token_hash_idx" ON "team_invitation_tokens" USING btree ("token_hash");--> statement-breakpoint
+CREATE UNIQUE INDEX "team_invitation_tokens_active_idx" ON "team_invitation_tokens" USING btree ("organization_id") WHERE "team_invitation_tokens"."revoked_at" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX "user_applications_user_app_idx" ON "user_applications" USING btree ("user_id","application_id");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_user_app_created_idx" ON "user_subscription_events" USING btree ("user_id","application_id","created_at");--> statement-breakpoint
 CREATE INDEX "user_subscription_events_app_created_idx" ON "user_subscription_events" USING btree ("application_id","created_at");--> statement-breakpoint
@@ -964,6 +982,7 @@ CREATE INDEX "oauthRefreshToken_userId_idx" ON "oauth_refresh_token" USING btree
 CREATE INDEX "oauthRefreshToken_authorizationCodeId_idx" ON "oauth_refresh_token" USING btree ("authorization_code_id");--> statement-breakpoint
 CREATE INDEX "oauthResource_identifier_idx" ON "oauth_resource" USING btree ("identifier");--> statement-breakpoint
 CREATE UNIQUE INDEX "organization_verified_domain_unique_idx" ON "organization" USING btree (lower("domain")) WHERE "organization"."domain" is not null and "organization"."domain_verified_at" is not null;--> statement-breakpoint
+CREATE INDEX "organization_createdBy_idx" ON "organization" USING btree ("created_by");--> statement-breakpoint
 CREATE INDEX "passkey_userId_idx" ON "passkey" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "passkey_credentialID_idx" ON "passkey" USING btree ("credential_id");--> statement-breakpoint
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint

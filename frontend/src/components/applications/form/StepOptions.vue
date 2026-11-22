@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
 import { RESOURCE_SELF_SCOPE, type ApplicationFormState } from './state';
+import { TEAMS_SCOPE, withManagedScope } from './scopes';
 
 const props = defineProps<{
   form: ApplicationFormState;
@@ -19,8 +20,15 @@ const resourceSharingSupport = computed({
   get: () => props.form.resourceSharingEnabled,
   set: (enabled: boolean) => {
     props.form.resourceSharingEnabled = enabled;
-    const scopes = props.form.allowedScopes.filter((scope) => scope !== RESOURCE_SELF_SCOPE);
-    props.form.allowedScopes = enabled ? [...scopes, RESOURCE_SELF_SCOPE] : scopes;
+    props.form.allowedScopes = withManagedScope(props.form.allowedScopes, RESOURCE_SELF_SCOPE, enabled);
+  },
+});
+
+const teamsSupport = computed({
+  get: () => props.form.teamsEnabled,
+  set: (enabled: boolean) => {
+    props.form.teamsEnabled = enabled;
+    props.form.allowedScopes = withManagedScope(props.form.allowedScopes, TEAMS_SCOPE, enabled);
   },
 });
 
@@ -114,6 +122,12 @@ const { t } = useI18n();
           :label="t('applications.resourceSharing')"
           :description="resourceSharingAvailable ? t('applications.resourceSharingHint') : t('applications.resourceSharingUnavailable')"
           :disabled="!resourceSharingAvailable"
+        />
+        <BaseToggle
+          v-model="teamsSupport"
+          class="p-3.5"
+          :label="t('applications.teams')"
+          :description="t('applications.teamsHint')"
         />
       </div>
     </section>

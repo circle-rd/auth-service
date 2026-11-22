@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
-import { SCOPE_GROUPS, selectableScopes } from './scopes';
+import { ORG_SCOPE, SCOPE_GROUPS, selectableScopes } from './scopes';
 import type { ApplicationFormState, ProviderKey } from './state';
 
 const props = defineProps<{
@@ -14,7 +14,10 @@ const { t } = useI18n();
 
 function toggleScope(scope: string) {
   const scopes = props.form.allowedScopes;
-  props.form.allowedScopes = scopes.includes(scope) ? scopes.filter((s) => s !== scope) : [...scopes, scope];
+  const enabling = !scopes.includes(scope);
+  props.form.allowedScopes = enabling ? [...scopes, scope] : scopes.filter((s) => s !== scope);
+  // Teams follow the org claim: on when it is first enabled, still switchable on their own.
+  if (enabling && scope === ORG_SCOPE) props.form.teamsEnabled = true;
 }
 
 function isProviderSelected(p: ProviderKey): boolean {

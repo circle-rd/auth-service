@@ -115,6 +115,8 @@ export interface Application {
   billingMode: 'none' | 'delegated'
   /** Per-application owner sharing switch; effective only with the global flag. */
   resourceSharingEnabled: boolean
+  /** Lets the application's users create and join teams through the SDK. */
+  teamsEnabled: boolean
   /** Endpoint auth-service POSTs signed resource-sharing events to. */
   resourceWebhookUrl: string | null
   /** HMAC secret of the webhook, admin-only. */
@@ -319,6 +321,8 @@ export interface Organization {
   domainVerifiedAt?: string | null
   domainLastCheckedAt?: string | null
   autoEnrollEnabled?: boolean
+  /** Created through the SDK: a team, as opposed to a company. */
+  team: boolean
   createdAt: string
   metadata: string | null
   memberCount?: number

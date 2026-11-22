@@ -37,6 +37,8 @@ export interface CreateApplicationBody {
   billingMode?: 'none' | 'delegated'
   /** Per-application owner sharing switch; effective only with the global flag. */
   resourceSharingEnabled?: boolean
+  /** Lets the application's users create and join teams through the SDK. */
+  teamsEnabled?: boolean
   /** Signed callback for resource-sharing events. */
   resourceWebhookUrl?: string | null
   allowedScopes?: string[]
@@ -84,6 +86,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       allowRegister: body.allowRegister ?? true,
       billingMode: body.billingMode ?? 'none',
       resourceSharingEnabled: body.resourceSharingEnabled ?? false,
+      teamsEnabled: body.teamsEnabled ?? false,
       resourceWebhookUrl: body.resourceWebhookUrl ?? null,
       resourceWebhookSecret: body.resourceWebhookUrl ? 'whsec_mock_' + Math.random().toString(36).slice(2, 18) : null,
       allowedScopes: body.allowedScopes ?? ['openid'],

@@ -379,6 +379,10 @@ export default {
     loadError: 'Impossible de charger le journal comptable.',
   },
   organizations: {
+    filterAll: 'Toutes les organisations',
+    filterTeams: '\u00c9quipes',
+    filterCompanies: 'Soci\u00e9t\u00e9s',
+    teamBadge: '\u00c9quipe',
     title: 'Organisations',
     subtitle: 'Gérer les organisations et leurs membres',
     createOrg: 'Créer une organisation',
@@ -449,6 +453,8 @@ export default {
     saveFailed: 'Échec de l’enregistrement de l’organisation',
   },
   applications: {
+    teams: '\u00c9quipes',
+    teamsHint: 'Les utilisateurs de cette application peuvent cr\u00e9er des \u00e9quipes et les rejoindre avec un jeton d\u2019invitation. Activ\u00e9 avec la claim org ; ce r\u00e9glage permet de le d\u00e9sactiver.',
     title: 'Applications',
     subtitle: 'Gérer les applications OAuth2',
     createApp: 'Créer une application',

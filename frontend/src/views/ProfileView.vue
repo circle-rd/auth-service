@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { updateMyProfile, type UpdateMyProfileBody } from '@/api/users';
 import { listMySessions, revokeSession, revokeOtherSessions } from '@/api/sessions';
@@ -41,17 +41,25 @@ const auth = useAuthStore();
 const toast = useToast();
 
 const route = useRoute();
+const router = useRouter();
 // A payment provider return lands on the credit tab.
 type ProfileTabKey = 'account' | 'security' | 'organizations' | 'applications' | 'credit';
 const PROFILE_TABS: readonly ProfileTabKey[] = ['account', 'security', 'organizations', 'applications', 'credit'];
 const { sshSharing } = useAppBranding();
 
+// The tab is the URL fragment (`/profile#credit`), so a tab can be bookmarked or linked.
 function initialTab(): ProfileTabKey {
   if (route.query.topup !== undefined) return 'credit';
-  return PROFILE_TABS.find((tab) => tab === route.query.tab) ?? 'account';
+  const fragment = route.hash.replace(/^#/, '');
+  return PROFILE_TABS.find((tab) => tab === fragment) ?? 'account';
 }
 
 const activeTab = ref<ProfileTabKey>(initialTab());
+
+watch(activeTab, (tab) => {
+  if (route.hash === `#${tab}`) return;
+  void router.replace({ query: { ...route.query }, hash: `#${tab}` });
+});
 
 const profileTabs = [
   { key: 'account' as const, label: t('profile.tabAccount') },

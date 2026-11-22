@@ -68,6 +68,7 @@ export const useCatalogueStore = defineStore('catalogue', () => {
         });
       }
       apps.value = [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
+      dropUnreachable(merged);
       appsLoaded.value = true;
     } catch {
       appsError.value = true;
@@ -102,6 +103,27 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     }
   }
 
+  // Access can be lost while the page is open (role change, owner delegation
+  // removed, sharing disabled): what is no longer reachable must not stay in
+  // memory or in the browser.
+  function dropUnreachable(reachable: Map<string, CatalogueApp>): void {
+    overviews.value = Object.fromEntries(
+      Object.entries(overviews.value).filter(([appId]) => reachable.has(appId)),
+    );
+    const remembered = window.localStorage.getItem(LAST_APP_KEY);
+    if (remembered !== null && !reachable.has(remembered)) {
+      window.localStorage.removeItem(LAST_APP_KEY);
+    }
+  }
+
+  function reset(): void {
+    apps.value = [];
+    appsLoaded.value = false;
+    appsError.value = false;
+    overviews.value = {};
+    window.localStorage.removeItem(LAST_APP_KEY);
+  }
+
   function rememberApp(appId: string): void {
     window.localStorage.setItem(LAST_APP_KEY, appId);
   }
@@ -123,6 +145,7 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     byId,
     loadApps,
     loadOverview,
+    reset,
     rememberApp,
     defaultAppId,
   };

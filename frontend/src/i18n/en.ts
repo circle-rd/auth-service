@@ -1,6 +1,7 @@
 export default {
   nav: {
     version: 'Version',
+    administration: 'Administration',
     dashboard: 'Dashboard',
     users: 'Users',
     organizations: 'Organizations',

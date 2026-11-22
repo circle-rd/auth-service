@@ -44,6 +44,14 @@ function sync() {
 watch(() => [store.appsLoaded, appId.value], sync);
 void store.loadApps().then(sync);
 
+// A resource type that was deactivated while the page is open leaves the overview.
+watch(overview, (current) => {
+  if (route.name !== 'catalogue-type' || !current || !appId.value) return;
+  if (!current.schemes.some((entry) => entry.scheme === route.params.scheme)) {
+    void router.replace({ name: 'catalogue-dashboard', params: { appId: appId.value } });
+  }
+});
+
 // Resource types, shares and grants change outside this tab (an administrator
 // enabling a scheme, another user sharing a resource). The server only addresses
 // the frames this session may see; the overview is re-read on each of them.
@@ -52,11 +60,22 @@ function refreshOverview() {
     void store.loadOverview(appId.value, true);
   }
 }
+
+// Role and owner delegation are read once per application list: after a
+// reconnection they are re-read, so a lost right disappears from the sidebar.
+function refreshCatalogue() {
+  void store.loadApps(true).then(() => {
+    sync();
+    refreshOverview();
+  });
+}
+
 const events = useRealtimeEvents(
   { 'catalogue.changed': refreshOverview, 'resource.changed': refreshOverview },
-  { onResync: refreshOverview },
+  { onResync: refreshCatalogue },
 );
 onBeforeUnmount(() => events.close());
+
 </script>
 
 <template>

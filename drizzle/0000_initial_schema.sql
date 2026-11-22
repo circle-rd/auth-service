@@ -975,6 +975,7 @@ CREATE INDEX "application_schemes_scheme_idx" ON "application_schemes" USING btr
 CREATE INDEX "resource_access_events_occurred_idx" ON "resource_access_events" USING btree ("occurred_at");--> statement-breakpoint
 CREATE INDEX "resource_access_events_resource_idx" ON "resource_access_events" USING btree ("resource_id","occurred_at");--> statement-breakpoint
 CREATE INDEX "resource_access_events_subject_idx" ON "resource_access_events" USING btree ("subject_id","occurred_at");--> statement-breakpoint
+CREATE INDEX "resource_access_events_owner_idx" ON "resource_access_events" USING btree ("owner_type","owner_id","occurred_at");--> statement-breakpoint
 CREATE INDEX "resource_access_events_application_idx" ON "resource_access_events" USING btree ("application_id","occurred_at");--> statement-breakpoint
 CREATE INDEX "resource_grants_resource_idx" ON "resource_grants" USING btree ("resource_id");--> statement-breakpoint
 CREATE INDEX "resource_grants_subject_idx" ON "resource_grants" USING btree ("subject_type","subject_id");--> statement-breakpoint

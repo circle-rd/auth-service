@@ -30,6 +30,7 @@ export const REALTIME_EVENT_TYPES = [
   'wallet.changed',
   'subscription.changed',
   'resource.changed',
+  'resource.activity',
   'catalogue.changed',
 ] as const;
 

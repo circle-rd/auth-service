@@ -253,19 +253,8 @@ export interface UserActivity {
     deny: number;
     series: DecisionSeriesPoint[];
     topResources: { uri: string; scheme: string; calls: number }[];
-    topSubjects: {
-      subjectId: string;
-      name: string | null;
-      calls: number;
-      lastAt: string;
-    }[];
-    recent: {
-      occurredAt: string;
-      uri: string;
-      subjectName: string | null;
-      decision: ResourceEventDecision;
-      source: string;
-    }[];
+    totalTokens: number;
+    costUsd: string;
   };
   used: {
     calls: number;
@@ -277,8 +266,11 @@ export interface UserActivity {
 }
 
 /**
- * What a user shares (decisions taken on resources they own, by other people)
- * and what they use (decisions about themselves), inside one application.
+ * What other people consumed on the resources a user owns, and what the user
+ * consumed themselves, inside one application. Calls come from the usage
+ * ledger — not the security access log — so every gateway that reports usage
+ * (LLM, SSH, external consumers) is counted consistently. No caller identity
+ * is returned: the dashboard only needs counters.
  */
 export async function getUserActivity(
   userId: string,
@@ -288,91 +280,58 @@ export async function getUserActivity(
 ): Promise<UserActivity> {
   const days = rangeToDays(range);
   const since = rangeStart(days, now);
-  const sharedWhere = and(
+  const sharedUsageWhere = and(
+    eq(resourceUsageRecords.applicationId, applicationId),
+    eq(resourceUsageRecords.ownerType, "user"),
+    eq(resourceUsageRecords.ownerId, userId),
+    ne(resourceUsageRecords.subjectId, userId),
+    gte(resourceUsageRecords.occurredAt, since),
+  );
+  const sharedDeniedWhere = and(
     eq(resourceAccessEvents.applicationId, applicationId),
     eq(resourceAccessEvents.ownerType, "user"),
     eq(resourceAccessEvents.ownerId, userId),
     ne(resourceAccessEvents.subjectId, userId),
+    eq(resourceAccessEvents.decision, "deny"),
     gte(resourceAccessEvents.occurredAt, since),
   );
   const usedWhere = and(
-    eq(resourceAccessEvents.applicationId, applicationId),
-    eq(resourceAccessEvents.subjectId, userId),
-    eq(resourceAccessEvents.decision, "allow"),
-    gte(resourceAccessEvents.occurredAt, since),
+    eq(resourceUsageRecords.applicationId, applicationId),
+    eq(resourceUsageRecords.subjectId, userId),
+    gte(resourceUsageRecords.occurredAt, since),
   );
-  const day = sql<string>`to_char(date_trunc('day', ${resourceAccessEvents.occurredAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
+  const usageDay = sql<string>`to_char(date_trunc('day', ${resourceUsageRecords.occurredAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
+  const accessDay = sql<string>`to_char(date_trunc('day', ${resourceAccessEvents.occurredAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
 
   const [
-    sharedSeries,
+    sharedUsageSeries,
+    sharedDeniedSeries,
     sharedResources,
-    sharedSubjects,
-    sharedRecent,
+    sharedTotals,
     usedSeries,
     usedResources,
-    usage,
+    usedTotals,
   ] = await Promise.all([
     db
-      .select({
-        day,
-        allow: sql<number>`count(*) filter (where ${resourceAccessEvents.decision} = 'allow')::int`,
-        deny: sql<number>`count(*) filter (where ${resourceAccessEvents.decision} = 'deny')::int`,
-      })
+      .select({ day: usageDay, calls: count() })
+      .from(resourceUsageRecords)
+      .where(sharedUsageWhere)
+      .groupBy(usageDay),
+    db
+      .select({ day: accessDay, denies: count() })
       .from(resourceAccessEvents)
-      .where(sharedWhere)
-      .groupBy(day),
+      .where(sharedDeniedWhere)
+      .groupBy(accessDay),
     db
       .select({
-        uri: resourceAccessEvents.uri,
-        scheme: resourceAccessEvents.scheme,
+        uri: resourceUsageRecords.uri,
+        scheme: resourceUsageRecords.scheme,
         calls: count(),
       })
-      .from(resourceAccessEvents)
-      .where(sharedWhere)
-      .groupBy(resourceAccessEvents.uri, resourceAccessEvents.scheme)
-      .orderBy(desc(count()), resourceAccessEvents.uri)
-      .limit(5),
-    db
-      .select({
-        subjectId: resourceAccessEvents.subjectId,
-        name: userTable.name,
-        calls: count(),
-        lastAt: sql<Date>`max(${resourceAccessEvents.occurredAt})`,
-      })
-      .from(resourceAccessEvents)
-      .leftJoin(userTable, eq(userTable.id, resourceAccessEvents.subjectId))
-      .where(sharedWhere)
-      .groupBy(resourceAccessEvents.subjectId, userTable.name)
-      .orderBy(desc(count()), resourceAccessEvents.subjectId)
-      .limit(5),
-    db
-      .select({
-        occurredAt: resourceAccessEvents.occurredAt,
-        uri: resourceAccessEvents.uri,
-        subjectName: userTable.name,
-        decision: resourceAccessEvents.decision,
-        source: resourceAccessEvents.source,
-      })
-      .from(resourceAccessEvents)
-      .leftJoin(userTable, eq(userTable.id, resourceAccessEvents.subjectId))
-      .where(sharedWhere)
-      .orderBy(desc(resourceAccessEvents.occurredAt))
-      .limit(10),
-    db
-      .select({ day, calls: count() })
-      .from(resourceAccessEvents)
-      .where(usedWhere)
-      .groupBy(day),
-    db
-      .select({
-        uri: resourceAccessEvents.uri,
-        scheme: resourceAccessEvents.scheme,
-        calls: count(),
-      })
-      .from(resourceAccessEvents)
-      .where(usedWhere)
-      .groupBy(resourceAccessEvents.uri, resourceAccessEvents.scheme)
-      .orderBy(desc(count()), resourceAccessEvents.uri)
+      .from(resourceUsageRecords)
+      .where(sharedUsageWhere)
+      .groupBy(resourceUsageRecords.uri, resourceUsageRecords.scheme)
+      .orderBy(desc(count()), resourceUsageRecords.uri)
       .limit(5),
     db
       .select({
@@ -380,20 +339,42 @@ export async function getUserActivity(
         cost: sql<string>`coalesce(sum(${resourceUsageRecords.costUsd}), 0)`,
       })
       .from(resourceUsageRecords)
-      .where(
-        and(
-          eq(resourceUsageRecords.applicationId, applicationId),
-          eq(resourceUsageRecords.subjectId, userId),
-          gte(resourceUsageRecords.occurredAt, since),
-        ),
-      ),
+      .where(sharedUsageWhere),
+    db
+      .select({ day: usageDay, calls: count() })
+      .from(resourceUsageRecords)
+      .where(usedWhere)
+      .groupBy(usageDay),
+    db
+      .select({
+        uri: resourceUsageRecords.uri,
+        scheme: resourceUsageRecords.scheme,
+        calls: count(),
+      })
+      .from(resourceUsageRecords)
+      .where(usedWhere)
+      .groupBy(resourceUsageRecords.uri, resourceUsageRecords.scheme)
+      .orderBy(desc(count()), resourceUsageRecords.uri)
+      .limit(5),
+    db
+      .select({
+        tokens: sql<string>`coalesce(sum(${resourceUsageRecords.totalTokens}), 0)`,
+        cost: sql<string>`coalesce(sum(${resourceUsageRecords.costUsd}), 0)`,
+      })
+      .from(resourceUsageRecords)
+      .where(usedWhere),
   ]);
 
+  const sharedByDay = new Map<string, { allow: number; deny: number }>();
+  for (const row of sharedUsageSeries) {
+    sharedByDay.set(row.day, { allow: row.calls, deny: 0 });
+  }
+  for (const row of sharedDeniedSeries) {
+    const current = sharedByDay.get(row.day) ?? { allow: 0, deny: 0 };
+    sharedByDay.set(row.day, { ...current, deny: row.denies });
+  }
   const series = denseDailySeries(
-    sharedSeries.map((r) => ({
-      day: r.day,
-      value: { allow: r.allow, deny: r.deny },
-    })),
+    [...sharedByDay].map(([day, value]) => ({ day, value })),
     days,
     { allow: 0, deny: 0 },
     now,
@@ -412,29 +393,15 @@ export async function getUserActivity(
       deny: series.reduce((acc, p) => acc + p.deny, 0),
       series,
       topResources: sharedResources,
-      topSubjects: sharedSubjects.flatMap((r) =>
-        r.subjectId
-          ? [
-              {
-                subjectId: r.subjectId,
-                name: r.name,
-                calls: r.calls,
-                lastAt: new Date(r.lastAt).toISOString(),
-              },
-            ]
-          : [],
-      ),
-      recent: sharedRecent.map((r) => ({
-        ...r,
-        occurredAt: r.occurredAt.toISOString(),
-      })),
+      totalTokens: Number(sharedTotals[0]?.tokens ?? 0),
+      costUsd: String(sharedTotals[0]?.cost ?? "0"),
     },
     used: {
       calls: usedDaily.reduce((acc, p) => acc + p.calls, 0),
       series: usedDaily,
       topResources: usedResources,
-      totalTokens: Number(usage[0]?.tokens ?? 0),
-      costUsd: String(usage[0]?.cost ?? "0"),
+      totalTokens: Number(usedTotals[0]?.tokens ?? 0),
+      costUsd: String(usedTotals[0]?.cost ?? "0"),
     },
   };
 }

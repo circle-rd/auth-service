@@ -133,7 +133,7 @@ const invitationCreateSchema = z.object({
 
 const usageQuerySchema = z
   .object({
-    groupBy: z.enum(USAGE_GROUP_BY).default("user"),
+    groupBy: z.enum(USAGE_GROUP_BY).default("resource"),
     from: z.string().datetime().optional(),
     to: z.string().datetime().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -442,6 +442,14 @@ export async function appResourceRoutes(
     );
     if (!userId) return;
     const query = usageQuerySchema.parse(req.query);
+    if (
+      query.groupBy === "user" &&
+      !(await isApplicationAdmin(userId, appId))
+    ) {
+      throw ERR.AUTH_011(
+        "User-level usage requires application administration",
+      );
+    }
     const to = query.to ? new Date(query.to) : new Date();
     const from = query.from
       ? new Date(query.from)

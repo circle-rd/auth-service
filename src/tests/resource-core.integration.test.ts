@@ -55,6 +55,13 @@ import {
   gatewayTargetForResource,
   listGatewayEntitlements,
 } from "../services/gateway-inventory.js";
+import {
+  MemoryEventBus,
+  appManagerRoom,
+  setEventBus,
+  userRoom,
+  type DomainEvent,
+} from "../services/event-bus.js";
 import { cleanDb } from "./helpers/db.js";
 
 interface Seed {
@@ -1040,6 +1047,50 @@ describe("generic resource core", () => {
         "newcomer@example.com",
       ),
     ).resolves.toMatchObject({ email: "newcomer@example.com" });
+  });
+
+  it("emits a resource.activity signal for new usage but not for a replay", async () => {
+    const seedData = await seed();
+    const resource = await validatedResource(seedData);
+    await createResourceGrant({
+      resourceId: resource.id,
+      subjectType: "user",
+      subjectId: seedData.memberId,
+      actorUserId: seedData.ownerId,
+    });
+    const bus = new MemoryEventBus();
+    const seen: DomainEvent[] = [];
+    bus.subscribe((event) => seen.push(event));
+    setEventBus(bus);
+    try {
+      const event = {
+        subjectId: seedData.memberId,
+        clientId: "client-1",
+        resourceId: resource.id,
+        resourceUri: resource.uri,
+        requestId: "b".repeat(64),
+        occurredAt: new Date("2026-11-15T12:00:00.000Z"),
+        usageSource: "unsupported" as const,
+        costUsd: null,
+        promptTokens: null,
+        completionTokens: null,
+        totalTokens: null,
+      };
+      await recordUsageEvent(event);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({
+        type: "resource.activity",
+        rooms: expect.arrayContaining([
+          userRoom(seedData.ownerId),
+          userRoom(seedData.memberId),
+          appManagerRoom(seedData.appAId),
+        ]),
+      });
+      await recordUsageEvent(event);
+      expect(seen).toHaveLength(1);
+    } finally {
+      setEventBus(null);
+    }
   });
 
   it("records usage idempotently and aggregates it per application", async () => {

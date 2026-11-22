@@ -131,6 +131,7 @@ describe("the event vocabulary", () => {
       "wallet.changed",
       "subscription.changed",
       "resource.changed",
+      "resource.activity",
       "catalogue.changed",
     ]);
   });

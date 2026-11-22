@@ -791,7 +791,7 @@ describe("application resource routes", () => {
     expect(ok.statusCode).toBe(200);
     expect(mockGetUsage).toHaveBeenCalledWith(
       APP,
-      expect.objectContaining({ groupBy: "user", limit: 50, offset: 0 }),
+      expect.objectContaining({ groupBy: "resource", limit: 50, offset: 0 }),
     );
     const defaults = mockGetUsage.mock.calls[0]?.[1];
     const span =
@@ -803,6 +803,16 @@ describe("application resource routes", () => {
       url: `/api/user/apps/${APP}/usage?from=2030-01-02T00:00:00.000Z&to=2030-01-01T00:00:00.000Z`,
     });
     expect(inverted.statusCode).toBe(400);
+  });
+
+  it("reserves per-user usage grouping to application administrators", async () => {
+    mockIsApplicationAdmin.mockResolvedValue(false);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/user/apps/${APP}/usage?groupBy=user`,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockGetUsage).not.toHaveBeenCalled();
   });
 
   it("lists access events for an application", async () => {

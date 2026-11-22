@@ -296,6 +296,11 @@ export const resourceAccessEvents = pgTable(
     index("resource_access_events_occurred_idx").on(t.occurredAt),
     index("resource_access_events_resource_idx").on(t.resourceId, t.occurredAt),
     index("resource_access_events_subject_idx").on(t.subjectId, t.occurredAt),
+    index("resource_access_events_owner_idx").on(
+      t.ownerType,
+      t.ownerId,
+      t.occurredAt,
+    ),
     index("resource_access_events_application_idx").on(
       t.applicationId,
       t.occurredAt,

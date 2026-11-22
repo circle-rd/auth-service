@@ -12,6 +12,7 @@ import {
 } from "../../db/ssh-schema.js";
 import { ERR } from "../../errors.js";
 import { assertCanManageResource } from "../resources/authority.js";
+import { announceResourceActivity } from "../resources/realtime.js";
 import { getResource, type ResourceView } from "../resources/registry.js";
 import { isSchemeEnabledForApplication } from "../resources/scheme-service.js";
 import {
@@ -402,7 +403,7 @@ export async function recordSshSession(
     row.bytesOut === input.bytesOut &&
     row.endReason === input.endReason;
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select()
       .from(sshSessions)
@@ -474,4 +475,15 @@ export async function recordSshSession(
       });
     return { sessionId: input.sessionId, replayed: false };
   });
+  if (!result.replayed) {
+    announceResourceActivity(
+      {
+        ownerType: resource.ownerType,
+        ownerId: resource.ownerId,
+        applicationId: resource.applicationId,
+      },
+      input.subjectId,
+    );
+  }
+  return result;
 }

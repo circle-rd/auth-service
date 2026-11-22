@@ -34,6 +34,7 @@ export const DOMAIN_EVENT_TYPES = [
   "wallet.changed",
   "subscription.changed",
   "resource.changed",
+  "resource.activity",
   "catalogue.changed",
 ] as const;
 
@@ -47,6 +48,7 @@ export const USER_EVENT_TYPES: readonly DomainEventType[] = [
   "wallet.changed",
   "subscription.changed",
   "resource.changed",
+  "resource.activity",
   "catalogue.changed",
 ];
 
@@ -62,13 +64,19 @@ export const CLOSING_EVENT_TYPES: readonly DomainEventType[] = [
 ];
 
 export type Room =
-  "admin" | `user:${string}` | `org:${string}` | `app:${string}`;
+  | "admin"
+  | `user:${string}`
+  | `org:${string}`
+  | `app:${string}`
+  | `appmgr:${string}`;
 
 export const ADMIN_ROOM: Room = "admin";
 export const userRoom = (userId: string): Room => `user:${userId}`;
 export const orgRoom = (organizationId: string): Room =>
   `org:${organizationId}`;
 export const appRoom = (applicationId: string): Room => `app:${applicationId}`;
+export const appManagerRoom = (applicationId: string): Room =>
+  `appmgr:${applicationId}`;
 
 /** Every event names at least one room: an unaddressed event has no audience. */
 export type RoomList = readonly [Room, ...Room[]];
@@ -94,7 +102,7 @@ export interface EventBus {
 /** Redis pub/sub channel carrying the fan-out. */
 const REDIS_CHANNEL = "auth-service.events";
 
-const ROOM_PATTERN = /^(admin|(user|org|app):[A-Za-z0-9_-]+)$/;
+const ROOM_PATTERN = /^(admin|(user|org|app|appmgr):[A-Za-z0-9_-]+)$/;
 
 /** Envelope published to Redis; `origin` lets an instance drop its own echo. */
 const remoteEventSchema = z.object({

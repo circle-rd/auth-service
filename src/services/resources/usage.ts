@@ -25,6 +25,7 @@ import { ERR } from "../../errors.js";
 import { logger } from "../../logger.js";
 import { evaluateResourceAccess } from "./policy.js";
 import { getResource } from "./registry.js";
+import { announceResourceActivity } from "./realtime.js";
 import type {
   ResourceEventDecision,
   ResourceEventSource,
@@ -76,6 +77,17 @@ export async function recordAccessEvent(
     source: input.source,
     metadata: input.metadata ?? {},
   });
+  if (input.decision === "deny") {
+    announceResourceActivity(
+      {
+        ownerType: input.ownerType ?? null,
+        ownerId: input.ownerId ?? null,
+        applicationId: input.applicationId ?? null,
+      },
+      input.subjectId ?? null,
+      { includeSubject: false },
+    );
+  }
 }
 
 export interface RecordUsageInput {
@@ -193,7 +205,17 @@ export async function recordUsageEvent(
       target: [resourceUsageRecords.resourceId, resourceUsageRecords.requestId],
     })
     .returning();
-  if (row) return { record: row, replayed: false };
+  if (row) {
+    announceResourceActivity(
+      {
+        ownerType: resource.ownerType,
+        ownerId: resource.ownerId,
+        applicationId: resource.applicationId,
+      },
+      input.subjectId,
+    );
+    return { record: row, replayed: false };
+  }
 
   const [existing] = await db
     .select()

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   ADMIN_ROOM,
+  appManagerRoom,
   appRoom,
   orgRoom,
   userRoom,
@@ -81,6 +82,23 @@ describe("deliveryFor", () => {
         audience([userRoom("a"), appRoom("app-1")]),
       ),
     ).toEqual(FRAME);
+  });
+
+  it("writes activity only to the owner, subject and application managers", () => {
+    expect(
+      decide(
+        "resource.activity",
+        [userRoom("owner"), appManagerRoom("app-1")],
+        audience([userRoom("owner")]),
+      ),
+    ).toEqual(FRAME);
+    expect(
+      decide(
+        "resource.activity",
+        [userRoom("owner"), appManagerRoom("app-1")],
+        audience([userRoom("member"), appRoom("app-1")]),
+      ),
+    ).toEqual(NOTHING);
   });
 
   it("closes the stream when a closing type reaches a non-admin room", () => {

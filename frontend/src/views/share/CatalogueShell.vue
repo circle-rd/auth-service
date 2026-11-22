@@ -10,6 +10,7 @@ import EmptyState from '@/components/ui/EmptyState.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { useCatalogueStore } from '@/stores/catalogue';
 import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
+import { provideCatalogueActivity } from '@/composables/useCatalogueActivity';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -70,9 +71,23 @@ function refreshCatalogue() {
   });
 }
 
+const activityTick = provideCatalogueActivity();
+function refreshActivity() {
+  activityTick.value += 1;
+}
+
 const events = useRealtimeEvents(
-  { 'catalogue.changed': refreshOverview, 'resource.changed': refreshOverview },
-  { onResync: refreshCatalogue },
+  {
+    'catalogue.changed': refreshOverview,
+    'resource.changed': refreshOverview,
+    'resource.activity': refreshActivity,
+  },
+  {
+    onResync: () => {
+      refreshCatalogue();
+      refreshActivity();
+    },
+  },
 );
 onBeforeUnmount(() => events.close());
 

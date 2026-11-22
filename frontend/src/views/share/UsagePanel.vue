@@ -8,6 +8,7 @@ import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SchemeIcon from '@/components/ui/SchemeIcon.vue';
+import { useCatalogueActivityTick } from '@/composables/useCatalogueActivity';
 import { useToast } from '@/composables/useToast';
 import {
   getOwnerUsage,
@@ -21,7 +22,7 @@ import {
 import type { SelectOption } from '@/types/select';
 import { toIso, toLocalInput } from './format';
 
-const props = defineProps<{ appId: string }>();
+const props = defineProps<{ appId: string; allowUserGrouping?: boolean }>();
 
 const { t } = useI18n();
 const toast = useToast();
@@ -29,7 +30,7 @@ const toast = useToast();
 const LIMIT = 50;
 const DEFAULT_RANGE_DAYS = 30;
 
-const groupBy = ref<'user' | 'resource'>('user');
+const groupBy = ref<'user' | 'resource'>('resource');
 const from = ref('');
 const to = ref('');
 const offset = ref(0);
@@ -37,11 +38,12 @@ const loadedOffset = ref(0);
 const usage = ref<OwnerUsage | null>(null);
 const schemes = ref<ResourceScheme[]>([]);
 const loading = ref(true);
+const activityTick = useCatalogueActivityTick();
 let latestRequest = 0;
 
 const groupOptions = computed<SelectOption[]>(() => [
-  { value: 'user', label: t('share.usage.byUser') },
   { value: 'resource', label: t('share.usage.byResource') },
+  ...(props.allowUserGrouping ? [{ value: 'user', label: t('share.usage.byUser') }] : []),
 ]);
 
 const items = computed<Array<UsageUserRow | UsageResourceRow>>(() => usage.value?.items ?? []);
@@ -135,6 +137,18 @@ function resetOffsetAndLoad() {
 watch([groupBy, from, to], resetOffsetAndLoad);
 watch(offset, () => void load());
 watch(() => props.appId, resetOffsetAndLoad);
+watch(
+  () => activityTick?.value,
+  () => {
+    if (activityTick) resetOffsetAndLoad();
+  },
+);
+watch(
+  () => props.allowUserGrouping,
+  (allowed) => {
+    if (!allowed && groupBy.value === 'user') groupBy.value = 'resource';
+  },
+);
 
 async function loadSchemes() {
   try {

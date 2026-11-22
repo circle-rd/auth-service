@@ -2,11 +2,13 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { resourceGrants } from "../../db/resource-schema.js";
 import {
+  appManagerRoom,
   appRoom,
   orgRoom,
   publishEvent,
   userRoom,
   type Room,
+  type RoomList,
 } from "../event-bus.js";
 
 /** The fields of a resource that decide who hears about its changes. */
@@ -87,4 +89,39 @@ export async function announceResourceChanged(
 ): Promise<void> {
   const list = subjects ?? (await activeGrantSubjects(resource.id));
   publishEvent("resource.changed", resourceRooms(resource, list));
+}
+
+/** The ownership fields of a usage row or access event, possibly unknown. */
+export interface ActivityResourceRef {
+  ownerType: string | null;
+  ownerId: string | null;
+  applicationId: string | null;
+}
+
+/**
+ * Announce committed activity on a resource. The frame is a signal only; the
+ * subscriber re-reads its own aggregate, which never contains another user's
+ * identity. App managers hear about every resource in their application so
+ * their management view stays current; ordinary members and grantees do not
+ * have the `appmgr:` room.
+ */
+export function announceResourceActivity(
+  resource: ActivityResourceRef,
+  subjectId: string | null,
+  options: { includeSubject?: boolean } = {},
+): void {
+  const includeSubject = options.includeSubject ?? true;
+  const rooms = new Set<Room>();
+  if (resource.ownerType === "user" && resource.ownerId) {
+    rooms.add(userRoom(resource.ownerId));
+  }
+  if (resource.applicationId) {
+    rooms.add(appManagerRoom(resource.applicationId));
+  }
+  if (includeSubject && subjectId) {
+    rooms.add(userRoom(subjectId));
+  }
+  const [first, ...rest] = rooms;
+  if (!first) return;
+  publishEvent("resource.activity", [first, ...rest] as RoomList);
 }

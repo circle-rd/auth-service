@@ -1,9 +1,15 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { member } from "../db/auth-schema.js";
-import { userApplications } from "../db/schema.js";
+import {
+  appDelegations,
+  appRoles,
+  userAppRoles,
+  userApplications,
+} from "../db/schema.js";
 import {
   ADMIN_ROOM,
+  appManagerRoom,
   appRoom,
   CLOSING_EVENT_TYPES,
   orgRoom,
@@ -12,6 +18,7 @@ import {
   type DomainEvent,
   type Room,
 } from "./event-bus.js";
+import { APP_DELEGATION_PERMISSIONS } from "./resources/authority.js";
 import { ADMIN_ROLES, hasAnyRole } from "./roles.js";
 
 /**
@@ -43,7 +50,7 @@ export async function resolveAudience(
   userId: string,
   role: string | null | undefined,
 ): Promise<Audience> {
-  const [orgs, apps] = await Promise.all([
+  const [orgs, apps, adminApps, delegatedApps] = await Promise.all([
     db
       .select({ organizationId: member.organizationId })
       .from(member)
@@ -57,6 +64,29 @@ export async function resolveAudience(
           eq(userApplications.isActive, true),
         ),
       ),
+    db
+      .selectDistinct({ applicationId: appRoles.applicationId })
+      .from(userAppRoles)
+      .innerJoin(appRoles, eq(userAppRoles.roleId, appRoles.id))
+      .innerJoin(
+        userApplications,
+        and(
+          eq(userApplications.userId, userAppRoles.userId),
+          eq(userApplications.applicationId, appRoles.applicationId),
+          eq(userApplications.isActive, true),
+        ),
+      )
+      .where(and(eq(userAppRoles.userId, userId), eq(appRoles.name, "admin"))),
+    db
+      .selectDistinct({ applicationId: appDelegations.applicationId })
+      .from(appDelegations)
+      .where(
+        and(
+          eq(appDelegations.userId, userId),
+          eq(appDelegations.status, "active"),
+          inArray(appDelegations.permission, [...APP_DELEGATION_PERMISSIONS]),
+        ),
+      ),
   ]);
 
   const admin = hasAnyRole(role, ADMIN_ROLES);
@@ -64,6 +94,8 @@ export async function resolveAudience(
   if (admin) rooms.add(ADMIN_ROOM);
   for (const row of orgs) rooms.add(orgRoom(row.organizationId));
   for (const row of apps) rooms.add(appRoom(row.applicationId));
+  for (const row of adminApps) rooms.add(appManagerRoom(row.applicationId));
+  for (const row of delegatedApps) rooms.add(appManagerRoom(row.applicationId));
   return { rooms, admin };
 }
 

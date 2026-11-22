@@ -6,10 +6,14 @@ import { eq } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { gatewayObjects } from "../db/gateway-schema.js";
+import { linkResourceToGatewayObject } from "../services/gateway-inventory.js";
 import { requestGatewayInventorySync } from "../services/gateway-inventory-sync.js";
 import { syncGatewayInventory } from "../services/gateway-inventory-mirror.js";
 import { getEventBus, setEventBus, MemoryEventBus, type DomainEvent } from "../services/event-bus.js";
 import { applications } from "../db/schema.js";
+import { resources } from "../db/resource-schema.js";
+import { resourceGatewayLinks } from "../db/gateway-schema.js";
+import { syncBuiltinSchemes } from "../services/resources/scheme-service.js";
 import { cleanDb } from "./helpers/db.js";
 
 let originalUrl: string | undefined;
@@ -214,5 +218,77 @@ describe("gateway inventory sync", () => {
     } finally {
       setEventBus(previous);
     }
+  });
+
+  describe("linking models by locator projection", () => {
+    async function seedLinkableModel(name: string): Promise<void> {
+      await db.insert(gatewayObjects).values({
+        kind: "model",
+        litellmId: name,
+        objectName: name,
+        displayName: name,
+        metadata: { router: true },
+      });
+    }
+
+    async function seedResource(locator: string): Promise<{ id: string; scheme: string; locator: string }> {
+      await syncBuiltinSchemes();
+      const [app] = await db
+        .insert(applications)
+        .values({ name: "Chat", slug: "chat", resourceSharingEnabled: true })
+        .returning({ id: applications.id });
+      const [resource] = await db
+        .insert(resources)
+        .values({
+          applicationId: app!.id,
+          scheme: "llm",
+          locator,
+          uri: `llm://${locator}`,
+          displayName: locator,
+          ownerType: "user",
+          ownerId: "owner",
+          status: "validated",
+        })
+        .returning({ id: resources.id, scheme: resources.scheme, locator: resources.locator });
+      return resource!;
+    }
+
+    it("links the underscored locator to the model whose name has spaces", async () => {
+      await seedLinkableModel("LITE Router");
+      const resource = await seedResource("chat/LITE_Router");
+
+      await expect(linkResourceToGatewayObject(resource)).resolves.toBe(true);
+
+      const links = await db
+        .select({ name: gatewayObjects.objectName })
+        .from(resourceGatewayLinks)
+        .innerJoin(gatewayObjects, eq(resourceGatewayLinks.gatewayObjectId, gatewayObjects.id))
+        .where(eq(resourceGatewayLinks.resourceId, resource.id));
+      expect(links).toEqual([{ name: "LITE Router" }]);
+    });
+
+    it("links the model already equal to a shared projection", async () => {
+      await seedLinkableModel("FRONTIER Router");
+      await seedLinkableModel("FRONTIER_Router");
+      const resource = await seedResource("chat/FRONTIER_Router");
+
+      await expect(linkResourceToGatewayObject(resource)).resolves.toBe(true);
+
+      const links = await db
+        .select({ name: gatewayObjects.objectName })
+        .from(resourceGatewayLinks)
+        .innerJoin(gatewayObjects, eq(resourceGatewayLinks.gatewayObjectId, gatewayObjects.id))
+        .where(eq(resourceGatewayLinks.resourceId, resource.id));
+      expect(links).toEqual([{ name: "FRONTIER_Router" }]);
+    });
+
+    it("links nothing when a shared projection has no model equal to it", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response("boom", { status: 500 })));
+      await seedLinkableModel("FRONTIER Router");
+      await seedLinkableModel("FRONTIER\tRouter");
+      const resource = await seedResource("chat/FRONTIER_Router");
+
+      await expect(linkResourceToGatewayObject(resource)).resolves.toBe(false);
+    });
   });
 });

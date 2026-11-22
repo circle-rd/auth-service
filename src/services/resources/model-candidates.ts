@@ -8,7 +8,8 @@ import {
 } from "../gateway-inventory-mirror.js";
 import { getUserIdentity, type UserIdentity } from "../usernames.js";
 import { isApplicationAdmin } from "./authority.js";
-import { assertLocator } from "./uri.js";
+import { assertLocator, litellmLocatorName, projectionOwners } from "./uri.js";
+import { logger } from "../../logger.js";
 
 export const MODEL_CANDIDATE_SOURCES = ["managed", "native"] as const;
 export type ModelCandidateSource = (typeof MODEL_CANDIDATE_SOURCES)[number];
@@ -104,12 +105,25 @@ function candidateOf(
   model: GatewayModel,
   appSlug: string,
   identity: UserIdentity | null,
+  owners: ReadonlySet<string>,
 ): ModelCandidate | null {
   const source = sourceOf(model);
-  const locator = `${appSlug}/${model.name}`;
+  const locatorName = litellmLocatorName(model.name);
+  if (!owners.has(model.name)) {
+    logger.warn(
+      { model: model.name },
+      "[res] LiteLLM model name shares its locator with another model; not selectable",
+    );
+    return null;
+  }
+  const locator = `${appSlug}/${locatorName}`;
   try {
     assertLocator("llm", locator);
   } catch {
+    logger.warn(
+      { model: model.name },
+      "[res] LiteLLM model name cannot be a resource locator; not selectable",
+    );
     return null;
   }
   const owned = identity
@@ -157,9 +171,10 @@ export async function listModelCandidates(input: {
   const admin = await isApplicationAdmin(input.userId, input.appId);
   const identity = admin ? null : await getUserIdentity(input.userId);
   const models = await listGatewayModels();
+  const owners = projectionOwners(models.map((model) => model.name));
 
   return models
-    .map((model) => candidateOf(model, app.slug, identity))
+    .map((model) => candidateOf(model, app.slug, identity, owners))
     .filter((model): model is ModelCandidate => model !== null)
     .filter((model) => model.source === input.source)
     .filter((model) => admin || model.owned)

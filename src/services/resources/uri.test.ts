@@ -10,7 +10,9 @@ import {
   assertResourceScheme,
   buildResourceUri,
   isResourceUri,
+  litellmLocatorName,
   parseResourceUri,
+  projectionOwners,
 } from "./uri.js";
 
 describe("resource URI", () => {
@@ -99,5 +101,32 @@ describe("built-in schemes", () => {
   it("rejects built-in names for application schemes", () => {
     expect(assertApplicationSchemeName("gine")).toBe("gine");
     expect(() => assertApplicationSchemeName("llm")).toThrow();
+  });
+});
+
+describe("LiteLLM model name projection", () => {
+  it("replaces every whitespace character with an underscore", () => {
+    expect(litellmLocatorName("LITE Router")).toBe("LITE_Router");
+    expect(litellmLocatorName("a\tb  c")).toBe("a_b__c");
+    expect(litellmLocatorName("qwen/qwen3.8")).toBe("qwen/qwen3.8");
+  });
+
+  it("yields a locator the validator accepts", () => {
+    expect(() =>
+      assertLocator("llm", `chat/${litellmLocatorName("LITE Router")}`),
+    ).not.toThrow();
+  });
+
+  it("gives a shared projection to the name already equal to it", () => {
+    expect(projectionOwners(["LITE Router", "LITE_Router", "other"])).toEqual(
+      new Set(["LITE_Router", "other"]),
+    );
+  });
+
+  it("gives a shared projection to nobody when no name is equal to it", () => {
+    expect(projectionOwners(["LITE Router", "LITE\tRouter"])).toEqual(
+      new Set(),
+    );
+    expect(projectionOwners(["a b", "c d"])).toEqual(new Set(["a b", "c d"]));
   });
 });

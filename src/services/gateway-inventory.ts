@@ -8,6 +8,7 @@ import {
 import { logger } from "../logger.js";
 import { syncAndAnnounce } from "./gateway-inventory-sync.js";
 import { listAccessibleResources } from "./resources/access.js";
+import { litellmLocatorName, projectionOwners } from "./resources/uri.js";
 import type { ResourceView } from "./resources/registry.js";
 
 const LITELLM_SCHEMES = new Set(["llm", "agent", "mcp"]);
@@ -57,12 +58,38 @@ export function gatewayTargetForResource(
   return { kind: "mcp_server", name: rest, parentName: "" };
 }
 
+/**
+ * Models are matched on the locator projection, with the same owner rule as the
+ * candidate listing: a projection without an owner links to nothing.
+ */
+async function findModelObject(locatorName: string): Promise<string | null> {
+  const models = await db
+    .select({ id: gatewayObjects.id, objectName: gatewayObjects.objectName })
+    .from(gatewayObjects)
+    .where(
+      and(eq(gatewayObjects.kind, "model"), eq(gatewayObjects.isActive, true)),
+    );
+  const owners = projectionOwners(models.map((model) => model.objectName));
+  const claimants = models.filter(
+    (model) => litellmLocatorName(model.objectName) === locatorName,
+  );
+  const owner = claimants.find((model) => owners.has(model.objectName));
+  if (!owner && claimants.length > 0) {
+    logger.warn(
+      { locatorName },
+      "[res] LiteLLM model locator is shared by several models; not linkable",
+    );
+  }
+  return owner?.id ?? null;
+}
+
 export async function linkResourceToGatewayObject(
   resource: Pick<ResourceView, "id" | "scheme" | "locator">,
 ): Promise<boolean> {
   const target = gatewayTargetForResource(resource.scheme, resource.locator);
   if (!target) return false;
   const find = async () => {
+    if (target.kind === "model") return findModelObject(target.name);
     const [row] = await db
       .select({ id: gatewayObjects.id })
       .from(gatewayObjects)

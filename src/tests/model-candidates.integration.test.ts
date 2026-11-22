@@ -129,3 +129,31 @@ describe("model candidates", () => {
     expect(models.map((model) => model.name)).toEqual(["alice-model"]);
   });
 });
+
+describe("locator projection of model names", () => {
+  it("offers a model whose name has spaces under its underscored locator", async () => {
+    await seedModel("LITE Router", { router: true });
+    const native = await listModelCandidates({
+      appId,
+      userId: "admin",
+      source: "native",
+    });
+    expect(native.find((model) => model.name === "LITE Router")).toMatchObject({
+      locator: "chat/LITE_Router",
+      kind: "router",
+    });
+  });
+
+  it("offers only the model already equal to a shared projection", async () => {
+    await seedModel("FRONTIER Router", { router: true });
+    await seedModel("FRONTIER_Router", { router: true });
+    const native = await listModelCandidates({
+      appId,
+      userId: "admin",
+      source: "native",
+    });
+    const names = native.map((model) => model.name);
+    expect(names).not.toContain("FRONTIER Router");
+    expect(names).toContain("FRONTIER_Router");
+  });
+});

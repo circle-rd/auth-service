@@ -315,6 +315,7 @@ export interface Organization {
   slug: string
   logo: string | null
   domain?: string | null
+  domainVerificationToken?: string | null
   domainVerifiedAt?: string | null
   domainLastCheckedAt?: string | null
   autoEnrollEnabled?: boolean

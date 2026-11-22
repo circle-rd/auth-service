@@ -183,6 +183,36 @@ describe("organization domain auto-enrollment", () => {
     expect(membership).toBeUndefined();
   });
 
+  it("stores a domain without a challenge when verification is disabled", async () => {
+    const created = await handle.app.inject({
+      method: "POST",
+      url: "/api/admin/organizations",
+      headers: { cookie, "content-type": "application/json" },
+      payload: {
+        name: "Display only",
+        slug: "display-only",
+        domain: "display.example",
+        verifyDomain: false,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const body = json<{
+      organization: { id: string };
+      domainVerification?: unknown;
+    }>(created.body);
+    expect(body.domainVerification).toBeUndefined();
+
+    const [row] = await db
+      .select({
+        token: organizationTable.domainVerificationToken,
+        verifiedAt: organizationTable.domainVerifiedAt,
+      })
+      .from(organizationTable)
+      .where(eq(organizationTable.id, body.organization.id));
+    expect(row.token).toBeNull();
+    expect(row.verifiedAt).toBeNull();
+  });
+
   it("disables auto-enrollment when the DNS proof disappears", async () => {
     const [org] = await db
       .select()

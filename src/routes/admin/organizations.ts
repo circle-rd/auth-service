@@ -34,6 +34,8 @@ const createOrgSchema = z.object({
     .regex(/^[a-z0-9-]+$/),
   logo: z.string().url().optional(),
   domain: organizationDomainSchema.optional(),
+  // Opt out of the DNS challenge when a domain is stored for display only.
+  verifyDomain: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -49,6 +51,9 @@ const updateOrgSchema = z
     logo: z.string().url().nullable().optional(),
     domain: organizationDomainSchema.nullable().optional(),
     autoEnrollEnabled: z.boolean().optional(),
+    // Persisted as the presence of a verification token: false clears the
+    // challenge and any existing proof.
+    verifyDomain: z.boolean().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
@@ -105,6 +110,7 @@ export async function organizationsRoutes(
           slug: organization.slug,
           logo: organization.logo,
           domain: organization.domain,
+          domainVerificationToken: organization.domainVerificationToken,
           autoEnrollEnabled: organization.autoEnrollEnabled,
           domainVerifiedAt: organization.domainVerifiedAt,
           domainLastCheckedAt: organization.domainLastCheckedAt,
@@ -131,7 +137,7 @@ export async function organizationsRoutes(
     if (!parsed.success)
       throw ERR.ORG_003("Invalid organization data", parsed.error.flatten());
 
-    const { name, slug, logo, domain, metadata } = parsed.data;
+    const { name, slug, logo, domain, metadata, verifyDomain } = parsed.data;
 
     try {
       const created = await auth.api.createOrganization({
@@ -146,9 +152,10 @@ export async function organizationsRoutes(
       });
       // A declared domain starts unverified. Hand the administrator the TXT
       // challenge immediately so the create dialog can show it.
-      const verification = domain
-        ? await requestDomainVerification(created.id)
-        : null;
+      const verification =
+        domain && verifyDomain !== false
+          ? await requestDomainVerification(created.id)
+          : null;
       await reply.status(201).send({
         organization: verification?.organization ?? created,
         ...(verification
@@ -210,6 +217,7 @@ export async function organizationsRoutes(
       .select({
         id: organization.id,
         domain: organization.domain,
+        domainVerificationToken: organization.domainVerificationToken,
         domainVerifiedAt: organization.domainVerifiedAt,
       })
       .from(organization)
@@ -232,10 +240,14 @@ export async function organizationsRoutes(
       data.domain !== undefined && data.domain !== current.domain;
 
     if (data.autoEnrollEnabled === true) {
-      if (domainChanged || !current.domain) {
+      if (
+        domainChanged ||
+        data.verifyDomain === false ||
+        !current.domain ||
+        !current.domainVerifiedAt
+      ) {
         throw ERR.ORG_009("Verify the domain before enabling auto-enrollment");
       }
-      if (!current.domainVerifiedAt) throw ERR.ORG_009();
     }
 
     const updates: Record<string, unknown> = {};
@@ -251,18 +263,29 @@ export async function organizationsRoutes(
       recordName: string;
       recordValue: string;
     } | null = null;
-    if (domainChanged) {
-      updates.domain = data.domain;
-      // Changing the domain invalidates the proof and every membership it
-      // granted. A fresh challenge is issued when a domain remains.
-      const token = data.domain ? newDomainVerificationToken() : null;
+    if (domainChanged) updates.domain = data.domain;
+
+    const targetDomain =
+      data.domain !== undefined ? data.domain : current.domain;
+    const issueChallenge =
+      !!targetDomain &&
+      data.verifyDomain !== false &&
+      (domainChanged ||
+        (data.verifyDomain === true &&
+          !current.domainVerificationToken &&
+          !current.domainVerifiedAt));
+
+    if (domainChanged || data.verifyDomain === false || issueChallenge) {
+      // A new challenge, a disabled verification or a different domain all
+      // invalidate the previous proof and every membership it granted.
+      const token = issueChallenge ? newDomainVerificationToken() : null;
       updates.domainVerificationToken = token;
       updates.domainVerifiedAt = null;
       updates.domainVerifiedBy = null;
       updates.domainLastCheckedAt = null;
       updates.autoEnrollEnabled = false;
-      if (data.domain && token) {
-        const record = domainVerificationRecord(data.domain, token);
+      if (targetDomain && token) {
+        const record = domainVerificationRecord(targetDomain, token);
         verification = {
           recordName: record.name,
           recordValue: record.value,

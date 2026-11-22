@@ -64,33 +64,41 @@ function mockDomainVerification(domain: string): DomainVerificationRecord {
   };
 }
 
-export async function createOrganization(body: { name: string; slug: string; logo?: string; domain?: string; metadata?: string }): Promise<{ organization: Organization; domainVerification?: DomainVerificationRecord }> {
+export async function createOrganization(body: { name: string; slug: string; logo?: string; domain?: string; verifyDomain?: boolean; metadata?: string }): Promise<{ organization: Organization; domainVerification?: DomainVerificationRecord }> {
   if (USE_MOCK) {
-    const org: Organization = { id: `org_${Math.random().toString(36).slice(2)}`, name: body.name, slug: body.slug, logo: body.logo ?? null, domain: body.domain ?? null, autoEnrollEnabled: false, domainVerifiedAt: null, createdAt: new Date().toISOString(), metadata: body.metadata ?? null, members: [] };
+    const org: Organization = { id: `org_${Math.random().toString(36).slice(2)}`, name: body.name, slug: body.slug, logo: body.logo ?? null, domain: body.domain ?? null, autoEnrollEnabled: false, domainVerifiedAt: null, domainVerificationToken: null, createdAt: new Date().toISOString(), metadata: body.metadata ?? null, members: [] };
     MOCK_ORGANIZATIONS.push(org);
+    const verify = !!org.domain && body.verifyDomain !== false;
+    if (verify) org.domainVerificationToken = 'mock-token';
     return {
       organization: org,
-      ...(org.domain ? { domainVerification: mockDomainVerification(org.domain) } : {}),
+      ...(verify && org.domain ? { domainVerification: mockDomainVerification(org.domain) } : {}),
     };
   }
   return apiFetch<{ organization: Organization; domainVerification?: DomainVerificationRecord }>('/admin/organizations', { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function updateOrganization(id: string, body: Partial<{ name: string; slug: string; logo: string | null; domain: string | null; autoEnrollEnabled: boolean; metadata: string }>): Promise<{ organization: Organization; domainVerification?: DomainVerificationRecord }> {
+export async function updateOrganization(id: string, body: Partial<{ name: string; slug: string; logo: string | null; domain: string | null; autoEnrollEnabled: boolean; verifyDomain: boolean; metadata: string }>): Promise<{ organization: Organization; domainVerification?: DomainVerificationRecord }> {
   if (USE_MOCK) {
     const idx = MOCK_ORGANIZATIONS.findIndex(o => o.id === id);
     if (idx < 0) throw new Error('Organization not found');
     const org = MOCK_ORGANIZATIONS[idx];
     const domainChanged = body.domain !== undefined && body.domain !== org.domain;
-    Object.assign(org, body);
-    if (domainChanged) {
+    const { verifyDomain, ...fields } = body;
+    Object.assign(org, fields);
+    const issueChallenge =
+      !!org.domain &&
+      verifyDomain !== false &&
+      (domainChanged || (verifyDomain === true && !org.domainVerificationToken && !org.domainVerifiedAt));
+    if (domainChanged || verifyDomain === false || issueChallenge) {
       org.domainVerifiedAt = null;
       org.domainLastCheckedAt = null;
       org.autoEnrollEnabled = false;
+      org.domainVerificationToken = issueChallenge ? 'mock-token' : null;
     }
     return {
       organization: org,
-      ...(domainChanged && org.domain ? { domainVerification: mockDomainVerification(org.domain) } : {}),
+      ...(issueChallenge && org.domain ? { domainVerification: mockDomainVerification(org.domain) } : {}),
     };
   }
   return apiFetch<{ organization: Organization; domainVerification?: DomainVerificationRecord }>(`/admin/organizations/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -99,6 +107,7 @@ export async function updateOrganization(id: string, body: Partial<{ name: strin
 export async function requestDomainVerification(id: string): Promise<{ organization: Organization; domainVerification: DomainVerificationRecord }> {
   if (USE_MOCK) {
     const org = MOCK_ORGANIZATIONS.find(o => o.id === id)!;
+    org.domainVerificationToken = 'mock-token';
     return { organization: org, domainVerification: mockDomainVerification(org.domain ?? '') };
   }
   return apiFetch<{ organization: Organization; domainVerification: DomainVerificationRecord }>(`/admin/organizations/${id}/domain/verification`, { method: 'POST' });

@@ -480,6 +480,8 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
         slug: organizationTable.slug,
         logo: organizationTable.logo,
         createdAt: organizationTable.createdAt,
+        domainVerifiedAt: organizationTable.domainVerifiedAt,
+        autoEnrollEnabled: organizationTable.autoEnrollEnabled,
         role: memberTable.role,
       })
       .from(memberTable)

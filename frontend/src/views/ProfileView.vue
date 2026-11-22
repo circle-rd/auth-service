@@ -31,7 +31,7 @@ import ApplicationsAccessPanel from '@/components/profile/ApplicationsAccessPane
 import BillingUsagePanel from '@/components/profile/BillingUsagePanel.vue';
 import SshKeysPanel from '@/components/profile/SshKeysPanel.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
-import { ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, Pencil, CalendarDays, AppWindow } from '@lucide/vue';
+import { ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, Pencil, CalendarDays, AppWindow, BadgeCheck, UserPlus } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import { countryDefaults, countryFlag, countryName, countryOptions } from '@/utils/countries';
 
@@ -82,7 +82,7 @@ const currentSessionId = ref<string>('');
 const subscriptions = ref<UserSubscriptionEntry[]>([]);
 const stripeConfigured = ref(false);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
-const myOrgs = ref<Array<{ id: string; name: string; slug: string; logo: string | null; role: string }>>([]);
+const myOrgs = ref<Array<{ id: string; name: string; slug: string; logo: string | null; role: string; domainVerifiedAt?: string | null; autoEnrollEnabled?: boolean }>>([]);
 const saveLoading = ref(false);
 const sessionsLoading = ref(true);
 const revokeOthersLoading = ref(false);
@@ -892,7 +892,27 @@ async function handleChangePlan() {
               <p class="text-sm font-medium text-surface-200">{{ org.name }}</p>
               <p class="text-xs text-surface-500 font-mono">{{ org.slug }}</p>
             </div>
-            <BaseBadge :variant="org.role === 'owner' ? 'warning' : 'neutral'" size="sm">{{ org.role }}</BaseBadge>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <BaseBadge
+                v-if="org.domainVerifiedAt"
+                variant="info"
+                size="sm"
+                :icon="BadgeCheck"
+                :title="t('organizations.domainVerified')"
+              >
+                <span class="sr-only">{{ t('organizations.domainVerified') }}</span>
+              </BaseBadge>
+              <BaseBadge
+                v-if="org.autoEnrollEnabled"
+                variant="success"
+                size="sm"
+                :icon="UserPlus"
+                :title="t('organizations.autoEnrollActive')"
+              >
+                <span class="sr-only">{{ t('organizations.autoEnrollActive') }}</span>
+              </BaseBadge>
+              <BaseBadge :variant="org.role === 'owner' ? 'warning' : 'neutral'" size="sm">{{ org.role }}</BaseBadge>
+            </div>
           </div>
         </div>
       </div>

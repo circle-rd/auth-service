@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, type Component } from 'vue';
 import BaseBadge from './BaseBadge.vue';
 import EntityIcon from './EntityIcon.vue';
 
@@ -11,7 +11,7 @@ const props = defineProps<{
   iconLetter?: string;
   name?: string;
   subtitle?: string;
-  tags?: Array<{ label: string; variant: BadgeVariant }>;
+  tags?: Array<{ label: string; variant: BadgeVariant; icon?: Component }>;
   details?: Array<{ label: string; value: string }>;
 }>();
 
@@ -70,13 +70,15 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
               class="shrink-0 md:w-1/3 flex md:flex-col items-center md:items-stretch gap-4 px-5 sm:px-6 py-5 md:px-8 md:pt-14 md:pb-8 pr-14 md:pr-8 border-b md:border-b-0 md:border-r border-surface-800/60 bg-surface-950/40 md:overflow-y-auto"
             >
               <div class="md:flex md:justify-center">
-                <EntityIcon
-                  :icon-url="iconUrl"
-                  :letter="iconLetter"
-                  :name="name"
-                  letter-class="text-xl md:text-5xl"
-                  class="w-14 md:w-28 h-14 md:h-28 md:rounded-2xl md:shadow-lg md:shadow-black/40"
-                />
+                <slot name="identity-icon">
+                  <EntityIcon
+                    :icon-url="iconUrl"
+                    :letter="iconLetter"
+                    :name="name"
+                    letter-class="text-xl md:text-5xl"
+                    class="w-14 md:w-28 h-14 md:h-28 md:rounded-2xl md:shadow-lg md:shadow-black/40"
+                  />
+                </slot>
               </div>
               <div class="min-w-0 w-full md:mt-3">
                 <h2 class="text-lg md:text-xl font-bold text-surface-50 leading-tight break-words">
@@ -84,7 +86,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
                 </h2>
                 <p v-if="subtitle" class="text-xs md:text-sm font-mono text-surface-500 mt-1 break-all">{{ subtitle }}</p>
                 <div v-if="tags?.length" class="flex flex-wrap gap-1.5 mt-3">
-                  <BaseBadge v-for="tag in tags" :key="tag.label" :variant="tag.variant" size="sm">
+                  <BaseBadge v-for="tag in tags" :key="tag.label" :variant="tag.variant" :icon="tag.icon" size="sm">
                     {{ tag.label }}
                   </BaseBadge>
                 </div>

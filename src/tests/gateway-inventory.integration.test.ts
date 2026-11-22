@@ -6,7 +6,10 @@ import { eq } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { gatewayObjects } from "../db/gateway-schema.js";
-import { syncGatewayInventory } from "../services/gateway-inventory.js";
+import { requestGatewayInventorySync } from "../services/gateway-inventory-sync.js";
+import { syncGatewayInventory } from "../services/gateway-inventory-mirror.js";
+import { getEventBus, setEventBus, MemoryEventBus, type DomainEvent } from "../services/event-bus.js";
+import { applications } from "../db/schema.js";
 import { cleanDb } from "./helpers/db.js";
 
 let originalUrl: string | undefined;
@@ -89,7 +92,10 @@ describe("gateway inventory sync", () => {
       }),
     );
 
-    await expect(syncGatewayInventory()).resolves.toBe(7);
+    await expect(syncGatewayInventory()).resolves.toMatchObject({
+      count: 7,
+      changed: true,
+    });
     const rows = await db.select().from(gatewayObjects);
     expect(rows).toHaveLength(7);
     expect(
@@ -154,5 +160,59 @@ describe("gateway inventory sync", () => {
     const rows = await db.select().from(gatewayObjects);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.isActive).toBe(true);
+  });
+
+  it("reports a change only when the active models moved", async () => {
+    let models = [{ id: "gpt-x" }];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/v1/models")) return json({ data: models });
+        if (url.endsWith("/model/info")) return json({ data: [] });
+        if (url.endsWith("/v1/agents")) return json([]);
+        return json([]);
+      }),
+    );
+
+    await expect(syncGatewayInventory()).resolves.toMatchObject({ changed: true });
+    await expect(syncGatewayInventory()).resolves.toMatchObject({ changed: false });
+    models = [{ id: "gpt-x" }, { id: "gpt-y" }];
+    await expect(syncGatewayInventory()).resolves.toMatchObject({ changed: true });
+  });
+
+  it("announces catalogue.changed to sharing applications only", async () => {
+    await db.insert(applications).values([
+      { name: "Chat", slug: "chat", resourceSharingEnabled: true },
+      { name: "Private", slug: "private", resourceSharingEnabled: false },
+    ]);
+    const [sharing] = await db
+      .select({ id: applications.id })
+      .from(applications)
+      .where(eq(applications.slug, "chat"));
+    const received: DomainEvent[] = [];
+    const bus = new MemoryEventBus();
+    const previous = getEventBus();
+    setEventBus(bus);
+    bus.subscribe((event) => received.push(event));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.endsWith("/v1/models")) return json({ data: [{ id: "gpt-x" }] });
+        if (url.endsWith("/model/info")) return json({ data: [] });
+        if (url.endsWith("/v1/agents")) return json([]);
+        return json([]);
+      }),
+    );
+
+    try {
+      requestGatewayInventorySync();
+      await vi.waitFor(() => expect(received).toHaveLength(1));
+      expect(received[0]).toMatchObject({
+        type: "catalogue.changed",
+        rooms: [`app:${sharing!.id}`],
+      });
+    } finally {
+      setEventBus(previous);
+    }
   });
 });

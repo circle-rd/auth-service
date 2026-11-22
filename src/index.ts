@@ -17,7 +17,7 @@ import { applications } from "./db/schema.js";
 import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
-import { startGatewayInventorySync } from "./services/gateway-inventory.js";
+import { startGatewayInventorySync } from "./services/gateway-inventory-sync.js";
 import { syncBuiltinSchemes } from "./services/resources/scheme-service.js";
 import { startResourceMonitoringRetention } from "./services/resources/usage.js";
 import { startResourceWebhookWorker } from "./services/resources/webhooks.js";

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onUnmounted, reactive, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Building2, Globe, Layers, Lock, Server, Sparkles, Terminal, User } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
@@ -11,6 +11,8 @@ import EntityModal from '@/components/ui/EntityModal.vue';
 import SchemeIcon from '@/components/ui/SchemeIcon.vue';
 import UriInput from '@/components/ui/UriInput.vue';
 import { getMyOrganizations } from '@/api/organizations';
+import { useRealtimeEvents, type RealtimeEventsHandle } from '@/composables/useRealtimeEvents';
+import { coalesceRefresh } from '@/utils/coalesceRefresh';
 import { useAuthStore } from '@/stores/auth';
 import {
   listManagedModelCandidates,
@@ -67,13 +69,17 @@ const audience = reactive<{ choice: AudienceChoice; planId: string; organization
 });
 const candidates = ref<ModelCandidate[]>([]);
 const candidatesLoading = ref(false);
+let catalogueEvents: RealtimeEventsHandle | null = null;
 const plans = ref<OwnerPlan[]>([]);
 const organizations = ref<Array<{ id: string; name: string }>>([]);
 
 watch(
   () => props.open,
   (open) => {
-    if (!open) return;
+    if (!open) {
+      stopCatalogueFollow();
+      return;
+    }
     form.scheme = props.editing?.scheme ?? props.fixedScheme ?? props.schemes[0]?.scheme ?? '';
     form.displayName = props.editing?.displayName ?? '';
     form.locator = props.editing ? props.editing.uri.slice(props.editing.scheme.length + 3) : '';
@@ -83,8 +89,11 @@ watch(
     audience.userId = '';
     void loadCandidates();
     void loadAudienceTargets();
+    followCatalogue();
   },
 );
+
+onUnmounted(stopCatalogueFollow);
 
 watch(
   () => form.scheme,
@@ -141,9 +150,25 @@ async function loadModelOptions(search: string): Promise<SelectOption[]> {
   );
 }
 
-async function loadCandidates(): Promise<void> {
-  if (props.editing || !isLlm.value || candidatesLoading.value) return;
-  candidatesLoading.value = true;
+/**
+ * Model pickers are open only while the modal is: the catalogue event is what keeps them
+ * current. A change announced while a load is in flight is replayed, never lost.
+ */
+function followCatalogue(): void {
+  stopCatalogueFollow();
+  if (props.editing) return;
+  catalogueEvents = useRealtimeEvents(
+    { 'catalogue.changed': () => void loadCandidates() },
+    { onResync: () => void loadCandidates() },
+  );
+}
+
+function stopCatalogueFollow(): void {
+  catalogueEvents?.close();
+  catalogueEvents = null;
+}
+
+const refreshCandidates = coalesceRefresh(async () => {
   try {
     const [managed, native] = await Promise.all([
       listManagedModelCandidates(props.appId),
@@ -155,6 +180,14 @@ async function loadCandidates(): Promise<void> {
     });
   } catch {
     candidates.value = [];
+  }
+});
+
+async function loadCandidates(): Promise<void> {
+  if (props.editing || !isLlm.value) return;
+  candidatesLoading.value = true;
+  try {
+    await refreshCandidates();
   } finally {
     candidatesLoading.value = false;
   }

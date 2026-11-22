@@ -2,7 +2,10 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
-import { listGatewayModels, type GatewayModel } from "../gateway-inventory.js";
+import {
+  listGatewayModels,
+  type GatewayModel,
+} from "../gateway-inventory-mirror.js";
 import { getUserIdentity, type UserIdentity } from "../usernames.js";
 import { isApplicationAdmin } from "./authority.js";
 import { assertLocator } from "./uri.js";

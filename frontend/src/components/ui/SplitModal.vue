@@ -13,6 +13,7 @@ const props = defineProps<{
   subtitle?: string;
   tags?: Array<{ label: string; variant: BadgeVariant; icon?: Component }>;
   details?: Array<{ label: string; value: string }>;
+  height?: 'fixed' | 'auto';
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -53,7 +54,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown));
         >
           <div
             v-if="open"
-            class="relative w-full max-w-5xl bg-surface-900 border border-surface-700/60 shadow-2xl shadow-black/60 overflow-hidden flex flex-col md:flex-row max-h-[90vh] md:h-[min(90vh,760px)] rounded-[10px]"
+            :class="[
+              'relative w-full max-w-5xl bg-surface-900 border border-surface-700/60 shadow-2xl shadow-black/60 overflow-hidden flex flex-col md:flex-row rounded-[10px]',
+              height === 'auto'
+                ? 'max-h-[90vh] md:h-auto'
+                : 'max-h-[90vh] md:h-[min(90vh,760px)]',
+            ]"
           >
             <button
               type="button"

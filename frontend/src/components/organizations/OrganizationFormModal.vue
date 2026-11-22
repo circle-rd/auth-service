@@ -309,6 +309,7 @@ async function submit() {
 <template>
   <SplitModal
     :open="open"
+    height="auto"
     :name="form.name || (isEdit ? t('organizations.editOrg') : t('organizations.createOrg'))"
     :subtitle="subtitle"
     :icon-url="form.logo || null"

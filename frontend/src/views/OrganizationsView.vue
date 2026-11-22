@@ -17,7 +17,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User } from '@lucide/vue';
+import { BadgeCheck, Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User, UserPlus } from '@lucide/vue';
 import OrganizationFormModal from '@/components/organizations/OrganizationFormModal.vue';
 import type { SelectOption } from '@/types/select';
 
@@ -224,6 +224,26 @@ void cancelInvitation;
               <p class="text-xs text-surface-500 font-mono">{{ org.domain ?? org.slug }}</p>
             </div>
             <div class="flex items-center gap-4 shrink-0">
+              <div class="flex items-center gap-1.5">
+                <BaseBadge
+                  v-if="org.domainVerifiedAt"
+                  variant="info"
+                  size="sm"
+                  :icon="BadgeCheck"
+                  :title="t('organizations.domainVerified')"
+                >
+                  <span class="sr-only">{{ t('organizations.domainVerified') }}</span>
+                </BaseBadge>
+                <BaseBadge
+                  v-if="org.autoEnrollEnabled"
+                  variant="success"
+                  size="sm"
+                  :icon="UserPlus"
+                  :title="t('organizations.autoEnrollActive')"
+                >
+                  <span class="sr-only">{{ t('organizations.autoEnrollActive') }}</span>
+                </BaseBadge>
+              </div>
               <div class="flex items-center gap-1.5 text-xs text-surface-500">
                 <Users class="w-3.5 h-3.5" />
                 {{ org.memberCount ?? store.orgMemberTotals[org.id] ?? store.orgMembers[org.id]?.length ?? 0 }}

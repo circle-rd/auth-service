@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { RESOURCE_SELF_SCOPE } from "../compat/scopes.js";
 import { config } from "../config.js";
@@ -6,8 +6,12 @@ import { ERR } from "../errors.js";
 import {
   getRequestSession,
   requireSession,
-  requireUserOrBearer,
+  requireUserOrBearerCaller,
 } from "../middleware.js";
+import {
+  loadSharingApplicationBySlug,
+  type CallerApplication,
+} from "../services/resources/application-scope.js";
 import {
   listAccessibleResources,
   listSharingApplications,
@@ -212,6 +216,56 @@ function publicResource(
   };
 }
 
+interface ResourceCaller {
+  userId: string;
+  // The calling application for a bearer token, null for the auth-service UI.
+  application: CallerApplication | null;
+}
+
+/**
+ * A bearer token is confined to the application of its client: the UI session
+ * sees the user's resources everywhere, a client sees its own application only.
+ */
+async function requireResourceCaller(
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<ResourceCaller | null> {
+  const caller = await requireUserOrBearerCaller(
+    req,
+    reply,
+    RESOURCE_SELF_SCOPE,
+  );
+  if (!caller) return null;
+  if (caller.clientId === null) {
+    return { userId: caller.userId, application: null };
+  }
+  const application = await loadSharingApplicationBySlug(caller.clientId);
+  if (!application) {
+    throw ERR.AUTH_011(
+      "The client is not an application with resource sharing enabled",
+    );
+  }
+  return {
+    userId: caller.userId,
+    application: { id: application.id, slug: application.slug },
+  };
+}
+
+function assertInCallerApplication(
+  caller: ResourceCaller,
+  applicationId: string,
+): void {
+  if (caller.application && caller.application.id !== applicationId) {
+    throw ERR.RES_002();
+  }
+}
+
+async function getResourceInScope(caller: ResourceCaller, resourceId: string) {
+  const resource = await getResource(resourceId);
+  assertInCallerApplication(caller, resource.applicationId);
+  return resource;
+}
+
 export async function userResourceRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
@@ -219,12 +273,14 @@ export async function userResourceRoutes(
     "/accessible-resources",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-      if (!userId) return;
+      const caller = await requireResourceCaller(req, reply);
+      if (!caller) return;
+      const { userId } = caller;
       const query = accessibleQuerySchema.parse(req.query);
       const resources = await listAccessibleResources({
         subjectId: userId,
         scheme: query.scheme,
+        caller: caller.application ?? undefined,
       });
       await reply.send({
         resources: query.applicationId
@@ -238,10 +294,14 @@ export async function userResourceRoutes(
     "/resource-catalogue",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-      if (!userId) return;
+      const caller = await requireResourceCaller(req, reply);
+      if (!caller) return;
+      const { userId } = caller;
       const [resources, applications] = await Promise.all([
-        listAccessibleResources({ subjectId: userId }),
+        listAccessibleResources({
+          subjectId: userId,
+          caller: caller.application ?? undefined,
+        }),
         listSharingApplications(),
       ]);
       await reply.send({
@@ -253,15 +313,23 @@ export async function userResourceRoutes(
   );
 
   fastify.get("/resource-applications", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
-    await reply.send({ applications: await listMemberApplications(userId) });
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
+    const applications = await listMemberApplications(userId);
+    await reply.send({
+      applications: caller.application
+        ? applications.filter((app) => app.id === caller.application?.id)
+        : applications,
+    });
   });
 
   fastify.get("/resource-activity", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const query = activityQuerySchema.parse(req.query);
+    assertInCallerApplication(caller, query.applicationId);
     await assertActiveMember(userId, query.applicationId);
     await reply.send(
       await getUserActivity(userId, query.applicationId, query.range),
@@ -269,12 +337,16 @@ export async function userResourceRoutes(
   });
 
   fastify.get("/resources", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const query = z
       .object({ include: z.enum(["grants"]).optional() })
       .parse(req.query);
-    const resources = await listResourcesForOwner("user", userId);
+    const resources = (await listResourcesForOwner("user", userId)).filter(
+      (resource) =>
+        !caller.application || resource.applicationId === caller.application.id,
+    );
     const resourceIds = resources.map((resource) => resource.id);
     const [counts, grants] = await Promise.all([
       listActiveGrantCounts(resourceIds),
@@ -300,9 +372,11 @@ export async function userResourceRoutes(
   });
 
   fastify.post("/resources", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const body = resourceCreateSchema.parse(req.body);
+    assertInCallerApplication(caller, body.applicationId);
     await assertActiveMember(userId, body.applicationId);
     const audience = body.audience
       ? await resolveAudience(body.audience, body.applicationId)
@@ -342,29 +416,34 @@ export async function userResourceRoutes(
   });
 
   fastify.get("/resources/:resourceId", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
-    const resource = await getResource(resourceId);
+    const resource = await getResourceInScope(caller, resourceId);
     await assertCanManageResource(userId, resource);
     const scheme = await getResourceScheme(resource.scheme);
     await reply.send({ resource: publicResource(resource, scheme) });
   });
 
   fastify.patch("/resources/:resourceId", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const body = resourcePatchSchema.parse(req.body);
+    await getResourceInScope(caller, resourceId);
     const resource = await updateResource(resourceId, userId, body);
     const scheme = await getResourceScheme(resource.scheme);
     await reply.send({ resource: publicResource(resource, scheme) });
   });
 
   fastify.delete("/resources/:resourceId", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
+    await getResourceInScope(caller, resourceId);
     const { resource, removed } = await removeResource(resourceId, userId);
     const scheme = await getResourceScheme(resource.scheme);
     await reply.send({ resource: publicResource(resource, scheme), removed });
@@ -373,9 +452,11 @@ export async function userResourceRoutes(
   fastify.post(
     "/resources/:resourceId/validation-request",
     async (req, reply) => {
-      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-      if (!userId) return;
+      const caller = await requireResourceCaller(req, reply);
+      if (!caller) return;
+      const { userId } = caller;
       const { resourceId } = resourceParamsSchema.parse(req.params);
+      await getResourceInScope(caller, resourceId);
       let resource = await requestResourceValidation(resourceId, userId);
       const scheme = await getResourceScheme(resource.scheme);
       if (
@@ -410,21 +491,23 @@ export async function userResourceRoutes(
   );
 
   fastify.get("/resources/:resourceId/grants", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
-    const resource = await getResource(resourceId);
+    const resource = await getResourceInScope(caller, resourceId);
     await assertCanManageGrants(userId, resource);
     const grants = await listGrantsForResource(resourceId);
     await reply.send({ grants });
   });
 
   fastify.post("/resources/:resourceId/grants", async (req, reply) => {
-    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-    if (!userId) return;
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const body = grantCreateSchema.parse(req.body);
-    const resource = await getResource(resourceId);
+    const resource = await getResourceInScope(caller, resourceId);
     const subjectId =
       body.subjectType === "user" && body.subjectEmail
         ? await activeMemberIdByEmail(body.subjectEmail, resource.applicationId)
@@ -443,9 +526,11 @@ export async function userResourceRoutes(
   fastify.delete(
     "/resources/:resourceId/grants/:grantId",
     async (req, reply) => {
-      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-      if (!userId) return;
+      const caller = await requireResourceCaller(req, reply);
+      if (!caller) return;
+      const { userId } = caller;
       const { resourceId, grantId } = grantParamsSchema.parse(req.params);
+      await getResourceInScope(caller, resourceId);
       await getGrantForResource(grantId, resourceId);
       const grant = await revokeResourceGrant(grantId, userId);
       await reply.send({ grant });
@@ -455,8 +540,9 @@ export async function userResourceRoutes(
   fastify.patch(
     "/resources/:resourceId/grants/:grantId",
     async (req, reply) => {
-      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
-      if (!userId) return;
+      const caller = await requireResourceCaller(req, reply);
+      if (!caller) return;
+      const { userId } = caller;
       const { resourceId, grantId } = grantParamsSchema.parse(req.params);
       const body = grantUpdateSchema.parse(req.body);
       await getGrantForResource(grantId, resourceId);

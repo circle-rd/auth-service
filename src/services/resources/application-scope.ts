@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, type SQL } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
 import type { ResourceGrantRow } from "./grants.js";
@@ -46,9 +46,8 @@ export interface SharingApplication extends CallerApplication {
   allowedResources: string[];
 }
 
-/** The application when it is active and has resource sharing enabled. */
-export async function loadSharingApplication(
-  applicationId: string,
+async function loadSharingApplicationWhere(
+  condition: SQL,
 ): Promise<SharingApplication | null> {
   const [row] = await db
     .select({
@@ -59,7 +58,7 @@ export async function loadSharingApplication(
       allowedResources: applications.allowedResources,
     })
     .from(applications)
-    .where(eq(applications.id, applicationId))
+    .where(condition)
     .limit(1);
   if (!row?.isActive || !row.sharing) return null;
   return {
@@ -67,4 +66,18 @@ export async function loadSharingApplication(
     slug: row.slug,
     allowedResources: row.allowedResources,
   };
+}
+
+/** The application when it is active and has resource sharing enabled. */
+export function loadSharingApplication(
+  applicationId: string,
+): Promise<SharingApplication | null> {
+  return loadSharingApplicationWhere(eq(applications.id, applicationId));
+}
+
+/** The same, from the OAuth client id (an application's slug). */
+export function loadSharingApplicationBySlug(
+  slug: string,
+): Promise<SharingApplication | null> {
+  return loadSharingApplicationWhere(eq(applications.slug, slug));
 }

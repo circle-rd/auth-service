@@ -133,47 +133,59 @@ export async function requireSession(
   return session.user.id;
 }
 
+/** The user behind a request and the OAuth client it came through. */
+export interface UserCaller {
+  userId: string;
+  // Null for the auth-service UI session, the client id for a bearer token.
+  clientId: string | null;
+}
+
 /**
  * Accept either the caller's BetterAuth session or a user-bound JWT bearer
  * token minted for this API (`aud` must include the issuer URL). A bearer
- * token must carry at least one of the accepted scopes.
+ * token must carry at least one of the accepted scopes. Sends the error
+ * response and returns null when the caller is refused.
+ */
+export async function requireUserOrBearerCaller(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  scope: string | readonly string[],
+): Promise<UserCaller | null> {
+  const accepted = typeof scope === "string" ? [scope] : scope;
+  const authorization = req.headers.authorization;
+  if (authorization?.startsWith("Bearer ")) {
+    const verified = await verifyBearerAccessToken(authorization.slice(7));
+    const refusal = !verified
+      ? ERR.AUTH_001("Invalid or expired access token")
+      : verified.userId === null
+        ? ERR.AUTH_011("A user-bound access token is required")
+        : !verified.audiences.includes(config.betterAuth.url)
+          ? ERR.AUTH_011("Access token audience does not include this API")
+          : !verified.scopes.some((granted) => accepted.includes(granted))
+            ? ERR.AUTH_011(`Missing required scope: ${accepted.join(" or ")}`)
+            : null;
+    if (refusal || !verified?.userId) {
+      await sendAuthError(reply, refusal ?? ERR.AUTH_001());
+      return null;
+    }
+    return { userId: verified.userId, clientId: verified.clientId };
+  }
+  const userId = await requireSession(req, reply);
+  return userId ? { userId, clientId: null } : null;
+}
+
+/**
+ * Same admission as `requireUserOrBearerCaller`, for routes that only need the
+ * user. Returns "" after sending the error, so callers can
+ * `if (!userId) return;`.
  */
 export async function requireUserOrBearer(
   req: FastifyRequest,
   reply: FastifyReply,
   scope: string | readonly string[],
 ): Promise<string> {
-  const accepted = typeof scope === "string" ? [scope] : scope;
-  const authorization = req.headers.authorization;
-  if (authorization?.startsWith("Bearer ")) {
-    const verified = await verifyBearerAccessToken(authorization.slice(7));
-    if (!verified) {
-      return sendAuthError(
-        reply,
-        ERR.AUTH_001("Invalid or expired access token"),
-      );
-    }
-    if (verified.userId === null) {
-      return sendAuthError(
-        reply,
-        ERR.AUTH_011("A user-bound access token is required"),
-      );
-    }
-    if (!verified.audiences.includes(config.betterAuth.url)) {
-      return sendAuthError(
-        reply,
-        ERR.AUTH_011("Access token audience does not include this API"),
-      );
-    }
-    if (!verified.scopes.some((granted) => accepted.includes(granted))) {
-      return sendAuthError(
-        reply,
-        ERR.AUTH_011(`Missing required scope: ${accepted.join(" or ")}`),
-      );
-    }
-    return verified.userId;
-  }
-  return requireSession(req, reply);
+  const caller = await requireUserOrBearerCaller(req, reply, scope);
+  return caller?.userId ?? "";
 }
 
 /** Require a session and return both user id and session id, or null. */

@@ -58,6 +58,8 @@ const {
   mockListOwnerPlans,
   mockSendInvitation,
   mockMailConfigured,
+  bearerClient,
+  mockLoadSharingApp,
 } = vi.hoisted(() => ({
   mockRequireSession: vi.fn(),
   mockRequireUserOrBearer: vi.fn(),
@@ -107,15 +109,25 @@ const {
   mockListOwnerPlans: vi.fn(),
   mockSendInvitation: vi.fn(),
   mockMailConfigured: vi.fn(),
+  // The OAuth client of the bearer token: null means the auth-service UI session.
+  bearerClient: { current: null as string | null },
+  mockLoadSharingApp: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../middleware.js", () => ({
   requireSession: mockRequireSession,
   requireUserOrBearer: mockRequireUserOrBearer,
+  requireUserOrBearerCaller: async (...args: unknown[]) => {
+    const userId = (await mockRequireUserOrBearer(...args)) as string;
+    return userId ? { userId, clientId: bearerClient.current } : null;
+  },
   requireAppDelegation: mockRequireAppDelegation,
   requireResourceAppAdmin: mockRequireResourceAppAdmin,
   getRequestSession: mockGetRequestSession,
+}));
+vi.mock("../services/resources/application-scope.js", () => ({
+  loadSharingApplicationBySlug: mockLoadSharingApp,
 }));
 vi.mock("../services/resources/access.js", () => ({
   listAccessibleResources: mockListAccessible,
@@ -235,7 +247,9 @@ beforeAll(async () => {
 afterAll(() => app.close());
 
 beforeEach(() => {
+  bearerClient.current = null;
   for (const mock of [
+    mockLoadSharingApp,
     mockRequireSession,
     mockRequireUserOrBearer,
     mockRequireAppDelegation,
@@ -316,6 +330,82 @@ beforeEach(() => {
     ...resource,
     status: "validated",
     validatedAt: new Date("2026-11-15T12:00:00Z"),
+  });
+});
+
+describe("user resource routes confined to the bearer's application", () => {
+  const OTHER_APP = "99999999-9999-4999-8999-999999999999";
+
+  beforeEach(() => {
+    mockRequireUserOrBearer.mockResolvedValue("user-1");
+    bearerClient.current = "consumer-app";
+    mockLoadSharingApp.mockResolvedValue({
+      id: APP,
+      slug: "consumer-app",
+      allowedResources: [],
+    });
+  });
+
+  it("refuses a client that is not an application with resource sharing", async () => {
+    mockLoadSharingApp.mockResolvedValue(null);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/user/accessible-resources",
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockListAccessible).not.toHaveBeenCalled();
+  });
+
+  it("lists the scope of the client's application, not the user's global view", async () => {
+    mockListAccessible.mockResolvedValue([]);
+    await app.inject({ method: "GET", url: "/api/user/accessible-resources" });
+    expect(mockListAccessible).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: "user-1",
+        caller: { id: APP, slug: "consumer-app" },
+      }),
+    );
+  });
+
+  it("hides a resource of another application as not found", async () => {
+    mockGetResource.mockResolvedValue({
+      id: RESOURCE,
+      applicationId: OTHER_APP,
+    });
+    for (const [method, url] of [
+      ["GET", `/api/user/resources/${RESOURCE}`],
+      ["DELETE", `/api/user/resources/${RESOURCE}`],
+      ["GET", `/api/user/resources/${RESOURCE}/grants`],
+    ] as const) {
+      const res = await app.inject({ method, url });
+      expect(res.statusCode).toBe(404);
+    }
+    expect(mockRemoveResource).not.toHaveBeenCalled();
+  });
+
+  it("refuses to create a resource in another application", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: OTHER_APP,
+        scheme: "gine",
+        displayName: "Project",
+        locator: "project_1",
+      },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(mockCreateResource).not.toHaveBeenCalled();
+  });
+
+  it("keeps the global view for the auth-service UI session", async () => {
+    bearerClient.current = null;
+    mockListAccessible.mockResolvedValue([]);
+    await app.inject({ method: "GET", url: "/api/user/accessible-resources" });
+    expect(mockLoadSharingApp).not.toHaveBeenCalled();
+    expect(mockListAccessible).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectId: "user-1", caller: undefined }),
+    );
   });
 });
 

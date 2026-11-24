@@ -236,6 +236,15 @@ const envSchema = z
       .min(1)
       .max(168)
       .default(24),
+    // Lifetime of a signed gateway decision. The gateway caches a decision for
+    // at most 30 seconds, so the default leaves a margin without delaying a
+    // revocation.
+    GATEWAY_DECISION_TTL_S: z.coerce
+      .number()
+      .int()
+      .min(30)
+      .max(300)
+      .default(60),
 
     // CAPTCHA on credential endpoints. Deliberately opt-in via CAPTCHA_ENABLED
     // (not merely by setting keys): enabling it rejects sign-in, sign-up and
@@ -546,6 +555,7 @@ export const config = {
     accessEventRetentionDays: parsed.data.RESOURCE_ACCESS_EVENT_RETENTION_DAYS,
     usageRecordRetentionDays: parsed.data.RESOURCE_USAGE_RECORD_RETENTION_DAYS,
     retentionSweepHours: parsed.data.RESOURCE_RETENTION_SWEEP_HOURS,
+    decisionTtlSeconds: parsed.data.GATEWAY_DECISION_TTL_S,
   },
   captcha: {
     enabled: !!(

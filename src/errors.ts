@@ -194,6 +194,9 @@ export const ERR = {
   ) => new ApiError(400, "RES_014", msg),
   RES_015: (msg = "Resource grant is no longer active") =>
     new ApiError(409, "RES_015", msg),
+  // A 4xx other than 401/403/408/429 makes the gateway stop retrying the event.
+  RES_016: (msg = "Usage event does not match a valid decision") =>
+    new ApiError(400, "RES_016", msg),
 
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),

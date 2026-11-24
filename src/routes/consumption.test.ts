@@ -41,6 +41,7 @@ describe("consumption routes – auth and validation", () => {
       clientId: "test-app",
       userId: null,
       audiences: [],
+      expiresAt: null,
       scopes: [],
     });
     const res = await app.inject({
@@ -57,6 +58,7 @@ describe("consumption routes – auth and validation", () => {
       clientId: "test-app",
       userId: null,
       audiences: [],
+      expiresAt: null,
       scopes: [],
     });
     const res = await app.inject({
@@ -85,6 +87,7 @@ describe("consumption routes – auth and validation", () => {
       clientId: "test-app",
       userId: "user-1",
       audiences: [],
+      expiresAt: null,
       scopes: [],
     });
     const res = await app.inject({

@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 for name, value in {
@@ -37,15 +38,27 @@ class FakeClient:
 
     async def post(self, url, **kwargs):
         self.calls.append(("POST", url, kwargs))
-        return FakeResponse(200, {"access_token": "token", "expires_in": 300})
-
-    async def get(self, url, **kwargs):
-        self.calls.append(("GET", url, kwargs))
+        if url.endswith("/oauth2/token"):
+            return FakeResponse(200, {"access_token": "token", "expires_in": 300})
         return self.responses.pop(0)
 
 
-def body(models=("gpt-x",), agents=("analyst",)):
+NOW = 1_700_000_000.0
+
+
+def body(
+    models=("gpt-x",),
+    agents=("analyst",),
+    subject="user-1",
+    client="acme",
+    ttl=60,
+):
+    expires = datetime.fromtimestamp(NOW + ttl, tz=timezone.utc).isoformat()
     return {
+        "subjectId": subject,
+        "clientId": client,
+        "decisionId": "decision-1",
+        "expiresAt": expires,
         "models": list(models),
         "agents": list(agents),
         "mcpServers": ["server-x"],
@@ -60,71 +73,115 @@ def body(models=("gpt-x",), agents=("analyst",)):
                 "parentName": "",
                 "applicationSlug": "acme",
                 "ownerType": "application",
-                "ownerId": "acme",
             }
         ],
     }
 
 
+def entitlement_calls(client):
+    return [c for c in client.calls if c[1].endswith("/gateway/entitlements")]
+
+
 class Resolver(unittest.IsolatedAsyncioTestCase):
     def resolver(self, responses, clock=None):
         client = FakeClient(responses)
+        now = clock or (lambda: 1000.0)
         return (
             entitlements.EntitlementResolver(
                 client=client,
-                clock=clock or (lambda: 1000.0),
+                clock=now,
+                wall_clock=lambda: NOW + (now() - 1000.0),
             ),
             client,
         )
 
-    async def test_resolves_and_caches_per_subject_and_client(self) -> None:
+    async def test_forwards_the_token_and_caches_per_token(self) -> None:
         now = [1000.0]
         resolver, client = self.resolver(
             [FakeResponse(200, body()), FakeResponse(200, body(models=("o",)))],
             clock=lambda: now[0],
         )
-        first = await resolver.resolve("user-1", "acme")
+        first = await resolver.resolve("token-a", "user-1", "acme")
         self.assertEqual(first.models, ("gpt-x",))
+        self.assertEqual(first.decision_id, "decision-1")
         self.assertEqual(first.mcp_tool_permissions, {"server-x": ("search",)})
         self.assertEqual(first.resources[0].parent_name, "")
+        call = entitlement_calls(client)[0]
+        self.assertEqual(call[2]["json"], {"token": "token-a"})
+        # The caller states neither a person nor an application.
+        self.assertNotIn("params", call[2])
 
         now[0] += 10
-        again = await resolver.resolve("user-1", "acme")
+        again = await resolver.resolve("token-a", "user-1", "acme")
         self.assertEqual(again.models, ("gpt-x",))
-        self.assertEqual(len([c for c in client.calls if c[0] == "GET"]), 1)
+        self.assertEqual(len(entitlement_calls(client)), 1)
 
-        other = await resolver.resolve("user-1", "other")
+        other = await resolver.resolve("token-b", "user-1", "acme")
         self.assertEqual(other.models, ("o",))
-        self.assertEqual(len([c for c in client.calls if c[0] == "GET"]), 2)
+        self.assertEqual(len(entitlement_calls(client)), 2)
 
     async def test_cache_expires(self) -> None:
         now = [1000.0]
         resolver, client = self.resolver(
-            [FakeResponse(200, body()), FakeResponse(200, body())],
+            [FakeResponse(200, body(ttl=600)), FakeResponse(200, body(ttl=600))],
             clock=lambda: now[0],
         )
-        await resolver.resolve("user-1", "acme")
+        await resolver.resolve("token-a", "user-1", "acme")
         now[0] += entitlements.TTL_S + 1
-        await resolver.resolve("user-1", "acme")
-        self.assertEqual(len([c for c in client.calls if c[0] == "GET"]), 2)
+        await resolver.resolve("token-a", "user-1", "acme")
+        self.assertEqual(len(entitlement_calls(client)), 2)
+
+    async def test_cache_never_outlives_the_decision(self) -> None:
+        now = [1000.0]
+        resolver, client = self.resolver(
+            [FakeResponse(200, body(ttl=5)), FakeResponse(200, body(ttl=60))],
+            clock=lambda: now[0],
+        )
+        await resolver.resolve("token-a", "user-1", "acme")
+        now[0] += 6
+        await resolver.resolve("token-a", "user-1", "acme")
+        self.assertEqual(len(entitlement_calls(client)), 2)
+
+    async def test_an_already_expired_decision_is_refused(self) -> None:
+        resolver, _ = self.resolver([FakeResponse(200, body(ttl=-1))])
+        with self.assertRaises(entitlements.EntitlementsUnavailable):
+            await resolver.resolve("token-a", "user-1", "acme")
+
+    async def test_an_answer_for_another_person_or_application_is_refused(self) -> None:
+        for answer in (body(subject="user-2"), body(client="other")):
+            resolver, _ = self.resolver([FakeResponse(200, answer)])
+            with self.assertRaises(entitlements.EntitlementsUnavailable):
+                await resolver.resolve("token-a", "user-1", "acme")
+
+    async def test_a_refused_client_is_denied_not_unavailable(self) -> None:
+        resolver, _ = self.resolver([FakeResponse(403, {})])
+        with self.assertRaises(entitlements.EntitlementsDenied):
+            await resolver.resolve("token-a", "user-1", "acme")
 
     async def test_http_error_is_unavailable(self) -> None:
         resolver, _ = self.resolver([FakeResponse(503, {})])
         with self.assertRaises(entitlements.EntitlementsUnavailable):
-            await resolver.resolve("user-1", "acme")
+            await resolver.resolve("token-a", "user-1", "acme")
 
     async def test_malformed_payload_is_unavailable(self) -> None:
         resolver, _ = self.resolver([FakeResponse(200, {"models": [1]})])
         with self.assertRaises(entitlements.EntitlementsUnavailable):
-            await resolver.resolve("user-1", "acme")
+            await resolver.resolve("token-a", "user-1", "acme")
+
+    async def test_a_payload_without_a_decision_is_unavailable(self) -> None:
+        answer = body()
+        del answer["decisionId"]
+        resolver, _ = self.resolver([FakeResponse(200, answer)])
+        with self.assertRaises(entitlements.EntitlementsUnavailable):
+            await resolver.resolve("token-a", "user-1", "acme")
 
     async def test_401_refreshes_the_token_once(self) -> None:
         resolver, client = self.resolver(
             [FakeResponse(401, {}), FakeResponse(200, body())]
         )
-        result = await resolver.resolve("user-1", "acme")
+        result = await resolver.resolve("token-a", "user-1", "acme")
         self.assertEqual(result.models, ("gpt-x",))
-        tokens = [c for c in client.calls if c[0] == "POST"]
+        tokens = [c for c in client.calls if c[1].endswith("/oauth2/token")]
         self.assertEqual(len(tokens), 2)
 
 

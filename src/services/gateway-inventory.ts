@@ -8,6 +8,7 @@ import {
 import { logger } from "../logger.js";
 import { syncAndAnnounce } from "./gateway-inventory-sync.js";
 import { listAccessibleResources } from "./resources/access.js";
+import type { CallerApplication } from "./resources/application-scope.js";
 import { litellmLocatorName, projectionOwners } from "./resources/uri.js";
 import type { ResourceView } from "./resources/registry.js";
 
@@ -22,7 +23,6 @@ export interface GatewayEntitlementResource {
   parentName: string;
   applicationSlug: string;
   ownerType: "user" | "application";
-  ownerId?: string;
 }
 
 export interface GatewayEntitlements {
@@ -124,10 +124,15 @@ export async function linkResourceToGatewayObject(
   return true;
 }
 
+/** What the subject may reach through one application, never the global view. */
 export async function listGatewayEntitlements(
   userId: string,
+  caller: CallerApplication,
 ): Promise<GatewayEntitlements> {
-  const accessible = await listAccessibleResources({ subjectId: userId });
+  const accessible = await listAccessibleResources({
+    subjectId: userId,
+    caller,
+  });
   const lite = accessible.filter((item) => LITELLM_SCHEMES.has(item.scheme));
   if (lite.length === 0) {
     return {
@@ -190,7 +195,6 @@ export async function listGatewayEntitlements(
       parentName: link.parentName,
       applicationSlug: item.applicationSlug,
       ownerType: item.ownerType,
-      ...(item.ownerId === undefined ? {} : { ownerId: item.ownerId }),
     });
   }
 

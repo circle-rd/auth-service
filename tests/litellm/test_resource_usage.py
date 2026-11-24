@@ -38,7 +38,6 @@ def resource(name, resource_id, kind="model", parent=""):
         "parentName": parent,
         "applicationSlug": "owner",
         "ownerType": "user",
-        "ownerId": "owner-1",
     }
 
 
@@ -61,8 +60,7 @@ def payload(
     meta = {
         "user_api_key_auth_metadata": {
             USAGE_METADATA_KEY: {
-                "subjectId": "subject-a",
-                "clientId": "client-a",
+                "decisionId": "decision-a",
                 "resources": resources
                 if resources is not None
                 else [resource("owner/model", "resource-1")],
@@ -96,8 +94,11 @@ class BuildEvent(unittest.TestCase):
     def test_success_is_attributed_to_the_entitlement_resource(self) -> None:
         event = resource_usage.build_event(payload(), failed=False)
         self.assertIsNotNone(event)
-        self.assertEqual(event["subjectId"], "subject-a")
-        self.assertEqual(event["clientId"], "client-a")
+        self.assertEqual(event["decisionId"], "decision-a")
+        self.assertEqual(event["startedAt"], "1970-01-01T00:15:00Z")
+        # The person and the application come from the decision, not the event.
+        self.assertNotIn("subjectId", event)
+        self.assertNotIn("clientId", event)
         self.assertEqual(event["resourceId"], "resource-1")
         self.assertEqual(event["resourceUri"], "llm://acme/owner/model")
         self.assertEqual(event["usageSource"], "provider")
@@ -226,6 +227,17 @@ class BuildEvent(unittest.TestCase):
     def test_unverified_identity_creates_no_event(self) -> None:
         raw = payload()
         raw["standard_logging_object"]["metadata"] = {}
+        self.assertIsNone(resource_usage.build_event(raw, failed=False))
+
+    def test_a_call_without_a_decision_or_start_time_creates_no_event(self) -> None:
+        raw = payload()
+        del raw["standard_logging_object"]["metadata"]["user_api_key_auth_metadata"][
+            USAGE_METADATA_KEY
+        ]["decisionId"]
+        self.assertIsNone(resource_usage.build_event(raw, failed=False))
+
+        raw = payload()
+        del raw["standard_logging_object"]["startTime"]
         self.assertIsNone(resource_usage.build_event(raw, failed=False))
 
     def test_user_supplied_call_id_is_not_the_authority(self) -> None:

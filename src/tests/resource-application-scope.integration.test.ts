@@ -8,7 +8,10 @@ import {
   userApplications,
   userSubscriptions,
 } from "../db/schema.js";
+import { gatewayObjects, resourceGatewayLinks } from "../db/gateway-schema.js";
 import { resourceGrants, resources } from "../db/resource-schema.js";
+import { recordUsageEvent } from "../services/resources/usage.js";
+import { listGatewayEntitlements } from "../services/gateway-inventory.js";
 import { user as userTable } from "../db/auth-schema.js";
 import { listAccessibleResources } from "../services/resources/access.js";
 import {
@@ -459,5 +462,97 @@ describe("sharing with an application", () => {
       subjectId: "consumer-app",
       subjectLabel: "consumer-app",
     });
+  });
+});
+
+describe("gateway entitlements by application", () => {
+  it("serves a model to the application it was shared with, and to no other", async () => {
+    await seed();
+    await syncBuiltinSchemes();
+    const [owner] = await db
+      .select()
+      .from(applications)
+      .where(eq(applications.slug, "owner-app"));
+    const [consumer] = await db
+      .select()
+      .from(applications)
+      .where(eq(applications.slug, "consumer-app"));
+    if (!owner || !consumer) throw new Error("seed missing");
+    await enableSchemeForApplication(owner.id, "llm");
+    await enableSchemeForApplication(consumer.id, "llm");
+    const [object] = await db
+      .insert(gatewayObjects)
+      .values({
+        kind: "model",
+        litellmId: "u-owner/qwen",
+        objectName: "u-owner/qwen",
+        parentName: "",
+        displayName: "u-owner/qwen",
+      })
+      .returning();
+    const [model] = await db
+      .insert(resources)
+      .values({
+        applicationId: owner.id,
+        scheme: "llm",
+        locator: "owner-app/qwen",
+        uri: "llm://owner-app/qwen",
+        displayName: "qwen",
+        ownerType: "user",
+        ownerId: "owner",
+        status: "validated",
+      })
+      .returning();
+    if (!object || !model) throw new Error("seed failed");
+    await db
+      .insert(resourceGatewayLinks)
+      .values({ resourceId: model.id, gatewayObjectId: object.id });
+
+    const through = (app: typeof owner) => ({ id: app.id, slug: app.slug });
+    const ownerView = await listGatewayEntitlements("owner", through(owner));
+    expect(ownerView.models).toEqual(["u-owner/qwen"]);
+
+    expect(
+      (await listGatewayEntitlements("owner", through(consumer))).models,
+    ).toEqual([]);
+
+    await createResourceGrant({
+      resourceId: model.id,
+      subjectType: "application",
+      subjectId: "consumer-app",
+      actorUserId: "owner",
+    });
+    const shared = await listGatewayEntitlements("owner", through(consumer));
+    expect(shared.models).toEqual(["u-owner/qwen"]);
+    expect(shared.resources[0]).not.toHaveProperty("ownerId");
+    expect(shared.resources[0]).toMatchObject({ ownerType: "user" });
+  });
+});
+
+describe("usage recorded through an application", () => {
+  it("accepts usage only from an application inside the resource's scope", async () => {
+    const data = await seed();
+    const event = (caller: { id: string; slug: string }, requestId: string) => ({
+      subjectId: "owner",
+      caller,
+      resourceId: data.resourceId,
+      resourceUri: data.resourceUri,
+      requestId,
+      occurredAt: new Date(),
+      usageSource: "unsupported" as const,
+      costUsd: null,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+    });
+    const consumer = { id: data.consumerAppId, slug: "consumer-app" };
+    await expect(
+      recordUsageEvent(event(consumer, "a".repeat(64))),
+    ).rejects.toMatchObject({ code: "RES_011" });
+
+    await shareWithConsumer(data);
+    const recorded = await recordUsageEvent(event(consumer, "b".repeat(64)));
+    expect(recorded.record.clientId).toBe("consumer-app");
+    expect(recorded.record.applicationId).toBe(data.ownerAppId);
   });
 });

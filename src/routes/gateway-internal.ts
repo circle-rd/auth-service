@@ -1,9 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { ERR } from "../errors.js";
 import { requireMachineScope } from "../services/machine-auth.js";
 import { listGatewayEntitlements } from "../services/gateway-inventory.js";
 import { requestGatewayInventorySync } from "../services/gateway-inventory-sync.js";
-import { userParamsSchema } from "./wallet-schemas.js";
+import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
+import { loadSharingApplicationBySlug } from "../services/resources/application-scope.js";
+import { signDecision } from "../services/resources/decision-token.js";
 
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
@@ -13,30 +16,54 @@ const INVENTORY_NOTIFY_RATE_LIMIT = {
   rateLimit: { max: 60, timeWindow: "1 minute" },
 };
 
-const entitlementsQuerySchema = z
-  .object({ applicationSlug: z.string().min(1).max(64).optional() })
+const entitlementsBodySchema = z
+  .object({ token: z.string().min(20).max(8192) })
   .strict();
 
 /**
  * Machine-to-machine API the LiteLLM hook uses to resolve what a user may reach.
- * The list is global: shared resources come from any application the subject
- * belongs to. `applicationSlug` is accepted for audit and future scoping but is
- * not used to narrow the decision.
+ * The hook does not say who the user is or which application they came through:
+ * it forwards the user's access token and auth-service derives both, so a
+ * compromised gateway can only replay tokens it has already seen. The answer is
+ * limited to the application the token was issued to.
  */
 export async function gatewayInternalRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
-  fastify.get(
-    "/users/:userId/entitlements",
+  fastify.post(
+    "/entitlements",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      await requireMachineScope(
+      const machine = await requireMachineScope(
         req.headers.authorization,
         "gateway:entitlements:read",
       );
-      const { userId } = userParamsSchema.parse(req.params);
-      entitlementsQuerySchema.parse(req.query);
-      await reply.send(await listGatewayEntitlements(userId));
+      const { token } = entitlementsBodySchema.parse(req.body);
+      const verified = await verifyBearerAccessToken(token);
+      if (!verified) throw ERR.AUTH_001("Invalid or expired access token");
+      if (verified.userId === null) {
+        throw ERR.AUTH_011("A user-bound access token is required");
+      }
+      const application = await loadSharingApplicationBySlug(verified.clientId);
+      if (!application) {
+        throw ERR.AUTH_011(
+          "The token was not issued to an application with resource sharing",
+        );
+      }
+      const caller = { id: application.id, slug: application.slug };
+      const { decisionId, expiresAt } = signDecision({
+        sub: verified.userId,
+        app: application.slug,
+        by: machine.clientId,
+        notAfter: verified.expiresAt,
+      });
+      await reply.send({
+        subjectId: verified.userId,
+        clientId: application.slug,
+        decisionId,
+        expiresAt: expiresAt.toISOString(),
+        ...(await listGatewayEntitlements(verified.userId, caller)),
+      });
     },
   );
 

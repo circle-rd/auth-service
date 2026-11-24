@@ -26,6 +26,13 @@ import {
   VALIDATION_RESULTS,
 } from "../services/resources/validation.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
+import {
+  assertStartedWithinDecision,
+  signDecision,
+  verifyDecision,
+} from "../services/resources/decision-token.js";
+import { loadSharingApplicationBySlug } from "../services/resources/application-scope.js";
+import { ERR } from "../errors.js";
 
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
@@ -59,8 +66,13 @@ const grossCostSchema = z
 
 const usageBodySchema = z
   .object({
-    subjectId: z.string().min(1).max(256),
-    clientId: z.string().min(1).max(256),
+    // The decision that admitted the request: it names the person and the
+    // application, which a usage event can no longer claim for itself.
+    decisionId: z.string().min(1).max(2048),
+    startedAt: z
+      .string()
+      .datetime()
+      .transform((value) => new Date(value)),
     resourceId: z.string().uuid(),
     resourceUri: z.string().min(3).max(512),
     requestId: z.string().regex(/^[a-f0-9]{64}$/, "must be a trusted event id"),
@@ -232,8 +244,15 @@ export async function gatewayResourceRoutes(
         await reply.send({ decision: "deny" });
         return;
       }
+      const signed = signDecision({
+        sub: body.subjectId,
+        app: caller.clientId,
+        by: caller.clientId,
+      });
       await reply.send({
         decision: "allow",
+        decisionId: signed.decisionId,
+        expiresAt: signed.expiresAt.toISOString(),
         resourceId: decision.resourceId,
         resourceUri: decision.resourceUri,
         applicationSlug: decision.applicationSlug,
@@ -269,14 +288,24 @@ export async function gatewayResourceRoutes(
     "/usage",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      await requireMachineScope(
+      const machine = await requireMachineScope(
         req.headers.authorization,
         "resources:usage:write",
       );
       const body = usageBodySchema.parse(req.body);
+      const decision = verifyDecision(body.decisionId);
+      // Only the client that obtained a decision may present it.
+      if (decision.by !== machine.clientId) {
+        throw ERR.RES_016("The decision was issued to another client");
+      }
+      assertStartedWithinDecision(decision, body.startedAt);
+      const application = await loadSharingApplicationBySlug(decision.app);
+      if (!application) {
+        throw ERR.RES_016("The application is not available for sharing");
+      }
       const { record, replayed } = await recordUsageEvent({
-        subjectId: body.subjectId,
-        clientId: body.clientId,
+        subjectId: decision.sub,
+        caller: { id: application.id, slug: application.slug },
         resourceId: body.resourceId,
         resourceUri: body.resourceUri,
         requestId: body.requestId,

@@ -383,6 +383,7 @@ async function seedInstance(
       description: "bench, safe to delete",
       isPublic: false,
       skipConsent: true,
+      resourceSharingEnabled: true,
       // Registering the instance URL as the application's protected resource
       // makes client_credentials tokens RFC 8707 JWTs — the same shape the
       // LiteLLM gateway verifies in production.
@@ -481,9 +482,9 @@ function scenarioRequest(
     if (!seed?.machine) {
       throw new Error("machine scenario needs machine credentials");
     }
-    const { userId, slug } = seed.machine;
+    const { userId } = seed.machine;
     return {
-      url: `${base}/api/internal/gateway/users/${userId}/entitlements?applicationSlug=${slug}`,
+      url: `${base}/api/internal/gateway/resources/accessible?subjectId=${userId}`,
       init: {},
     };
   }

@@ -39,6 +39,7 @@ vi.mock("../services/oauth-tokens.js", () => ({
           clientId: authHolder.clientId,
           userId: null,
           audiences: [],
+          expiresAt: null,
           scopes: ["billing:read"],
         }
       : null,

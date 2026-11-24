@@ -870,7 +870,7 @@ describe("generic resource core", () => {
       });
     }
 
-    const entitlements = await listGatewayEntitlements(seedData.ownerId);
+    const entitlements = await listGatewayEntitlements(seedData.ownerId, callerA(seedData));
     expect(entitlements.models).toEqual(["gpt-x"]);
     // LiteLLM's object_permission.agents expects agent ids, not display names.
     expect(entitlements.agents).toEqual(["agent-1"]);
@@ -920,7 +920,7 @@ describe("generic resource core", () => {
       }),
     ).rejects.toMatchObject({ code: "RES_005" });
     await expect(
-      listGatewayEntitlements(seedData.ownerId),
+      listGatewayEntitlements(seedData.ownerId, callerA(seedData)),
     ).resolves.toMatchObject({ models: [], resources: [] });
   });
 
@@ -1072,7 +1072,7 @@ describe("generic resource core", () => {
     try {
       const event = {
         subjectId: seedData.memberId,
-        clientId: "client-1",
+        caller: callerA(seedData),
         resourceId: resource.id,
         resourceUri: resource.uri,
         requestId: "b".repeat(64),
@@ -1111,7 +1111,7 @@ describe("generic resource core", () => {
     });
     const event = {
       subjectId: seedData.memberId,
-      clientId: "client-1",
+      caller: callerA(seedData),
       resourceId: resource.id,
       resourceUri: resource.uri,
       requestId: "a".repeat(64),

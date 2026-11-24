@@ -133,9 +133,11 @@ class EntitlementIdentity(unittest.TestCase):
                     parent_name="",
                     application_slug="acme",
                     owner_type="application",
-                    owner_id="acme",
                 ),
             ),
+            decision_id="decision-1",
+            subject_id="user-1",
+            client_id="acme",
         )
         identity = custom_auth._identity(
             {"sub": "user-1", "azp": "acme", "preferred_username": "alice"},
@@ -151,8 +153,10 @@ class EntitlementIdentity(unittest.TestCase):
         self.assertEqual(permission.mcp_servers, ["server-x"])
         self.assertEqual(permission.mcp_tool_permissions, {"server-x": ["search"]})
         usage = identity.metadata["resourceUsage"]
-        self.assertEqual(usage["subjectId"], "user-1")
-        self.assertEqual(usage["clientId"], "acme")
+        self.assertEqual(usage["decisionId"], "decision-1")
+        self.assertNotIn("subjectId", usage)
+        self.assertNotIn("clientId", usage)
+        self.assertNotIn("ownerId", usage["resources"][0])
         self.assertEqual(usage["resources"][0]["resourceId"], "r1")
         self.assertEqual(usage["resources"][0]["name"], "gpt-x")
 

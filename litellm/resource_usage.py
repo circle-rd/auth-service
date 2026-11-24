@@ -215,12 +215,9 @@ def build_event(
     if not isinstance(context, Mapping):
         return None
 
-    subject = context.get("subjectId")
-    client = context.get("clientId")
+    decision_id = context.get("decisionId")
     resources = context.get("resources")
-    if not isinstance(subject, str) or not subject:
-        return None
-    if not isinstance(client, str) or not client:
+    if not isinstance(decision_id, str) or not decision_id:
         return None
     if not isinstance(resources, list):
         return None
@@ -253,13 +250,17 @@ def build_event(
     seed = f"{trace_id}|{call_id}|{resource_id}|{start}"
     request_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()
 
+    # The decision must have been in force when the request started.
+    if not isinstance(start, (int, float)) or isinstance(start, bool):
+        return None
+    started = datetime.fromtimestamp(float(start), tz=timezone.utc)
     moment = now or datetime.now(timezone.utc)
     occurred = payload.get("endTime")
     if isinstance(occurred, (int, float)):
         moment = datetime.fromtimestamp(float(occurred), tz=timezone.utc)
     return {
-        "subjectId": subject,
-        "clientId": client,
+        "decisionId": decision_id,
+        "startedAt": _iso(started),
         "resourceId": resource_id,
         "resourceUri": uri,
         "requestId": request_id,

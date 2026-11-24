@@ -34,6 +34,7 @@ const verified = (overrides: Record<string, unknown> = {}) => ({
   clientId: "gateway",
   userId: null,
   audiences: [],
+  expiresAt: null,
   scopes: ["wallet:read"],
   ...overrides,
 });

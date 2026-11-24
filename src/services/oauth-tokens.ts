@@ -74,6 +74,8 @@ export interface VerifiedAccessToken {
   /** Normalized JWT audiences; opaque tokens expose no trusted audience. */
   audiences: string[];
   scopes: string[];
+  /** Expiry as epoch seconds, null when the token carries none. */
+  expiresAt: number | null;
 }
 
 function normalizeAudiences(aud: unknown): string[] {
@@ -140,6 +142,7 @@ export async function verifyBearerAccessToken(
         audiences: normalizeAudiences((payload as Record<string, unknown>).aud),
         scopes:
           typeof payload.scope === "string" ? payload.scope.split(" ") : [],
+        expiresAt: typeof payload.exp === "number" ? payload.exp : null,
       };
     } catch {
       return null;
@@ -166,6 +169,9 @@ export async function verifyBearerAccessToken(
     // audience claim, so caller-specific audience checks must fail closed.
     audiences: [],
     scopes: row.scopes ?? [],
+    expiresAt: row.expiresAt
+      ? Math.floor(row.expiresAt.getTime() / 1000)
+      : null,
   };
 }
 

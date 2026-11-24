@@ -9,10 +9,12 @@ latency without letting a long-lived cache mask a downgrade.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Mapping
+from datetime import datetime
+from typing import Any, Callable, Mapping
 
 import httpx
 
@@ -55,6 +57,10 @@ class EntitlementsUnavailable(Exception):
     """The policy decision could not be obtained: fail closed with 503."""
 
 
+class EntitlementsDenied(Exception):
+    """auth-service refused the token's client: fail closed with 403."""
+
+
 @dataclass(frozen=True)
 class EntitlementResource:
     resource_id: str
@@ -65,7 +71,6 @@ class EntitlementResource:
     parent_name: str
     application_slug: str
     owner_type: str
-    owner_id: str
 
 
 @dataclass(frozen=True)
@@ -75,7 +80,12 @@ class Entitlements:
     mcp_servers: tuple[str, ...]
     mcp_tool_permissions: dict[str, tuple[str, ...]]
     resources: tuple[EntitlementResource, ...]
-
+    # The signed decision that usage events must present, the person and the
+    # application auth-service derived from the token, and when it stops holding.
+    decision_id: str = ""
+    subject_id: str = ""
+    client_id: str = ""
+    expires_at: float = float("inf")
 
 
 
@@ -117,9 +127,8 @@ def _parse(body: Any) -> Entitlements:
             item.get("parentName", ""),
             item.get("applicationSlug"),
             item.get("ownerType"),
-            item.get("ownerId"),
         )
-        required = (fields[0], fields[1], fields[2], fields[3], fields[4], fields[6], fields[7], fields[8])
+        required = (fields[0], fields[1], fields[2], fields[3], fields[4], fields[6], fields[7])
         if not all(isinstance(field, str) and field for field in required):
             raise EntitlementsUnavailable("invalid resource")
         if not isinstance(fields[5], str):
@@ -134,20 +143,44 @@ def _parse(body: Any) -> Entitlements:
                 parent_name=fields[5] if isinstance(fields[5], str) else "",
                 application_slug=fields[6],
                 owner_type=fields[7],
-                owner_id=fields[8],
             )
         )
+    decision_id = body.get("decisionId")
+    subject_id = body.get("subjectId")
+    client_id = body.get("clientId")
+    expires_raw = body.get("expiresAt")
+    if not all(
+        isinstance(value, str) and value
+        for value in (decision_id, subject_id, client_id, expires_raw)
+    ):
+        raise EntitlementsUnavailable("invalid decision")
+    try:
+        expires_at = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+    except ValueError:
+        raise EntitlementsUnavailable("invalid decision") from None
+    if expires_at.tzinfo is None:
+        raise EntitlementsUnavailable("invalid decision")
     return Entitlements(
         models=models,
         agents=agents,
         mcp_servers=mcp_servers,
         mcp_tool_permissions=tools,
         resources=tuple(resources),
+        decision_id=decision_id,
+        subject_id=subject_id,
+        client_id=client_id,
+        expires_at=expires_at.timestamp(),
     )
 
 
 class EntitlementResolver:
-    """Machine-authenticated client with a bounded per-(user, app) cache."""
+    """Machine-authenticated client with a bounded per-token cache.
+
+    The user's access token is forwarded to auth-service, which verifies it and
+    derives the person and the application itself. The cache is keyed by a hash
+    of the token, so no token is kept, and an entry never outlives the decision
+    it holds.
+    """
 
     def __init__(
         self,
@@ -159,7 +192,8 @@ class EntitlementResolver:
         ttl_s: float = TTL_S,
         timeout_s: float = HTTP_TIMEOUT_S,
         client: httpx.AsyncClient | None = None,
-        clock=time.monotonic,
+        clock: Callable[[], float] = time.monotonic,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         self._auth_url = auth_url.rstrip("/")
         self._client_id = client_id
@@ -169,10 +203,11 @@ class EntitlementResolver:
         self._timeout_s = timeout_s
         self._client = client
         self._clock = clock
+        self._wall_clock = wall_clock
         self._token: str | None = None
         self._token_expires_at = 0.0
         self._token_lock = asyncio.Lock()
-        self._cache: dict[tuple[str, str], tuple[Entitlements, float]] = {}
+        self._cache: dict[str, tuple[Entitlements, float]] = {}
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -204,38 +239,51 @@ class EntitlementResolver:
                     ) from err
             return self._token
 
-    async def resolve(self, user_id: str, application_slug: str) -> Entitlements:
-        key = (user_id, application_slug)
-        cached = self._cache.get(key)
+    async def resolve(
+        self, user_token: str, subject_id: str, client_id: str
+    ) -> Entitlements:
+        """Decide for the token's person and application.
+
+        `subject_id` and `client_id` are what the hook verified itself; the
+        answer must name the same pair, otherwise it is refused.
+        """
+        key = hashlib.sha256(user_token.encode("utf-8")).hexdigest()
         now = self._clock()
-        if cached is not None and now - cached[1] < self._ttl_s:
+        cached = self._cache.get(key)
+        if cached is not None and now < cached[1]:
             return cached[0]
         if len(self._cache) >= 1024:
-            self._cache = {
-                key: value
-                for key, value in self._cache.items()
-                if now - value[1] < self._ttl_s
-            }
+            self._cache = {k: v for k, v in self._cache.items() if now < v[1]}
 
         for attempt in (0, 1):
             token = await self._access_token(force=attempt == 1)
             try:
-                resp = await self._http().get(
-                    f"{self._auth_url}/api/internal/gateway/users/{user_id}/entitlements",
-                    params={"applicationSlug": application_slug},
+                resp = await self._http().post(
+                    f"{self._auth_url}/api/internal/gateway/entitlements",
+                    json={"token": user_token},
                     headers={"Authorization": f"Bearer {token}"},
                 )
             except httpx.HTTPError as err:
                 raise EntitlementsUnavailable("entitlements unavailable") from err
             if resp.status_code == 401 and attempt == 0:
                 continue
+            if resp.status_code == 403:
+                raise EntitlementsDenied("client not allowed")
             if resp.status_code != 200:
                 raise EntitlementsUnavailable("entitlements unavailable")
             try:
                 entitlements = _parse(resp.json())
             except ValueError as err:
                 raise EntitlementsUnavailable("entitlements unavailable") from err
-            self._cache[key] = (entitlements, now)
+            if (
+                entitlements.subject_id != subject_id
+                or entitlements.client_id != client_id
+            ):
+                raise EntitlementsUnavailable("entitlements mismatch")
+            remaining = entitlements.expires_at - self._wall_clock()
+            if remaining <= 0:
+                raise EntitlementsUnavailable("entitlements already expired")
+            self._cache[key] = (entitlements, now + min(self._ttl_s, remaining))
             return entitlements
         raise AssertionError("unreachable")
 

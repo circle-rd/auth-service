@@ -9,6 +9,10 @@ import {
 } from "vitest";
 import { createTestApp } from "../tests/helpers/app.js";
 import { ERR } from "../errors.js";
+import {
+  signDecision,
+  verifyDecision,
+} from "../services/resources/decision-token.js";
 
 const {
   mockMachineScope,
@@ -16,12 +20,16 @@ const {
   mockFindByUri,
   mockRecordEvent,
   mockAccessible,
+  mockRecordUsage,
+  mockLoadApp,
 } = vi.hoisted(() => ({
   mockMachineScope: vi.fn(),
   mockAuthorize: vi.fn(),
   mockFindByUri: vi.fn(),
   mockRecordEvent: vi.fn(),
   mockAccessible: vi.fn(),
+  mockRecordUsage: vi.fn(),
+  mockLoadApp: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({ db: {} }));
@@ -37,7 +45,10 @@ vi.mock("../services/resources/registry.js", () => ({
 }));
 vi.mock("../services/resources/usage.js", () => ({
   recordAccessEvent: mockRecordEvent,
-  recordUsageEvent: vi.fn(),
+  recordUsageEvent: mockRecordUsage,
+}));
+vi.mock("../services/resources/application-scope.js", () => ({
+  loadSharingApplicationBySlug: mockLoadApp,
 }));
 vi.mock("../services/resources/access.js", () => ({
   listAccessibleResources: mockAccessible,
@@ -82,6 +93,8 @@ beforeEach(() => {
     mockFindByUri,
     mockRecordEvent,
     mockAccessible,
+    mockRecordUsage,
+    mockLoadApp,
   ]) {
     mock.mockReset();
   }
@@ -191,6 +204,11 @@ describe("gateway authorize", () => {
     mockAuthorize.mockResolvedValue(allow);
     const foreign = (await authorizeCall()).json();
     expect(foreign).toMatchObject({ decision: "allow", permission: "read" });
+    expect(verifyDecision(foreign.decisionId)).toMatchObject({
+      sub: "user-2",
+      app: CALLER.clientId,
+      by: CALLER.clientId,
+    });
     expect(foreign.ownerId).toBeUndefined();
 
     mockAuthorize.mockResolvedValue({
@@ -221,5 +239,89 @@ describe("gateway authorize", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(mockAuthorize).not.toHaveBeenCalled();
+  });
+});
+
+describe("gateway usage bound to a decision", () => {
+  const APP_ID = "44444444-4444-4444-8444-444444444444";
+  const decisionFor = (by: string, now = new Date()) =>
+    signDecision({ sub: "user-9", app: "consumer-app", by, now }).decisionId;
+  const usage = (overrides: Record<string, unknown> = {}) => ({
+    decisionId: decisionFor("gateway"),
+    startedAt: new Date().toISOString(),
+    resourceId: RESOURCE.id,
+    resourceUri: "gine://project_1",
+    requestId: "a".repeat(64),
+    occurredAt: new Date().toISOString(),
+    usageSource: "unsupported",
+    costUsd: null,
+    ...overrides,
+  });
+  const post = (payload: Record<string, unknown>) =>
+    app.inject({
+      method: "POST",
+      url: "/api/internal/gateway/usage",
+      payload,
+    });
+
+  beforeEach(() => {
+    mockLoadApp.mockResolvedValue({
+      id: APP_ID,
+      slug: "consumer-app",
+      allowedResources: [],
+    });
+    mockRecordUsage.mockResolvedValue({
+      record: {
+        id: "r1",
+        resourceId: RESOURCE.id,
+        requestId: "a".repeat(64),
+        occurredAt: new Date(),
+        scheme: "gine",
+        usageSource: "unsupported",
+      },
+      replayed: false,
+    });
+  });
+
+  it("takes the person and the application from the decision", async () => {
+    const res = await post(usage());
+    expect(res.statusCode).toBe(201);
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: "user-9",
+        caller: { id: APP_ID, slug: "consumer-app" },
+      }),
+    );
+  });
+
+  it("refuses a person or client named in the body", async () => {
+    for (const extra of [{ subjectId: "user-1" }, { clientId: "other-app" }]) {
+      expect((await post(usage(extra))).statusCode).toBe(400);
+    }
+    expect(mockRecordUsage).not.toHaveBeenCalled();
+  });
+
+  it("refuses a decision that another client obtained", async () => {
+    const res = await post(usage({ decisionId: decisionFor("someone-else") }));
+    expect(res.statusCode).toBe(400);
+    expect(mockRecordUsage).not.toHaveBeenCalled();
+  });
+
+  it("refuses a forged decision", async () => {
+    const [body] = decisionFor("gateway").split(".");
+    const res = await post(usage({ decisionId: `${body}.AAAA` }));
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("refuses a request that did not start within the decision", async () => {
+    const old = new Date(Date.now() - 10 * 60_000);
+    const res = await post(usage({ decisionId: decisionFor("gateway", old) }));
+    expect(res.statusCode).toBe(400);
+    expect(mockRecordUsage).not.toHaveBeenCalled();
+  });
+
+  it("refuses a decision for an application that no longer shares", async () => {
+    mockLoadApp.mockResolvedValue(null);
+    expect((await post(usage())).statusCode).toBe(400);
   });
 });

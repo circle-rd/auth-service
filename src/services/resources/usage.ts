@@ -23,6 +23,10 @@ import {
 import { user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import { logger } from "../../logger.js";
+import {
+  applicationScope,
+  type CallerApplication,
+} from "./application-scope.js";
 import { evaluateResourceAccess } from "./policy.js";
 import { getResource } from "./registry.js";
 import { announceResourceActivity } from "./realtime.js";
@@ -92,7 +96,8 @@ export async function recordAccessEvent(
 
 export interface RecordUsageInput {
   subjectId: string;
-  clientId: string;
+  // The application the request came through; its slug is the client id.
+  caller: CallerApplication;
   resourceId: string;
   resourceUri: string;
   requestId: string;
@@ -122,7 +127,7 @@ function sameUsageEvent(
 ): boolean {
   return (
     record.subjectId === input.subjectId &&
-    record.clientId === input.clientId &&
+    record.clientId === input.caller.slug &&
     record.uri === input.resourceUri &&
     record.requestId === input.requestId &&
     record.usageSource === input.usageSource &&
@@ -176,6 +181,7 @@ export async function recordUsageEvent(
   const access = await evaluateResourceAccess({
     resource,
     subjectId: input.subjectId,
+    scope: applicationScope(input.caller),
   });
   if (access.decision !== "allow") {
     throw ERR.RES_011("Subject has no active access to this resource");
@@ -192,7 +198,7 @@ export async function recordUsageEvent(
       ownerId: resource.ownerId,
       subjectType: "user",
       subjectId: input.subjectId,
-      clientId: input.clientId,
+      clientId: input.caller.slug,
       applicationId: resource.applicationId,
       requestId: input.requestId,
       promptTokens: input.promptTokens,

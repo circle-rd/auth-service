@@ -39,6 +39,7 @@ from entitlements import (
     ENTITLEMENTS_METADATA_KEY,
     USAGE_METADATA_KEY,
     Entitlements,
+    EntitlementsDenied,
     EntitlementsUnavailable,
     resolver,
 )
@@ -144,12 +145,11 @@ def _permission(entitlements: Entitlements) -> LiteLLM_ObjectPermissionTable:
     )
 
 
-def _usage_context(
-    entitlements: Entitlements, subject_id: str, client_id: str
-) -> dict:
+def _usage_context(entitlements: Entitlements) -> dict:
+    # The person and the application are not repeated here: a usage event names
+    # the decision, and auth-service reads both from it.
     return {
-        "subjectId": subject_id,
-        "clientId": client_id,
+        "decisionId": entitlements.decision_id,
         "resources": [
             {
                 "resourceId": resource.resource_id,
@@ -160,7 +160,6 @@ def _usage_context(
                 "parentName": resource.parent_name,
                 "applicationSlug": resource.application_slug,
                 "ownerType": resource.owner_type,
-                "ownerId": resource.owner_id,
             }
             for resource in entitlements.resources
         ],
@@ -184,7 +183,7 @@ def _identity(claims: dict, entitlements: Entitlements) -> UserAPIKeyAuth:
                 "agents": list(entitlements.agents),
                 "mcpServers": list(entitlements.mcp_servers),
             },
-            USAGE_METADATA_KEY: _usage_context(entitlements, subject_id, client_id),
+            USAGE_METADATA_KEY: _usage_context(entitlements),
         },
     )
 
@@ -235,7 +234,16 @@ async def user_api_key_auth(
         )
 
     try:
-        entitlements = await resolver().resolve(claims["sub"], claims["azp"])
+        entitlements = await resolver().resolve(
+            api_key, claims["sub"], claims["azp"]
+        )
+    except EntitlementsDenied:
+        raise ProxyException(
+            message="This client is not allowed to use shared resources",
+            type="auth_error",
+            param="api_key",
+            code=403,
+        ) from None
     except EntitlementsUnavailable:
         raise _unavailable("Could not resolve entitlements; try again") from None
     return _identity(claims, entitlements)

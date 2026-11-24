@@ -80,6 +80,7 @@ describe("requireUserOrBearer", () => {
       clientId: "reverse-box",
       userId: "bearer-user",
       audiences: [config.betterAuth.url],
+      expiresAt: null,
       scopes: ["wallet:self:read"],
     });
 
@@ -99,6 +100,7 @@ describe("requireUserOrBearer", () => {
       clientId: "reverse-box",
       userId: "bearer-user",
       audiences: ["https://llm.example.com"],
+      expiresAt: null,
       scopes: ["wallet:self:read"],
     });
 
@@ -119,6 +121,7 @@ describe("requireUserOrBearer", () => {
       clientId: "reverse-box",
       userId: "bearer-user",
       audiences: [config.betterAuth.url],
+      expiresAt: null,
       scopes: ["openid"],
     });
 
@@ -138,6 +141,7 @@ describe("requireUserOrBearer", () => {
       clientId: "app",
       userId: "bearer-user",
       audiences: [config.betterAuth.url],
+      expiresAt: null,
       scopes: ["organizations:self:manage"],
     });
 
@@ -156,6 +160,7 @@ describe("requireUserOrBearer", () => {
       clientId: "app",
       userId: "bearer-user",
       audiences: [config.betterAuth.url],
+      expiresAt: null,
       scopes: ["openid"],
     });
 
@@ -175,6 +180,7 @@ describe("requireUserOrBearer", () => {
       clientId: "reverse-box",
       userId: null,
       audiences: [config.betterAuth.url],
+      expiresAt: null,
       scopes: ["wallet:self:read"],
     });
 

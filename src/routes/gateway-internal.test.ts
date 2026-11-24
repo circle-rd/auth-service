@@ -9,12 +9,19 @@ import {
 } from "vitest";
 import { createTestApp } from "../tests/helpers/app.js";
 
-const { mockRequireMachineScope, mockListEntitlements, mockRequestSync } =
-  vi.hoisted(() => ({
-    mockRequireMachineScope: vi.fn(),
-    mockListEntitlements: vi.fn(),
-    mockRequestSync: vi.fn(),
-  }));
+const {
+  mockRequireMachineScope,
+  mockListEntitlements,
+  mockRequestSync,
+  mockVerifyBearer,
+  mockLoadApp,
+} = vi.hoisted(() => ({
+  mockRequireMachineScope: vi.fn(),
+  mockListEntitlements: vi.fn(),
+  mockRequestSync: vi.fn(),
+  mockVerifyBearer: vi.fn(),
+  mockLoadApp: vi.fn(),
+}));
 
 vi.mock("../services/machine-auth.js", () => ({
   requireMachineScope: mockRequireMachineScope,
@@ -25,10 +32,19 @@ vi.mock("../services/gateway-inventory.js", () => ({
 vi.mock("../services/gateway-inventory-sync.js", () => ({
   requestGatewayInventorySync: mockRequestSync,
 }));
+vi.mock("../services/oauth-tokens.js", () => ({
+  verifyBearerAccessToken: mockVerifyBearer,
+}));
+vi.mock("../services/resources/application-scope.js", () => ({
+  loadSharingApplicationBySlug: mockLoadApp,
+}));
 
 const { gatewayInternalRoutes } = await import("./gateway-internal.js");
+const { verifyDecision } =
+  await import("../services/resources/decision-token.js");
 
-const USER = "11111111-1111-4111-8111-111111111111";
+const TOKEN = "t".repeat(40);
+const APP_ID = "22222222-2222-4222-8222-222222222222";
 const app = createTestApp();
 
 beforeAll(async () => {
@@ -40,12 +56,27 @@ beforeAll(async () => {
 afterAll(() => app.close());
 
 beforeEach(() => {
-  mockRequireMachineScope.mockReset();
-  mockListEntitlements.mockReset();
-  mockRequestSync.mockReset();
-  mockRequireMachineScope.mockResolvedValue({
-    clientId: "litellm-wallet",
+  for (const mock of [
+    mockRequireMachineScope,
+    mockListEntitlements,
+    mockRequestSync,
+    mockVerifyBearer,
+    mockLoadApp,
+  ]) {
+    mock.mockReset();
+  }
+  mockRequireMachineScope.mockResolvedValue({ clientId: "litellm-wallet" });
+  mockVerifyBearer.mockResolvedValue({
+    clientId: "consumer-app",
+    userId: "user_abc",
+    audiences: ["https://llm.example"],
     scopes: [],
+    expiresAt: null,
+  });
+  mockLoadApp.mockResolvedValue({
+    id: APP_ID,
+    slug: "consumer-app",
+    allowedResources: [],
   });
   mockListEntitlements.mockResolvedValue({
     models: ["gpt-x"],
@@ -56,28 +87,88 @@ beforeEach(() => {
   });
 });
 
-describe("gateway internal entitlements", () => {
-  it("requires the entitlements scope and returns the resolved lists", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: `/api/internal/gateway/users/${USER}/entitlements?applicationSlug=acme`,
-    });
+const introspect = (payload: unknown = { token: TOKEN }) =>
+  app.inject({
+    method: "POST",
+    url: "/api/internal/gateway/entitlements",
+    payload: payload as Record<string, unknown>,
+  });
+
+describe("gateway entitlements by token introspection", () => {
+  it("derives the user and application from the token, not from the caller", async () => {
+    const res = await introspect();
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ models: ["gpt-x"] });
+    expect(res.json()).toMatchObject({
+      subjectId: "user_abc",
+      clientId: "consumer-app",
+      models: ["gpt-x"],
+    });
     expect(mockRequireMachineScope).toHaveBeenCalledWith(
       undefined,
       "gateway:entitlements:read",
     );
-    expect(mockListEntitlements).toHaveBeenCalledWith(USER);
+    expect(mockVerifyBearer).toHaveBeenCalledWith(TOKEN);
+    expect(mockListEntitlements).toHaveBeenCalledWith("user_abc", {
+      id: APP_ID,
+      slug: "consumer-app",
+    });
   });
 
-  it("accepts non-uuid user ids used by BetterAuth", async () => {
+  it("signs a decision for that user and application, handed to the caller", async () => {
+    const body = (await introspect()).json();
+    expect(verifyDecision(body.decisionId)).toMatchObject({
+      sub: "user_abc",
+      app: "consumer-app",
+      by: "litellm-wallet",
+    });
+    expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("never outlives the user's token", async () => {
+    const soon = Math.floor(Date.now() / 1000) + 5;
+    mockVerifyBearer.mockResolvedValue({
+      clientId: "consumer-app",
+      userId: "user_abc",
+      audiences: ["https://llm.example"],
+      scopes: [],
+      expiresAt: soon,
+    });
+    const body = (await introspect()).json();
+    expect(verifyDecision(body.decisionId).exp).toBe(soon);
+  });
+
+  it("refuses an invalid token, a machine token and an unscoped client", async () => {
+    mockVerifyBearer.mockResolvedValueOnce(null);
+    expect((await introspect()).statusCode).toBe(401);
+
+    mockVerifyBearer.mockResolvedValueOnce({
+      clientId: "consumer-app",
+      userId: null,
+      audiences: [],
+      scopes: [],
+      expiresAt: null,
+    });
+    expect((await introspect()).statusCode).toBe(403);
+
+    mockLoadApp.mockResolvedValueOnce(null);
+    expect((await introspect()).statusCode).toBe(403);
+    expect(mockListEntitlements).not.toHaveBeenCalled();
+  });
+
+  it("refuses a body that names a user, a client or anything else", async () => {
+    for (const extra of [{ userId: "x" }, { clientId: "x" }]) {
+      const res = await introspect({ token: TOKEN, ...extra });
+      expect(res.statusCode).toBe(400);
+    }
+    expect((await introspect({})).statusCode).toBe(400);
+  });
+
+  it("no longer answers the old route that took a user id", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/internal/gateway/users/user_abc/entitlements",
     });
-    expect(res.statusCode).toBe(200);
-    expect(mockListEntitlements).toHaveBeenCalledWith("user_abc");
+    expect(res.statusCode).toBe(404);
   });
 });
 

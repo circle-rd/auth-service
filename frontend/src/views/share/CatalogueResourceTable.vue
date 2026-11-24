@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ExternalLink, Pencil, Plus, PowerOff, RefreshCw, Share2, Terminal, Trash2 } from '@lucide/vue';
+import { ExternalLink, Pencil, Plus, RefreshCw, Share2, Terminal, Trash2 } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
@@ -65,8 +65,8 @@ const saving = ref(false);
 const editing = ref<Resource | null>(null);
 const grantResource = ref<Resource | null>(null);
 const sshResource = ref<Resource | null>(null);
-const disabling = ref(false);
-const showDisable = ref(false);
+const deleting = ref(false);
+const showDelete = ref(false);
 const selected = ref<Resource | null>(null);
 const validatorLink = ref<string | null>(null);
 
@@ -206,27 +206,24 @@ async function validate(resource: Resource) {
   }
 }
 
-function requestDisable(resource: Resource) {
+function requestDelete(resource: Resource) {
   selected.value = resource;
-  showDisable.value = true;
+  showDelete.value = true;
 }
 
-function neverValidated(resource: Resource): boolean {
-  return resource.validatedAt === null;
-}
 
-async function disable() {
+async function remove() {
   if (!selected.value) return;
-  disabling.value = true;
+  deleting.value = true;
   try {
     await removeResource(selected.value.id);
     toast.success(t('share.resources.deletedToast'));
-    showDisable.value = false;
+    showDelete.value = false;
     emit('changed');
   } catch (err) {
     toast.error(err instanceof Error ? err.message : t('share.saveError'));
   } finally {
-    disabling.value = false;
+    deleting.value = false;
   }
 }
 </script>
@@ -345,10 +342,10 @@ async function disable() {
           <BaseButton
             variant="ghost"
             size="sm"
-            :title="neverValidated(row.resource) ? t('common.delete') : t('share.resources.disable')"
-            @click="requestDisable(row.resource)"
+            :title="t('common.delete')"
+            @click="requestDelete(row.resource)"
           >
-            <component :is="neverValidated(row.resource) ? Trash2 : PowerOff" class="w-3.5 h-3.5" />
+            <Trash2 class="w-3.5 h-3.5" />
           </BaseButton>
         </div>
         <span v-else class="text-xs text-surface-600">—</span>
@@ -394,13 +391,13 @@ async function disable() {
     />
 
     <ConfirmDialog
-      :open="showDisable"
-      :title="selected && neverValidated(selected) ? t('share.resources.deleteTitle') : t('share.resources.disableTitle')"
-      :message="selected && neverValidated(selected) ? t('share.resources.deleteMessage') : t('share.resources.disableMessage')"
-      :confirm-label="selected && neverValidated(selected) ? t('common.delete') : t('share.resources.disable')"
-      :loading="disabling"
-      @confirm="disable"
-      @cancel="showDisable = false"
+      :open="showDelete"
+      :title="t('share.resources.deleteTitle')"
+      :message="t('share.resources.deleteMessage')"
+      :confirm-label="t('common.delete')"
+      :loading="deleting"
+      @confirm="remove"
+      @cancel="showDelete = false"
     />
   </div>
 </template>

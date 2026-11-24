@@ -59,6 +59,7 @@ import { removeResource } from "../services/resources/resource-deletion.js";
 import { linkResourceToGatewayObject } from "../services/gateway-inventory.js";
 import { buildSshValidationCommand } from "../services/ssh/targets.js";
 import { getResourceScheme } from "../services/resources/scheme-service.js";
+import { supportedPermissions } from "../services/resources/schemes.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
 import {
   RESOURCE_PERMISSIONS,
@@ -229,6 +230,7 @@ function publicResource(
     applicationName: resource.applicationName,
     scheme: resource.scheme,
     schemeDisplayName: scheme?.displayName ?? resource.scheme,
+    permissions: supportedPermissions(resource.scheme),
     uri: resource.uri,
     displayName: resource.displayName,
     ownerType: resource.ownerType,

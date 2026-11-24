@@ -13,8 +13,13 @@ import {
   assertApplicationSchemeName,
   BUILTIN_SCHEME_NAMES,
   builtinSchemeRows,
+  supportedPermissions,
 } from "./schemes.js";
-import type { ResourceAdapter, ResourceSchemeSource } from "./types.js";
+import type {
+  ResourceAdapter,
+  ResourcePermission,
+  ResourceSchemeSource,
+} from "./types.js";
 
 export interface ResourceSchemeView {
   scheme: string;
@@ -25,6 +30,8 @@ export interface ResourceSchemeView {
   icon: string | null;
   validatorUrl: string | null;
   enabled: boolean;
+  // The levels a grant on a resource of this scheme may carry.
+  permissions: readonly ResourcePermission[];
 }
 
 export interface ApplicationSchemeView extends ResourceSchemeView {
@@ -80,7 +87,11 @@ export async function getResourceScheme(
     .where(eq(resourceSchemes.scheme, scheme))
     .limit(1);
   if (!row) return null;
-  return { ...row, enabled: row.status === "active" };
+  return {
+    ...row,
+    enabled: row.status === "active",
+    permissions: supportedPermissions(row.scheme),
+  };
 }
 
 /**
@@ -136,6 +147,7 @@ export async function listApplicationSchemeCatalog(
     icon: row.icon,
     validatorUrl: row.validatorUrl,
     enabled: row.enabled === true,
+    permissions: supportedPermissions(row.scheme),
     owned: row.ownerType === "application" && row.ownerId === applicationId,
   }));
 }
@@ -301,6 +313,7 @@ export async function createApplicationScheme(
       icon: row.icon,
       validatorUrl: row.validatorUrl,
       enabled: true,
+      permissions: supportedPermissions(row.scheme),
     };
   });
 }
@@ -399,6 +412,7 @@ export async function updateApplicationScheme(
     icon: row.icon,
     validatorUrl: row.validatorUrl,
     enabled: row.status === "active",
+    permissions: supportedPermissions(row.scheme),
   };
 }
 

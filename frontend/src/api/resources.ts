@@ -11,8 +11,12 @@ export type ResourceStatus = typeof RESOURCE_STATUSES[number];
 export const RESOURCE_OWNER_TYPES = ['user', 'application'] as const;
 export type ResourceOwnerType = typeof RESOURCE_OWNER_TYPES[number];
 
-export const RESOURCE_SUBJECT_TYPES = ['user', 'organization', 'plan', 'everyone'] as const;
+export const RESOURCE_SUBJECT_TYPES = ['user', 'organization', 'plan', 'everyone', 'application'] as const;
 export type ResourceSubjectType = typeof RESOURCE_SUBJECT_TYPES[number];
+
+// Ordered from the weakest: `write` covers `read`.
+export const RESOURCE_PERMISSIONS = ['read', 'write'] as const;
+export type ResourcePermission = typeof RESOURCE_PERMISSIONS[number];
 
 export const OWNER_PERMISSIONS = ['resources:read', 'resources:manage', 'grants:manage'] as const;
 export type OwnerPermission = typeof OWNER_PERMISSIONS[number];
@@ -58,6 +62,8 @@ export interface ResourceScheme {
   icon: string | null;
   validatorUrl: string | null;
   enabled: boolean;
+  // The levels a grant on a resource of this type may carry.
+  permissions: ResourcePermission[];
   owned?: boolean;
 }
 
@@ -90,6 +96,8 @@ export interface Resource {
   applicationName: string;
   scheme: string;
   schemeDisplayName?: string;
+  // The levels a grant on this resource may carry.
+  permissions?: ResourcePermission[];
   uri: string;
   displayName: string;
   ownerType: ResourceOwnerType;
@@ -112,7 +120,7 @@ export interface ResourceGrant {
   resourceId: string;
   subjectType: ResourceSubjectType;
   subjectId: string | null;
-  permission: 'read' | 'write';
+  permission: ResourcePermission;
   expiresAt: string | null;
   revokedAt: string | null;
   createdBy: string;
@@ -132,6 +140,7 @@ export interface ResourceInvitation {
   resourceId: string;
   resourceUri?: string;
   resourceDisplayName?: string;
+  permission: ResourcePermission;
   expiresAt: string;
   consumedAt: string | null;
   revokedAt: string | null;
@@ -161,6 +170,8 @@ export interface AccessibleResource {
   ownerType: ResourceOwnerType;
   ownerId: string;
   accessKind: 'owner' | 'grant';
+  // What the signed-in user may do through the calling application.
+  permission: ResourcePermission;
   grantSubjectType?: ResourceSubjectType;
 }
 
@@ -283,12 +294,14 @@ export interface CreateGrantBody {
   subjectId?: string | null;
   // A user grant may name an e-mail; auth-service resolves it among active members.
   subjectEmail?: string | null;
+  permission?: ResourcePermission;
   expiresAt?: string | null;
 }
 
 export interface CreateInvitationBody {
   email: string;
   resourceId: string;
+  permission?: ResourcePermission;
   ttlHours?: number;
 }
 
@@ -537,6 +550,36 @@ export async function createGrant(resourceId: string, body: CreateGrantBody): Pr
 
 export async function revokeGrant(resourceId: string, grantId: string): Promise<{ grant: ResourceGrant }> {
   return apiFetch(`/user/resources/${resourceId}/grants/${grantId}`, { method: 'DELETE' });
+}
+
+export async function updateGrantPermission(
+  resourceId: string,
+  grantId: string,
+  permission: ResourcePermission,
+): Promise<{ grant: ResourceGrant }> {
+  return apiFetch(`/user/resources/${resourceId}/grants/${grantId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ permission }),
+  });
+}
+
+// Deletes a grant that is already revoked or expired.
+export async function deleteGrant(resourceId: string, grantId: string): Promise<void> {
+  await apiFetch(`/user/resources/${resourceId}/grants/${grantId}?permanent=true`, { method: 'DELETE' });
+}
+
+export interface ShareResult {
+  resourceId: string;
+  grantId: string | null;
+  code: string | null;
+}
+
+export async function shareWithApplication(body: {
+  resourceIds: string[];
+  applicationSlug: string;
+  permission?: ResourcePermission;
+}): Promise<{ results: ShareResult[] }> {
+  return apiFetch('/user/resource-shares', { method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function listAppGrants(appId: string): Promise<{ grants: ResourceGrant[] }> {

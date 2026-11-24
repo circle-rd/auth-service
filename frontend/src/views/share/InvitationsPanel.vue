@@ -18,6 +18,7 @@ import {
   revokeInvitation,
   type Resource,
   type ResourceInvitation,
+  type ResourcePermission,
 } from '@/api/resources';
 import type { SelectOption } from '@/types/select';
 import { formatDateTime } from './format';
@@ -42,6 +43,7 @@ const emailSent = ref(false);
 const form = reactive({
   email: '',
   resourceId: '',
+  permission: 'read' as ResourcePermission,
   ttlHours: 72,
 });
 
@@ -59,6 +61,10 @@ const resourceOptions = computed<SelectOption[]>(() =>
     description: resource.uri,
   })),
 );
+const levelOptions = computed<SelectOption[]>(() => {
+  const levels = resources.value.find((resource) => resource.id === form.resourceId)?.permissions ?? ['read'];
+  return levels.map((value) => ({ value, label: t(`share.permissions.${value}`) }));
+});
 const canSave = computed(
   () => form.email.trim().length > 0 && form.resourceId.length > 0,
 );
@@ -90,6 +96,7 @@ function openCreate() {
   Object.assign(form, {
     email: '',
     resourceId: invitable.value[0]?.id ?? '',
+    permission: 'read',
     ttlHours: 72,
   });
   inviteUrl.value = '';
@@ -104,6 +111,7 @@ async function save() {
     const result = await createInvitation(props.appId, {
       email: form.email.trim(),
       resourceId: form.resourceId,
+      permission: form.permission,
       ttlHours: form.ttlHours,
     });
     inviteUrl.value = result.inviteUrl;
@@ -138,6 +146,12 @@ async function revoke() {
 }
 
 watch(() => props.appId, () => void load());
+watch(
+  () => form.resourceId,
+  () => {
+    if (!levelOptions.value.some((option) => option.value === form.permission)) form.permission = 'read';
+  },
+);
 onMounted(() => void load());
 </script>
 
@@ -175,6 +189,7 @@ onMounted(() => void load());
             <td class="px-4 py-3">
               <p class="text-surface-300">{{ invitation.resourceDisplayName ?? invitation.resourceId }}</p>
               <p class="font-mono text-[11px] text-surface-500 break-all">{{ invitation.resourceUri }}</p>
+              <BaseBadge v-if="invitation.permission === 'write'" variant="warning">{{ t('share.permissions.write') }}</BaseBadge>
             </td>
             <td class="px-4 py-3 text-xs text-surface-500 hidden lg:table-cell">
               {{ formatDateTime(invitation.expiresAt) }}
@@ -200,6 +215,12 @@ onMounted(() => void load());
       <div class="space-y-4">
         <BaseInput v-model="form.email" type="email" :label="t('share.invitations.email')" required />
         <BaseSelect v-model="form.resourceId" :label="t('share.invitations.resource')" :options="resourceOptions" />
+        <BaseSelect
+          v-if="levelOptions.length > 1"
+          v-model="form.permission"
+          :label="t('share.grants.permission')"
+          :options="levelOptions"
+        />
         <BaseInput v-model.number="form.ttlHours" type="number" :label="t('share.invitations.ttlHours')" />
         <div v-if="inviteUrl" class="rounded-xl bg-surface-800/60 p-3 space-y-1">
           <p class="text-xs text-surface-400">{{ t('share.invitations.urlOnce') }}</p>

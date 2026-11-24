@@ -189,6 +189,11 @@ export const ERR = {
     new ApiError(409, "RES_012", msg),
   RES_013: (msg = "Resource scheme still has resources") =>
     new ApiError(409, "RES_013", msg),
+  RES_014: (
+    msg = "Permission level is not supported by this resource scheme",
+  ) => new ApiError(400, "RES_014", msg),
+  RES_015: (msg = "Resource grant is no longer active") =>
+    new ApiError(409, "RES_015", msg),
 
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),

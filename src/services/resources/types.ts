@@ -33,11 +33,38 @@ export const RESOURCE_SUBJECT_TYPES = [
   "organization",
   "plan",
   "everyone",
+  "application",
 ] as const;
 export type ResourceSubjectType = (typeof RESOURCE_SUBJECT_TYPES)[number];
 
-export const RESOURCE_PERMISSIONS = ["use"] as const;
+// Ordered from the weakest to the strongest: `write` covers `read`.
+export const RESOURCE_PERMISSIONS = ["read", "write"] as const;
 export type ResourcePermission = (typeof RESOURCE_PERMISSIONS)[number];
+
+export function permissionCovers(
+  held: ResourcePermission,
+  required: ResourcePermission,
+): boolean {
+  return (
+    RESOURCE_PERMISSIONS.indexOf(held) >= RESOURCE_PERMISSIONS.indexOf(required)
+  );
+}
+
+/** The weaker of two levels. */
+export function capPermission(
+  a: ResourcePermission,
+  b: ResourcePermission,
+): ResourcePermission {
+  return permissionCovers(a, b) ? b : a;
+}
+
+/** The stronger of two levels. */
+export function raisePermission(
+  a: ResourcePermission,
+  b: ResourcePermission,
+): ResourcePermission {
+  return permissionCovers(a, b) ? a : b;
+}
 
 export const RESOURCE_EVENT_DECISIONS = ["allow", "deny"] as const;
 export type ResourceEventDecision = (typeof RESOURCE_EVENT_DECISIONS)[number];

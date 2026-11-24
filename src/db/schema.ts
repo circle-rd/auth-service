@@ -75,6 +75,8 @@ export const applications = pgTable(
   },
   (t) => [
     uniqueIndex("applications_slug_idx").on(t.slug),
+    // `u-` is the namespace of user-owned resources, so no slug may use it.
+    check("applications_slug_namespace_check", sql`${t.slug} !~ '^u-'`),
     check(
       "applications_billing_mode_check",
       sql`${t.billingMode} IN ('none', 'delegated')`,

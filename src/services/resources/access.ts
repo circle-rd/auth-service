@@ -7,7 +7,7 @@ import {
   listValidatedResourcesBySchemes,
   type ResourceView,
 } from "./registry.js";
-import type { ResourceSubjectType } from "./types.js";
+import type { ResourcePermission, ResourceSubjectType } from "./types.js";
 
 export interface CatalogueApplication {
   slug: string;
@@ -25,6 +25,7 @@ export interface AccessibleResource {
   ownerType: "user" | "application";
   ownerId: string;
   accessKind: AccessKind;
+  permission: ResourcePermission;
   grantSubjectType?: ResourceSubjectType;
 }
 
@@ -38,6 +39,7 @@ function toAccessible(
   resource: ResourceView,
   decision: {
     accessKind: AccessKind;
+    permission: ResourcePermission;
     grantSubjectType?: ResourceSubjectType;
   },
 ): AccessibleResource {
@@ -52,6 +54,7 @@ function toAccessible(
     ownerType: resource.ownerType,
     ownerId: resource.ownerId,
     accessKind: decision.accessKind,
+    permission: decision.permission,
     grantSubjectType: decision.grantSubjectType,
   };
 }

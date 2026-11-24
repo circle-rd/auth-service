@@ -1,5 +1,9 @@
 import { ERR } from "../../errors.js";
-import type { ResourceAdapter } from "./types.js";
+import {
+  RESOURCE_PERMISSIONS,
+  type ResourceAdapter,
+  type ResourcePermission,
+} from "./types.js";
 import { assertResourceScheme } from "./uri.js";
 
 export interface BuiltinScheme {
@@ -10,6 +14,8 @@ export interface BuiltinScheme {
   icon: string;
   environmentFlag: string;
   validatorClientId: string | null;
+  // A single-action scheme supports only `read`, which then means "use".
+  permissions: readonly ResourcePermission[];
 }
 
 /**
@@ -26,6 +32,7 @@ export const BUILTIN_SCHEMES = [
     icon: "model",
     environmentFlag: "RESOURCE_SCHEMES_ENABLED",
     validatorClientId: "litellm",
+    permissions: ["read"],
   },
   {
     scheme: "agent",
@@ -35,6 +42,7 @@ export const BUILTIN_SCHEMES = [
     icon: "agent",
     environmentFlag: "RESOURCE_SCHEMES_ENABLED",
     validatorClientId: "litellm",
+    permissions: ["read"],
   },
   {
     scheme: "mcp",
@@ -44,6 +52,7 @@ export const BUILTIN_SCHEMES = [
     icon: "mcp",
     environmentFlag: "RESOURCE_SCHEMES_ENABLED",
     validatorClientId: "litellm",
+    permissions: ["read"],
   },
   {
     scheme: "ssh",
@@ -53,6 +62,7 @@ export const BUILTIN_SCHEMES = [
     icon: "terminal",
     environmentFlag: "RESOURCE_SCHEMES_ENABLED",
     validatorClientId: "ssh-gateway",
+    permissions: ["read"],
   },
   {
     scheme: "https",
@@ -62,6 +72,7 @@ export const BUILTIN_SCHEMES = [
     icon: "globe",
     environmentFlag: "RESOURCE_SCHEMES_ENABLED",
     validatorClientId: "http-proxy",
+    permissions: ["read"],
   },
   {
     scheme: "file",
@@ -71,6 +82,7 @@ export const BUILTIN_SCHEMES = [
     icon: "file",
     environmentFlag: "RESOURCE_SCHEMES_ENABLED",
     validatorClientId: "file-service",
+    permissions: ["read", "write"],
   },
 ] as const satisfies readonly BuiltinScheme[];
 
@@ -84,6 +96,24 @@ export function isBuiltinScheme(scheme: string): boolean {
 
 export function builtinScheme(scheme: string): BuiltinScheme | undefined {
   return BUILTIN_SCHEMES.find((entry) => entry.scheme === scheme);
+}
+
+/** Application-defined schemes act on their own resources, so both levels apply. */
+export function supportedPermissions(
+  scheme: string,
+): readonly ResourcePermission[] {
+  return builtinScheme(scheme)?.permissions ?? RESOURCE_PERMISSIONS;
+}
+
+export function assertPermissionSupported(
+  scheme: string,
+  permission: ResourcePermission,
+): void {
+  if (!supportedPermissions(scheme).includes(permission)) {
+    throw ERR.RES_014(
+      `The ${scheme} scheme does not support the ${permission} permission`,
+    );
+  }
 }
 
 export function assertApplicationSchemeName(scheme: string): string {

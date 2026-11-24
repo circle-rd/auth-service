@@ -17,6 +17,8 @@ import { insertResourceGrant, type ResourceGrantRow } from "./grants.js";
 import { announceResourceChanged } from "./realtime.js";
 import { getResource, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
+import { assertPermissionSupported } from "./schemes.js";
+import type { ResourcePermission } from "./types.js";
 
 export const RESOURCE_INVITATION_TTL_HOURS = 72;
 export const RESOURCE_INVITATION_MAX_TTL_HOURS = 168;
@@ -59,6 +61,7 @@ export interface CreateResourceInvitationInput {
   email: string;
   resourceId: string;
   actorUserId: string;
+  permission?: ResourcePermission;
   ttlHours?: number;
 }
 
@@ -80,6 +83,8 @@ export async function createResourceInvitation(
   await assertAppAdmin(input.actorUserId, resource.applicationId);
   // The invitee receives a grant: only whoever may grant this resource can invite.
   await assertCanManageGrants(input.actorUserId, resource);
+  const permission = input.permission ?? "read";
+  assertPermissionSupported(resource.scheme, permission);
 
   const email = input.email.trim().toLowerCase();
   const [existing] = await db
@@ -105,6 +110,7 @@ export async function createResourceInvitation(
       tokenHash: hashResourceInvitationToken(token),
       email,
       resourceId: resource.id,
+      permission,
       expiresAt: new Date(Date.now() + ttlHours * 60 * 60 * 1000),
       createdBy: input.actorUserId,
     })
@@ -216,6 +222,7 @@ export async function acceptResourceInvitation(
         subjectType: "user",
         subjectId: input.subjectId,
         createdBy: invitation.createdBy,
+        permission: invitation.permission,
       },
       tx,
     );
@@ -269,6 +276,7 @@ export interface OwnerResourceInvitationView {
   resourceId: string;
   resourceUri: string;
   resourceDisplayName: string;
+  permission: ResourcePermission;
   expiresAt: Date;
   consumedAt: Date | null;
   revokedAt: Date | null;
@@ -288,6 +296,7 @@ export async function listResourceInvitationsForApplication(
       resourceId: resourceInvitations.resourceId,
       resourceUri: resourcesTable.uri,
       resourceDisplayName: resourcesTable.displayName,
+      permission: resourceInvitations.permission,
       expiresAt: resourceInvitations.expiresAt,
       consumedAt: resourceInvitations.consumedAt,
       revokedAt: resourceInvitations.revokedAt,

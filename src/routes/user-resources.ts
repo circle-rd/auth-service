@@ -26,6 +26,7 @@ import {
   listGrantsForResource,
   listGrantsForResources,
   revokeResourceGrant,
+  updateResourceGrantPermission,
 } from "../services/resources/grants.js";
 import {
   activeMemberIdByEmail,
@@ -48,7 +49,10 @@ import { linkResourceToGatewayObject } from "../services/gateway-inventory.js";
 import { buildSshValidationCommand } from "../services/ssh/targets.js";
 import { getResourceScheme } from "../services/resources/scheme-service.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
-import { RESOURCE_SUBJECT_TYPES } from "../services/resources/types.js";
+import {
+  RESOURCE_PERMISSIONS,
+  RESOURCE_SUBJECT_TYPES,
+} from "../services/resources/types.js";
 import { resourceMetadataSchema } from "./resource-metadata.js";
 
 const INTERNAL_RATE_LIMIT = {
@@ -126,6 +130,7 @@ const grantCreateSchema = z
     // an unknown address and a non-member, so the field cannot be used to
     // enumerate accounts.
     subjectEmail: z.string().trim().email().max(320).optional(),
+    permission: z.enum(RESOURCE_PERMISSIONS).optional(),
     expiresAt: z
       .string()
       .datetime()
@@ -177,6 +182,10 @@ const grantCreateSchema = z
       });
     }
   });
+
+const grantUpdateSchema = z
+  .object({ permission: z.enum(RESOURCE_PERMISSIONS) })
+  .strict();
 
 function publicResource(
   resource: Awaited<ReturnType<typeof getResource>>,
@@ -425,6 +434,7 @@ export async function userResourceRoutes(
       subjectType: body.subjectType,
       subjectId,
       actorUserId: userId,
+      permission: body.permission,
       expiresAt: body.expiresAt ?? null,
     });
     await reply.status(201).send({ grant });
@@ -438,6 +448,23 @@ export async function userResourceRoutes(
       const { resourceId, grantId } = grantParamsSchema.parse(req.params);
       await getGrantForResource(grantId, resourceId);
       const grant = await revokeResourceGrant(grantId, userId);
+      await reply.send({ grant });
+    },
+  );
+
+  fastify.patch(
+    "/resources/:resourceId/grants/:grantId",
+    async (req, reply) => {
+      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
+      if (!userId) return;
+      const { resourceId, grantId } = grantParamsSchema.parse(req.params);
+      const body = grantUpdateSchema.parse(req.body);
+      await getGrantForResource(grantId, resourceId);
+      const grant = await updateResourceGrantPermission(
+        grantId,
+        body.permission,
+        userId,
+      );
       await reply.send({ grant });
     },
   );

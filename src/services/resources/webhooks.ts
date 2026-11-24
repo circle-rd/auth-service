@@ -18,6 +18,7 @@ import { assertNonLocalHost } from "../outbound-guard.js";
 import type { DbExecutor } from "../credential-user.js";
 import type {
   ResourceOwnerType,
+  ResourcePermission,
   ResourceStatus,
   ResourceSubjectType,
 } from "./types.js";
@@ -25,6 +26,7 @@ import type {
 export const RESOURCE_WEBHOOK_EVENTS = [
   "resource.grant.created",
   "resource.grant.revoked",
+  "resource.grant.updated",
 ] as const;
 export type ResourceWebhookEvent = (typeof RESOURCE_WEBHOOK_EVENTS)[number];
 
@@ -127,6 +129,8 @@ export interface WebhookGrant {
   id: string;
   subjectType: ResourceSubjectType;
   subjectId: string | null;
+  permission: ResourcePermission;
+  previousPermission?: ResourcePermission;
   expiresAt?: Date | null;
 }
 
@@ -212,6 +216,8 @@ export async function enqueueResourceWebhookEvent(
       id: input.grant.id,
       subjectType: input.grant.subjectType,
       subjectId: input.grant.subjectId,
+      permission: input.grant.permission,
+      previousPermission: input.grant.previousPermission ?? null,
       expiresAt: input.grant.expiresAt?.toISOString() ?? null,
     },
     recipients,

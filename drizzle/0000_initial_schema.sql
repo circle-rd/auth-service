@@ -58,6 +58,7 @@ CREATE TABLE "applications" (
 	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "applications_slug_namespace_check" CHECK ("applications"."slug" !~ '^u-'),
 	CONSTRAINT "applications_billing_mode_check" CHECK ("applications"."billing_mode" IN ('none', 'delegated'))
 );
 --> statement-breakpoint
@@ -648,15 +649,15 @@ CREATE TABLE "resource_grants" (
 	"resource_id" uuid NOT NULL,
 	"subject_type" text NOT NULL,
 	"subject_id" text,
-	"permission" text DEFAULT 'use' NOT NULL,
+	"permission" text DEFAULT 'read' NOT NULL,
 	"expires_at" timestamp with time zone,
 	"revoked_at" timestamp with time zone,
 	"created_by" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "resource_grants_subject_type_check" CHECK ("resource_grants"."subject_type" IN ('user', 'organization', 'plan', 'everyone')),
+	CONSTRAINT "resource_grants_subject_type_check" CHECK ("resource_grants"."subject_type" IN ('user', 'organization', 'plan', 'everyone', 'application')),
 	CONSTRAINT "resource_grants_subject_id_check" CHECK (("resource_grants"."subject_type" = 'everyone' AND "resource_grants"."subject_id" IS NULL)
         OR ("resource_grants"."subject_type" <> 'everyone' AND "resource_grants"."subject_id" IS NOT NULL)),
-	CONSTRAINT "resource_grants_permission_check" CHECK ("resource_grants"."permission" = 'use'),
+	CONSTRAINT "resource_grants_permission_check" CHECK ("resource_grants"."permission" IN ('read', 'write')),
 	CONSTRAINT "resource_grants_created_by_check" CHECK (length("resource_grants"."created_by") > 0)
 );
 --> statement-breakpoint
@@ -665,11 +666,13 @@ CREATE TABLE "resource_invitations" (
 	"token_hash" text NOT NULL,
 	"email" text NOT NULL,
 	"resource_id" uuid NOT NULL,
+	"permission" text DEFAULT 'read' NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
 	"consumed_at" timestamp with time zone,
 	"revoked_at" timestamp with time zone,
 	"created_by" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "resource_invitations_permission_check" CHECK ("resource_invitations"."permission" IN ('read', 'write')),
 	CONSTRAINT "resource_invitations_created_by_check" CHECK (length("resource_invitations"."created_by") > 0)
 );
 --> statement-breakpoint

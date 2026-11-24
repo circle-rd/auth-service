@@ -11,7 +11,11 @@ import { isActiveMember } from "./authority.js";
 import { resolveGrantsForSubject, type ResourceGrantRow } from "./grants.js";
 import { findResourceByUri, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
-import type { ResourceSubjectType } from "./types.js";
+import {
+  permissionCovers,
+  type ResourcePermission,
+  type ResourceSubjectType,
+} from "./types.js";
 import { parseResourceUri } from "./uri.js";
 
 export type DenialReason =
@@ -24,18 +28,21 @@ export type DenialReason =
   | "scheme_disabled"
   | "not_validated"
   | "disabled"
-  | "no_grant";
+  | "no_grant"
+  | "insufficient_permission";
 
 export interface AuthorizeInput {
   subjectId: string;
   clientId: string;
   resourceUri: string;
   audience: string;
+  permission?: ResourcePermission;
 }
 
 export interface AccessFacts {
   resource: ResourceView;
   subjectId: string;
+  permission?: ResourcePermission;
   now?: Date;
 }
 
@@ -51,6 +58,7 @@ export interface AllowDecision {
   ownerType: "user" | "application";
   ownerId: string;
   accessKind: AccessKind;
+  permission: ResourcePermission;
   grantSubjectType?: ResourceSubjectType;
 }
 
@@ -72,6 +80,7 @@ function isNonEmpty(value: string): boolean {
 function allow(
   resource: ResourceView,
   accessKind: AccessKind,
+  permission: ResourcePermission,
   grantSubjectType?: ResourceSubjectType,
 ): AllowDecision {
   return {
@@ -84,8 +93,20 @@ function allow(
     ownerType: resource.ownerType,
     ownerId: resource.ownerId,
     accessKind,
+    permission,
     grantSubjectType,
   };
+}
+
+/** The strongest grant wins; the first one of that level names the subject type. */
+function strongestGrant(grants: readonly ResourceGrantRow[]) {
+  let best: ResourceGrantRow | undefined;
+  for (const grant of grants) {
+    if (!best || !permissionCovers(best.permission, grant.permission)) {
+      best = grant;
+    }
+  }
+  return best;
 }
 
 interface AccessProvider {
@@ -99,6 +120,7 @@ interface AccessProvider {
 async function decide(
   resource: ResourceView,
   provider: AccessProvider,
+  required: ResourcePermission,
 ): Promise<AccessDecision> {
   // Static state first: a disabled or unshared resource never needs a query.
   if (resource.status === "disabled") return deny("disabled");
@@ -108,10 +130,17 @@ async function decide(
   if (!(await provider.schemeEnabled())) return deny("scheme_disabled");
   if (!(await provider.accountActive())) return deny("account_disabled");
   if (!(await provider.activeMember())) return deny("no_membership");
-  if (provider.isOwner()) return allow(resource, "owner");
-  const grant = (await provider.grants())[0];
+  if (provider.isOwner()) {
+    return permissionCovers("write", required)
+      ? allow(resource, "owner", "write")
+      : deny("insufficient_permission");
+  }
+  const grant = strongestGrant(await provider.grants());
   if (!grant) return deny("no_grant");
-  return allow(resource, "grant", grant.subjectType);
+  if (!permissionCovers(grant.permission, required)) {
+    return deny("insufficient_permission");
+  }
+  return allow(resource, "grant", grant.permission, grant.subjectType);
 }
 
 /**
@@ -136,23 +165,34 @@ export async function evaluateResourceAccess(
   facts: AccessFacts,
 ): Promise<AccessDecision> {
   const { resource, subjectId } = facts;
-  return decide(resource, {
-    schemeEnabled: () =>
-      isSchemeEnabledForApplication(resource.applicationId, resource.scheme),
-    accountActive: async () => {
-      const [row] = await db
-        .select({ banned: userTable.banned, banExpires: userTable.banExpires })
-        .from(userTable)
-        .where(eq(userTable.id, subjectId))
-        .limit(1);
-      return row !== undefined && !isBanned(row, facts.now ?? new Date());
+  return decide(
+    resource,
+    {
+      schemeEnabled: () =>
+        isSchemeEnabledForApplication(resource.applicationId, resource.scheme),
+      accountActive: async () => {
+        const [row] = await db
+          .select({
+            banned: userTable.banned,
+            banExpires: userTable.banExpires,
+          })
+          .from(userTable)
+          .where(eq(userTable.id, subjectId))
+          .limit(1);
+        return row !== undefined && !isBanned(row, facts.now ?? new Date());
+      },
+      activeMember: () => isActiveMember(subjectId, resource.applicationId),
+      isOwner: () =>
+        resource.ownerType === "user" && resource.ownerId === subjectId,
+      grants: () =>
+        resolveGrantsForSubject(
+          subjectId,
+          resource.id,
+          facts.now ?? new Date(),
+        ),
     },
-    activeMember: () => isActiveMember(subjectId, resource.applicationId),
-    isOwner: () =>
-      resource.ownerType === "user" && resource.ownerId === subjectId,
-    grants: () =>
-      resolveGrantsForSubject(subjectId, resource.id, facts.now ?? new Date()),
-  });
+    facts.permission ?? "read",
+  );
 }
 
 interface BatchAccessContext {
@@ -183,10 +223,13 @@ function grantApplies(
       grant.subjectId !== null && context.organizationIds.has(grant.subjectId)
     );
   }
-  return (
-    grant.subjectId !== null &&
-    (context.planIds.get(applicationId)?.has(grant.subjectId) ?? false)
-  );
+  if (grant.subjectType === "plan") {
+    return (
+      grant.subjectId !== null &&
+      (context.planIds.get(applicationId)?.has(grant.subjectId) ?? false)
+    );
+  }
+  return false;
 }
 
 async function loadBatchAccessContext(
@@ -327,21 +370,25 @@ export async function evaluateResourceAccessBatch(
   const context = await loadBatchAccessContext(subjectId, resources, now);
   return Promise.all(
     resources.map((resource) =>
-      decide(resource, {
-        schemeEnabled: async () =>
-          context.enabledSchemes.has(
-            schemeKey(resource.applicationId, resource.scheme),
-          ),
-        accountActive: async () => context.accountActive,
-        activeMember: async () =>
-          context.memberships.has(resource.applicationId),
-        isOwner: () =>
-          resource.ownerType === "user" && resource.ownerId === subjectId,
-        grants: async () =>
-          (context.grants.get(resource.id) ?? []).filter((grant) =>
-            grantApplies(grant, resource.applicationId, context),
-          ),
-      }),
+      decide(
+        resource,
+        {
+          schemeEnabled: async () =>
+            context.enabledSchemes.has(
+              schemeKey(resource.applicationId, resource.scheme),
+            ),
+          accountActive: async () => context.accountActive,
+          activeMember: async () =>
+            context.memberships.has(resource.applicationId),
+          isOwner: () =>
+            resource.ownerType === "user" && resource.ownerId === subjectId,
+          grants: async () =>
+            (context.grants.get(resource.id) ?? []).filter((grant) =>
+              grantApplies(grant, resource.applicationId, context),
+            ),
+        },
+        "read",
+      ),
     ),
   );
 }
@@ -354,6 +401,7 @@ export async function authorizeResource(
   return evaluateResourceAccess({
     resource,
     subjectId: input.subjectId,
+    permission: input.permission,
   });
 }
 
@@ -379,5 +427,6 @@ export async function authorize(
   return evaluateResourceAccess({
     resource,
     subjectId: input.subjectId,
+    permission: input.permission,
   });
 }

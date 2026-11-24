@@ -14,6 +14,7 @@ import {
 } from "../services/resources/usage.js";
 import {
   RESOURCE_EVENT_SOURCES,
+  RESOURCE_PERMISSIONS,
   RESOURCE_USAGE_SOURCES,
 } from "../services/resources/types.js";
 import {
@@ -35,6 +36,7 @@ const authorizeBodySchema = z
     clientId: z.string().min(1).max(256),
     resourceUri: z.string().min(3).max(512),
     audience: z.string().min(1).max(2048),
+    permission: z.enum(RESOURCE_PERMISSIONS).optional(),
     requestId: z.string().min(1).max(256).optional(),
     source: z.enum(RESOURCE_EVENT_SOURCES).optional(),
   })
@@ -194,6 +196,7 @@ export async function gatewayResourceRoutes(
         clientId: body.clientId,
         resourceUri: body.resourceUri,
         audience: body.audience,
+        permission: body.permission,
       });
       try {
         await logDecision(decision, {
@@ -218,6 +221,7 @@ export async function gatewayResourceRoutes(
         ownerType: decision.ownerType,
         ownerId: decision.ownerId,
         accessKind: decision.accessKind,
+        permission: decision.permission,
       });
     },
   );

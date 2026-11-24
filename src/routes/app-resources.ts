@@ -46,7 +46,10 @@ import {
   USAGE_GROUP_BY,
 } from "../services/resources/usage.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
-import { RESOURCE_EVENT_DECISIONS } from "../services/resources/types.js";
+import {
+  RESOURCE_EVENT_DECISIONS,
+  RESOURCE_PERMISSIONS,
+} from "../services/resources/types.js";
 import {
   sendApplicationAccessEmail,
   sendResourceInvitationEmail,
@@ -128,6 +131,7 @@ const schemePatchSchema = z
 const invitationCreateSchema = z.object({
   email: z.string().trim().email().max(320),
   resourceId: z.string().uuid(),
+  permission: z.enum(RESOURCE_PERMISSIONS).optional(),
   ttlHours: z.number().int().min(1).max(168).optional(),
 });
 
@@ -382,6 +386,7 @@ export async function appResourceRoutes(
       email: body.email,
       resourceId: body.resourceId,
       actorUserId: userId,
+      permission: body.permission,
       ttlHours: body.ttlHours,
     });
     const inviteUrl = buildResourceInvitationUrl(created.token);

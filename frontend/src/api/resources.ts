@@ -112,7 +112,7 @@ export interface ResourceGrant {
   resourceId: string;
   subjectType: ResourceSubjectType;
   subjectId: string | null;
-  permission: 'use';
+  permission: 'read' | 'write';
   expiresAt: string | null;
   revokedAt: string | null;
   createdBy: string;

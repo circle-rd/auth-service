@@ -188,7 +188,8 @@ export const resources = pgTable(
 // ── Resource Grants ───────────────────────────────────────────────────────────
 // A grant is resource-scoped and never bypasses membership in the resource
 // application. `subject_id` is null only for `everyone`; user, organisation and
-// plan ids are opaque because the subject tables live outside this domain.
+// plan ids are opaque because the subject tables live outside this domain, and
+// an `application` grant names the application client id (its immutable slug).
 export const resourceGrants = pgTable(
   "resource_grants",
   {
@@ -201,7 +202,7 @@ export const resourceGrants = pgTable(
     permission: text("permission")
       .$type<ResourcePermission>()
       .notNull()
-      .default("use"),
+      .default("read"),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdBy: text("created_by").notNull(),
@@ -214,14 +215,17 @@ export const resourceGrants = pgTable(
     index("resource_grants_subject_idx").on(t.subjectType, t.subjectId),
     check(
       "resource_grants_subject_type_check",
-      sql`${t.subjectType} IN ('user', 'organization', 'plan', 'everyone')`,
+      sql`${t.subjectType} IN ('user', 'organization', 'plan', 'everyone', 'application')`,
     ),
     check(
       "resource_grants_subject_id_check",
       sql`(${t.subjectType} = 'everyone' AND ${t.subjectId} IS NULL)
         OR (${t.subjectType} <> 'everyone' AND ${t.subjectId} IS NOT NULL)`,
     ),
-    check("resource_grants_permission_check", sql`${t.permission} = 'use'`),
+    check(
+      "resource_grants_permission_check",
+      sql`${t.permission} IN ('read', 'write')`,
+    ),
     check("resource_grants_created_by_check", sql`length(${t.createdBy}) > 0`),
   ],
 );
@@ -239,6 +243,10 @@ export const resourceInvitations = pgTable(
     resourceId: uuid("resource_id")
       .notNull()
       .references(() => resources.id, { onDelete: "cascade" }),
+    permission: text("permission")
+      .$type<ResourcePermission>()
+      .notNull()
+      .default("read"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
@@ -251,6 +259,10 @@ export const resourceInvitations = pgTable(
     uniqueIndex("resource_invitations_token_hash_idx").on(t.tokenHash),
     index("resource_invitations_email_idx").on(t.email),
     index("resource_invitations_resource_idx").on(t.resourceId),
+    check(
+      "resource_invitations_permission_check",
+      sql`${t.permission} IN ('read', 'write')`,
+    ),
     check(
       "resource_invitations_created_by_check",
       sql`length(${t.createdBy}) > 0`,

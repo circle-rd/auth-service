@@ -250,6 +250,8 @@ export async function canGrantToSubject(
     if (subjectType === "user" && subjectId === userId) return false;
     if (!(await isApplicationAdmin(userId, resource.applicationId))) {
       if (subjectId === null) return false;
+      // The owner consents to expose a personal resource to an application.
+      if (subjectType === "application") return true;
       if (subjectType === "user") {
         return isActiveMember(subjectId, resource.applicationId);
       }
@@ -286,6 +288,7 @@ async function audienceWithinReach(
     case "everyone":
       return subjectId === null;
     case "plan":
+    case "application":
       return subjectId !== null;
     case "organization":
       return (

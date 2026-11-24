@@ -1578,7 +1578,6 @@ export default {
       disable: 'Désactiver',
       saved: 'Ressource mise à jour.',
       created: 'Ressource créée.',
-      disabledToast: 'Ressource désactivée.',
       deletedToast: 'Ressource supprimée.',
       gatewayHint: 'Un administrateur de la plateforme valide les ressources de la passerelle.',
       deleteTitle: 'Supprimer la ressource',

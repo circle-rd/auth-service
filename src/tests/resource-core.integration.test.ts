@@ -23,10 +23,10 @@ import {
 } from "../services/resources/scheme-service.js";
 import {
   createResource,
-  disableResource,
   getResource,
-  removeResource,
+  markResourceInvalidated,
 } from "../services/resources/registry.js";
+import { removeResource } from "../services/resources/resource-deletion.js";
 import { completeResourceValidation } from "../services/resources/validation.js";
 import { canManageGrants } from "../services/resources/authority.js";
 import { resolveAudience } from "../services/resources/audience.js";
@@ -451,7 +451,7 @@ describe("generic resource core", () => {
       deleteApplicationScheme(seedData.appAId, "llm"),
     ).rejects.toMatchObject({ code: "RES_004" });
 
-    await disableResource(resource.id, seedData.ownerId);
+    await markResourceInvalidated(resource.id, "withdrawn");
     await deleteApplicationScheme(seedData.appAId, "gine");
     const catalog = await listApplicationSchemeCatalog(seedData.appAId);
     expect(catalog.map((entry) => entry.scheme)).not.toContain("gine");
@@ -503,17 +503,16 @@ describe("generic resource core", () => {
     ).rejects.toMatchObject({ code: "RES_002" });
     await expect(
       removeResource(pending.id, seedData.ownerId),
-    ).resolves.toMatchObject({ removed: true });
+    ).resolves.toMatchObject({ id: pending.id });
     await expect(getResource(pending.id)).rejects.toMatchObject({
       code: "RES_002",
     });
 
+    // A validated resource is deleted too, not disabled and kept.
     const validated = await validatedResource(seedData);
-    const result = await removeResource(validated.id, seedData.ownerId);
-    expect(result.removed).toBe(false);
-    expect(result.resource.status).toBe("disabled");
-    await expect(getResource(validated.id)).resolves.toMatchObject({
-      status: "disabled",
+    await removeResource(validated.id, seedData.ownerId);
+    await expect(getResource(validated.id)).rejects.toMatchObject({
+      code: "RES_002",
     });
   });
 
@@ -774,7 +773,7 @@ describe("generic resource core", () => {
     ).resolves.toEqual({ decision: "deny", reason: "scheme_disabled" });
 
     await enableSchemeForApplication(seedData.appAId, "gine");
-    await disableResource(resource.id, seedData.ownerId);
+    await markResourceInvalidated(resource.id, "withdrawn");
     await expect(
       authorize({
         subjectId: seedData.ownerId,

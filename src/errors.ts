@@ -202,6 +202,10 @@ export const ERR = {
   RES_018: (
     msg = "The username is the namespace of resources the account owns",
   ) => new ApiError(409, "RES_018", msg),
+  RES_019: (msg = "The relay still serves this model") =>
+    new ApiError(409, "RES_019", msg),
+  RES_020: (msg = "Only a revoked or expired grant can be deleted") =>
+    new ApiError(409, "RES_020", msg),
 
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),

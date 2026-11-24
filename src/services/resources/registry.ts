@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
 import { user as userTable } from "../../db/auth-schema.js";
 import { resources } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
 import type { DbExecutor } from "../credential-user.js";
-import { activeGrantSubjects, announceResourceChanged } from "./realtime.js";
+import { announceResourceChanged } from "./realtime.js";
 import {
   assertCanManageResource,
   isActiveMember,
@@ -355,47 +355,6 @@ export async function markResourceInvalidated(
   if (!row) throw ERR.RES_002();
   await announceResourceChanged(row);
   return { ...current, ...row };
-}
-
-export async function disableResource(
-  id: string,
-  actorUserId: string,
-): Promise<ResourceView> {
-  const current = await getResource(id);
-  await assertCanManageResource(actorUserId, current);
-  const [row] = await db
-    .update(resources)
-    .set({ status: "disabled", updatedAt: new Date() })
-    .where(eq(resources.id, id))
-    .returning();
-  if (!row) throw ERR.RES_002();
-  await announceResourceChanged(row);
-  return { ...current, ...row };
-}
-
-/**
- * Remove a resource the owner no longer wants. One that was never validated
- * could not be used, so it has no history worth keeping and is deleted; any
- * other is disabled, which keeps its grants, events and usage.
- */
-export async function removeResource(
-  id: string,
-  actorUserId: string,
-): Promise<{ resource: ResourceView; removed: boolean }> {
-  const current = await getResource(id);
-  await assertCanManageResource(actorUserId, current);
-  // The predicate is re-checked by the database: a validation that lands
-  // between the read above and this delete leaves the row in place.
-  const subjects = await activeGrantSubjects(id);
-  const deleted = await db
-    .delete(resources)
-    .where(and(eq(resources.id, id), isNull(resources.validatedAt)))
-    .returning({ id: resources.id });
-  if (deleted.length > 0) {
-    await announceResourceChanged(current, subjects);
-    return { resource: current, removed: true };
-  }
-  return { resource: await disableResource(id, actorUserId), removed: false };
 }
 
 async function transitionValidation(

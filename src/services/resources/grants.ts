@@ -14,7 +14,7 @@ import { announceResourceChanged } from "./realtime.js";
 import { assertPermissionSupported } from "./schemes.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
 import type { ResourcePermission, ResourceSubjectType } from "./types.js";
-import { enqueueResourceWebhookEvent } from "./webhooks.js";
+import { enqueueResourceWebhookEvent } from "./webhook-events.js";
 
 export type ResourceGrantRow = typeof resourceGrants.$inferSelect;
 
@@ -255,6 +255,32 @@ export async function revokeResourceGrant(
     { subjectType: row.subjectType, subjectId: row.subjectId },
   ]);
   return row;
+}
+
+function isActiveGrant(grant: ResourceGrantRow, now: Date): boolean {
+  return (
+    grant.revokedAt === null &&
+    (grant.expiresAt === null || grant.expiresAt.getTime() > now.getTime())
+  );
+}
+
+/** Delete a grant that is already revoked or expired. Revoking stays the way to end access. */
+export async function deleteResourceGrant(
+  id: string,
+  actorUserId: string,
+): Promise<void> {
+  const [current] = await db
+    .select()
+    .from(resourceGrants)
+    .where(eq(resourceGrants.id, id))
+    .limit(1);
+  if (!current) throw ERR.RES_007();
+  await assertCanManageGrants(
+    actorUserId,
+    await getResource(current.resourceId),
+  );
+  if (isActiveGrant(current, new Date())) throw ERR.RES_020();
+  await db.delete(resourceGrants).where(eq(resourceGrants.id, id));
 }
 
 /** Change the level of an active grant in place: the id, audit fields and expiry stay. */

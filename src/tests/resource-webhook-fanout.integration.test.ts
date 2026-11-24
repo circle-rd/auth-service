@@ -198,7 +198,7 @@ describe("resource webhooks across applications", () => {
       createdBy: "owner",
     });
     const { enqueueResourceWebhookEvent } = await import(
-      "../services/resources/webhooks.js"
+      "../services/resources/webhook-events.js"
     );
     await enqueueResourceWebhookEvent({
       type: "resource.grant.created",

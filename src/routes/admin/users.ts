@@ -54,6 +54,10 @@ import {
   assertUsernameAvailable,
   assertUsernameChangeAllowed,
 } from "../../services/usernames.js";
+import {
+  deleteGrantsNamingSubject,
+  deleteResourcesOwnedByUser,
+} from "../../services/resources/resource-deletion.js";
 import { phoneVerificationResetSet } from "../../services/phone.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
@@ -883,6 +887,9 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       await tx
         .delete(userApplications)
         .where(eq(userApplications.userId, req.params.id));
+      // Resources and grants name the user by a plain id, with no foreign key.
+      await deleteResourcesOwnedByUser(req.params.id, tx);
+      await deleteGrantsNamingSubject("user", req.params.id, tx);
       await tx.delete(userTable).where(eq(userTable.id, req.params.id));
     });
 

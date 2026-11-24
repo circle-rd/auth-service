@@ -34,6 +34,7 @@ import {
 } from "../services/resources/grant-views.js";
 import {
   createResourceGrant,
+  deleteResourceGrant,
   getGrantForResource,
   revokeResourceGrant,
   updateResourceGrantPermission,
@@ -51,10 +52,10 @@ import {
   getResource,
   listResourcesForOwner,
   markResourceValidated,
-  removeResource,
   requestResourceValidation,
   updateResource,
 } from "../services/resources/registry.js";
+import { removeResource } from "../services/resources/resource-deletion.js";
 import { linkResourceToGatewayObject } from "../services/gateway-inventory.js";
 import { buildSshValidationCommand } from "../services/ssh/targets.js";
 import { getResourceScheme } from "../services/resources/scheme-service.js";
@@ -192,6 +193,12 @@ const grantCreateSchema = z
       });
     }
   });
+
+// Revoking is the default; `permanent` deletes a grant that is already inactive.
+const grantDeleteQuerySchema = z
+  .object({ permanent: z.enum(["true"]).optional() })
+  .strict()
+  .transform((value) => ({ permanent: value.permanent === "true" }));
 
 const grantUpdateSchema = z
   .object({ permission: z.enum(RESOURCE_PERMISSIONS) })
@@ -464,9 +471,9 @@ export async function userResourceRoutes(
     const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     await getResourceInScope(caller, resourceId);
-    const { resource, removed } = await removeResource(resourceId, userId);
+    const resource = await removeResource(resourceId, userId);
     const scheme = await getResourceScheme(resource.scheme);
-    await reply.send({ resource: publicResource(resource, scheme), removed });
+    await reply.send({ resource: publicResource(resource, scheme) });
   });
 
   fastify.post(
@@ -550,8 +557,14 @@ export async function userResourceRoutes(
       if (!caller) return;
       const { userId } = caller;
       const { resourceId, grantId } = grantParamsSchema.parse(req.params);
+      const query = grantDeleteQuerySchema.parse(req.query);
       await getResourceInScope(caller, resourceId);
       await getGrantForResource(grantId, resourceId);
+      if (query.permanent) {
+        await deleteResourceGrant(grantId, userId);
+        await reply.status(204).send();
+        return;
+      }
       const grant = await revokeResourceGrant(grantId, userId);
       await reply.send({ grant });
     },

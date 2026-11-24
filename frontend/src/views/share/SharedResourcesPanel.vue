@@ -161,8 +161,8 @@ async function disable() {
   if (!selected.value) return;
   disabling.value = true;
   try {
-    const { removed } = await removeResource(selected.value.id);
-    toast.success(t(removed ? 'share.resources.deletedToast' : 'share.resources.disabledToast'));
+    await removeResource(selected.value.id);
+    toast.success(t('share.resources.deletedToast'));
     showDisable.value = false;
     await load();
     emit('changed');

@@ -22,6 +22,7 @@ import {
   mergeOauthView,
   toOauthClientView,
 } from "./application-oauth-client.js";
+import { deleteGrantsNamingSubject } from "../../services/resources/resource-deletion.js";
 import { applicationUpdateRoutes } from "./application-update.js";
 import { applicationUserRoutes } from "./application-users.js";
 
@@ -73,14 +74,20 @@ export async function applicationRoutes(
     // Stripe objects can be archived (never deleted) afterwards.
     const catalogue = await loadApplicationCatalogue(req.params.id);
 
-    const [deleted] = await db
-      .delete(applications)
-      .where(eq(applications.id, req.params.id))
-      .returning({
-        id: applications.id,
-        slug: applications.slug,
-        url: applications.url,
-      });
+    // Application grants name the slug, with no foreign key: delete them with
+    // the application so none is left pointing at a name that could be reused.
+    const deleted = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .delete(applications)
+        .where(eq(applications.id, req.params.id))
+        .returning({
+          id: applications.id,
+          slug: applications.slug,
+          url: applications.url,
+        });
+      if (row) await deleteGrantsNamingSubject("application", row.slug, tx);
+      return row;
+    });
     if (!deleted) throw ERR.APP_002();
 
     // Remove the oauthClient row (cascades to tokens/consents in BetterAuth tables)

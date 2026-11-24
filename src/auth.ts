@@ -1,3 +1,4 @@
+import { deleteGrantsNamingSubject } from "./services/resources/resource-deletion.js";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import {
@@ -997,11 +998,13 @@ export const auth = betterAuth({
               ? [ADMIN_ROOM, orgRoom(organization.id)]
               : [ADMIN_ROOM],
           ),
-        afterDeleteOrganization: async ({ organization }) =>
+        afterDeleteOrganization: async ({ organization }) => {
+          await deleteGrantsNamingSubject("organization", organization.id);
           publishEvent("organization.changed", [
             ADMIN_ROOM,
             orgRoom(organization.id),
-          ]),
+          ]);
+        },
         afterAddMember: async ({ organization, user }) =>
           publishEvent("organization.changed", [
             ADMIN_ROOM,

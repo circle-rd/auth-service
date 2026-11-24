@@ -23,6 +23,7 @@ import {
 import { user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import { logger } from "../../logger.js";
+import { sweepResourceGrantRetention } from "./retention.js";
 import {
   applicationScope,
   type CallerApplication,
@@ -559,6 +560,9 @@ export function startResourceMonitoringRetention(): void {
   const run = () => {
     void sweepResourceMonitoringRetention().catch((err: unknown) => {
       logger.warn({ err }, "[res] monitoring retention sweep failed");
+    });
+    void sweepResourceGrantRetention().catch((err: unknown) => {
+      logger.warn({ err }, "[res] grant retention sweep failed");
     });
   };
   run();

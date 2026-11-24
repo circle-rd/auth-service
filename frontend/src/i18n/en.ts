@@ -1577,7 +1577,6 @@ export default {
       disable: 'Disable',
       saved: 'Resource updated.',
       created: 'Resource created.',
-      disabledToast: 'Resource disabled.',
       deletedToast: 'Resource deleted.',
       gatewayHint: 'A platform administrator validates gateway resources.',
       deleteTitle: 'Delete resource',

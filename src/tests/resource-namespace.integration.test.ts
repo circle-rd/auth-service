@@ -5,7 +5,8 @@ import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 import { applications, userApplications } from "../db/schema.js";
 import { createAppSchema } from "../routes/admin/application-create.js";
-import { createResource, removeResource } from "../services/resources/registry.js";
+import { createResource } from "../services/resources/registry.js";
+import { removeResource } from "../services/resources/resource-deletion.js";
 import {
   enableSchemeForApplication,
   syncBuiltinSchemes,

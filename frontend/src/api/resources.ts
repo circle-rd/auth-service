@@ -458,7 +458,7 @@ export async function updateResource(resourceId: string, body: UpdateResourceBod
   });
 }
 
-export async function removeResource(resourceId: string): Promise<{ resource: Resource; removed: boolean }> {
+export async function removeResource(resourceId: string): Promise<{ resource: Resource }> {
   return apiFetch(`/user/resources/${resourceId}`, { method: 'DELETE' });
 }
 

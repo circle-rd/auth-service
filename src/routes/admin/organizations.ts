@@ -1,3 +1,4 @@
+import { deleteGrantsNamingSubject } from "../../services/resources/resource-deletion.js";
 import type { FastifyInstance } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
@@ -208,7 +209,10 @@ export async function organizationsRoutes(
       .where(eq(organization.id, id))
       .limit(1);
     if (existing.length === 0) throw ERR.ORG_001();
-    await db.delete(organization).where(eq(organization.id, id));
+    await db.transaction(async (tx) => {
+      await tx.delete(organization).where(eq(organization.id, id));
+      await deleteGrantsNamingSubject("organization", id, tx);
+    });
     publishEvent("organization.changed", [ADMIN_ROOM, orgRoom(id)]);
     await reply.status(204).send();
   });

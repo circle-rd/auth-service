@@ -230,6 +230,14 @@ const envSchema = z
       .min(1)
       .max(3650)
       .default(400),
+    // Revoked or expired grants and spent invitations are deleted this long
+    // after they stopped counting.
+    RESOURCE_GRANT_RETENTION_DAYS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(3650)
+      .default(90),
     RESOURCE_RETENTION_SWEEP_HOURS: z.coerce
       .number()
       .int()
@@ -554,6 +562,7 @@ export const config = {
       .filter(Boolean),
     accessEventRetentionDays: parsed.data.RESOURCE_ACCESS_EVENT_RETENTION_DAYS,
     usageRecordRetentionDays: parsed.data.RESOURCE_USAGE_RECORD_RETENTION_DAYS,
+    grantRetentionDays: parsed.data.RESOURCE_GRANT_RETENTION_DAYS,
     retentionSweepHours: parsed.data.RESOURCE_RETENTION_SWEEP_HOURS,
     decisionTtlSeconds: parsed.data.GATEWAY_DECISION_TTL_S,
   },

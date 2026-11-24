@@ -58,6 +58,7 @@ const {
   mockListOwnerPlans,
   mockSendInvitation,
   mockMailConfigured,
+  mockDeleteGrant,
   bearerClient,
   mockLoadSharingApp,
 } = vi.hoisted(() => ({
@@ -109,6 +110,7 @@ const {
   mockListOwnerPlans: vi.fn(),
   mockSendInvitation: vi.fn(),
   mockMailConfigured: vi.fn(),
+  mockDeleteGrant: vi.fn(),
   // The OAuth client of the bearer token: null means the auth-service UI session.
   bearerClient: { current: null as string | null },
   mockLoadSharingApp: vi.fn(),
@@ -150,6 +152,7 @@ vi.mock("../services/resources/grants.js", () => ({
   createResourceGrant: mockCreateGrant,
   getGrantForResource: mockGetGrant,
   revokeResourceGrant: mockRevokeGrant,
+  deleteResourceGrant: mockDeleteGrant,
   updateResourceGrantPermission: vi.fn(),
 }));
 vi.mock("../services/resources/grant-views.js", () => ({
@@ -179,13 +182,15 @@ vi.mock("../services/usernames.js", () => ({
 }));
 vi.mock("../services/resources/registry.js", () => ({
   createResource: mockCreateResource,
-  removeResource: mockRemoveResource,
   getResource: mockGetResource,
   listResourcesForOwner: mockListMyResources,
   listResourcesForApplication: mockListAppResources,
   markResourceValidated: mockMarkValidated,
   requestResourceValidation: mockRequestValidation,
   updateResource: mockUpdateResource,
+}));
+vi.mock("../services/resources/resource-deletion.js", () => ({
+  removeResource: mockRemoveResource,
 }));
 vi.mock("../services/gateway-inventory.js", () => ({
   linkResourceToGatewayObject: mockLinkInventory,
@@ -255,6 +260,7 @@ beforeEach(() => {
   bearerClient.current = null;
   for (const mock of [
     mockLoadSharingApp,
+    mockDeleteGrant,
     mockRequireSession,
     mockRequireUserOrBearer,
     mockRequireAppDelegation,
@@ -666,28 +672,36 @@ describe("user resource routes", () => {
     expect(mockMarkValidated).not.toHaveBeenCalled();
   });
 
-  it("tells the caller whether the resource was deleted or only disabled", async () => {
-    mockRemoveResource.mockResolvedValueOnce({ resource, removed: true });
-    let res = await app.inject({
+  it("deletes a resource for good and answers with it", async () => {
+    mockRemoveResource.mockResolvedValueOnce(resource);
+    const res = await app.inject({
       method: "DELETE",
       url: `/api/user/resources/${RESOURCE}`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().removed).toBe(true);
+    expect(res.json().resource.id).toBe(RESOURCE);
+    expect(res.json()).not.toHaveProperty("removed");
     expect(mockRemoveResource).toHaveBeenCalledWith(RESOURCE, "user-1");
+  });
 
-    mockRemoveResource.mockResolvedValueOnce({
-      resource: { ...resource, status: "disabled" },
-      removed: false,
-    });
-    res = await app.inject({
-      method: "DELETE",
-      url: `/api/user/resources/${RESOURCE}`,
-    });
-    expect(res.json()).toMatchObject({
-      removed: false,
-      resource: { status: "disabled" },
-    });
+  it("revokes a grant by default and deletes an inactive one with permanent=true", async () => {
+    mockRequireUserOrBearer.mockResolvedValue("user-1");
+    mockGetResource.mockResolvedValue({ id: RESOURCE, applicationId: APP });
+    mockGetGrant.mockResolvedValue({ id: GRANT });
+    mockRevokeGrant.mockResolvedValue({ id: GRANT });
+    const url = `/api/user/resources/${RESOURCE}/grants/${GRANT}`;
+
+    let res = await app.inject({ method: "DELETE", url });
+    expect(res.statusCode).toBe(200);
+    expect(mockRevokeGrant).toHaveBeenCalledWith(GRANT, "user-1");
+    expect(mockDeleteGrant).not.toHaveBeenCalled();
+
+    res = await app.inject({ method: "DELETE", url: `${url}?permanent=true` });
+    expect(res.statusCode).toBe(204);
+    expect(mockDeleteGrant).toHaveBeenCalledWith(GRANT, "user-1");
+
+    res = await app.inject({ method: "DELETE", url: `${url}?permanent=yes` });
+    expect(res.statusCode).toBe(400);
   });
 
   it("lists grants through the grant-specific authority", async () => {

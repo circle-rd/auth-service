@@ -19,7 +19,7 @@ import {
   assertActiveMember,
   isApplicationAdmin,
 } from "../services/resources/authority.js";
-import { listGrantsForApplication } from "../services/resources/grants.js";
+import { listGrantsForApplication } from "../services/resources/grant-views.js";
 import { listModelCandidates } from "../services/resources/model-candidates.js";
 import {
   buildResourceInvitationUrl,

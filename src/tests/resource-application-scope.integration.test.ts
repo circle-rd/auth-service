@@ -15,6 +15,8 @@ import {
   createResourceGrant,
   revokeResourceGrant,
 } from "../services/resources/grants.js";
+import { shareResourcesWithApplication } from "../services/resources/application-sharing.js";
+import { listGrantsForResource } from "../services/resources/grant-views.js";
 import { authorize } from "../services/resources/policy.js";
 import { getResource } from "../services/resources/registry.js";
 import {
@@ -404,5 +406,58 @@ describe("accessible listing by application", () => {
     const global = await listAccessibleResources({ subjectId: "owner" });
     expect(global).toHaveLength(1);
     expect(global[0]).toHaveProperty("ownerId", "owner");
+  });
+});
+
+describe("sharing with an application", () => {
+  it("shares several resources and reports each refusal on its own", async () => {
+    const data = await seed();
+    const [foreign] = await db
+      .insert(resources)
+      .values({
+        applicationId: data.ownerAppId,
+        scheme: "file",
+        locator: "/doc_2",
+        uri: "file:///doc_2",
+        displayName: "Someone else's document",
+        ownerType: "user",
+        ownerId: "reader",
+        status: "validated",
+      })
+      .returning();
+    if (!foreign) throw new Error("resource seed failed");
+
+    const first = await shareResourcesWithApplication({
+      resourceIds: [data.resourceId, foreign.id],
+      applicationSlug: "consumer-app",
+      permission: "read",
+      actorUserId: "owner",
+    });
+    expect(first[0]).toMatchObject({ resourceId: data.resourceId, code: null });
+    expect(first[0]?.grantId).toEqual(expect.any(String));
+    expect(first[1]).toEqual({
+      resourceId: foreign.id,
+      grantId: null,
+      code: "RES_004",
+    });
+
+    const again = await shareResourcesWithApplication({
+      resourceIds: [data.resourceId],
+      applicationSlug: "consumer-app",
+      actorUserId: "owner",
+    });
+    expect(again[0]?.code).toBe("RES_008");
+  });
+
+  it("shows the application by name in the grant list", async () => {
+    const data = await seed();
+    await shareWithConsumer(data);
+    const grants = await listGrantsForResource(data.resourceId);
+    expect(grants).toHaveLength(1);
+    expect(grants[0]).toMatchObject({
+      subjectType: "application",
+      subjectId: "consumer-app",
+      subjectLabel: "consumer-app",
+    });
   });
 });

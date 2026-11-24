@@ -149,9 +149,14 @@ vi.mock("../services/resources/authority.js", () => ({
 vi.mock("../services/resources/grants.js", () => ({
   createResourceGrant: mockCreateGrant,
   getGrantForResource: mockGetGrant,
-  listGrantsForResource: mockListGrants,
-  listGrantsForApplication: mockListAppGrants,
   revokeResourceGrant: mockRevokeGrant,
+  updateResourceGrantPermission: vi.fn(),
+}));
+vi.mock("../services/resources/grant-views.js", () => ({
+  listGrantsForResource: mockListGrants,
+  listGrantsForResources: vi.fn(),
+  listActiveGrantCounts: vi.fn(),
+  listGrantsForApplication: mockListAppGrants,
 }));
 vi.mock("../services/resources/invitations.js", () => ({
   acceptResourceInvitation: mockAcceptInvitation,
@@ -396,6 +401,41 @@ describe("user resource routes confined to the bearer's application", () => {
     });
     expect(res.statusCode).toBe(404);
     expect(mockCreateResource).not.toHaveBeenCalled();
+  });
+
+  it("shares several resources with an application and reports each outcome", async () => {
+    mockGetResource.mockResolvedValue({ id: RESOURCE, applicationId: APP });
+    mockCreateGrant.mockResolvedValue({ id: "grant-1" });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/resource-shares",
+      payload: { resourceIds: [RESOURCE], applicationSlug: "other-app" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().results).toEqual([
+      { resourceId: RESOURCE, grantId: "grant-1", code: null },
+    ]);
+    expect(mockCreateGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectType: "application",
+        subjectId: "other-app",
+        actorUserId: "user-1",
+      }),
+    );
+  });
+
+  it("refuses to share a resource of another application", async () => {
+    mockGetResource.mockResolvedValue({
+      id: RESOURCE,
+      applicationId: OTHER_APP,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/resource-shares",
+      payload: { resourceIds: [RESOURCE], applicationSlug: "other-app" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
   it("keeps the global view for the auth-service UI session", async () => {

@@ -9,6 +9,10 @@ import {
   requireUserOrBearerCaller,
 } from "../middleware.js";
 import {
+  BULK_SHARE_LIMIT,
+  shareResourcesWithApplication,
+} from "../services/resources/application-sharing.js";
+import {
   loadSharingApplicationBySlug,
   type CallerApplication,
 } from "../services/resources/application-scope.js";
@@ -24,11 +28,13 @@ import {
   isPlatformAdmin,
 } from "../services/resources/authority.js";
 import {
-  createResourceGrant,
-  getGrantForResource,
   listActiveGrantCounts,
   listGrantsForResource,
   listGrantsForResources,
+} from "../services/resources/grant-views.js";
+import {
+  createResourceGrant,
+  getGrantForResource,
   revokeResourceGrant,
   updateResourceGrantPermission,
 } from "../services/resources/grants.js";
@@ -189,6 +195,20 @@ const grantCreateSchema = z
 
 const grantUpdateSchema = z
   .object({ permission: z.enum(RESOURCE_PERMISSIONS) })
+  .strict();
+
+const bulkShareSchema = z
+  .object({
+    resourceIds: z.array(z.string().uuid()).min(1).max(BULK_SHARE_LIMIT),
+    applicationSlug: z.string().trim().min(1).max(256),
+    permission: z.enum(RESOURCE_PERMISSIONS).optional(),
+    expiresAt: z
+      .string()
+      .datetime()
+      .transform((value) => new Date(value))
+      .nullable()
+      .optional(),
+  })
   .strict();
 
 function publicResource(
@@ -554,6 +574,23 @@ export async function userResourceRoutes(
       await reply.send({ grant });
     },
   );
+
+  fastify.post("/resource-shares", async (req, reply) => {
+    const caller = await requireResourceCaller(req, reply);
+    if (!caller) return;
+    const body = bulkShareSchema.parse(req.body);
+    for (const resourceId of body.resourceIds) {
+      await getResourceInScope(caller, resourceId);
+    }
+    const results = await shareResourcesWithApplication({
+      resourceIds: body.resourceIds,
+      applicationSlug: body.applicationSlug,
+      permission: body.permission,
+      expiresAt: body.expiresAt ?? null,
+      actorUserId: caller.userId,
+    });
+    await reply.send({ results });
+  });
 
   fastify.post("/resource-invitations/accept", async (req, reply) => {
     // The invitation binds to the session e-mail, so a bearer token is not enough.

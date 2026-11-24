@@ -145,6 +145,23 @@ export const ERR = {
     new ApiError(404, "ORG_004", msg),
   ORG_005: (msg = "User is already a member of this organization") =>
     new ApiError(409, "ORG_005", msg),
+  ORG_006: (msg = "Domain verification is not configured") =>
+    new ApiError(400, "ORG_006", msg),
+  ORG_007: (msg = "DNS TXT record not found or does not match") =>
+    new ApiError(400, "ORG_007", msg),
+  ORG_008: (msg = "This domain is already verified by another organization") =>
+    new ApiError(409, "ORG_008", msg),
+  ORG_009: (msg = "Auto-enrollment requires a verified domain") =>
+    new ApiError(400, "ORG_009", msg),
+  ORG_010: (msg = "DNS lookup failed; try again") =>
+    new ApiError(503, "ORG_010", msg),
+  ORG_011: (msg = "The last owner of a team cannot leave it") =>
+    new ApiError(409, "ORG_011", msg),
+  ORG_012: (msg = "This operation is only available for teams") =>
+    new ApiError(403, "ORG_012", msg),
+  ORG_013: (msg = "Team quota reached") => new ApiError(403, "ORG_013", msg),
+  ORG_014: (msg = "Invitation token is not valid") =>
+    new ApiError(404, "ORG_014", msg),
   // ── RES ───────────────────────────────────────────────────────────────────
   RES_001: (msg = "Invalid resource data", details?: unknown) =>
     new ApiError(400, "RES_001", msg, details),

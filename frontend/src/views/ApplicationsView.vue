@@ -12,6 +12,7 @@ import AppLayout from '@/components/layout/AppLayout.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
+import ApplicationIcon from '@/components/applications/ApplicationIcon.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import CopyField from '@/components/ui/CopyField.vue';
@@ -213,12 +214,7 @@ function formatDate(iso: string) {
         >
           <div class="flex flex-col gap-4 @lg:flex-row @lg:items-start @lg:gap-6">
             <div class="flex min-w-0 flex-1 items-start gap-3 pr-8 @lg:pr-0">
-              <div class="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-surface-800 flex items-center justify-center">
-                <img v-if="app.icon" :src="app.icon" class="w-full h-full object-cover" />
-                <span v-else class="text-sm font-bold text-surface-400">
-                  {{ app.name[0].toUpperCase() }}
-                </span>
-              </div>
+              <ApplicationIcon :name="app.name" :icon="app.icon" size="md" />
               <div class="min-w-0 flex-1">
                 <p class="text-sm font-semibold text-surface-200 truncate">{{ app.name }}</p>
                 <p class="text-xs font-mono text-surface-500 truncate">{{ app.slug }}</p>

@@ -7,7 +7,7 @@ import {
   userSubscriptions,
 } from "../db/schema.js";
 import { ERR } from "../errors.js";
-import { publishEvent } from "./event-bus.js";
+import { ADMIN_ROOM, publishEvent, userRoom, type Room } from "./event-bus.js";
 import { syncStripeSubscription } from "./billing/subscriptions.js";
 
 /**
@@ -252,7 +252,7 @@ async function applySubscriptionChange(
     }
   });
 
-  if (changed && input.source !== "default") notifySubscriptionChanged();
+  if (changed && input.source !== "default") notifySubscriptionChanged(userId);
 
   return { planId, changed, action, fromPlanId, toPlanId: planId };
 }
@@ -321,10 +321,14 @@ const MIN_NOTIFY_INTERVAL_MS = 1_000;
 
 let lastNotifiedAt = 0;
 let pendingNotify: NodeJS.Timeout | null = null;
+/** Subscribers touched since the last frame; a coalesced frame addresses all of them. */
+const pendingRooms = new Set<Room>();
 
 function emitSubscriptionChanged(): void {
   lastNotifiedAt = Date.now();
-  publishEvent("subscription.changed");
+  const rooms: [Room, ...Room[]] = [ADMIN_ROOM, ...pendingRooms];
+  pendingRooms.clear();
+  publishEvent("subscription.changed", rooms);
 }
 
 /**
@@ -334,7 +338,8 @@ function emitSubscriptionChanged(): void {
  * single trailing one. The channel is a signal, so one frame per burst is
  * enough — clients re-read the authoritative state.
  */
-export function notifySubscriptionChanged(): void {
+export function notifySubscriptionChanged(userId: string): void {
+  pendingRooms.add(userRoom(userId));
   const elapsed = Date.now() - lastNotifiedAt;
   if (elapsed >= MIN_NOTIFY_INTERVAL_MS) {
     emitSubscriptionChanged();

@@ -14,6 +14,7 @@ import {
   primaryKey,
   check,
 } from "drizzle-orm/pg-core";
+import { organization, user } from "./auth-schema.js";
 
 // ── Applications ──────────────────────────────────────────────────────────────
 export const applications = pgTable(
@@ -36,6 +37,13 @@ export const applications = pgTable(
     resourceSharingEnabled: boolean("resource_sharing_enabled")
       .notNull()
       .default(false),
+    // Lets the application's users create and join teams through the SDK.
+    teamsEnabled: boolean("teams_enabled").notNull().default(false),
+    // Public endpoint auth-service POSTs signed resource-sharing events to.
+    resourceWebhookUrl: text("resource_webhook_url"),
+    // AES-256-GCM ciphertext of the HMAC secret; never logged or returned
+    // outside the admin application view.
+    resourceWebhookSecret: text("resource_webhook_secret"),
     allowedScopes: text("allowed_scopes")
       .array()
       .notNull()
@@ -472,6 +480,35 @@ export const registrationInvitations = pgTable(
     uniqueIndex("registration_invitations_token_hash_idx").on(t.tokenHash),
     index("registration_invitations_email_idx").on(t.email),
     index("registration_invitations_app_idx").on(t.applicationId),
+  ],
+);
+
+// ── Team invitation tokens ────────────────────────────────────────────────────
+// A team owner issues a shareable token; redeeming it adds the caller to the
+// team as a `member`. Only the SHA-256 (base64url) of the token is stored, and
+// at most one token per team is active: issuing a new one revokes the previous.
+export const teamInvitationTokens = pgTable(
+  "team_invitation_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("team_invitation_tokens_token_hash_idx").on(t.tokenHash),
+    uniqueIndex("team_invitation_tokens_active_idx")
+      .on(t.organizationId)
+      .where(sql`${t.revokedAt} is null`),
   ],
 );
 

@@ -186,10 +186,16 @@ defineExpose({ handleKeydown, selectHighlighted, activeId, listboxId });
         <div v-if="loading" class="px-3 py-3 text-xs text-surface-500 text-center">{{ t('common.loading') }}</div>
         <div v-else-if="options.length === 0" class="px-3 py-3 text-xs text-surface-500 text-center">{{ t('common.noResults') }}</div>
         <ul v-else :id="listboxId" role="listbox" class="py-1">
+          <template v-for="(option, index) in options" :key="option.value">
           <li
-            v-for="(option, index) in options"
+            v-if="option.group && option.group !== options[index - 1]?.group"
+            role="presentation"
+            class="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-surface-500"
+          >
+            {{ option.group }}
+          </li>
+          <li
             :id="optionId(index)"
-            :key="option.value"
             role="option"
             :aria-selected="modelValue === option.value"
             :aria-disabled="option.disabled || undefined"
@@ -208,6 +214,7 @@ defineExpose({ handleKeydown, selectHighlighted, activeId, listboxId });
             <SelectOptionContent :option="option" class="flex-1" />
             <Check v-if="modelValue === option.value" class="w-3.5 h-3.5 text-primary-400 shrink-0" />
           </li>
+          </template>
         </ul>
       </div>
     </Transition>

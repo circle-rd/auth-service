@@ -209,6 +209,9 @@ const envSchema = z
     // gateway authorize/accessible routes are not mounted at all, so existing
     // azp→team behaviour is untouched.
     RESOURCE_SHARING_ENABLED: envBoolean(false),
+    // Teams created by one user through the SDK. Counted per creator; the
+    // quota is checked under a row lock, so concurrent requests cannot overshoot.
+    TEAM_MAX_PER_USER: z.coerce.number().int().positive().default(10),
     // Comma-separated built-in resource schemes enabled on this deployment.
     // A scheme whose dedicated service/profile is absent stays disabled even
     // when applications enable it.
@@ -526,6 +529,9 @@ export const config = {
     oauthDeviceGrant: parsed.data.OAUTH_DEVICE_GRANT_ENABLED,
     mfaBackfill: parsed.data.MFA_BACKFILL_ENABLED,
     resourceSharing: parsed.data.RESOURCE_SHARING_ENABLED,
+  },
+  teams: {
+    maxPerUser: parsed.data.TEAM_MAX_PER_USER,
   },
   reverseAgent: {
     clientId: parsed.data.REVERSE_AGENT_CLIENT_ID,

@@ -29,6 +29,16 @@ let calls: Array<{
   auth: string | null;
 }>;
 let answers: Record<string, Array<{ status: number; body: unknown }>>;
+let models: Array<{ model_name: string; model_info: { id: string } }>;
+let modelInfoStatuses: number[];
+let modelNewStatuses: number[];
+let modelDeleteStatuses: number[];
+let nextModelId: number;
+
+function nextStatus(queue: number[], fallback: number): number {
+  if (queue.length === 0) return fallback;
+  return queue.length > 1 ? queue.shift()! : queue[0]!;
+}
 
 function answer(
   method: string,
@@ -50,6 +60,11 @@ beforeEach(() => {
   };
   writeFileSync(env.stateFile, "A=1\nLITELLM_MASTER_KEY=sk-master\n");
   calls = [];
+  models = [];
+  modelInfoStatuses = [];
+  modelNewStatuses = [];
+  modelDeleteStatuses = [];
+  nextModelId = 0;
   answers = {
     "POST /user/new": [{ status: 200, body: {} }],
     "POST /key/delete": [{ status: 200, body: {} }],
@@ -62,9 +77,6 @@ beforeEach(() => {
     "GET /v1/models": [{ status: 200, body: { data: [] } }],
     "GET /v1/agents": [{ status: 200, body: [] }],
     "GET /v1/mcp/server": [{ status: 200, body: [] }],
-    "GET /model/info": [{ status: 200, body: { data: [] } }],
-    "POST /model/new": [{ status: 400, body: {} }],
-    "POST /model/delete": [{ status: 400, body: {} }],
     "GET /key/info": [{ status: 403, body: {} }],
     "POST /team/new": [{ status: 403, body: {} }],
   };
@@ -79,6 +91,46 @@ beforeEach(() => {
         body: init.body ? JSON.parse(init.body as string) : undefined,
         auth: new Headers(init.headers).get("Authorization"),
       });
+      const body = init.body ? JSON.parse(init.body as string) : undefined;
+      if (method === "GET" && path === "/model/info") {
+        const status = nextStatus(modelInfoStatuses, 200);
+        return new Response(
+          JSON.stringify(status === 200 ? { data: models } : { data: [] }),
+          { status },
+        );
+      }
+      if (method === "POST" && path === "/model/new") {
+        const status = nextStatus(modelNewStatuses, 200);
+        if (
+          status === 200 &&
+          typeof body === "object" &&
+          body !== null &&
+          "model_name" in body &&
+          "litellm_params" in body
+        ) {
+          nextModelId += 1;
+          models.push({
+            model_name: String(body.model_name),
+            model_info: { id: `deployment-${nextModelId}` },
+          });
+        }
+        return new Response(JSON.stringify({}), { status });
+      }
+      if (method === "POST" && path === "/model/delete") {
+        const status = nextStatus(modelDeleteStatuses, 200);
+        if (status === 200) {
+          const id =
+            typeof body === "object" && body !== null && "id" in body
+              ? String(body.id)
+              : "";
+          const index = models.findIndex((m) => m.model_info.id === id);
+          if (index < 0) {
+            return new Response(JSON.stringify({}), { status: 404 });
+          }
+          models.splice(index, 1);
+        }
+        return new Response(JSON.stringify({}), { status });
+      }
       const a = answer(method, path);
       return new Response(JSON.stringify(a.body), { status: a.status });
     }),
@@ -105,6 +157,7 @@ describe("provisionInventoryKey", () => {
     });
     expect(INVENTORY_ROUTES).toEqual([
       "/v1/models",
+      "/model/info",
       "/v1/agents",
       "/v1/mcp/server",
     ]);
@@ -117,6 +170,7 @@ describe("provisionInventoryKey", () => {
     expect(await provisionInventoryKey(env)).toBe("kept");
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
       "GET /v1/models",
+      "GET /model/info",
       "GET /v1/agents",
       "GET /v1/mcp/server",
       "POST /v1/mcp/server",
@@ -215,20 +269,28 @@ describe("provisionRelayKey", () => {
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
       "GET /model/info",
       "POST /model/new",
+      "GET /model/info",
       "POST /model/delete",
+      "GET /model/info",
       "POST /key/generate",
       "POST /team/new",
       "GET /key/info",
     ]);
     expect(readFileSync(env.relayKeyFile, "utf8")).toBe("sk-relay\n");
+    expect(models).toEqual([]);
+    expect(calls.some((c) => c.path === "/user/new")).toBe(false);
+    expect(
+      calls.some(
+        (c) =>
+          c.path === "/key/delete" &&
+          JSON.stringify(c.body).includes("auth-service-relay"),
+      ),
+    ).toBe(false);
   });
 
   it("reissues a key that no longer works, revoking the old alias", async () => {
     writeFileSync(env.relayKeyFile, "sk-stale\n");
-    answers["GET /model/info"] = [
-      { status: 401, body: {} },
-      { status: 200, body: { data: [] } },
-    ];
+    modelInfoStatuses = [401, 200];
     answers["POST /key/generate"] = [
       { status: 200, body: { key: "sk-relay-new" } },
       { status: 403, body: {} },
@@ -246,10 +308,53 @@ describe("provisionRelayKey", () => {
       { status: 403, body: {} },
     ];
     await provisionRelayKey(env);
-    expect(calls.filter((c) => c.path === "/model/info")).toHaveLength(2);
+    expect(calls.filter((c) => c.path === "/model/info")).toHaveLength(6);
     expect(calls.find((c) => c.path === "/key/delete")).toMatchObject({
       body: { key_aliases: [RELAY_KEY_ALIAS] },
     });
+    expect(models).toEqual([]);
+  });
+
+  it("reissues a key when the create probe answers 500", async () => {
+    writeFileSync(env.relayKeyFile, "sk-old\n");
+    modelNewStatuses = [500, 200];
+    answers["POST /key/generate"] = [
+      { status: 200, body: { key: "sk-relay-new" } },
+      { status: 403, body: {} },
+    ];
+    expect(await provisionRelayKey(env)).toBe("reissued");
+    expect(readFileSync(env.relayKeyFile, "utf8")).toBe("sk-relay-new\n");
+    expect(models).toEqual([]);
+  });
+
+  it("fails closed and cleans up when the new key still gets a 500", async () => {
+    modelNewStatuses = [500];
+    answers["POST /key/generate"] = [{ status: 200, body: { key: "sk-bad" } }];
+    await expect(provisionRelayKey(env)).rejects.toThrow(
+      /does not enforce its relay management scope/,
+    );
+    expect(existsSync(env.relayKeyFile)).toBe(false);
+    expect(models).toEqual([]);
+    expect(calls.at(-1)).toMatchObject({
+      path: "/key/delete",
+      body: { key_aliases: [RELAY_KEY_ALIAS] },
+    });
+  });
+
+  it("removes a probe deployment left by an earlier run", async () => {
+    writeFileSync(env.relayKeyFile, "sk-relay\n");
+    models = [
+      { model_name: "relay-key-probe", model_info: { id: "leftover" } },
+    ];
+    answers["POST /key/generate"] = [{ status: 403, body: {} }];
+    expect(await provisionRelayKey(env)).toBe("kept");
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        path: "/model/delete",
+        body: { id: "leftover" },
+      }),
+    );
+    expect(models).toEqual([]);
   });
 
   it("refuses and deletes a key whose scope is wider than requested", async () => {
@@ -261,6 +366,7 @@ describe("provisionRelayKey", () => {
       /does not enforce its relay management scope/,
     );
     expect(existsSync(env.relayKeyFile)).toBe(false);
+    expect(models).toEqual([]);
     expect(calls.at(-1)).toMatchObject({
       path: "/key/delete",
       body: { key_aliases: [RELAY_KEY_ALIAS] },

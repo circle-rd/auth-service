@@ -12,7 +12,7 @@ import { listOrganizations } from '@/api/organizations';
 import { getActiveUsers, getLogins, getRegistrations, type DailyCountPoint, type LoginsSeriesPoint } from '@/api/stats';
 import { useDebounce } from '@/composables/useDebounce';
 import { usePersistentPageSize } from '@/composables/usePersistentPageSize';
-import { useAdminEvents } from '@/composables/useAdminEvents';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 import StatCard from '@/components/ui/StatCard.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
@@ -61,7 +61,6 @@ const registrationsSeries = ref<DailyCountPoint[]>([]);
 const loginsTotal = ref(0);
 const activityLoading = ref(true);
 const activityError = ref(false);
-let onlinePollHandle: ReturnType<typeof setInterval> | null = null;
 
 async function fetchOnline() {
   try {
@@ -112,12 +111,21 @@ async function fetchActivity(options: { silent?: boolean } = {}) {
 // online counter instead of waiting for the poll below. The composable coalesces
 // a burst of frames into a single refresh, and the server is the only access
 // control — a refused stream stays silent.
-const adminEvents = useAdminEvents({
-  'login.recorded': () => {
-    void fetchActivity({ silent: true });
-    void fetchOnline();
+const events = useRealtimeEvents(
+  {
+    'login.recorded': () => {
+      void fetchActivity({ silent: true });
+      void fetchOnline();
+    },
+    'presence.changed': () => void fetchOnline(),
   },
-});
+  {
+    onResync: () => {
+      void fetchOnline();
+      void fetchActivity({ silent: true });
+    },
+  },
+);
 
 onMounted(async () => {
   await Promise.all([
@@ -138,7 +146,6 @@ onMounted(async () => {
     })(),
   ]);
   loading.value = false;
-  onlinePollHandle = setInterval(fetchOnline, 30_000);
 });
 
 async function loadSessions() {
@@ -168,8 +175,7 @@ watch(sessionLimit, () => {
 watch(sessionPage, () => { void loadSessions(); });
 
 onUnmounted(() => {
-  if (onlinePollHandle) clearInterval(onlinePollHandle);
-  adminEvents.close();
+  events.close();
 });
 
 const activeApplications = computed(() => applications.value.filter(a => a.isActive).length);

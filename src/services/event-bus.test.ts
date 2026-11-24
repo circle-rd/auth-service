@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  ADMIN_ROOM,
   DOMAIN_EVENT_TYPES,
   MemoryEventBus,
   createEventBus,
@@ -21,7 +22,7 @@ describe("MemoryEventBus", () => {
     bus.subscribe((e) => seen[0]!.push(e));
     bus.subscribe((e) => seen[1]!.push(e));
 
-    bus.publish("login.recorded");
+    bus.publish("login.recorded", [ADMIN_ROOM]);
 
     for (const events of seen) {
       expect(events).toHaveLength(1);
@@ -37,9 +38,9 @@ describe("MemoryEventBus", () => {
       received = e;
     });
 
-    bus.publish("login.recorded");
+    bus.publish("login.recorded", [ADMIN_ROOM]);
 
-    expect(Object.keys(received!).sort()).toEqual(["at", "type"]);
+    expect(Object.keys(received!).sort()).toEqual(["at", "rooms", "type"]);
   });
 
   it("stops delivering to an unsubscribed subscriber", () => {
@@ -47,9 +48,9 @@ describe("MemoryEventBus", () => {
     const seen: DomainEvent[] = [];
     const unsubscribe = bus.subscribe((e) => seen.push(e));
 
-    bus.publish("login.recorded");
+    bus.publish("login.recorded", [ADMIN_ROOM]);
     unsubscribe();
-    bus.publish("login.recorded");
+    bus.publish("login.recorded", [ADMIN_ROOM]);
 
     expect(seen).toHaveLength(1);
     expect(bus.subscriberCount).toBe(0);
@@ -63,7 +64,7 @@ describe("MemoryEventBus", () => {
     });
     bus.subscribe((e) => seen.push(e));
 
-    expect(() => bus.publish("login.recorded")).not.toThrow();
+    expect(() => bus.publish("login.recorded", [ADMIN_ROOM])).not.toThrow();
     expect(seen).toHaveLength(1);
   });
 
@@ -86,7 +87,7 @@ describe("the application seam", () => {
     const seen: DomainEvent[] = [];
     bus.subscribe((e) => seen.push(e));
 
-    publishEvent("login.recorded");
+    publishEvent("login.recorded", [ADMIN_ROOM]);
 
     expect(seen).toHaveLength(1);
     expect(seen[0]!.type).toBe("login.recorded");
@@ -100,7 +101,7 @@ describe("the application seam", () => {
     setEventBus(bus);
 
     // The publisher runs inside the login path: a broken bus must not fail it.
-    expect(() => publishEvent("login.recorded")).not.toThrow();
+    expect(() => publishEvent("login.recorded", [ADMIN_ROOM])).not.toThrow();
   });
 });
 
@@ -114,13 +115,14 @@ describe("createEventBus", () => {
 });
 
 describe("the event vocabulary", () => {
-  it("exposes the widened closed set, login.recorded first", () => {
+  it("exposes the closed set, login.recorded first", () => {
     // The channel is a closed set on purpose: `RedisEventBus` validates remote
     // messages with `z.enum(DOMAIN_EVENT_TYPES)`, so a type that is emitted but
     // absent here would never survive the fan-out. `login.recorded` stays first
     // so this list reads as the original vocabulary plus the WP3 additions.
     expect([...DOMAIN_EVENT_TYPES]).toEqual([
       "login.recorded",
+      "presence.changed",
       "session.created",
       "session.revoked",
       "user.changed",
@@ -128,20 +130,23 @@ describe("the event vocabulary", () => {
       "organization.changed",
       "wallet.changed",
       "subscription.changed",
+      "resource.changed",
+      "resource.activity",
+      "catalogue.changed",
     ]);
   });
 
   it("carries each type through the fan-out envelope unchanged", () => {
-    // Whatever the type, the wire form is a type name and a timestamp — the
-    // remote schema has no room for anything else.
+    // Rooms are routing only: the remote schema carries them, the wire frame
+    // never does (see `routes/events.ts`).
     for (const type of DOMAIN_EVENT_TYPES) {
       const bus = new MemoryEventBus();
       const seen: DomainEvent[] = [];
       bus.subscribe((e) => seen.push(e));
-      bus.publish(type);
+      bus.publish(type, [ADMIN_ROOM]);
       expect(seen).toHaveLength(1);
       expect(seen[0]!.type).toBe(type);
-      expect(Object.keys(seen[0]!).sort()).toEqual(["at", "type"]);
+      expect(Object.keys(seen[0]!).sort()).toEqual(["at", "rooms", "type"]);
     }
   });
 });

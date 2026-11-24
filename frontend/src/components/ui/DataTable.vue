@@ -42,6 +42,11 @@ const props = withDefaults(defineProps<{
   pagination?: DataTablePagination | null;
   /** When true, rows render with `cursor-pointer`. Pair with `@row-click`. */
   clickableRows?: boolean;
+  /**
+   * Slice `items` in the browser after sorting. Use when the parent already
+   * holds the full filtered list; `pagination.total` must be its length.
+   */
+  paginateLocally?: boolean;
 }>(), {
   loading: false,
   empty: false,
@@ -53,6 +58,7 @@ const props = withDefaults(defineProps<{
   searchPlaceholder: '',
   pagination: null,
   clickableRows: false,
+  paginateLocally: false,
 });
 
 const emit = defineEmits<{
@@ -115,6 +121,12 @@ const sortedItems = computed<Row[]>(() => {
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * factor;
     return String(av).localeCompare(String(bv)) * factor;
   });
+});
+
+const displayItems = computed<Row[]>(() => {
+  if (!props.paginateLocally || !props.pagination) return sortedItems.value;
+  const start = (props.pagination.page - 1) * props.pagination.limit;
+  return sortedItems.value.slice(start, start + props.pagination.limit);
 });
 
 const colCount = computed(() => props.columns
@@ -275,7 +287,7 @@ const showToolbar = computed(() => props.toolbar || props.searchable);
 
           <tbody v-else-if="columns">
             <tr
-              v-for="(row, idx) in sortedItems"
+              v-for="(row, idx) in displayItems"
               :key="defaultRowKey(row, idx)"
               :class="[
                 'border-b border-surface-800/50 last:border-0 hover:bg-surface-800/20 transition-colors',

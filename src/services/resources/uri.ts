@@ -27,6 +27,34 @@ const BUILTIN_ADAPTERS: Readonly<Record<string, ResourceAdapter>> = {
   file: "file",
 };
 
+/**
+ * LiteLLM model names may hold spaces, which no locator can. The locator carries
+ * this projection; the gateway object keeps the real name, which is what the
+ * gateway and its entitlements use.
+ */
+export function litellmLocatorName(name: string): string {
+  return name.replace(/\s/g, "_");
+}
+
+/**
+ * Model names that own their projection. A projection claimed by several names
+ * belongs to the one already equal to it (`FRONTIER_Router` over `FRONTIER Router`);
+ * when none is, the projection identifies nothing.
+ */
+export function projectionOwners(names: readonly string[]): Set<string> {
+  const byProjection = new Map<string, string[]>();
+  for (const name of names) {
+    const key = litellmLocatorName(name);
+    byProjection.set(key, [...(byProjection.get(key) ?? []), name]);
+  }
+  const owners = new Set<string>();
+  for (const [projection, claimants] of byProjection) {
+    if (claimants.length === 1) owners.add(claimants[0]!);
+    else if (claimants.includes(projection)) owners.add(projection);
+  }
+  return owners;
+}
+
 export function assertResourceScheme(scheme: string): string {
   if (typeof scheme !== "string" || !RESOURCE_SCHEME_RE.test(scheme)) {
     throw ERR.RES_005("Invalid resource scheme");

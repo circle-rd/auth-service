@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useOrganizationsStore } from '@/stores/organizations';
-import { createOrganization, updateOrganization, addMember, removeMember, sendInvitation, cancelInvitation } from '@/api/organizations';
+import { useOrganizationsStore, type TeamFilter } from '@/stores/organizations';
+import { addMember, removeMember, sendInvitation, cancelInvitation } from '@/api/organizations';
 import { listUsers } from '@/api/users';
 import { useToast } from '@/composables/useToast';
 import { PAGE_SIZE_OPTIONS, usePersistentPageSize } from '@/composables/usePersistentPageSize';
@@ -12,13 +12,13 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import SearchSelect from '@/components/ui/SearchSelect.vue';
-import EntityModal from '@/components/ui/EntityModal.vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import UserAvatar from '@/components/ui/UserAvatar.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
-import { Building2, Plus, Search, ChevronDown, ChevronUp, Users, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User } from '@lucide/vue';
+import { BadgeCheck, Building2, Plus, Search, ChevronDown, ChevronUp, Users, UsersRound, Mail, X, ChevronLeft, ChevronRight, Crown, Shield, User, UserPlus } from '@lucide/vue';
+import OrganizationFormModal from '@/components/organizations/OrganizationFormModal.vue';
 import type { SelectOption } from '@/types/select';
 
 const { t } = useI18n();
@@ -26,23 +26,25 @@ const store = useOrganizationsStore();
 const toast = useToast();
 
 const searchInput = ref('');
+const teamFilterOptions = computed<SelectOption[]>(() => [
+  { value: 'all', label: t('organizations.filterAll') },
+  { value: 'team', label: t('organizations.filterTeams') },
+  { value: 'company', label: t('organizations.filterCompanies') },
+]);
 const pageSize = usePersistentPageSize('organizations', 20);
 const orgMemberPageSize = usePersistentPageSize('organization-members', 20);
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 const expandedOrg = ref<string | null>(null);
 
-const showCreateModal = ref(false);
-const showEditModal = ref(false);
+const showOrgModal = ref(false);
+const editingOrg = ref<Organization | null>(null);
 const showDeleteConfirm = ref(false);
 const showAddMember = ref(false);
 const showInviteModal = ref(false);
 const formLoading = ref(false);
 const deleteLoading = ref(false);
 const selectedOrg = ref<Organization | null>(null);
-
-const createForm = ref({ name: '', slug: '', logo: '', domain: '', metadata: '' });
-const editForm = ref({ name: '', slug: '', logo: '', domain: '', metadata: '' });
 const addMemberForm = ref({ userId: '', role: 'member' as 'owner' | 'admin' | 'member' });
 const inviteForm = ref({ email: '', role: 'member' as 'owner' | 'admin' | 'member' });
 
@@ -70,14 +72,6 @@ function goToPage(p: number) {
   store.fetchOrganizations({ page: p });
 }
 
-function slugify(name: string) {
-  return name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-}
-
-watch(() => createForm.value.name, (name) => {
-  createForm.value.slug = slugify(name);
-});
-
 // Lazy-load members when expanding an org row
 watch(expandedOrg, (orgId) => {
   if (orgId) {
@@ -95,33 +89,15 @@ function loadMoreMembers(orgId: string) {
   void store.loadMoreOrgMembers(orgId, orgMemberPageSize.value);
 }
 
-async function handleCreate() {
-  formLoading.value = true;
-  try {
-    await createOrganization({ name: createForm.value.name, slug: createForm.value.slug, logo: createForm.value.logo || undefined, domain: createForm.value.domain || undefined, metadata: createForm.value.metadata || undefined });
-    await store.fetchOrganizations({ page: 1 });
-    toast.success('Organization created');
-    showCreateModal.value = false;
-    createForm.value = { name: '', slug: '', logo: '', domain: '', metadata: '' };
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to create');
-  } finally {
-    formLoading.value = false;
-  }
+function openOrgModal(org: Organization | null) {
+  editingOrg.value = org;
+  showOrgModal.value = true;
 }
 
-async function handleEdit() {
-  if (!selectedOrg.value) return;
-  formLoading.value = true;
-  try {
-    await updateOrganization(selectedOrg.value.id, { name: editForm.value.name, slug: editForm.value.slug, logo: editForm.value.logo || null, domain: editForm.value.domain || null, metadata: editForm.value.metadata || undefined });
-    await store.fetchOrganizations();
-    toast.success('Organization updated');
-    showEditModal.value = false;
-  } catch (err) {
-    toast.error(err instanceof Error ? err.message : 'Failed to update');
-  } finally {
-    formLoading.value = false;
+async function handleOrgSaved(org: Organization) {
+  await store.fetchOrganizations();
+  if (expandedOrg.value === org.id) {
+    void store.fetchOrgMembers(org.id, { limit: orgMemberPageSize.value });
   }
 }
 
@@ -183,12 +159,6 @@ async function handleInvite() {
   }
 }
 
-function openEdit(org: Organization) {
-  selectedOrg.value = org;
-  editForm.value = { name: org.name, slug: org.slug, logo: org.logo ?? '', domain: org.domain ?? '', metadata: org.metadata ?? '' };
-  showEditModal.value = true;
-}
-
 /** SearchSelect loader for users */
 async function loadUserOptions(search: string): Promise<SelectOption[]> {
   const res = await listUsers({ search, limit: 10 });
@@ -210,12 +180,6 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
 }
 
-const createModalTags = computed(() => {
-  const tags: Array<{ label: string; variant: 'info' | 'neutral' }> = [];
-  if (createForm.value.slug) tags.push({ label: createForm.value.slug, variant: 'info' });
-  return tags;
-});
-
 void cancelInvitation;
 </script>
 
@@ -223,15 +187,23 @@ void cancelInvitation;
   <AppLayout :title="t('organizations.title')" :subtitle="t('organizations.subtitle')">
     <div class="space-y-5">
       <div class="flex items-center justify-between gap-3">
-        <div class="relative flex-1 max-w-xs">
-          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
-          <input
-            v-model="searchInput"
-            :placeholder="t('organizations.searchPlaceholder')"
-            class="w-full pl-9 pr-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+        <div class="flex flex-1 items-center gap-2">
+          <div class="relative flex-1 max-w-xs">
+            <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-surface-500" />
+            <input
+              v-model="searchInput"
+              :placeholder="t('organizations.searchPlaceholder')"
+              class="w-full pl-9 pr-3 py-2 text-sm bg-surface-800 border border-surface-600 rounded-lg text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50"
+            />
+          </div>
+          <BaseSelect
+            :model-value="store.teamFilter"
+            :options="teamFilterOptions"
+            class="w-44"
+            @update:model-value="(value: string) => store.fetchOrganizations({ teamFilter: value as TeamFilter, page: 1 })"
           />
         </div>
-        <BaseButton @click="showCreateModal = true">
+        <BaseButton @click="openOrgModal(null)">
           <Plus class="w-4 h-4" />
           {{ t('organizations.createOrg') }}
         </BaseButton>
@@ -243,7 +215,7 @@ void cancelInvitation;
 
       <EmptyState v-else-if="store.organizations.length === 0" :title="t('organizations.noOrgs')" :message="t('organizations.noOrgsMessage')">
         <template #action>
-          <BaseButton @click="showCreateModal = true" size="sm"><Plus class="w-3.5 h-3.5" />{{ t('organizations.createOrg') }}</BaseButton>
+          <BaseButton @click="openOrgModal(null)" size="sm"><Plus class="w-3.5 h-3.5" />{{ t('organizations.createOrg') }}</BaseButton>
         </template>
       </EmptyState>
 
@@ -265,13 +237,42 @@ void cancelInvitation;
               <p class="text-xs text-surface-500 font-mono">{{ org.domain ?? org.slug }}</p>
             </div>
             <div class="flex items-center gap-4 shrink-0">
+              <div class="flex items-center gap-1.5">
+                <BaseBadge
+                  v-if="org.team"
+                  variant="primary"
+                  size="sm"
+                  :icon="UsersRound"
+                  :title="t('organizations.teamBadge')"
+                >
+                  <span class="sr-only">{{ t('organizations.teamBadge') }}</span>
+                </BaseBadge>
+                <BaseBadge
+                  v-if="org.domainVerifiedAt"
+                  variant="info"
+                  size="sm"
+                  :icon="BadgeCheck"
+                  :title="t('organizations.domainVerified')"
+                >
+                  <span class="sr-only">{{ t('organizations.domainVerified') }}</span>
+                </BaseBadge>
+                <BaseBadge
+                  v-if="org.autoEnrollEnabled"
+                  variant="success"
+                  size="sm"
+                  :icon="UserPlus"
+                  :title="t('organizations.autoEnrollActive')"
+                >
+                  <span class="sr-only">{{ t('organizations.autoEnrollActive') }}</span>
+                </BaseBadge>
+              </div>
               <div class="flex items-center gap-1.5 text-xs text-surface-500">
                 <Users class="w-3.5 h-3.5" />
                 {{ org.memberCount ?? store.orgMemberTotals[org.id] ?? store.orgMembers[org.id]?.length ?? 0 }}
               </div>
               <span class="text-xs text-surface-600 hidden sm:block">{{ formatDate(org.createdAt) }}</span>
               <div class="flex items-center gap-1">
-                <button @click.stop="openEdit(org)" class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors text-xs">{{ t('common.edit') }}</button>
+                <button @click.stop="openOrgModal(org)" class="p-1.5 rounded-lg text-surface-500 hover:text-surface-300 hover:bg-surface-700/50 transition-colors text-xs">{{ t('common.edit') }}</button>
                 <button @click.stop="selectedOrg = org; showDeleteConfirm = true" class="p-1.5 rounded-lg text-red-500 hover:text-red-400 hover:bg-red-500/10 transition-colors text-xs">{{ t('common.delete') }}</button>
               </div>
               <component :is="expandedOrg === org.id ? ChevronUp : ChevronDown" class="w-4 h-4 text-surface-500" />
@@ -378,51 +379,12 @@ void cancelInvitation;
       </div>
     </div>
 
-    <EntityModal
-      :open="showCreateModal"
-      :name="createForm.name || t('organizations.createOrg')"
-      :subtitle="createForm.slug || 'org-slug'"
-      :icon-url="createForm.logo || null"
-      :icon-letter="createForm.name ? createForm.name[0].toUpperCase() : 'O'"
-      icon-shape="square"
-      :tags="createModalTags"
-      size="lg"
-      @close="showCreateModal = false"
-    >
-      <form @submit.prevent="handleCreate" class="space-y-4">
-        <BaseInput v-model="createForm.name" :label="t('organizations.name')" required />
-        <BaseInput v-model="createForm.slug" :label="t('organizations.slug')" required />
-        <BaseInput v-model="createForm.domain" :label="t('organizations.domain')" :hint="t('organizations.domainHint')" />
-        <BaseInput v-model="createForm.logo" :label="t('organizations.logo')" />
-        <BaseInput v-model="createForm.metadata" :label="t('organizations.metadata')" />
-      </form>
-      <template #footer>
-        <BaseButton variant="ghost" @click="showCreateModal = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="formLoading" @click="handleCreate">{{ t('common.create') }}</BaseButton>
-      </template>
-    </EntityModal>
-
-    <EntityModal
-      :open="showEditModal"
-      :name="editForm.name || selectedOrg?.name || t('organizations.editOrg')"
-      :subtitle="editForm.slug || selectedOrg?.slug || ''"
-      :icon-url="(editForm.logo || selectedOrg?.logo) ?? null"
-      :icon-letter="(editForm.name || selectedOrg?.name || 'O')[0].toUpperCase()"
-      icon-shape="square"
-      size="lg"
-      @close="showEditModal = false"
-    >
-      <form @submit.prevent="handleEdit" class="space-y-4">
-        <BaseInput v-model="editForm.name" :label="t('organizations.name')" required />
-        <BaseInput v-model="editForm.slug" :label="t('organizations.slug')" required />
-        <BaseInput v-model="editForm.domain" :label="t('organizations.domain')" :hint="t('organizations.domainHint')" />
-        <BaseInput v-model="editForm.logo" :label="t('organizations.logo')" />
-      </form>
-      <template #footer>
-        <BaseButton variant="ghost" @click="showEditModal = false">{{ t('common.cancel') }}</BaseButton>
-        <BaseButton :loading="formLoading" @click="handleEdit">{{ t('common.save') }}</BaseButton>
-      </template>
-    </EntityModal>
+    <OrganizationFormModal
+      :open="showOrgModal"
+      :organization="editingOrg"
+      @close="showOrgModal = false"
+      @saved="handleOrgSaved"
+    />
 
     <BaseModal :open="showAddMember" :title="t('organizations.addMember')" @close="showAddMember = false">
       <div class="space-y-4">

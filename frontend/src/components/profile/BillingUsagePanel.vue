@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { Gauge } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
+import ApplicationIcon from '@/components/applications/ApplicationIcon.vue';
 import { getMyUsage } from '@/api/billing';
 import type { BillingUsage, UserSubscriptionEntry } from '@/types';
 
@@ -59,7 +60,7 @@ function share(used: number, limit: number): number {
     <div v-else class="divide-y divide-surface-800/40">
       <div v-for="sub in withPlan" :key="sub.applicationId" class="px-5 py-4">
         <div class="flex items-center gap-3 mb-3">
-          <img v-if="sub.applicationIcon" :src="sub.applicationIcon" class="w-5 h-5 rounded shrink-0" />
+          <ApplicationIcon :name="sub.applicationName" :icon="sub.applicationIcon" />
           <p class="text-sm font-medium text-surface-200 flex-1 truncate">{{ sub.applicationName }}</p>
           <BaseBadge variant="neutral" size="sm">{{ sub.plan!.name }}</BaseBadge>
         </div>

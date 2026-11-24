@@ -2,10 +2,15 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireMachineScope } from "../services/machine-auth.js";
 import { listGatewayEntitlements } from "../services/gateway-inventory.js";
+import { requestGatewayInventorySync } from "../services/gateway-inventory-sync.js";
 import { userParamsSchema } from "./wallet-schemas.js";
 
 const INTERNAL_RATE_LIMIT = {
   rateLimit: { max: 6000, timeWindow: "1 minute" },
+};
+
+const INVENTORY_NOTIFY_RATE_LIMIT = {
+  rateLimit: { max: 60, timeWindow: "1 minute" },
 };
 
 const entitlementsQuerySchema = z
@@ -32,6 +37,19 @@ export async function gatewayInternalRoutes(
       const { userId } = userParamsSchema.parse(req.params);
       entitlementsQuerySchema.parse(req.query);
       await reply.send(await listGatewayEntitlements(userId));
+    },
+  );
+
+  fastify.post(
+    "/inventory-changed",
+    { config: INVENTORY_NOTIFY_RATE_LIMIT },
+    async (req, reply) => {
+      await requireMachineScope(
+        req.headers.authorization,
+        "gateway:inventory:sync",
+      );
+      requestGatewayInventorySync();
+      await reply.status(202).send();
     },
   );
 }

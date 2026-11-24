@@ -103,6 +103,17 @@ Full documentation: **https://docs.circle-cyber.com/auth-service**
   bills the cost afterwards; the admin interface signs in through auth-service.
 - Exchange rate and margin editable by superadmins; a reconciliation script
   compares the gateway's spend logs with the ledger.
+- Resource catalogue for gateway models. A member declares the models, agents
+  and MCP servers that `reverse-relay` learned for their own account; they are
+  validated at declaration when the relay wrote the object for that username
+  (`managed_by = reverse-relay`, `client_id` and reverse name starting with the
+  username). Any other gateway object stays pending for a platform
+  administrator. LiteLLM auto-routers are listed apart from models. Candidate
+  lists are served per application by
+  `/api/user/apps/:appId/model-candidates/{managed,native}`. At creation, a
+  resource can be shared with every member, a plan, an organization the creator
+  belongs to, or one active member (`audience` on `POST /api/user/resources`);
+  a grant to oneself is refused, since the owner already has access.
 
 **Platform**
 

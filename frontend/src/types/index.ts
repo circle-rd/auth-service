@@ -13,6 +13,12 @@ export interface User {
   banExpires: string | null
   isMfaRequired: boolean | null
   phone: string | null
+  phoneVerified?: boolean
+  phoneVerifiedAt?: string | null
+  phoneVerificationMethod?: string | null
+  ageVerified?: boolean
+  ageVerifiedAt?: string | null
+  ageVerificationMethod?: string | null
   firstName?: string | null
   lastName?: string | null
   username?: string | null
@@ -109,6 +115,12 @@ export interface Application {
   billingMode: 'none' | 'delegated'
   /** Per-application owner sharing switch; effective only with the global flag. */
   resourceSharingEnabled: boolean
+  /** Lets the application's users create and join teams through the SDK. */
+  teamsEnabled: boolean
+  /** Endpoint auth-service POSTs signed resource-sharing events to. */
+  resourceWebhookUrl: string | null
+  /** HMAC secret of the webhook, admin-only. */
+  resourceWebhookSecret: string | null
   allowedScopes: string[]
   redirectUris: string[]
   isPublic: boolean
@@ -305,6 +317,12 @@ export interface Organization {
   slug: string
   logo: string | null
   domain?: string | null
+  domainVerificationToken?: string | null
+  domainVerifiedAt?: string | null
+  domainLastCheckedAt?: string | null
+  autoEnrollEnabled?: boolean
+  /** Created through the SDK: a team, as opposed to a company. */
+  team: boolean
   createdAt: string
   metadata: string | null
   memberCount?: number

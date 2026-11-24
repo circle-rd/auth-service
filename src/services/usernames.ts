@@ -1,4 +1,4 @@
-import { and, ne, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 
@@ -33,4 +33,26 @@ export async function assertUsernameAvailable(
 /** True when a stored username can be emitted verbatim to a resource server. */
 export function isPublicUsername(username: string): boolean {
   return USERNAME_RE.test(username);
+}
+
+export interface UserIdentity {
+  id: string;
+  username: string | null;
+  email: string;
+}
+
+/** The identifiers a gateway deployment may record as its owner. */
+export async function getUserIdentity(
+  userId: string,
+): Promise<UserIdentity | null> {
+  const [row] = await db
+    .select({
+      id: userTable.id,
+      username: userTable.username,
+      email: userTable.email,
+    })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+  return row ?? null;
 }

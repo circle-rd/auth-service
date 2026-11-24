@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue';
+import { computed, onBeforeUnmount, watch } from 'vue';
 import { RouterView, useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { BookOpen, Share2 } from '@lucide/vue';
@@ -9,6 +9,8 @@ import BaseButton from '@/components/ui/BaseButton.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue';
 import { useCatalogueStore } from '@/stores/catalogue';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
+import { provideCatalogueActivity } from '@/composables/useCatalogueActivity';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -42,6 +44,53 @@ function sync() {
 
 watch(() => [store.appsLoaded, appId.value], sync);
 void store.loadApps().then(sync);
+
+// A resource type that was deactivated while the page is open leaves the overview.
+watch(overview, (current) => {
+  if (route.name !== 'catalogue-type' || !current || !appId.value) return;
+  if (!current.schemes.some((entry) => entry.scheme === route.params.scheme)) {
+    void router.replace({ name: 'catalogue-dashboard', params: { appId: appId.value } });
+  }
+});
+
+// Resource types, shares and grants change outside this tab (an administrator
+// enabling a scheme, another user sharing a resource). The server only addresses
+// the frames this session may see; the overview is re-read on each of them.
+function refreshOverview() {
+  if (appId.value && store.byId.has(appId.value)) {
+    void store.loadOverview(appId.value, true);
+  }
+}
+
+// Role and owner delegation are read once per application list: after a
+// reconnection they are re-read, so a lost right disappears from the sidebar.
+function refreshCatalogue() {
+  void store.loadApps(true).then(() => {
+    sync();
+    refreshOverview();
+  });
+}
+
+const activityTick = provideCatalogueActivity();
+function refreshActivity() {
+  activityTick.value += 1;
+}
+
+const events = useRealtimeEvents(
+  {
+    'catalogue.changed': refreshOverview,
+    'resource.changed': refreshOverview,
+    'resource.activity': refreshActivity,
+  },
+  {
+    onResync: () => {
+      refreshCatalogue();
+      refreshActivity();
+    },
+  },
+);
+onBeforeUnmount(() => events.close());
+
 </script>
 
 <template>

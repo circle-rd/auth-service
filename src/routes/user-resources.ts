@@ -1,8 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { RESOURCE_SELF_SCOPE } from "../compat/scopes.js";
 import { config } from "../config.js";
 import { ERR } from "../errors.js";
-import { getRequestSession, requireSession } from "../middleware.js";
+import {
+  getRequestSession,
+  requireSession,
+  requireUserOrBearer,
+} from "../middleware.js";
 import {
   listAccessibleResources,
   listSharingApplications,
@@ -17,9 +22,17 @@ import {
 import {
   createResourceGrant,
   getGrantForResource,
+  listActiveGrantCounts,
   listGrantsForResource,
+  listGrantsForResources,
   revokeResourceGrant,
 } from "../services/resources/grants.js";
+import {
+  activeMemberIdByEmail,
+  resolveAudience,
+} from "../services/resources/audience.js";
+import { validateRelayDeclaration } from "../services/resources/gateway-declaration.js";
+import { getUserIdentity } from "../services/usernames.js";
 import { acceptResourceInvitation } from "../services/resources/invitations.js";
 import { getUserActivity } from "../services/resources/monitoring.js";
 import {
@@ -62,6 +75,26 @@ const activityQuerySchema = z
   })
   .strict();
 
+const resourceAudienceSchema = z.union([
+  z.object({ type: z.literal("everyone") }).strict(),
+  z.object({ type: z.literal("plan"), planId: z.string().uuid() }).strict(),
+  z
+    .object({
+      type: z.literal("organization"),
+      organizationId: z.string().min(1).max(128),
+    })
+    .strict(),
+  z
+    .object({ type: z.literal("user"), userId: z.string().min(1).max(128) })
+    .strict(),
+  z
+    .object({
+      type: z.literal("user"),
+      email: z.string().trim().email().max(320),
+    })
+    .strict(),
+]);
+
 const resourceCreateSchema = z
   .object({
     applicationId: z.string().uuid(),
@@ -69,6 +102,7 @@ const resourceCreateSchema = z
     locator: z.string().trim().min(1).max(255).optional(),
     displayName: z.string().trim().min(1).max(200),
     metadata: resourceMetadataSchema.optional(),
+    audience: resourceAudienceSchema.optional(),
   })
   .strict();
 
@@ -87,6 +121,11 @@ const grantCreateSchema = z
   .object({
     subjectType: z.enum(RESOURCE_SUBJECT_TYPES),
     subjectId: z.string().trim().min(1).max(256).nullable().optional(),
+    // A user grant may name an e-mail instead of an id. auth-service resolves
+    // it among the application's active members and gives the same answer for
+    // an unknown address and a non-member, so the field cannot be used to
+    // enumerate accounts.
+    subjectEmail: z.string().trim().email().max(320).optional(),
     expiresAt: z
       .string()
       .datetime()
@@ -104,7 +143,31 @@ const grantCreateSchema = z
           message: "everyone has no subject id",
         });
       }
+      if (value.subjectEmail !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["subjectEmail"],
+          message: "everyone has no e-mail",
+        });
+      }
       return;
+    }
+    if (value.subjectType === "user" && value.subjectEmail !== undefined) {
+      if (value.subjectId !== undefined && value.subjectId !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["subjectId"],
+          message: "Give either a subject id or a subject e-mail",
+        });
+      }
+      return;
+    }
+    if (value.subjectEmail !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["subjectEmail"],
+        message: "Only a user grant accepts a subject e-mail",
+      });
     }
     if (!value.subjectId) {
       ctx.addIssue({
@@ -147,7 +210,7 @@ export async function userResourceRoutes(
     "/accessible-resources",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      const userId = await requireSession(req, reply);
+      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
       if (!userId) return;
       const query = accessibleQuerySchema.parse(req.query);
       const resources = await listAccessibleResources({
@@ -166,7 +229,7 @@ export async function userResourceRoutes(
     "/resource-catalogue",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      const userId = await requireSession(req, reply);
+      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
       if (!userId) return;
       const [resources, applications] = await Promise.all([
         listAccessibleResources({ subjectId: userId }),
@@ -181,13 +244,13 @@ export async function userResourceRoutes(
   );
 
   fastify.get("/resource-applications", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     await reply.send({ applications: await listMemberApplications(userId) });
   });
 
   fastify.get("/resource-activity", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     const query = activityQuerySchema.parse(req.query);
     await assertActiveMember(userId, query.applicationId);
@@ -197,18 +260,45 @@ export async function userResourceRoutes(
   });
 
   fastify.get("/resources", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
+    const query = z
+      .object({ include: z.enum(["grants"]).optional() })
+      .parse(req.query);
     const resources = await listResourcesForOwner("user", userId);
-    await reply.send({ resources });
+    const resourceIds = resources.map((resource) => resource.id);
+    const [counts, grants] = await Promise.all([
+      listActiveGrantCounts(resourceIds),
+      query.include === "grants"
+        ? listGrantsForResources(resourceIds)
+        : Promise.resolve([]),
+    ]);
+    const grantsByResource = new Map<string, typeof grants>();
+    for (const grant of grants) {
+      const list = grantsByResource.get(grant.resourceId) ?? [];
+      list.push(grant);
+      grantsByResource.set(grant.resourceId, list);
+    }
+    await reply.send({
+      resources: resources.map((resource) => ({
+        ...resource,
+        grantCount: counts.get(resource.id) ?? 0,
+        ...(query.include === "grants"
+          ? { grants: grantsByResource.get(resource.id) ?? [] }
+          : {}),
+      })),
+    });
   });
 
   fastify.post("/resources", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     const body = resourceCreateSchema.parse(req.body);
     await assertActiveMember(userId, body.applicationId);
-    const resource = await createResource({
+    const audience = body.audience
+      ? await resolveAudience(body.audience, body.applicationId)
+      : null;
+    let resource = await createResource({
       applicationId: body.applicationId,
       scheme: body.scheme,
       locator: body.locator ?? null,
@@ -217,6 +307,25 @@ export async function userResourceRoutes(
       ownerId: userId,
       metadata: body.metadata,
     });
+    if (audience) {
+      try {
+        await createResourceGrant({
+          resourceId: resource.id,
+          subjectType: audience.subjectType,
+          subjectId: audience.subjectId,
+          actorUserId: userId,
+        });
+      } catch (err) {
+        // The grant is refused by policy: never leave a half-declared resource behind.
+        await removeResource(resource.id, userId);
+        throw err;
+      }
+    }
+    const identity = await getUserIdentity(userId);
+    resource = await validateRelayDeclaration(
+      resource,
+      identity?.username ?? null,
+    );
     const scheme = await getResourceScheme(resource.scheme);
     await reply
       .status(201)
@@ -224,7 +333,7 @@ export async function userResourceRoutes(
   });
 
   fastify.get("/resources/:resourceId", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const resource = await getResource(resourceId);
@@ -234,7 +343,7 @@ export async function userResourceRoutes(
   });
 
   fastify.patch("/resources/:resourceId", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const body = resourcePatchSchema.parse(req.body);
@@ -244,7 +353,7 @@ export async function userResourceRoutes(
   });
 
   fastify.delete("/resources/:resourceId", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const { resource, removed } = await removeResource(resourceId, userId);
@@ -255,7 +364,7 @@ export async function userResourceRoutes(
   fastify.post(
     "/resources/:resourceId/validation-request",
     async (req, reply) => {
-      const userId = await requireSession(req, reply);
+      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
       if (!userId) return;
       const { resourceId } = resourceParamsSchema.parse(req.params);
       let resource = await requestResourceValidation(resourceId, userId);
@@ -292,7 +401,7 @@ export async function userResourceRoutes(
   );
 
   fastify.get("/resources/:resourceId/grants", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const resource = await getResource(resourceId);
@@ -302,14 +411,19 @@ export async function userResourceRoutes(
   });
 
   fastify.post("/resources/:resourceId/grants", async (req, reply) => {
-    const userId = await requireSession(req, reply);
+    const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
     if (!userId) return;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const body = grantCreateSchema.parse(req.body);
+    const resource = await getResource(resourceId);
+    const subjectId =
+      body.subjectType === "user" && body.subjectEmail
+        ? await activeMemberIdByEmail(body.subjectEmail, resource.applicationId)
+        : (body.subjectId ?? null);
     const grant = await createResourceGrant({
       resourceId,
       subjectType: body.subjectType,
-      subjectId: body.subjectId ?? null,
+      subjectId,
       actorUserId: userId,
       expiresAt: body.expiresAt ?? null,
     });
@@ -319,7 +433,7 @@ export async function userResourceRoutes(
   fastify.delete(
     "/resources/:resourceId/grants/:grantId",
     async (req, reply) => {
-      const userId = await requireSession(req, reply);
+      const userId = await requireUserOrBearer(req, reply, RESOURCE_SELF_SCOPE);
       if (!userId) return;
       const { resourceId, grantId } = grantParamsSchema.parse(req.params);
       await getGrantForResource(grantId, resourceId);
@@ -329,6 +443,7 @@ export async function userResourceRoutes(
   );
 
   fastify.post("/resource-invitations/accept", async (req, reply) => {
+    // The invitation binds to the session e-mail, so a bearer token is not enough.
     const userId = await requireSession(req, reply);
     if (!userId) return;
     const body = invitationParamsSchema.parse(req.body);

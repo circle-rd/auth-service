@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { walletAccounts, walletTransactions } from "../../db/schema.js";
 import { ERR } from "../../errors.js";
-import { notifyWalletChanged } from "./events.js";
+import { notifyWalletChanged, type WalletOwner } from "./events.js";
 import {
   MAX_WALLET_AMOUNT,
   NEGATIVE_BALANCE_TYPES,
@@ -68,10 +68,13 @@ async function applyOperation(
 ): Promise<WalletOperationResult> {
   assertValidKey(op.idempotencyKey);
 
+  let owner = null as WalletOwner | null;
   const result = await db.transaction(async (tx) => {
     const [account] = await tx
       .select({
         id: walletAccounts.id,
+        ownerType: walletAccounts.ownerType,
+        ownerId: walletAccounts.ownerId,
         balance: walletAccounts.balance,
         isUnlimited: walletAccounts.isUnlimited,
       })
@@ -80,6 +83,7 @@ async function applyOperation(
       .for("update")
       .limit(1);
     if (!account) throw ERR.WAL_001();
+    owner = { ownerType: account.ownerType, ownerId: account.ownerId };
 
     const [existing] = await tx
       .select()
@@ -131,7 +135,7 @@ async function applyOperation(
     if (!transaction) throw ERR.WAL_001();
     return { transaction, replayed: false };
   });
-  if (!result.replayed) notifyWalletChanged();
+  if (!result.replayed && owner) notifyWalletChanged(owner);
   return result;
 }
 

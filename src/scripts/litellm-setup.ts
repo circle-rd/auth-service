@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { ensureDatabase } from "./litellm-database.js";
 import {
   AuthAdminClient,
+  RELAY_CLIENT_SLUG,
+  RELAY_SCOPES,
   WALLET_CLIENT_SLUG,
   WALLET_SCOPES,
   generateSecret,
@@ -68,6 +70,73 @@ function storeWalletSecret(envPath: string, secret: string): void {
     replaceEnvValue(content, "LITELLM_WALLET_CLIENT_SECRET", secret),
     { mode: 0o600 },
   );
+}
+
+/**
+ * Register the confidential client reverse-relay announces model changes with.
+ * Its secret goes to the relay's own volume: the gateway's state file also holds
+ * the LiteLLM master key, which the relay must never read.
+ */
+async function ensureRelayClient(
+  client: AuthAdminClient,
+  apps: AdminApplication[],
+): Promise<void> {
+  let relay = apps.find((a) => a.slug === RELAY_CLIENT_SLUG);
+  let issuedSecret: string | undefined;
+  if (!relay) {
+    const created = await client.createApplication({
+      name: "Reverse relay",
+      slug: RELAY_CLIENT_SLUG,
+      description: "Reverse relay machine client: announces model changes",
+      isSystem: true,
+    });
+    if (!created.clientSecret) {
+      throw new Error("Relay client was created without a secret");
+    }
+    relay = created.application;
+    issuedSecret = created.clientSecret;
+    out(`✓ Registered the "${RELAY_CLIENT_SLUG}" application`);
+  }
+
+  if (!sameScopes(await client.getMachineScopes(relay.id), RELAY_SCOPES)) {
+    await client.setMachineScopes(relay.id, RELAY_SCOPES);
+    out(`✓ "${RELAY_CLIENT_SLUG}" granted ${RELAY_SCOPES.join(", ")}`);
+  }
+
+  const secretPath = process.env.RELAY_SECRET_FILE;
+  if (!secretPath) {
+    out(
+      `! RELAY_SECRET_FILE is not set: the "${RELAY_CLIENT_SLUG}" secret is not stored`,
+    );
+    return;
+  }
+  if (issuedSecret) {
+    storeRelaySecret(secretPath, issuedSecret);
+    out(`✓ Stored the "${RELAY_CLIENT_SLUG}" secret for the relay`);
+    return;
+  }
+  const stored = existsSync(secretPath)
+    ? readFileSync(secretPath, "utf8").trim()
+    : "";
+  const works =
+    stored !== "" &&
+    (await client.canObtainToken({
+      clientId: RELAY_CLIENT_SLUG,
+      clientSecret: stored,
+      scope: RELAY_SCOPES.join(" "),
+    }));
+  if (works) {
+    out(`✓ "${RELAY_CLIENT_SLUG}" credentials are valid`);
+    return;
+  }
+  storeRelaySecret(secretPath, await client.rotateSecret(relay.id));
+  out(
+    `✓ Rotated the "${RELAY_CLIENT_SLUG}" secret and stored it for the relay`,
+  );
+}
+
+function storeRelaySecret(path: string, secret: string): void {
+  writeFileSync(path, `${secret}\n`, { mode: 0o644 });
 }
 
 function currentWalletSecret(envPath: string): string | undefined {
@@ -308,7 +377,12 @@ async function main(): Promise<void> {
   }
   try {
     const apps = await client.listApplications();
-    for (const slug of [GATEWAY_SLUG, WALLET_CLIENT_SLUG, UI_SLUG]) {
+    for (const slug of [
+      GATEWAY_SLUG,
+      WALLET_CLIENT_SLUG,
+      RELAY_CLIENT_SLUG,
+      UI_SLUG,
+    ]) {
       const existing = apps.find((a) => a.slug === slug);
       if (existing) await ensureSystemFlag(client, existing);
     }
@@ -337,6 +411,7 @@ async function main(): Promise<void> {
     }
 
     await ensureWalletClient(client, apps, env, envPath);
+    await ensureRelayClient(client, apps);
     // Only in a container, where the secrets live in a file the gateway reads.
     if (process.env.LITELLM_STATE_FILE) {
       await ensureUiSso(client, apps, env, envPath, adminUserId);

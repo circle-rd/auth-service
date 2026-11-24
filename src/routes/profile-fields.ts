@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isCountryCode } from "../countries.js";
+import { phoneNumberSchema } from "../services/phone.js";
 
 /**
  * Single source of truth for the user profile fields exposed by both the
@@ -99,7 +100,7 @@ export const profileFieldsSchema = z.object({
     .transform((value) => value.toLowerCase())
     .nullable()
     .optional(),
-  phone: z.string().max(30).nullable().optional(),
+  phone: phoneNumberSchema,
   company: z.string().max(100).nullable().optional(),
   position: z.string().max(100).nullable().optional(),
   address: z.string().max(200).nullable().optional(),

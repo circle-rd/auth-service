@@ -36,7 +36,11 @@ import {
 } from "../../middleware.js";
 import { importUsers, importUsersSchema } from "../../services/user-import.js";
 import { canAdminTargetUser, canManageRole } from "../../services/roles.js";
-import { publishEvent } from "../../services/event-bus.js";
+import {
+  ADMIN_ROOM,
+  publishEvent,
+  userRoom,
+} from "../../services/event-bus.js";
 import { reconcileMfaFlag } from "../../services/mfa.js";
 import { acquireUserLock } from "../../services/user-lock.js";
 import { presentUserApplications } from "../../services/system-apps.js";
@@ -47,11 +51,15 @@ import {
   profileUpdateSet,
 } from "../profile-fields.js";
 import { assertUsernameAvailable } from "../../services/usernames.js";
+import { phoneVerificationResetSet } from "../../services/phone.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
 const updateUserSchema = profileFieldsSchema.extend({
   role: z.enum(["user", "admin"]).optional(),
   isMfaRequired: z.boolean().optional(),
+  // Manual overrides until the SMS and age providers are wired.
+  phoneVerified: z.boolean().optional(),
+  ageVerified: z.boolean().optional(),
 });
 
 const createUserSchema = z.object({
@@ -355,7 +363,12 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
 
     // Fetch target to enforce hierarchy checks
     const [targetRow] = await db
-      .select({ role: userTable.role })
+      .select({
+        role: userTable.role,
+        phone: userTable.phone,
+        phoneVerified: userTable.phoneVerified,
+        ageVerified: userTable.ageVerified,
+      })
       .from(userTable)
       .where(eq(userTable.id, req.params.id))
       .limit(1);
@@ -385,8 +398,16 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // platform out of its highest privilege level. The count is enforced in the
     // same statement as the update so concurrent demotions cannot both pass.
     const profileChanged = hasProfileChanges(parsed.data);
+    const phoneChanged =
+      parsed.data.phone !== undefined && parsed.data.phone !== targetRow.phone;
+    const verificationChanged =
+      parsed.data.phoneVerified !== undefined ||
+      parsed.data.ageVerified !== undefined;
     const changed =
-      role !== undefined || profileChanged || isMfaRequired !== undefined;
+      role !== undefined ||
+      profileChanged ||
+      isMfaRequired !== undefined ||
+      verificationChanged;
 
     if (changed) {
       const adapter = (await auth.$context).internalAdapter;
@@ -418,13 +439,40 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             }
           }
 
-          if (profileChanged || isMfaRequired !== undefined) {
+          if (
+            profileChanged ||
+            isMfaRequired !== undefined ||
+            verificationChanged
+          ) {
+            const now = new Date();
+            // Changing the number always revokes its proof, even when the
+            // administrator also asks to mark it verified in the same request.
+            const phoneVerified = phoneChanged
+              ? false
+              : parsed.data.phoneVerified;
+            const ageVerified = parsed.data.ageVerified;
             await tx
               .update(userTable)
               .set({
                 ...profileUpdateSet(parsed.data),
                 ...(isMfaRequired !== undefined ? { isMfaRequired } : {}),
-                updatedAt: new Date(),
+                ...(phoneVerified !== undefined
+                  ? {
+                      phoneVerified,
+                      phoneVerifiedAt: phoneVerified ? now : null,
+                      phoneVerificationMethod: phoneVerified ? "admin" : null,
+                    }
+                  : phoneChanged
+                    ? phoneVerificationResetSet()
+                    : {}),
+                ...(ageVerified !== undefined
+                  ? {
+                      ageVerified,
+                      ageVerifiedAt: ageVerified ? now : null,
+                      ageVerificationMethod: ageVerified ? "admin" : null,
+                    }
+                  : {}),
+                updatedAt: now,
               })
               .where(eq(userTable.id, req.params.id));
           }
@@ -437,7 +485,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
     // profile change above are one edit of one user as far as the admin screen
     // is concerned.
     if (changed) {
-      publishEvent("user.changed");
+      publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
     }
     if (profileChanged) {
       await syncBillingCustomerBestEffort("user", req.params.id);
@@ -668,7 +716,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
           (await auth.$context).internalAdapter,
           req.params.id,
         );
-        publishEvent("user.changed");
+        publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
 
         await reply.send({ ok: true, mfa });
       } finally {
@@ -741,7 +789,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
         }
         throw err;
       }
-      publishEvent("user.changed");
+      publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
       await reply.send({ ok: true });
     },
   );
@@ -772,7 +820,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
             .where(eq(userTable.id, req.params.id));
         },
       );
-      publishEvent("user.changed");
+      publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
       await reply.send({ ok: true });
     },
   );
@@ -836,7 +884,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
 
     // After the transaction, so the row is really gone before any client
     // re-reads the user list.
-    publishEvent("user.changed");
+    publishEvent("user.changed", [ADMIN_ROOM, userRoom(req.params.id)]);
 
     await reply.status(204).send();
   });

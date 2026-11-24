@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { member } from "../db/auth-schema.js";
+import { member, organization } from "../db/auth-schema.js";
 
 export type OrganizationResolution = {
   /** Organization to bind the authorization to; undefined when the user has none. */
@@ -32,12 +32,14 @@ export function resolveOrganization(
   return { organizationId: active, selectionRequired: true };
 }
 
+/** Teams never bind an authorization: `org_id` identifies a company. */
 export async function listUserOrganizationIds(
   userId: string,
 ): Promise<string[]> {
   const rows = await db
     .select({ organizationId: member.organizationId })
     .from(member)
-    .where(eq(member.userId, userId));
+    .innerJoin(organization, eq(organization.id, member.organizationId))
+    .where(and(eq(member.userId, userId), eq(organization.team, false)));
   return rows.map((row) => row.organizationId);
 }

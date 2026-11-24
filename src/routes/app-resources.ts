@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "../config.js";
 import { ERR } from "../errors.js";
+import { appRoom, publishEvent } from "../services/event-bus.js";
 import {
   getRequestSession,
   requireAppDelegation,
@@ -14,8 +15,12 @@ import {
   listOwnerMembers,
   listOwnerPlans,
 } from "../services/resources/apps.js";
-import { assertActiveMember } from "../services/resources/authority.js";
+import {
+  assertActiveMember,
+  isApplicationAdmin,
+} from "../services/resources/authority.js";
 import { listGrantsForApplication } from "../services/resources/grants.js";
+import { listModelCandidates } from "../services/resources/model-candidates.js";
 import {
   buildResourceInvitationUrl,
   createResourceInvitation,
@@ -65,6 +70,7 @@ const memberQuerySchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(200).default(100),
     offset: z.coerce.number().int().min(0).default(0),
+    q: z.string().trim().min(1).max(200).optional(),
   })
   .strict();
 
@@ -127,7 +133,7 @@ const invitationCreateSchema = z.object({
 
 const usageQuerySchema = z
   .object({
-    groupBy: z.enum(USAGE_GROUP_BY).default("user"),
+    groupBy: z.enum(USAGE_GROUP_BY).default("resource"),
     from: z.string().datetime().optional(),
     to: z.string().datetime().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -144,6 +150,11 @@ const accessQuerySchema = z
     offset: z.coerce.number().int().min(0).default(0),
   })
   .strict();
+
+/** A scheme or its enablement changed: every user enrolled in the application may see it. */
+function announceCatalogueChanged(applicationId: string): void {
+  publishEvent("catalogue.changed", [appRoom(applicationId)]);
+}
 
 export async function appResourceRoutes(
   fastify: FastifyInstance,
@@ -236,6 +247,38 @@ export async function appResourceRoutes(
     await reply.status(201).send({ resource });
   });
 
+  fastify.get("/apps/:appId/model-candidates/managed", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    if (!(await isApplicationAdmin(userId, appId))) {
+      await assertActiveMember(userId, appId);
+    }
+    await reply.send({
+      models: await listModelCandidates({
+        appId,
+        userId,
+        source: "managed",
+      }),
+    });
+  });
+
+  fastify.get("/apps/:appId/model-candidates/native", async (req, reply) => {
+    const { appId } = appParamsSchema.parse(req.params);
+    const userId = await requireSession(req, reply);
+    if (!userId) return;
+    if (!(await isApplicationAdmin(userId, appId))) {
+      await assertActiveMember(userId, appId);
+    }
+    await reply.send({
+      models: await listModelCandidates({
+        appId,
+        userId,
+        source: "native",
+      }),
+    });
+  });
+
   fastify.get("/apps/:appId/schemes", async (req, reply) => {
     const { appId } = appParamsSchema.parse(req.params);
     const userId = await requireSession(req, reply);
@@ -263,6 +306,7 @@ export async function appResourceRoutes(
       applicationId: appId,
       ...body,
     });
+    announceCatalogueChanged(appId);
     await reply.status(201).send({ scheme });
   });
 
@@ -272,6 +316,7 @@ export async function appResourceRoutes(
     if (!userId) return;
     const body = schemePatchSchema.parse(req.body);
     const updated = await updateApplicationScheme(appId, scheme, body);
+    announceCatalogueChanged(appId);
     await reply.send({ scheme: updated });
   });
 
@@ -280,6 +325,7 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     await deleteApplicationScheme(appId, scheme);
+    announceCatalogueChanged(appId);
     await reply.status(204).send();
   });
 
@@ -288,6 +334,7 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     await enableSchemeForApplication(appId, scheme);
+    announceCatalogueChanged(appId);
     await reply.status(204).send();
   });
 
@@ -296,6 +343,7 @@ export async function appResourceRoutes(
     const userId = await requireResourceAppAdmin(req, reply, appId);
     if (!userId) return;
     await disableSchemeForApplication(appId, scheme);
+    announceCatalogueChanged(appId);
     await reply.status(204).send();
   });
 
@@ -394,6 +442,14 @@ export async function appResourceRoutes(
     );
     if (!userId) return;
     const query = usageQuerySchema.parse(req.query);
+    if (
+      query.groupBy === "user" &&
+      !(await isApplicationAdmin(userId, appId))
+    ) {
+      throw ERR.AUTH_011(
+        "User-level usage requires application administration",
+      );
+    }
     const to = query.to ? new Date(query.to) : new Date();
     const from = query.from
       ? new Date(query.from)

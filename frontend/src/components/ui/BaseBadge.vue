@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { Component } from 'vue';
+
 type Variant = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'primary';
 type Size = 'sm' | 'md';
 
@@ -6,6 +8,7 @@ withDefaults(defineProps<{
   variant?: Variant;
   size?: Size;
   dot?: boolean;
+  icon?: Component;
 }>(), {
   variant: 'neutral',
   size: 'sm',
@@ -45,6 +48,7 @@ const sizeClasses: Record<Size, string> = {
     ]"
   >
     <span v-if="dot" :class="['w-1.5 h-1.5 rounded-full', dotClasses[variant]]" />
+    <component :is="icon" v-else-if="icon" class="w-3 h-3 shrink-0" />
     <slot />
   </span>
 </template>

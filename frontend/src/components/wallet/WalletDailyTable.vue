@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { BarChart3 } from '@lucide/vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
@@ -33,6 +33,25 @@ const days = computed(() =>
   props.daily.filter((d) => d.count > 0).slice().reverse(),
 );
 
+// The panel is three rows tall; the remaining days load as the list scrolls.
+const PAGE_SIZE = 10;
+const visibleCount = ref(PAGE_SIZE);
+const scrollEl = ref<HTMLElement | null>(null);
+const visibleDays = computed(() => days.value.slice(0, visibleCount.value));
+
+watch(days, () => {
+  visibleCount.value = PAGE_SIZE;
+  scrollEl.value?.scrollTo({ top: 0 });
+});
+
+function onScroll(): void {
+  const el = scrollEl.value;
+  if (!el || visibleCount.value >= days.value.length) return;
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
+    visibleCount.value += PAGE_SIZE;
+  }
+}
+
 function segments(day: WalletSpendDay): { key: string; label: string; color: string; share: number }[] {
   const total = BigInt(day.amount);
   if (total === 0n) return [];
@@ -60,45 +79,53 @@ function segments(day: WalletSpendDay): { key: string; label: string; color: str
       {{ t('wallet.daily.empty') }}
     </div>
 
-    <ul v-else class="divide-y divide-surface-700/30">
-      <li
-        v-for="day in days"
-        :key="day.date"
-        class="flex items-center gap-4 px-5 py-3"
-        :data-testid="`wallet-day-${day.date}`"
-      >
-        <div class="w-28 shrink-0 text-sm text-surface-200">{{ fmtDate(day.date) }}</div>
-
-        <div class="flex-1 min-w-0">
-          <div class="flex h-2 rounded-full overflow-hidden bg-surface-800">
-            <div
-              v-for="seg in segments(day)"
-              :key="seg.key"
-              class="h-full"
-              :style="{ width: `${seg.share}%`, backgroundColor: seg.color }"
-              :title="seg.label"
-            />
-          </div>
-          <p class="mt-1 text-xs text-surface-500 truncate">
-            {{ segments(day).map((s) => s.label).join(' · ') }}
-          </p>
-        </div>
-
-        <div class="w-28 shrink-0 text-right">
-          <p class="text-sm tabular-nums text-surface-100">{{ fmt(day.amount) }}</p>
-          <p class="text-xs text-surface-500">{{ t('wallet.spend.calls', { count: day.count }) }}</p>
-        </div>
-
-        <button
-          type="button"
-          class="shrink-0 p-2 rounded-lg text-surface-400 hover:text-surface-100 hover:bg-surface-800"
-          :title="t('wallet.daily.details')"
-          @click="openDay = day"
+    <div
+      v-else
+      ref="scrollEl"
+      class="max-h-48 overflow-y-auto"
+      data-testid="wallet-daily-scroll"
+      @scroll.passive="onScroll"
+    >
+      <ul class="divide-y divide-surface-700/30">
+        <li
+          v-for="day in visibleDays"
+          :key="day.date"
+          class="flex items-center gap-4 px-5 py-3"
+          :data-testid="`wallet-day-${day.date}`"
         >
-          <BarChart3 class="w-4 h-4" />
-        </button>
-      </li>
-    </ul>
+          <div class="w-28 shrink-0 text-sm text-surface-200">{{ fmtDate(day.date) }}</div>
+
+          <div class="flex-1 min-w-0">
+            <div class="flex h-2 rounded-full overflow-hidden bg-surface-800">
+              <div
+                v-for="seg in segments(day)"
+                :key="seg.key"
+                class="h-full"
+                :style="{ width: `${seg.share}%`, backgroundColor: seg.color }"
+                :title="seg.label"
+              />
+            </div>
+            <p class="mt-1 text-xs text-surface-500 truncate">
+              {{ segments(day).map((s) => s.label).join(' · ') }}
+            </p>
+          </div>
+
+          <div class="w-28 shrink-0 text-right">
+            <p class="text-sm tabular-nums text-surface-100">{{ fmt(day.amount) }}</p>
+            <p class="text-xs text-surface-500">{{ t('wallet.spend.calls', { count: day.count }) }}</p>
+          </div>
+
+          <button
+            type="button"
+            class="shrink-0 p-2 rounded-lg text-surface-400 hover:text-surface-100 hover:bg-surface-800"
+            :title="t('wallet.daily.details')"
+            @click="openDay = day"
+          >
+            <BarChart3 class="w-4 h-4" />
+          </button>
+        </li>
+      </ul>
+    </div>
 
     <BaseModal
       :open="openDay !== null"

@@ -7,7 +7,7 @@ import {
   userAppRoles,
   userApplications,
 } from "../../db/schema.js";
-import { user as userTable } from "../../db/auth-schema.js";
+import { member, user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import type { ResourceOwnerType, ResourceSubjectType } from "./types.js";
 import { ADMIN_ROLES, hasAnyRole } from "../roles.js";
@@ -227,11 +227,11 @@ export async function assertCanManageResource(
 }
 
 /**
- * An owner shares a personal resource with existing members one by one.
- * Administrators and delegates never grant on a personal resource: they are
- * not its recipients, so they cannot add themselves. An application-owned
- * resource is granted by application admins (any subject) and `grants:manage`
- * delegates (existing members only).
+ * An owner shares a personal resource with existing members one by one, or
+ * with an organisation they belong to. Administrators and delegates never grant
+ * on a personal resource: they are not its recipients, so they cannot add
+ * themselves. An application-owned resource is granted by application admins
+ * (any subject) and `grants:manage` delegates (existing members only).
  */
 export async function canGrantToSubject(
   userId: string,
@@ -242,17 +242,76 @@ export async function canGrantToSubject(
   if (resource.ownerType === "user") {
     if (resource.ownerId !== userId) return false;
     if (!(await canOwnResources(userId, resource.applicationId))) return false;
-  } else {
-    if (await isApplicationAdmin(userId, resource.applicationId)) return true;
-    const delegated = await hasDelegatedPermission(
+    // A member shares a personal resource with individual members, or with an
+    // organisation they belong to (recipients still need application
+    // membership at access time). An application administrator may open it to
+    // any audience within what they belong to themselves.
+    // The owner already reaches the resource: granting it to oneself is a no-op.
+    if (subjectType === "user" && subjectId === userId) return false;
+    if (!(await isApplicationAdmin(userId, resource.applicationId))) {
+      if (subjectId === null) return false;
+      if (subjectType === "user") {
+        return isActiveMember(subjectId, resource.applicationId);
+      }
+      if (subjectType === "organization") {
+        return isOrganizationMember(userId, subjectId);
+      }
+      return false;
+    }
+    return audienceWithinReach(
       userId,
       resource.applicationId,
-      "grants:manage",
+      subjectType,
+      subjectId,
     );
-    if (!delegated) return false;
   }
+  if (await isApplicationAdmin(userId, resource.applicationId)) return true;
+  const delegated = await hasDelegatedPermission(
+    userId,
+    resource.applicationId,
+    "grants:manage",
+  );
+  if (!delegated) return false;
   if (subjectType !== "user" || subjectId === null) return false;
   return isActiveMember(subjectId, resource.applicationId);
+}
+
+async function audienceWithinReach(
+  userId: string,
+  applicationId: string,
+  subjectType: ResourceSubjectType,
+  subjectId: string | null,
+): Promise<boolean> {
+  switch (subjectType) {
+    case "everyone":
+      return subjectId === null;
+    case "plan":
+      return subjectId !== null;
+    case "organization":
+      return (
+        subjectId !== null && (await isOrganizationMember(userId, subjectId))
+      );
+    case "user":
+      return (
+        subjectId !== null && (await isActiveMember(subjectId, applicationId))
+      );
+    default:
+      return false;
+  }
+}
+
+export async function isOrganizationMember(
+  userId: string,
+  organizationId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(eq(member.userId, userId), eq(member.organizationId, organizationId)),
+    )
+    .limit(1);
+  return row !== undefined;
 }
 
 /** Grant administration is separate from resource administration. */

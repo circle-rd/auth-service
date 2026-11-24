@@ -37,6 +37,8 @@ interface UserClaims {
   // Standard OIDC phone scope claims
   phone_number?: string | null;
   phone_number_verified?: boolean | null;
+  // Proprietary age claim: true only for a verified 18+ proof.
+  age_verified?: boolean | null;
   // features scope extras
   plan?: string; // Human-readable plan name
 }
@@ -59,6 +61,8 @@ export async function getUserClaims(
     company?: string | null;
     image?: string | null;
     phone?: string | null;
+    phoneVerified?: boolean | null;
+    ageVerified?: boolean | null;
     updatedAt?: Date | null;
     middleName?: string | null;
     profileUrl?: string | null;
@@ -101,6 +105,7 @@ export async function getUserClaims(
       }
       if (profile.company) claims.company = profile.company;
       if (profile.image) claims.picture = profile.image;
+      claims.age_verified = profile.ageVerified === true;
       if (profile.middleName) claims.middle_name = profile.middleName;
       if (profile.profileUrl) claims.profile = profile.profileUrl;
       if (profile.website) claims.website = profile.website;
@@ -113,7 +118,7 @@ export async function getUserClaims(
     }
     if (scopes.includes("phone") && profile.phone) {
       claims.phone_number = profile.phone;
-      claims.phone_number_verified = false;
+      claims.phone_number_verified = profile.phoneVerified === true;
     }
   }
 

@@ -2,10 +2,9 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Activity, Coins, ShieldAlert, Share2 } from '@lucide/vue';
-import BaseBadge from '@/components/ui/BaseBadge.vue';
 import StatCard from '@/components/ui/StatCard.vue';
 import { getUserActivity, type MonitoringRange, type UserActivity } from '@/api/monitoring';
-import { formatDateTime } from '@/views/share/format';
+import { useCatalogueActivityTick } from '@/composables/useCatalogueActivity';
 import DecisionChart from './DecisionChart.vue';
 import RankList, { type RankItem } from './RankList.vue';
 
@@ -27,18 +26,11 @@ async function load() {
   }
 }
 
-watch([() => props.appId, range], () => void load(), { immediate: true });
+const activityTick = useCatalogueActivityTick();
+watch([() => props.appId, range, () => activityTick?.value], () => void load(), { immediate: true });
 
 const usedSeries = computed(() => (activity.value?.used.series ?? []).map((point) => ({ date: point.date, allow: point.calls })));
 
-const accessorItems = computed<RankItem[]>(() =>
-  (activity.value?.shared.topSubjects ?? []).map((entry) => ({
-    key: entry.subjectId,
-    label: entry.name ?? entry.subjectId,
-    sub: t('dashboard.user.lastAccess', { date: formatDateTime(entry.lastAt) }),
-    value: entry.calls,
-  })),
-);
 const sharedItems = computed<RankItem[]>(() =>
   (activity.value?.shared.topResources ?? []).map((entry) => ({ key: entry.uri, label: entry.uri, value: entry.calls })),
 );
@@ -68,7 +60,13 @@ const usedItems = computed<RankItem[]>(() =>
 
     <template v-else>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard :label="t('dashboard.user.reached')" :value="activity?.shared.allow ?? ''" :loading="!activity" :icon="Share2" />
+        <StatCard
+          :label="t('dashboard.user.reached')"
+          :value="activity?.shared.allow ?? ''"
+          :loading="!activity"
+          :icon="Share2"
+          :sub="activity ? t('dashboard.user.sharedTokens', { count: n(activity.shared.totalTokens) }) : ''"
+        />
         <StatCard :label="t('dashboard.user.refused')" :value="activity?.shared.deny ?? ''" :loading="!activity" :icon="ShieldAlert" />
         <StatCard :label="t('dashboard.user.myCalls')" :value="activity?.used.calls ?? ''" :loading="!activity" :icon="Activity" />
         <StatCard
@@ -100,26 +98,9 @@ const usedItems = computed<RankItem[]>(() =>
         </div>
       </div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <RankList :title="t('dashboard.user.topAccessors')" :items="accessorItems" :empty="t('dashboard.user.nothingShared')" />
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <RankList :title="t('dashboard.user.topShared')" :items="sharedItems" :empty="t('dashboard.user.nothingShared')" bar-class="bg-violet-500/60" />
         <RankList :title="t('dashboard.user.topUsed')" :items="usedItems" :empty="t('dashboard.user.nothingUsed')" bar-class="bg-emerald-500/60" />
-      </div>
-
-      <div v-if="activity && activity.shared.recent.length > 0" class="rounded-2xl bg-surface-900/60 border border-surface-700/40 p-5">
-        <h3 class="text-xs font-semibold text-surface-400 uppercase tracking-wide mb-3">{{ t('dashboard.user.recent') }}</h3>
-        <ul class="divide-y divide-surface-800/60">
-          <li v-for="(entry, index) in activity.shared.recent" :key="index" class="flex items-center gap-3 py-2.5">
-            <BaseBadge :variant="entry.decision === 'allow' ? 'success' : 'error'" dot>
-              {{ t(`share.access.decisions.${entry.decision}`) }}
-            </BaseBadge>
-            <div class="min-w-0 flex-1">
-              <p class="text-sm text-surface-200 truncate">{{ entry.subjectName ?? t('dashboard.security.log.unknownSubject') }}</p>
-              <p class="font-mono text-[11px] text-surface-500 truncate">{{ entry.uri }}</p>
-            </div>
-            <span class="text-xs text-surface-500 shrink-0">{{ formatDateTime(entry.occurredAt) }}</span>
-          </li>
-        </ul>
       </div>
     </template>
   </section>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { updateMyProfile, type UpdateMyProfileBody } from '@/api/users';
 import { listMySessions, revokeSession, revokeOtherSessions } from '@/api/sessions';
@@ -31,7 +31,7 @@ import ApplicationsAccessPanel from '@/components/profile/ApplicationsAccessPane
 import BillingUsagePanel from '@/components/profile/BillingUsagePanel.vue';
 import SshKeysPanel from '@/components/profile/SshKeysPanel.vue';
 import { useAppBranding } from '@/composables/useAppBranding';
-import { ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, Pencil, CalendarDays, AppWindow } from '@lucide/vue';
+import { ShieldCheck, ShieldAlert, Building2, RefreshCw, Lock, CreditCard, Pencil, CalendarDays, AppWindow, BadgeCheck, UserPlus } from '@lucide/vue';
 import type { SelectOption } from '@/types/select';
 import { countryDefaults, countryFlag, countryName, countryOptions } from '@/utils/countries';
 
@@ -41,17 +41,25 @@ const auth = useAuthStore();
 const toast = useToast();
 
 const route = useRoute();
+const router = useRouter();
 // A payment provider return lands on the credit tab.
 type ProfileTabKey = 'account' | 'security' | 'organizations' | 'applications' | 'credit';
 const PROFILE_TABS: readonly ProfileTabKey[] = ['account', 'security', 'organizations', 'applications', 'credit'];
 const { sshSharing } = useAppBranding();
 
+// The tab is the URL fragment (`/profile#credit`), so a tab can be bookmarked or linked.
 function initialTab(): ProfileTabKey {
   if (route.query.topup !== undefined) return 'credit';
-  return PROFILE_TABS.find((tab) => tab === route.query.tab) ?? 'account';
+  const fragment = route.hash.replace(/^#/, '');
+  return PROFILE_TABS.find((tab) => tab === fragment) ?? 'account';
 }
 
 const activeTab = ref<ProfileTabKey>(initialTab());
+
+watch(activeTab, (tab) => {
+  if (route.hash === `#${tab}`) return;
+  void router.replace({ query: { ...route.query }, hash: `#${tab}` });
+});
 
 const profileTabs = [
   { key: 'account' as const, label: t('profile.tabAccount') },
@@ -74,7 +82,7 @@ const currentSessionId = ref<string>('');
 const subscriptions = ref<UserSubscriptionEntry[]>([]);
 const stripeConfigured = ref(false);
 const consumption = ref<Record<string, ConsumptionAggregate[]>>({});
-const myOrgs = ref<Array<{ id: string; name: string; slug: string; logo: string | null; role: string }>>([]);
+const myOrgs = ref<Array<{ id: string; name: string; slug: string; logo: string | null; role: string; domainVerifiedAt?: string | null; autoEnrollEnabled?: boolean }>>([]);
 const saveLoading = ref(false);
 const sessionsLoading = ref(true);
 const revokeOthersLoading = ref(false);
@@ -884,7 +892,27 @@ async function handleChangePlan() {
               <p class="text-sm font-medium text-surface-200">{{ org.name }}</p>
               <p class="text-xs text-surface-500 font-mono">{{ org.slug }}</p>
             </div>
-            <BaseBadge :variant="org.role === 'owner' ? 'warning' : 'neutral'" size="sm">{{ org.role }}</BaseBadge>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <BaseBadge
+                v-if="org.domainVerifiedAt"
+                variant="info"
+                size="sm"
+                :icon="BadgeCheck"
+                :title="t('organizations.domainVerified')"
+              >
+                <span class="sr-only">{{ t('organizations.domainVerified') }}</span>
+              </BaseBadge>
+              <BaseBadge
+                v-if="org.autoEnrollEnabled"
+                variant="success"
+                size="sm"
+                :icon="UserPlus"
+                :title="t('organizations.autoEnrollActive')"
+              >
+                <span class="sr-only">{{ t('organizations.autoEnrollActive') }}</span>
+              </BaseBadge>
+              <BaseBadge :variant="org.role === 'owner' ? 'warning' : 'neutral'" size="sm">{{ org.role }}</BaseBadge>
+            </div>
           </div>
         </div>
       </div>

@@ -9,6 +9,7 @@ import { logger } from "../logger.js";
 import { encodeLegacyHash, legacyHashSchema } from "./legacy-password.js";
 import { insertCredentialUser } from "./credential-user.js";
 import { ensureBillingCustomerBestEffort } from "./billing/customers.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
 
 // Identifier of the account at the provider the user comes from, kept as the
 // token `sub` so applications keyed on it need no mapping (`00u…`,
@@ -54,18 +55,6 @@ export interface ImportRowResult {
 /** 12-char URL-safe temporary password (min length is 8). */
 function generateTempPassword(): string {
   return randomBytes(9).toString("base64url");
-}
-
-function isUniqueViolation(err: unknown): boolean {
-  const code = (value: unknown) =>
-    typeof value === "object" && value !== null && "code" in value
-      ? (value as { code?: unknown }).code
-      : undefined;
-  // Drizzle wraps the driver error and keeps it as `cause`.
-  return (
-    code(err) === "23505" ||
-    code((err as { cause?: unknown } | null)?.cause) === "23505"
-  );
 }
 
 type ImportRow = ImportUsersInput["users"][number];

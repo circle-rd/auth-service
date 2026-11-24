@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import BaseToggle from '@/components/ui/BaseToggle.vue';
-import type { ApplicationFormState } from './state';
+import { RESOURCE_SELF_SCOPE, type ApplicationFormState } from './state';
+import { TEAMS_SCOPE, withManagedScope } from './scopes';
 
-defineProps<{
+const props = defineProps<{
   form: ApplicationFormState;
   isEdit: boolean;
   litellmAvailable: boolean;
@@ -11,6 +13,24 @@ defineProps<{
 }>();
 
 const litellmSupport = defineModel<boolean>('litellm', { required: true });
+
+// The user-resource scope is not a separate choice: it is what the Resource
+// sharing option turns on, like the wallet scope behind LiteLLM support.
+const resourceSharingSupport = computed({
+  get: () => props.form.resourceSharingEnabled,
+  set: (enabled: boolean) => {
+    props.form.resourceSharingEnabled = enabled;
+    props.form.allowedScopes = withManagedScope(props.form.allowedScopes, RESOURCE_SELF_SCOPE, enabled);
+  },
+});
+
+const teamsSupport = computed({
+  get: () => props.form.teamsEnabled,
+  set: (enabled: boolean) => {
+    props.form.teamsEnabled = enabled;
+    props.form.allowedScopes = withManagedScope(props.form.allowedScopes, TEAMS_SCOPE, enabled);
+  },
+});
 
 const { t } = useI18n();
 </script>
@@ -97,11 +117,17 @@ const { t } = useI18n();
           :disabled="!litellmAvailable"
         />
         <BaseToggle
-          v-model="form.resourceSharingEnabled"
+          v-model="resourceSharingSupport"
           class="p-3.5"
           :label="t('applications.resourceSharing')"
           :description="resourceSharingAvailable ? t('applications.resourceSharingHint') : t('applications.resourceSharingUnavailable')"
           :disabled="!resourceSharingAvailable"
+        />
+        <BaseToggle
+          v-model="teamsSupport"
+          class="p-3.5"
+          :label="t('applications.teams')"
+          :description="t('applications.teamsHint')"
         />
       </div>
     </section>

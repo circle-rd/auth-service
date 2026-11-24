@@ -6,7 +6,7 @@ import { applications } from "./db/schema.js";
 import { generateId } from "better-auth";
 import { eq, or } from "drizzle-orm";
 import { logger } from "./logger.js";
-import { publishEvent } from "./services/event-bus.js";
+import { ADMIN_ROOM, publishEvent } from "./services/event-bus.js";
 import { replaceClientResource } from "./services/oauth-resources.js";
 import { ensureReverseAgent } from "./services/reverse-agent.js";
 import { AUTH_SERVICE_SLUG } from "./services/system-apps.js";
@@ -165,7 +165,7 @@ export async function bootstrap(): Promise<void> {
   if (config.features.mfaBackfill) {
     const mfaBackfilled = await backfillMfaFlags();
     if (mfaBackfilled > 0) {
-      publishEvent("user.changed");
+      publishEvent("user.changed", [ADMIN_ROOM]);
       logger.info(
         { count: mfaBackfilled },
         "[bootstrap] Reconciled MFA flag for existing factors",
@@ -179,7 +179,8 @@ export async function bootstrap(): Promise<void> {
     logger.warn(
       "[bootstrap] ADMIN_EMAIL / ADMIN_PASSWORD not set — skipping superadmin creation.",
     );
-    if (authServiceAppChanged) publishEvent("application.changed");
+    if (authServiceAppChanged)
+      publishEvent("application.changed", [ADMIN_ROOM]);
     return;
   }
 
@@ -218,11 +219,12 @@ export async function bootstrap(): Promise<void> {
     // so this announcement is always lost. Announcing the same "the users table
     // changed" signal from here keeps one rule — every write to `user`
     // announces — instead of an exception a reader has to remember.
-    publishEvent("user.changed");
+    publishEvent("user.changed", [ADMIN_ROOM]);
     logger.info(
       "[bootstrap] Superadmin already exists — ensured email is verified.",
     );
-    if (authServiceAppChanged) publishEvent("application.changed");
+    if (authServiceAppChanged)
+      publishEvent("application.changed", [ADMIN_ROOM]);
     return;
   }
 
@@ -257,6 +259,6 @@ export async function bootstrap(): Promise<void> {
     .set({ emailVerified: true })
     .where(eq(userTable.email, adminEmail));
 
-  publishEvent("user.changed");
-  if (authServiceAppChanged) publishEvent("application.changed");
+  publishEvent("user.changed", [ADMIN_ROOM]);
+  if (authServiceAppChanged) publishEvent("application.changed", [ADMIN_ROOM]);
 }

@@ -219,9 +219,9 @@ async function openAdminStream(email = "admin@example.com") {
   return { cookie, stream };
 }
 
-describe("GET /api/admin/events — authorization against the real server", () => {
-  it("401 without a session and 403 for a global user", async () => {
-    const anonymous = await fetch(`${baseUrl}/api/admin/events`);
+describe("GET /api/events — authorization against the real server", () => {
+  it("401 without a session, and a standard user is admitted without admin frames", async () => {
+    const anonymous = await fetch(`${baseUrl}/api/events`);
     expect(anonymous.status).toBe(401);
     expect(await anonymous.json()).toMatchObject({
       error: { code: "AUTH_001" },
@@ -232,14 +232,12 @@ describe("GET /api/admin/events — authorization against the real server", () =
       password: "Password123!",
       name: "User",
     });
-    const asUser = await fetch(`${baseUrl}/api/admin/events`, {
-      headers: { cookie },
-    });
-    expect(asUser.status).toBe(403);
-    expect(await asUser.json()).toMatchObject({ error: { code: "AUTH_011" } });
+    const stream = await openEventStream(baseUrl, cookie);
+    expect(stream.status).toBe(200);
+    await stream.readUntil((text) => text.includes(": connected"));
+    expect(await waitForSubscribers(1)).toBe(1);
 
-    // The standard user — the `/profile` page — never holds a subscription.
-    expect(getEventBus().subscriberCount).toBe(0);
+    await closeStream(stream);
   });
 
   it("200 for an admin, and the stream delivers login.recorded", async () => {
@@ -282,7 +280,7 @@ describe("GET /api/admin/events — authorization against the real server", () =
  * already-connected admin client — the type is not merely declared in the
  * closed set, it is emitted by the operation that changes the state.
  */
-describe("GET /api/admin/events — the widened vocabulary", () => {
+describe("GET /api/events — the widened vocabulary", () => {
   it("delivers session.created when a session is really created", async () => {
     const { stream } = await openAdminStream();
     const counter = frameCounter(stream);
@@ -331,12 +329,14 @@ describe("GET /api/admin/events — the widened vocabulary", () => {
     });
     expect(revoked.statusCode).toBe(204);
 
+    // The administrator hears the revocation, then the stream holding the revoked
+    // session is closed so that it re-authenticates on its next attempt.
     expectSignalOnlyFrame(
       await counter.next("session.revoked", before),
       "session.revoked",
       ["admin@example.com", currentSessionId],
     );
-    expect(await waitForSubscribers(1)).toBe(1);
+    expect(await waitForSubscribers(0)).toBe(0);
     await closeStream(stream);
   });
 
@@ -480,7 +480,7 @@ describe("GET /api/admin/events — the widened vocabulary", () => {
   });
 });
 
-describe("GET /api/admin/events — shutdown", () => {
+describe("GET /api/events — shutdown", () => {
   it("preClose ends live streams so server close resolves", async () => {
     const { stream } = await openAdminStream("shutdown@example.com");
     expect(await waitForSubscribers(1)).toBe(1);

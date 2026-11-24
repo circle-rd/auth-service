@@ -30,6 +30,23 @@ export const user = pgTable(
     banExpires: timestamp("ban_expires"),
     isMfaRequired: boolean("is_mfa_required").default(false),
     phone: text("phone"),
+    // Verification state is server-controlled. `phone` stays a free-form
+    // display value until an OTP provider is wired; the flags are what relying
+    // parties consume.
+    phoneVerified: boolean("phone_verified").default(false).notNull(),
+    phoneVerifiedAt: timestamp("phone_verified_at"),
+    phoneVerificationMethod: text("phone_verification_method"),
+    // Age verification is deliberately limited to the 18+ threshold. The
+    // provider returns a proof, never a birthdate.
+    ageVerified: boolean("age_verified").default(false).notNull(),
+    ageVerifiedAt: timestamp("age_verified_at"),
+    ageVerificationMethod: text("age_verification_method"),
+    // Internal marker: only accounts created through self-service sign-up are
+    // eligible for email-domain auto-enrollment. Admin-created accounts,
+    // imports and invitation-backed registrations stay out of it.
+    autoEnrollEligible: boolean("auto_enroll_eligible")
+      .default(false)
+      .notNull(),
     firstName: text("first_name"),
     lastName: text("last_name"),
     username: text("username"),
@@ -113,17 +130,42 @@ export const account = pgTable(
 
 // ── Organization plugin tables ───────────────────────────────────────────────
 
-export const organization = pgTable("organization", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  logo: text("logo"),
-  // Bare hostname (example.com), used to qualify the organization in Stripe and
-  // for domain-based membership discovery. Never includes a scheme or path.
-  domain: text("domain"),
-  createdAt: timestamp("created_at").notNull(),
-  metadata: text("metadata"),
-});
+export const organization = pgTable(
+  "organization",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull().unique(),
+    logo: text("logo"),
+    // Teams are created by users through the SDK and never carry a domain. Set
+    // once at creation; administrators cannot change it.
+    team: boolean("team").default(false).notNull(),
+    createdBy: text("created_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    // Bare hostname (example.com), used to qualify the organization in Stripe
+    // and, once verified, for domain-based membership discovery. Never includes
+    // a scheme or path.
+    domain: text("domain"),
+    // A verified domain may belong to one organization only. Unverified or
+    // missing domains are allowed to repeat because they grant nothing.
+    domainVerificationToken: text("domain_verification_token"),
+    domainVerifiedAt: timestamp("domain_verified_at"),
+    domainVerifiedBy: text("domain_verified_by"),
+    domainLastCheckedAt: timestamp("domain_last_checked_at"),
+    autoEnrollEnabled: boolean("auto_enroll_enabled").default(false).notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    metadata: text("metadata"),
+  },
+  (table) => [
+    uniqueIndex("organization_verified_domain_unique_idx")
+      .on(sql`lower(${table.domain})`)
+      .where(
+        sql`${table.domain} is not null and ${table.domainVerifiedAt} is not null`,
+      ),
+    index("organization_createdBy_idx").on(table.createdBy),
+  ],
+);
 
 export const member = pgTable(
   "member",
@@ -141,6 +183,10 @@ export const member = pgTable(
   (table) => [
     index("member_organizationId_idx").on(table.organizationId),
     index("member_userId_idx").on(table.userId),
+    uniqueIndex("member_organizationId_userId_unique_idx").on(
+      table.organizationId,
+      table.userId,
+    ),
   ],
 );
 

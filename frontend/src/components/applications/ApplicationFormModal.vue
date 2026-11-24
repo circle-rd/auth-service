@@ -12,7 +12,8 @@ import StepGeneral from './form/StepGeneral.vue';
 import StepOptions from './form/StepOptions.vue';
 import StepAuthorization from './form/StepAuthorization.vue';
 import StepAdvanced from './form/StepAdvanced.vue';
-import { WALLET_SCOPE } from './form/scopes';
+import { TEAMS_SCOPE, WALLET_SCOPE, withManagedScope } from './form/scopes';
+import { RESOURCE_SELF_SCOPE } from './form/state';
 import {
   ALL_PROVIDERS,
   emptyApplicationForm,
@@ -292,7 +293,13 @@ async function submit() {
       allowRegister: form.value.allowRegister,
       billingMode: form.value.billingDelegated ? ('delegated' as const) : ('none' as const),
       resourceSharingEnabled: form.value.resourceSharingEnabled,
-      allowedScopes: form.value.allowedScopes,
+      resourceWebhookUrl: form.value.resourceWebhookUrl || null,
+      teamsEnabled: form.value.teamsEnabled,
+      allowedScopes: withManagedScope(
+        withManagedScope(form.value.allowedScopes, RESOURCE_SELF_SCOPE, form.value.resourceSharingEnabled),
+        TEAMS_SCOPE,
+        form.value.teamsEnabled,
+      ),
       redirectUris: form.value.redirectUris.filter(Boolean),
       allowedResources: form.value.allowedResources.filter(Boolean),
       enabledSocialProviders: form.value.enabledSocialProviders,
@@ -422,10 +429,15 @@ function onEnter() {
       <StepAuthorization
         v-else-if="step === STEP_AUTHORIZATION"
         :form="form"
-        :hidden-resources="hiddenResources"
-        :is-system="props.application?.isSystem ?? false"
+        :available-providers="availableProviders"
       />
-      <StepAdvanced v-else :form="form" :available-providers="availableProviders" />
+      <StepAdvanced
+        v-else
+        :form="form"
+        :webhook-secret="application?.resourceWebhookSecret ?? null"
+        :is-system="props.application?.isSystem ?? false"
+        :hidden-resources="hiddenResources"
+      />
     </form>
 
     <template #footer>

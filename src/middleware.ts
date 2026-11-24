@@ -135,13 +135,15 @@ export async function requireSession(
 
 /**
  * Accept either the caller's BetterAuth session or a user-bound JWT bearer
- * token minted for this API (`aud` must include the issuer URL).
+ * token minted for this API (`aud` must include the issuer URL). A bearer
+ * token must carry at least one of the accepted scopes.
  */
 export async function requireUserOrBearer(
   req: FastifyRequest,
   reply: FastifyReply,
-  scope: string,
+  scope: string | readonly string[],
 ): Promise<string> {
+  const accepted = typeof scope === "string" ? [scope] : scope;
   const authorization = req.headers.authorization;
   if (authorization?.startsWith("Bearer ")) {
     const verified = await verifyBearerAccessToken(authorization.slice(7));
@@ -163,10 +165,10 @@ export async function requireUserOrBearer(
         ERR.AUTH_011("Access token audience does not include this API"),
       );
     }
-    if (!verified.scopes.includes(scope)) {
+    if (!verified.scopes.some((granted) => accepted.includes(granted))) {
       return sendAuthError(
         reply,
-        ERR.AUTH_011(`Missing required scope: ${scope}`),
+        ERR.AUTH_011(`Missing required scope: ${accepted.join(" or ")}`),
       );
     }
     return verified.userId;

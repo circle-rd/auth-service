@@ -10,6 +10,9 @@ export interface ScopeInfo {
 }
 
 export const WALLET_SCOPE = 'wallet:self:read';
+export const RESOURCE_SELF_SCOPE = 'resources:self:manage';
+export const ORG_SCOPE = 'org';
+export const TEAMS_SCOPE = 'organizations:self:manage';
 
 export const SCOPE_CATALOGUE: readonly ScopeInfo[] = [
   { scope: 'openid', group: 'standard', claims: 'sub, iss, aud, exp, iat, jti' },
@@ -20,11 +23,19 @@ export const SCOPE_CATALOGUE: readonly ScopeInfo[] = [
   { scope: 'roles', group: 'circle', claims: 'roles[]' },
   { scope: 'permissions', group: 'circle', claims: 'permissions[]' },
   { scope: 'features', group: 'circle', claims: 'features{}, plan' },
-  { scope: 'org', group: 'circle', claims: 'org_id' },
+  { scope: ORG_SCOPE, group: 'circle', claims: 'org_id' },
   { scope: WALLET_SCOPE, group: 'circle', claims: '(authorizes the user wallet API)', managed: true },
+  { scope: RESOURCE_SELF_SCOPE, group: 'circle', claims: '(authorizes the user resource-sharing API)', managed: true },
+  { scope: TEAMS_SCOPE, group: 'circle', claims: '(authorizes the user team API)', managed: true },
 ];
 
 export const SCOPE_GROUPS: readonly ScopeGroup[] = ['standard', 'circle'];
+
+/** Adds or removes a scope that another option of the form owns. */
+export function withManagedScope(scopes: readonly string[], scope: string, enabled: boolean): string[] {
+  const without = scopes.filter((granted) => granted !== scope);
+  return enabled ? [...without, scope] : without;
+}
 
 export function selectableScopes(group: ScopeGroup): ScopeInfo[] {
   return SCOPE_CATALOGUE.filter((s) => s.group === group && !s.managed);

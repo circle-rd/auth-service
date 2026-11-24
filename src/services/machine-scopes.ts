@@ -9,6 +9,7 @@ export const MACHINE_SCOPES = [
   "resources:usage:write",
   "resources:validate",
   "gateway:entitlements:read",
+  "gateway:inventory:sync",
   "ssh:target:read",
   "ssh:resource:read",
   "device:session:validate",

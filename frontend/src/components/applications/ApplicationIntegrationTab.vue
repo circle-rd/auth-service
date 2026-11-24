@@ -30,6 +30,14 @@ const emit = defineEmits<{ rotate: [] }>();
 const { t } = useI18n();
 const toast = useToast();
 
+// Scopes owned by an application option (LiteLLM, Resource sharing) are an
+// implementation detail of that option, not something to show as a claim.
+const displayScopes = computed(() =>
+  props.app.allowedScopes.filter(
+    (scope) => !SCOPE_CATALOGUE.some((info) => info.scope === scope && info.managed),
+  ),
+);
+
 type CodeTab = 'typescript' | 'python' | 'ioserver' | 'litellm-ts' | 'litellm-py';
 const activeCodeTab = ref<CodeTab>('typescript');
 
@@ -154,7 +162,7 @@ type PKey = typeof PROVIDERS[number];
       <div>
         <p class="text-xs font-medium text-surface-400 uppercase tracking-wide mb-2">{{ t('appDetail.allowedScopes') }}</p>
         <div class="flex flex-wrap gap-1.5">
-          <BaseBadge v-for="scope in app.allowedScopes" :key="scope" variant="neutral" size="sm">{{ scope }}</BaseBadge>
+          <BaseBadge v-for="scope in displayScopes" :key="scope" variant="neutral" size="sm">{{ scope }}</BaseBadge>
         </div>
       </div>
     </div>

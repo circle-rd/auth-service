@@ -53,7 +53,10 @@ const { mockDb, state, publishEvent } = vi.hoisted(() => {
 });
 
 vi.mock("../db/index.js", () => ({ db: mockDb }));
-vi.mock("./event-bus.js", () => ({ publishEvent }));
+vi.mock("./event-bus.js", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  publishEvent,
+}));
 
 const APP_ID = "00000000-0000-0000-0000-0000000000aa";
 const USER_ID = "user-1";
@@ -158,7 +161,10 @@ describe("setUserSubscription", () => {
       toPlanId: PLAN_ID,
       reason: "onboarding",
     });
-    expect(publishEvent).toHaveBeenCalledWith("subscription.changed");
+    expect(publishEvent).toHaveBeenCalledWith("subscription.changed", [
+      "admin",
+      "user:user-1",
+    ]);
   });
 
   it("records a change when the plan already exists", async () => {
@@ -180,7 +186,10 @@ describe("setUserSubscription", () => {
       toPlanId: PLAN_ID,
       source: "self",
     });
-    expect(publishEvent).toHaveBeenCalledWith("subscription.changed");
+    expect(publishEvent).toHaveBeenCalledWith("subscription.changed", [
+      "admin",
+      "user:user-1",
+    ]);
   });
 
   it("records an expiry change even when the plan is unchanged", async () => {
@@ -206,7 +215,10 @@ describe("setUserSubscription", () => {
       toPlanId: PLAN_ID,
       reason: "extended",
     });
-    expect(publishEvent).toHaveBeenCalledWith("subscription.changed");
+    expect(publishEvent).toHaveBeenCalledWith("subscription.changed", [
+      "admin",
+      "user:user-1",
+    ]);
   });
 
   it("records a reactivation of a de-activated subscription", async () => {
@@ -225,7 +237,10 @@ describe("setUserSubscription", () => {
 
     expect(result).toMatchObject({ changed: true, action: "changed" });
     expect(auditRows()).toHaveLength(1);
-    expect(publishEvent).toHaveBeenCalledWith("subscription.changed");
+    expect(publishEvent).toHaveBeenCalledWith("subscription.changed", [
+      "admin",
+      "user:user-1",
+    ]);
   });
 
   it("is a no-op when nothing changes", async () => {

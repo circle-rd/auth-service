@@ -13,7 +13,7 @@ import type { WalletActionMode } from '@/components/wallet/WalletActionModal.vue
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseModal from '@/components/ui/BaseModal.vue';
 import { getUserSpendStatsAdmin, getUserTransactions, getUserWallet, setUnlimited } from '@/api/wallet';
-import { useAdminEvents } from '@/composables/useAdminEvents';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/useToast';
 import { useWalletData } from '@/composables/useWalletData';
@@ -42,7 +42,7 @@ const unlimitedSaving = ref(false);
 // The raw ledger is a detail view: it is fetched only when opened.
 const ledgerOpen = ref(false);
 
-const events = useAdminEvents({ 'wallet.changed': () => void refresh() });
+const events = useRealtimeEvents({ 'wallet.changed': () => void refresh() }, { onResync: () => void refresh() });
 
 function openLedger(): void {
   ledgerOpen.value = true;

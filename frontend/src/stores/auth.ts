@@ -13,6 +13,7 @@ import {
   canAdminTargetUser,
   canManageRole as canManageRoleByRank,
 } from '@/utils/roles';
+import { useCatalogueStore } from '@/stores/catalogue';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
@@ -178,6 +179,7 @@ export const useAuthStore = defineStore('auth', () => {
     mfaPending.value = false;
     mfaMethods.value = [];
     mfaBackupCodesAvailable.value = false;
+    useCatalogueStore().reset();
   }
 
   function isAdmin(): boolean {

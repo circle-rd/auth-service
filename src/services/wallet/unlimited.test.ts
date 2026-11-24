@@ -22,7 +22,10 @@ const { mockDb, state } = vi.hoisted(() => {
         state.updates.push(values);
         return {
           where: () => ({
-            returning: () => Promise.resolve([{ id: "acc", ...values }]),
+            returning: () =>
+              Promise.resolve([
+                { id: "acc", ownerType: "user", ownerId: "user-1", ...values },
+              ]),
           }),
         };
       },
@@ -47,7 +50,9 @@ const { setWalletUnlimited } = await import("./unlimited.js");
 const input = { accountId: "acc", actorId: "root", reason: "staff" };
 
 beforeEach(() => {
-  state.account = [{ id: "acc", isUnlimited: false }];
+  state.account = [
+    { id: "acc", ownerType: "user", ownerId: "user-1", isUnlimited: false },
+  ];
   state.updates = [];
   state.events = [];
 });
@@ -67,13 +72,17 @@ describe("setWalletUnlimited", () => {
   });
 
   it("audits a disabling as its own action", async () => {
-    state.account = [{ id: "acc", isUnlimited: true }];
+    state.account = [
+      { id: "acc", ownerType: "user", ownerId: "user-1", isUnlimited: true },
+    ];
     await setWalletUnlimited({ ...input, isUnlimited: false });
     expect(state.events[0]).toMatchObject({ action: "unlimited_disabled" });
   });
 
   it("is a silent no-op when the value is unchanged", async () => {
-    state.account = [{ id: "acc", isUnlimited: true }];
+    state.account = [
+      { id: "acc", ownerType: "user", ownerId: "user-1", isUnlimited: true },
+    ];
     const result = await setWalletUnlimited({ ...input, isUnlimited: true });
     expect(result).toMatchObject({ id: "acc", isUnlimited: true });
     expect(state.updates).toHaveLength(0);

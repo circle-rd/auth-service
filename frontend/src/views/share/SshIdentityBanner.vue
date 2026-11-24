@@ -45,7 +45,7 @@ onMounted(() => void load());
     </div>
     <RouterLink
       v-if="count > 0"
-      :to="{ name: 'profile', query: { tab: 'security', security: 'ssh' } }"
+      :to="{ name: 'profile', hash: '#security', query: { security: 'ssh' } }"
       class="text-xs text-primary-300 hover:text-primary-200 underline"
     >
       {{ t('share.sshKeys.manage') }}

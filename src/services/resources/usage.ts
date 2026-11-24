@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNull,
   lt,
   or,
@@ -19,10 +20,12 @@ import {
   resourceUsageRecords,
   resources as resourcesTable,
 } from "../../db/resource-schema.js";
+import { user as userTable } from "../../db/auth-schema.js";
 import { ERR } from "../../errors.js";
 import { logger } from "../../logger.js";
 import { evaluateResourceAccess } from "./policy.js";
 import { getResource } from "./registry.js";
+import { announceResourceActivity } from "./realtime.js";
 import type {
   ResourceEventDecision,
   ResourceEventSource,
@@ -74,6 +77,17 @@ export async function recordAccessEvent(
     source: input.source,
     metadata: input.metadata ?? {},
   });
+  if (input.decision === "deny") {
+    announceResourceActivity(
+      {
+        ownerType: input.ownerType ?? null,
+        ownerId: input.ownerId ?? null,
+        applicationId: input.applicationId ?? null,
+      },
+      input.subjectId ?? null,
+      { includeSubject: false },
+    );
+  }
 }
 
 export interface RecordUsageInput {
@@ -191,7 +205,17 @@ export async function recordUsageEvent(
       target: [resourceUsageRecords.resourceId, resourceUsageRecords.requestId],
     })
     .returning();
-  if (row) return { record: row, replayed: false };
+  if (row) {
+    announceResourceActivity(
+      {
+        ownerType: resource.ownerType,
+        ownerId: resource.ownerId,
+        applicationId: resource.applicationId,
+      },
+      input.subjectId,
+    );
+    return { record: row, replayed: false };
+  }
 
   const [existing] = await db
     .select()
@@ -298,6 +322,8 @@ export interface UsageGroupTotals {
 
 export interface UsageUserRow extends UsageGroupTotals {
   subjectId: string;
+  // Name or e-mail; null when the user no longer exists.
+  subjectLabel: string | null;
 }
 
 export interface UsageResourceRow extends UsageGroupTotals {
@@ -396,12 +422,35 @@ async function queryUsage(
       .limit(query.limit + 1)
       .offset(query.offset);
     const hasMore = rows.length > query.limit;
+    const page = rows.slice(0, query.limit);
+    const subjectIds = [
+      ...new Set(
+        page.map((row) => row.subjectId).filter((id): id is string => !!id),
+      ),
+    ];
+    const users =
+      subjectIds.length > 0
+        ? await db
+            .select({
+              id: userTable.id,
+              name: userTable.name,
+              email: userTable.email,
+            })
+            .from(userTable)
+            .where(inArray(userTable.id, subjectIds))
+        : [];
+    const labels = new Map(
+      users.map((user) => [user.id, user.name || user.email || user.id]),
+    );
     return {
       groupBy: "user",
       from: query.from.toISOString(),
       to: query.to.toISOString(),
-      items: rows.slice(0, query.limit).map((row) => ({
+      items: page.map((row) => ({
         subjectId: row.subjectId ?? "",
+        subjectLabel: row.subjectId
+          ? (labels.get(row.subjectId) ?? null)
+          : null,
         ...toTotals(row),
       })),
       totals: toTotals(totalsRow ?? EMPTY_TOTALS),

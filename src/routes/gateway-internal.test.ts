@@ -9,16 +9,21 @@ import {
 } from "vitest";
 import { createTestApp } from "../tests/helpers/app.js";
 
-const { mockRequireMachineScope, mockListEntitlements } = vi.hoisted(() => ({
-  mockRequireMachineScope: vi.fn(),
-  mockListEntitlements: vi.fn(),
-}));
+const { mockRequireMachineScope, mockListEntitlements, mockRequestSync } =
+  vi.hoisted(() => ({
+    mockRequireMachineScope: vi.fn(),
+    mockListEntitlements: vi.fn(),
+    mockRequestSync: vi.fn(),
+  }));
 
 vi.mock("../services/machine-auth.js", () => ({
   requireMachineScope: mockRequireMachineScope,
 }));
 vi.mock("../services/gateway-inventory.js", () => ({
   listGatewayEntitlements: mockListEntitlements,
+}));
+vi.mock("../services/gateway-inventory-sync.js", () => ({
+  requestGatewayInventorySync: mockRequestSync,
 }));
 
 const { gatewayInternalRoutes } = await import("./gateway-internal.js");
@@ -37,6 +42,7 @@ afterAll(() => app.close());
 beforeEach(() => {
   mockRequireMachineScope.mockReset();
   mockListEntitlements.mockReset();
+  mockRequestSync.mockReset();
   mockRequireMachineScope.mockResolvedValue({
     clientId: "litellm-wallet",
     scopes: [],
@@ -72,5 +78,30 @@ describe("gateway internal entitlements", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(mockListEntitlements).toHaveBeenCalledWith("user_abc");
+  });
+});
+
+describe("gateway inventory change notification", () => {
+  it("requires the inventory sync scope and schedules a sync", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/internal/gateway/inventory-changed",
+    });
+    expect(res.statusCode).toBe(202);
+    expect(mockRequireMachineScope).toHaveBeenCalledWith(
+      undefined,
+      "gateway:inventory:sync",
+    );
+    expect(mockRequestSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not schedule a sync when the caller is refused", async () => {
+    mockRequireMachineScope.mockRejectedValueOnce(new Error("forbidden"));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/internal/gateway/inventory-changed",
+    });
+    expect(res.statusCode).not.toBe(202);
+    expect(mockRequestSync).not.toHaveBeenCalled();
   });
 });

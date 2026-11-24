@@ -11,6 +11,7 @@ import { createTestApp } from "../tests/helpers/app.js";
 
 const {
   mockRequireSession,
+  mockRequireUserOrBearer,
   mockRequireAppDelegation,
   mockRequireResourceAppAdmin,
   mockGetRequestSession,
@@ -18,6 +19,8 @@ const {
   mockListSharingApps,
   mockAssertActiveMember,
   mockIsPlatformAdmin,
+  mockIsApplicationAdmin,
+  mockListModelCandidates,
   mockAssertCanManage,
   mockAssertCanManageGrants,
   mockCreateGrant,
@@ -31,6 +34,8 @@ const {
   mockRevokeInvitation,
   mockCreateResource,
   mockRemoveResource,
+  mockResolveAudience,
+  mockActiveMemberIdByEmail,
   mockGetResource,
   mockListMyResources,
   mockRequestValidation,
@@ -55,6 +60,7 @@ const {
   mockMailConfigured,
 } = vi.hoisted(() => ({
   mockRequireSession: vi.fn(),
+  mockRequireUserOrBearer: vi.fn(),
   mockRequireAppDelegation: vi.fn(),
   mockRequireResourceAppAdmin: vi.fn(),
   mockGetRequestSession: vi.fn(),
@@ -62,6 +68,8 @@ const {
   mockListSharingApps: vi.fn(),
   mockAssertActiveMember: vi.fn(),
   mockIsPlatformAdmin: vi.fn(),
+  mockIsApplicationAdmin: vi.fn(),
+  mockListModelCandidates: vi.fn(),
   mockAssertCanManage: vi.fn(),
   mockAssertCanManageGrants: vi.fn(),
   mockCreateGrant: vi.fn(),
@@ -75,6 +83,8 @@ const {
   mockRevokeInvitation: vi.fn(),
   mockCreateResource: vi.fn(),
   mockRemoveResource: vi.fn(),
+  mockResolveAudience: vi.fn(),
+  mockActiveMemberIdByEmail: vi.fn(),
   mockGetResource: vi.fn(),
   mockListMyResources: vi.fn(),
   mockRequestValidation: vi.fn(),
@@ -102,6 +112,7 @@ const {
 vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../middleware.js", () => ({
   requireSession: mockRequireSession,
+  requireUserOrBearer: mockRequireUserOrBearer,
   requireAppDelegation: mockRequireAppDelegation,
   requireResourceAppAdmin: mockRequireResourceAppAdmin,
   getRequestSession: mockGetRequestSession,
@@ -121,6 +132,7 @@ vi.mock("../services/resources/authority.js", () => ({
   assertCanManageResource: mockAssertCanManage,
   assertCanManageGrants: mockAssertCanManageGrants,
   isPlatformAdmin: mockIsPlatformAdmin,
+  isApplicationAdmin: mockIsApplicationAdmin,
 }));
 vi.mock("../services/resources/grants.js", () => ({
   createResourceGrant: mockCreateGrant,
@@ -137,6 +149,16 @@ vi.mock("../services/resources/invitations.js", () => ({
   listResourceInvitationsForApplication: mockListInvitations,
   revokeResourceInvitation: mockRevokeInvitation,
   toPublicResourceInvitation: (invitation: unknown) => invitation,
+}));
+vi.mock("../services/resources/audience.js", () => ({
+  activeMemberIdByEmail: mockActiveMemberIdByEmail,
+  resolveAudience: mockResolveAudience,
+}));
+vi.mock("../services/resources/gateway-declaration.js", () => ({
+  validateRelayDeclaration: async (resource: unknown) => resource,
+}));
+vi.mock("../services/usernames.js", () => ({
+  getUserIdentity: async () => null,
 }));
 vi.mock("../services/resources/registry.js", () => ({
   createResource: mockCreateResource,
@@ -164,6 +186,9 @@ vi.mock("../services/resources/usage.js", () => ({
   getApplicationUsage: mockGetUsage,
   listAccessEvents: mockListAccessEvents,
   USAGE_GROUP_BY: ["user", "resource"],
+}));
+vi.mock("../services/resources/model-candidates.js", () => ({
+  listModelCandidates: mockListModelCandidates,
 }));
 vi.mock("../services/email.js", () => ({
   sendResourceInvitationEmail: mockSendInvitation,
@@ -212,6 +237,7 @@ afterAll(() => app.close());
 beforeEach(() => {
   for (const mock of [
     mockRequireSession,
+    mockRequireUserOrBearer,
     mockRequireAppDelegation,
     mockRequireResourceAppAdmin,
     mockGetRequestSession,
@@ -219,6 +245,8 @@ beforeEach(() => {
     mockListSharingApps,
     mockAssertActiveMember,
     mockIsPlatformAdmin,
+    mockIsApplicationAdmin,
+    mockListModelCandidates,
     mockAssertCanManage,
     mockAssertCanManageGrants,
     mockCreateGrant,
@@ -258,6 +286,7 @@ beforeEach(() => {
     mock.mockReset();
   }
   mockRequireSession.mockResolvedValue("user-1");
+  mockRequireUserOrBearer.mockResolvedValue("user-1");
   mockRequireAppDelegation.mockResolvedValue("user-1");
   mockRequireResourceAppAdmin.mockResolvedValue("user-1");
   mockGetRequestSession.mockResolvedValue({
@@ -271,6 +300,8 @@ beforeEach(() => {
   mockListAccessible.mockResolvedValue([]);
   mockListSharingApps.mockResolvedValue([]);
   mockIsPlatformAdmin.mockResolvedValue(true);
+  mockIsApplicationAdmin.mockResolvedValue(true);
+  mockListModelCandidates.mockResolvedValue([]);
   mockListMyResources.mockResolvedValue([resource]);
   mockGetResource.mockResolvedValue(resource);
   mockGetScheme.mockResolvedValue({
@@ -312,6 +343,98 @@ describe("user resource routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().resources).toHaveLength(1);
     expect(Array.isArray(res.json().enabledSchemes)).toBe(true);
+  });
+
+  it("lists managed model candidates to an application administrator", async () => {
+    mockListModelCandidates.mockResolvedValue([
+      {
+        name: "bmz/qwen",
+        locator: "app-a/bmz/qwen",
+        source: "managed",
+        owned: false,
+      },
+    ]);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/user/apps/${APP}/model-candidates/managed`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().models).toHaveLength(1);
+    expect(mockListModelCandidates).toHaveBeenCalledWith({
+      appId: APP,
+      userId: "user-1",
+      source: "managed",
+    });
+    expect(mockAssertActiveMember).not.toHaveBeenCalled();
+  });
+
+  it("checks membership before listing native candidates to a member", async () => {
+    mockIsApplicationAdmin.mockResolvedValue(false);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/user/apps/${APP}/model-candidates/native`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockAssertActiveMember).toHaveBeenCalledWith("user-1", APP);
+    expect(mockListModelCandidates).toHaveBeenCalledWith({
+      appId: APP,
+      userId: "user-1",
+      source: "native",
+    });
+  });
+
+  it("grants the declared audience at creation and removes the resource when refused", async () => {
+    mockCreateResource.mockResolvedValue(resource);
+    mockResolveAudience.mockResolvedValue({
+      subjectType: "organization",
+      subjectId: "org-1",
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        displayName: "Project 1",
+        audience: { type: "organization", organizationId: "org-1" },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(mockCreateGrant).toHaveBeenCalledWith({
+      resourceId: resource.id,
+      subjectType: "organization",
+      subjectId: "org-1",
+      actorUserId: "user-1",
+    });
+
+    mockCreateGrant.mockRejectedValueOnce(new Error("refused"));
+    const refused = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        displayName: "Project 1",
+        audience: { type: "everyone" },
+      },
+    });
+    expect(refused.statusCode).toBe(500);
+    expect(mockRemoveResource).toHaveBeenCalledWith(resource.id, "user-1");
+  });
+
+  it("rejects an audience that mixes an e-mail and a user id", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/user/resources",
+      payload: {
+        applicationId: APP,
+        scheme: "gine",
+        displayName: "Project 1",
+        audience: { type: "user", userId: "u2", email: "a@example.com" },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockCreateResource).not.toHaveBeenCalled();
   });
 
   it("creates a user-owned resource in an application the user belongs to", async () => {
@@ -472,6 +595,44 @@ describe("user resource routes", () => {
     );
   });
 
+  it("resolves a user grant named by e-mail", async () => {
+    mockActiveMemberIdByEmail.mockResolvedValue("user-9");
+    mockCreateGrant.mockResolvedValue({
+      id: GRANT,
+      resourceId: RESOURCE,
+      subjectType: "user",
+      subjectId: "user-9",
+      revokedAt: null,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/resources/${RESOURCE}/grants`,
+      payload: { subjectType: "user", subjectEmail: "member@example.com" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockActiveMemberIdByEmail).toHaveBeenCalledWith(
+      "member@example.com",
+      APP,
+    );
+    expect(mockCreateGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectId: "user-9" }),
+    );
+  });
+
+  it("refuses both a subject id and an e-mail", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/resources/${RESOURCE}/grants`,
+      payload: {
+        subjectType: "user",
+        subjectId: "user-2",
+        subjectEmail: "member@example.com",
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(mockCreateGrant).not.toHaveBeenCalled();
+  });
+
   it("accepts an invitation for the authenticated verified subject", async () => {
     mockAcceptInvitation.mockResolvedValue({ id: GRANT, resourceId: RESOURCE });
     const res = await app.inject({
@@ -630,7 +791,7 @@ describe("application resource routes", () => {
     expect(ok.statusCode).toBe(200);
     expect(mockGetUsage).toHaveBeenCalledWith(
       APP,
-      expect.objectContaining({ groupBy: "user", limit: 50, offset: 0 }),
+      expect.objectContaining({ groupBy: "resource", limit: 50, offset: 0 }),
     );
     const defaults = mockGetUsage.mock.calls[0]?.[1];
     const span =
@@ -642,6 +803,16 @@ describe("application resource routes", () => {
       url: `/api/user/apps/${APP}/usage?from=2030-01-02T00:00:00.000Z&to=2030-01-01T00:00:00.000Z`,
     });
     expect(inverted.statusCode).toBe(400);
+  });
+
+  it("reserves per-user usage grouping to application administrators", async () => {
+    mockIsApplicationAdmin.mockResolvedValue(false);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/user/apps/${APP}/usage?groupBy=user`,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockGetUsage).not.toHaveBeenCalled();
   });
 
   it("lists access events for an application", async () => {

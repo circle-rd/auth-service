@@ -11,45 +11,45 @@ import {
 } from "../../db/auth-schema.js";
 import { count, ilike, or, eq, desc, asc, and } from "drizzle-orm";
 import { requireAdmin } from "../../middleware.js";
-import { publishEvent } from "../../services/event-bus.js";
-
-const domainSchema = z
-  .string()
-  .trim()
-  .max(253)
-  .transform((value) => value.toLowerCase())
-  .pipe(
-    z
-      .string()
-      .regex(
-        /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
-        "Use a bare hostname such as example.com",
-      ),
-  );
+import {
+  ADMIN_ROOM,
+  orgRoom,
+  publishEvent,
+  userRoom,
+} from "../../services/event-bus.js";
+import {
+  domainVerificationRecord,
+  newDomainVerificationToken,
+  organizationDomainSchema,
+  requestDomainVerification,
+  verifyOrganizationDomain,
+} from "../../services/organization-domains.js";
+import {
+  organizationNameSchema,
+  organizationSlugSchema,
+  teamFilterSchema,
+} from "../../services/organization-fields.js";
 
 const createOrgSchema = z.object({
-  name: z.string().min(1).max(100),
-  slug: z
-    .string()
-    .min(1)
-    .max(50)
-    .regex(/^[a-z0-9-]+$/),
+  name: organizationNameSchema,
+  slug: organizationSlugSchema,
   logo: z.string().url().optional(),
-  domain: domainSchema.optional(),
+  domain: organizationDomainSchema.optional(),
+  // Opt out of the DNS challenge when a domain is stored for display only.
+  verifyDomain: z.boolean().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 const updateOrgSchema = z
   .object({
-    name: z.string().min(1).max(100).optional(),
-    slug: z
-      .string()
-      .min(1)
-      .max(50)
-      .regex(/^[a-z0-9-]+$/)
-      .optional(),
+    name: organizationNameSchema.optional(),
+    slug: organizationSlugSchema.optional(),
     logo: z.string().url().nullable().optional(),
-    domain: domainSchema.nullable().optional(),
+    domain: organizationDomainSchema.nullable().optional(),
+    autoEnrollEnabled: z.boolean().optional(),
+    // Persisted as the presence of a verification token: false clears the
+    // challenge and any existing proof.
+    verifyDomain: z.boolean().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
@@ -82,6 +82,12 @@ export async function organizationsRoutes(
     const sortOrder = q.sortOrder === "desc" ? "desc" : "asc";
     const offset = (page - 1) * limit;
 
+    const teamParam =
+      q.team === undefined ? undefined : teamFilterSchema.safeParse(q.team);
+    if (teamParam && !teamParam.success)
+      throw ERR.ORG_003("Invalid team filter", teamParam.error.flatten());
+    const teamFilter = teamParam?.success ? teamParam.data : undefined;
+
     const searchFilter = search
       ? or(
           ilike(organization.name, `%${search}%`),
@@ -89,6 +95,10 @@ export async function organizationsRoutes(
           ilike(organization.domain, `%${search}%`),
         )
       : undefined;
+    const listFilter = and(
+      searchFilter,
+      teamFilter === undefined ? undefined : eq(organization.team, teamFilter),
+    );
 
     const orderCol =
       sortBy === "createdAt"
@@ -106,18 +116,23 @@ export async function organizationsRoutes(
           slug: organization.slug,
           logo: organization.logo,
           domain: organization.domain,
+          domainVerificationToken: organization.domainVerificationToken,
+          autoEnrollEnabled: organization.autoEnrollEnabled,
+          domainVerifiedAt: organization.domainVerifiedAt,
+          domainLastCheckedAt: organization.domainLastCheckedAt,
+          team: organization.team,
           createdAt: organization.createdAt,
           metadata: organization.metadata,
           memberCount: count(member.id),
         })
         .from(organization)
         .leftJoin(member, eq(member.organizationId, organization.id))
-        .where(searchFilter)
+        .where(listFilter)
         .groupBy(organization.id)
         .orderBy(orderExpr)
         .limit(limit)
         .offset(offset),
-      db.select({ total: count() }).from(organization).where(searchFilter),
+      db.select({ total: count() }).from(organization).where(listFilter),
     ]);
 
     await reply.send({ organizations: rows, total, page, limit });
@@ -129,10 +144,10 @@ export async function organizationsRoutes(
     if (!parsed.success)
       throw ERR.ORG_003("Invalid organization data", parsed.error.flatten());
 
-    const { name, slug, logo, domain, metadata } = parsed.data;
+    const { name, slug, logo, domain, metadata, verifyDomain } = parsed.data;
 
     try {
-      const org = await auth.api.createOrganization({
+      const created = await auth.api.createOrganization({
         body: {
           name,
           slug,
@@ -142,7 +157,23 @@ export async function organizationsRoutes(
         },
         headers: fromNodeHeaders(req.headers),
       });
-      await reply.status(201).send({ organization: org });
+      // A declared domain starts unverified. Hand the administrator the TXT
+      // challenge immediately so the create dialog can show it.
+      const verification =
+        domain && verifyDomain !== false
+          ? await requestDomainVerification(created.id)
+          : null;
+      await reply.status(201).send({
+        organization: verification?.organization ?? created,
+        ...(verification
+          ? {
+              domainVerification: {
+                recordName: verification.recordName,
+                recordValue: verification.recordValue,
+              },
+            }
+          : {}),
+      });
     } catch (e: unknown) {
       const msg =
         e instanceof Error ? e.message : "Failed to create organization";
@@ -178,7 +209,7 @@ export async function organizationsRoutes(
       .limit(1);
     if (existing.length === 0) throw ERR.ORG_001();
     await db.delete(organization).where(eq(organization.id, id));
-    publishEvent("organization.changed");
+    publishEvent("organization.changed", [ADMIN_ROOM, orgRoom(id)]);
     await reply.status(204).send();
   });
 
@@ -190,7 +221,12 @@ export async function organizationsRoutes(
       throw ERR.ORG_003("Invalid organization data", parsed.error.flatten());
 
     const existing = await db
-      .select({ id: organization.id })
+      .select({
+        id: organization.id,
+        domain: organization.domain,
+        domainVerificationToken: organization.domainVerificationToken,
+        domainVerifiedAt: organization.domainVerifiedAt,
+      })
       .from(organization)
       .where(eq(organization.id, id))
       .limit(1);
@@ -206,13 +242,63 @@ export async function organizationsRoutes(
       if (conflict.length > 0 && conflict[0].id !== id) throw ERR.ORG_002();
     }
 
+    const current = existing[0];
+    const domainChanged =
+      data.domain !== undefined && data.domain !== current.domain;
+
+    if (data.autoEnrollEnabled === true) {
+      if (
+        domainChanged ||
+        data.verifyDomain === false ||
+        !current.domain ||
+        !current.domainVerifiedAt
+      ) {
+        throw ERR.ORG_009("Verify the domain before enabling auto-enrollment");
+      }
+    }
+
     const updates: Record<string, unknown> = {};
     if (data.name !== undefined) updates.name = data.name;
     if (data.slug !== undefined) updates.slug = data.slug;
     if (data.logo !== undefined) updates.logo = data.logo;
-    if (data.domain !== undefined) updates.domain = data.domain;
     if (data.metadata !== undefined)
       updates.metadata = JSON.stringify(data.metadata);
+    if (data.autoEnrollEnabled !== undefined)
+      updates.autoEnrollEnabled = data.autoEnrollEnabled;
+
+    let verification: {
+      recordName: string;
+      recordValue: string;
+    } | null = null;
+    if (domainChanged) updates.domain = data.domain;
+
+    const targetDomain =
+      data.domain !== undefined ? data.domain : current.domain;
+    const issueChallenge =
+      !!targetDomain &&
+      data.verifyDomain !== false &&
+      (domainChanged ||
+        (data.verifyDomain === true &&
+          !current.domainVerificationToken &&
+          !current.domainVerifiedAt));
+
+    if (domainChanged || data.verifyDomain === false || issueChallenge) {
+      // A new challenge, a disabled verification or a different domain all
+      // invalidate the previous proof and every membership it granted.
+      const token = issueChallenge ? newDomainVerificationToken() : null;
+      updates.domainVerificationToken = token;
+      updates.domainVerifiedAt = null;
+      updates.domainVerifiedBy = null;
+      updates.domainLastCheckedAt = null;
+      updates.autoEnrollEnabled = false;
+      if (targetDomain && token) {
+        const record = domainVerificationRecord(targetDomain, token);
+        verification = {
+          recordName: record.name,
+          recordValue: record.value,
+        };
+      }
+    }
 
     const [updated] = await db
       .update(organization)
@@ -220,7 +306,7 @@ export async function organizationsRoutes(
       .where(eq(organization.id, id))
       .returning();
 
-    publishEvent("organization.changed");
+    publishEvent("organization.changed", [ADMIN_ROOM, orgRoom(id)]);
 
     await reply.send({
       organization: {
@@ -230,7 +316,32 @@ export async function organizationsRoutes(
             ? JSON.parse(updated.metadata)
             : updated.metadata,
       },
+      ...(verification ? { domainVerification: verification } : {}),
     });
+  });
+
+  // POST /api/admin/organizations/:id/domain/verification — issue a new TXT challenge
+  fastify.post("/:id/domain/verification", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const result = await requestDomainVerification(id);
+    await reply.send({
+      organization: result.organization,
+      domainVerification: {
+        recordName: result.recordName,
+        recordValue: result.recordValue,
+      },
+    });
+  });
+
+  // POST /api/admin/organizations/:id/domain/verify — check the published TXT record
+  fastify.post("/:id/domain/verify", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    if (!session) throw ERR.AUTH_001();
+    const updated = await verifyOrganizationDomain(id, session.user.id);
+    await reply.send({ organization: updated });
   });
 
   // GET /api/admin/organizations/:id/members — list members with embedded user data
@@ -313,7 +424,11 @@ export async function organizationsRoutes(
     await db
       .delete(member)
       .where(and(eq(member.organizationId, id), eq(member.userId, userId)));
-    publishEvent("organization.changed");
+    publishEvent("organization.changed", [
+      ADMIN_ROOM,
+      orgRoom(id),
+      userRoom(userId),
+    ]);
     await reply.status(204).send();
   });
 

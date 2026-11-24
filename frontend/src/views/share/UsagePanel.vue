@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { ChevronLeft, ChevronRight } from '@lucide/vue';
+import { ChevronLeft, ChevronRight, User } from '@lucide/vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseInput from '@/components/ui/BaseInput.vue';
 import BaseSelect from '@/components/ui/BaseSelect.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import SchemeIcon from '@/components/ui/SchemeIcon.vue';
+import { useCatalogueActivityTick } from '@/composables/useCatalogueActivity';
 import { useToast } from '@/composables/useToast';
 import {
   getOwnerUsage,
+  listMemberSchemes,
   type OwnerUsage,
+  type ResourceScheme,
   type UsageResourceRow,
   type UsageTotals,
   type UsageUserRow,
@@ -18,7 +22,7 @@ import {
 import type { SelectOption } from '@/types/select';
 import { toIso, toLocalInput } from './format';
 
-const props = defineProps<{ appId: string }>();
+const props = defineProps<{ appId: string; allowUserGrouping?: boolean }>();
 
 const { t } = useI18n();
 const toast = useToast();
@@ -26,24 +30,27 @@ const toast = useToast();
 const LIMIT = 50;
 const DEFAULT_RANGE_DAYS = 30;
 
-const groupBy = ref<'user' | 'resource'>('user');
+const groupBy = ref<'user' | 'resource'>('resource');
 const from = ref('');
 const to = ref('');
 const offset = ref(0);
 const loadedOffset = ref(0);
 const usage = ref<OwnerUsage | null>(null);
+const schemes = ref<ResourceScheme[]>([]);
 const loading = ref(true);
+const activityTick = useCatalogueActivityTick();
 let latestRequest = 0;
 
 const groupOptions = computed<SelectOption[]>(() => [
-  { value: 'user', label: t('share.usage.byUser') },
   { value: 'resource', label: t('share.usage.byResource') },
+  ...(props.allowUserGrouping ? [{ value: 'user', label: t('share.usage.byUser') }] : []),
 ]);
 
 const items = computed<Array<UsageUserRow | UsageResourceRow>>(() => usage.value?.items ?? []);
 const totals = computed<UsageTotals | null>(() => (items.value.length > 0 ? usage.value?.totals ?? null : null));
 const hasPrev = computed(() => offset.value > 0 && loadedOffset.value > 0);
 const hasNext = computed(() => usage.value?.hasMore === true);
+const schemeByName = computed(() => new Map(schemes.value.map((scheme) => [scheme.scheme, scheme])));
 
 function setDefaultRange() {
   const end = new Date();
@@ -57,7 +64,7 @@ function isUserRow(row: UsageUserRow | UsageResourceRow): row is UsageUserRow {
 }
 
 function rowLabel(row: UsageUserRow | UsageResourceRow): string {
-  if (isUserRow(row)) return row.subjectId;
+  if (isUserRow(row)) return row.subjectLabel || row.subjectId || '—';
   return row.displayName ?? row.uri;
 }
 
@@ -130,9 +137,33 @@ function resetOffsetAndLoad() {
 watch([groupBy, from, to], resetOffsetAndLoad);
 watch(offset, () => void load());
 watch(() => props.appId, resetOffsetAndLoad);
+watch(
+  () => activityTick?.value,
+  () => {
+    if (activityTick) resetOffsetAndLoad();
+  },
+);
+watch(
+  () => props.allowUserGrouping,
+  (allowed) => {
+    if (!allowed && groupBy.value === 'user') groupBy.value = 'resource';
+  },
+);
 
+async function loadSchemes() {
+  try {
+    schemes.value = (await listMemberSchemes(props.appId)).schemes;
+  } catch {
+    schemes.value = [];
+  }
+}
+
+watch(() => props.appId, () => void loadSchemes());
 setDefaultRange();
-onMounted(() => void load());
+onMounted(() => {
+  void loadSchemes();
+  void load();
+});
 </script>
 
 <template>
@@ -192,11 +223,22 @@ onMounted(() => void load());
         <tbody>
           <tr v-for="row in items" :key="isUserRow(row) ? row.subjectId : row.resourceId" class="border-t border-surface-800/60">
             <td class="px-4 py-3">
-              <p class="font-medium text-surface-200">{{ rowLabel(row) }}</p>
+              <div class="flex items-center gap-2.5 min-w-0">
+                <User v-if="isUserRow(row)" class="w-4 h-4 shrink-0 text-surface-500" />
+                <SchemeIcon
+                  v-else
+                  :icon="schemeByName.get(row.scheme)?.icon"
+                  :scheme="row.scheme"
+                  size="sm"
+                />
+                <div class="min-w-0">
+                  <p class="font-medium text-surface-200">{{ rowLabel(row) }}</p>
               <p v-if="rowDetail(row)" class="font-mono text-xs text-surface-500">{{ rowDetail(row) }}</p>
-              <p v-if="!isUserRow(row)" class="text-xs text-surface-500">
-                {{ row.scheme }}
-              </p>
+                  <p v-if="!isUserRow(row)" class="text-xs text-surface-500">
+                    {{ schemeByName.get(row.scheme)?.displayName ?? row.scheme }}
+                  </p>
+                </div>
+              </div>
             </td>
             <td class="px-4 py-3 text-right text-surface-300">{{ row.calls }}</td>
             <td class="px-4 py-3 text-right text-surface-400 hidden md:table-cell">

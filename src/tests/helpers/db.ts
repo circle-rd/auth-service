@@ -55,6 +55,7 @@ export async function cleanDb(): Promise<void> {
       applications,
       login_history,
       invitation,
+      team_invitation_tokens,
       member,
       organization,
       two_factor,

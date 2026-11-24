@@ -84,14 +84,8 @@ export interface UserActivity {
     deny: number;
     series: DecisionSeriesPoint[];
     topResources: { uri: string; scheme: string; calls: number }[];
-    topSubjects: { subjectId: string; name: string | null; calls: number; lastAt: string }[];
-    recent: {
-      occurredAt: string;
-      uri: string;
-      subjectName: string | null;
-      decision: 'allow' | 'deny';
-      source: string;
-    }[];
+    totalTokens: number;
+    costUsd: string;
   };
   used: {
     calls: number;

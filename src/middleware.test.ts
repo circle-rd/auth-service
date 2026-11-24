@@ -133,6 +133,43 @@ describe("requireUserOrBearer", () => {
     expect(capture.statusCode).toBe(403);
   });
 
+  it("accepts a bearer token that carries any one of the accepted scopes", async () => {
+    mockVerify.mockResolvedValue({
+      clientId: "app",
+      userId: "bearer-user",
+      audiences: [config.betterAuth.url],
+      scopes: ["organizations:self:manage"],
+    });
+
+    const capture = replyCapture();
+    await expect(
+      requireUserOrBearer(
+        requestWithAuthorization("Bearer token"),
+        capture.reply,
+        ["organizations:self:manage", "resources:self:manage"],
+      ),
+    ).resolves.toBe("bearer-user");
+  });
+
+  it("rejects a bearer token that carries none of the accepted scopes", async () => {
+    mockVerify.mockResolvedValue({
+      clientId: "app",
+      userId: "bearer-user",
+      audiences: [config.betterAuth.url],
+      scopes: ["openid"],
+    });
+
+    const capture = replyCapture();
+    await expect(
+      requireUserOrBearer(
+        requestWithAuthorization("Bearer token"),
+        capture.reply,
+        ["organizations:self:manage", "resources:self:manage"],
+      ),
+    ).resolves.toBe("");
+    expect(capture.statusCode).toBe(403);
+  });
+
   it("rejects a client_credentials token", async () => {
     mockVerify.mockResolvedValue({
       clientId: "reverse-box",

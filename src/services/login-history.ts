@@ -5,7 +5,7 @@ import {
   session as sessionTable,
 } from "../db/auth-schema.js";
 import { desc, eq } from "drizzle-orm";
-import { publishEvent } from "./event-bus.js";
+import { ADMIN_ROOM, publishEvent } from "./event-bus.js";
 
 export interface RecordLoginInput {
   userId: string;
@@ -80,5 +80,5 @@ export async function recordLogin(input: RecordLoginInput): Promise<void> {
   // issuance) funnel through this function, so one announcement covers both.
   // The channel is a signal only: the event carries its type and this instant,
   // never the user id or any other field of the row just written.
-  publishEvent("login.recorded");
+  publishEvent("login.recorded", [ADMIN_ROOM]);
 }

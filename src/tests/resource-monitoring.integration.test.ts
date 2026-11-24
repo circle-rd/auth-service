@@ -8,6 +8,7 @@ import {
   userApplications,
 } from "../db/schema.js";
 import { user as userTable } from "../db/auth-schema.js";
+import { resourceUsageRecords } from "../db/resource-schema.js";
 import { getBusinessStats } from "../services/billing/mrr.js";
 import {
   createApplicationScheme,
@@ -66,6 +67,32 @@ async function seed() {
     ownerId: "owner",
   });
   return { appId: app.id, resource };
+}
+
+async function usage(
+  seeded: Awaited<ReturnType<typeof seed>>,
+  subjectId: string,
+  totalTokens: number,
+  costUsd: string,
+) {
+  await db.insert(resourceUsageRecords).values({
+    occurredAt: new Date(),
+    resourceId: seeded.resource.id,
+    uri: seeded.resource.uri,
+    scheme: "gine",
+    ownerType: "user",
+    ownerId: "owner",
+    subjectType: "user",
+    subjectId,
+    clientId: "client",
+    applicationId: seeded.appId,
+    requestId: `${subjectId}-${totalTokens}-${Math.random()}`,
+    promptTokens: totalTokens,
+    completionTokens: 0,
+    totalTokens,
+    costUsd,
+    usageSource: "provider",
+  });
 }
 
 async function event(
@@ -146,23 +173,31 @@ describe("resource monitoring", () => {
     expect(denied.hasMore).toBe(false);
   });
 
-  it("separates what a user shares from what they use", async () => {
+  it("counts usage on shared resources without exposing other users", async () => {
     const seeded = await seed();
-    await event(seeded, "guest", "allow");
+    await usage(seeded, "guest", 15, "0.25");
+    await usage(seeded, "guest", 5, "0.15");
+    await usage(seeded, "owner", 7, "0.1");
     await event(seeded, "guest", "deny", "no_grant");
-    await event(seeded, "owner", "allow");
 
     const owner = await getUserActivity("owner", seeded.appId, "7d");
-    expect(owner.shared).toMatchObject({ allow: 1, deny: 1 });
-    expect(owner.shared.topSubjects[0]).toMatchObject({
-      subjectId: "guest",
+    expect(owner.shared).toMatchObject({
+      allow: 2,
+      deny: 1,
+      totalTokens: 20,
+      costUsd: "0.40",
+    });
+    expect(owner.shared.topResources[0]).toMatchObject({
+      uri: "gine://project_1",
       calls: 2,
     });
+    expect(owner.shared).not.toHaveProperty("topSubjects");
+    expect(owner.shared).not.toHaveProperty("recent");
     expect(owner.used.calls).toBe(1);
 
     const guest = await getUserActivity("guest", seeded.appId, "7d");
     expect(guest.shared).toMatchObject({ allow: 0, deny: 0 });
-    expect(guest.used.calls).toBe(1);
+    expect(guest.used).toMatchObject({ calls: 2, totalTokens: 20, costUsd: "0.40" });
   });
 
   it("estimates MRR from Stripe-managed subscriptions only", async () => {

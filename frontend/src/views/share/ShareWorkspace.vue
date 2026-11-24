@@ -125,7 +125,7 @@ onMounted(load);
         v-else-if="activeTab === 'members'"
         :app-id="ownerApp.id"
       />
-      <UsagePanel v-else-if="activeTab === 'usage'" :app-id="ownerApp.id" />
+      <UsagePanel v-else-if="activeTab === 'usage'" :app-id="ownerApp.id" :allow-user-grouping="ownerApp.isAdmin" />
       <AccessEventsPanel v-else :app-id="ownerApp.id" />
     </template>
   </div>

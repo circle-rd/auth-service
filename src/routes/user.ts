@@ -12,20 +12,19 @@ import {
 import {
   session as sessionTable,
   user as userTable,
-  member as memberTable,
-  organization as organizationTable,
 } from "../db/auth-schema.js";
 import { and, eq, gt, inArray } from "drizzle-orm";
 import { ERR } from "../errors.js";
 import { auth } from "../auth.js";
 import { requireSession, requireFullSession } from "../middleware.js";
-import { publishEvent } from "../services/event-bus.js";
+import { ADMIN_ROOM, publishEvent, userRoom } from "../services/event-bus.js";
 import { isStripeConfigured } from "../services/stripe.js";
 import { setUserSubscription } from "../services/subscriptions.js";
 import { listInvoices } from "../services/billing/invoices.js";
 import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
+import { phoneVerificationResetSet } from "../services/phone.js";
 import { assertUsernameAvailable } from "../services/usernames.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
 import { mutateUserAndRefreshSnapshots } from "../services/session-snapshot.js";
@@ -461,32 +460,6 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  // GET /api/user/organizations
-  // Returns the organizations the current user is a member of.
-  fastify.get("/organizations", async (req, reply) => {
-    const userId = await requireSession(req, reply);
-    if (!userId) return;
-
-    const rows = await db
-      .select({
-        id: organizationTable.id,
-        name: organizationTable.name,
-        slug: organizationTable.slug,
-        logo: organizationTable.logo,
-        createdAt: organizationTable.createdAt,
-        role: memberTable.role,
-      })
-      .from(memberTable)
-      .innerJoin(
-        organizationTable,
-        eq(organizationTable.id, memberTable.organizationId),
-      )
-      .where(eq(memberTable.userId, userId))
-      .orderBy(organizationTable.name);
-
-    await reply.send({ organizations: rows });
-  });
-
   // PATCH /api/user/profile
   // Allows any authenticated user to update their own profile fields.
   fastify.patch("/profile", async (req, reply) => {
@@ -505,6 +478,15 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }
 
+    const [current] = await db
+      .select({ phone: userTable.phone })
+      .from(userTable)
+      .where(eq(userTable.id, userId))
+      .limit(1);
+    if (!current) throw ERR.USR_001();
+    const phoneChanged =
+      parsed.data.phone !== undefined && parsed.data.phone !== current.phone;
+
     await mutateUserAndRefreshSnapshots(
       (await auth.$context).internalAdapter,
       userId,
@@ -513,6 +495,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
           .update(userTable)
           .set({
             ...profileUpdateSet(parsed.data),
+            ...(phoneChanged ? phoneVerificationResetSet() : {}),
             updatedAt: new Date(),
           })
           .where(eq(userTable.id, userId));
@@ -521,7 +504,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
 
     // A self-service profile edit is a user write like any other: the admin user
     // list renders these fields, so it must refresh too.
-    publishEvent("user.changed");
+    publishEvent("user.changed", [ADMIN_ROOM, userRoom(userId)]);
     // The Stripe Customer must carry the same identity as the local profile.
     await syncBillingCustomerBestEffort("user", userId);
 

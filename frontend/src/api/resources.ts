@@ -61,6 +61,28 @@ export interface ResourceScheme {
   owned?: boolean;
 }
 
+export type ModelCandidateSource = 'managed' | 'native';
+export type ModelCandidateKind = 'model' | 'router';
+
+export interface ModelCandidate {
+  name: string;
+  locator: string;
+  kind: ModelCandidateKind;
+  source: ModelCandidateSource;
+  owned: boolean;
+  createdBy: string | null;
+  clientId: string | null;
+  tags: string[];
+  mode: string | null;
+  supports: {
+    functionCalling: boolean;
+    vision: boolean;
+    videoInput: boolean;
+    audioInput: boolean;
+    audioOutput: boolean;
+  };
+}
+
 export interface Resource {
   id: string;
   applicationId: string;
@@ -78,6 +100,9 @@ export interface Resource {
   validationRequestedAt: string | null;
   validatedAt: string | null;
   validationError: string | null;
+  // Active grants; present on the owned listing, optionally with `grants`.
+  grantCount?: number;
+  grants?: ResourceGrant[];
   createdAt: string;
   updatedAt: string;
 }
@@ -94,7 +119,11 @@ export interface ResourceGrant {
   createdAt: string;
   resourceUri?: string;
   resourceDisplayName?: string;
+  resourceScheme?: string;
   applicationId?: string;
+  // Resolved by auth-service: name/email for a user, name for an
+  // organization or plan, null for `everyone`.
+  subjectLabel?: string | null;
 }
 
 export interface ResourceInvitation {
@@ -166,6 +195,7 @@ export interface UsageTotals {
 
 export interface UsageUserRow extends UsageTotals {
   subjectId: string;
+  subjectLabel: string | null;
 }
 
 export interface UsageResourceRow extends UsageTotals {
@@ -219,12 +249,20 @@ export interface SshMetaUser {
   createdAt: string;
 }
 
+export type ResourceAudience =
+  | { type: 'everyone' }
+  | { type: 'plan'; planId: string }
+  | { type: 'organization'; organizationId: string }
+  | { type: 'user'; userId: string }
+  | { type: 'user'; email: string };
+
 export interface CreateResourceBody {
   applicationId: string;
   scheme: string;
   locator?: string;
   displayName: string;
   metadata?: Record<string, unknown>;
+  audience?: ResourceAudience;
 }
 
 export interface CreateAppResourceBody {
@@ -243,6 +281,8 @@ export interface UpdateResourceBody {
 export interface CreateGrantBody {
   subjectType: ResourceSubjectType;
   subjectId?: string | null;
+  // A user grant may name an e-mail; auth-service resolves it among active members.
+  subjectEmail?: string | null;
   expiresAt?: string | null;
 }
 
@@ -331,7 +371,7 @@ export interface OwnerMemberPage {
 
 export async function listOwnerMembers(
   appId: string,
-  query: { limit?: number; offset?: number } = {},
+  query: { limit?: number; offset?: number; q?: string } = {},
 ): Promise<OwnerMemberPage> {
   return apiFetch(`/user/apps/${appId}/members${queryString(query)}`);
 }
@@ -345,6 +385,14 @@ export async function addOwnerMember(appId: string, email: string): Promise<{ ac
 
 export async function listMemberSchemes(appId: string): Promise<{ schemes: ResourceScheme[] }> {
   return apiFetch(`/user/apps/${appId}/schemes`);
+}
+
+export async function listManagedModelCandidates(appId: string): Promise<{ models: ModelCandidate[] }> {
+  return apiFetch(`/user/apps/${appId}/model-candidates/managed`);
+}
+
+export async function listNativeModelCandidates(appId: string): Promise<{ models: ModelCandidate[] }> {
+  return apiFetch(`/user/apps/${appId}/model-candidates/native`);
 }
 
 export async function listSchemeCatalog(appId: string): Promise<{ schemes: ResourceScheme[] }> {
@@ -388,8 +436,8 @@ export async function createAppResource(appId: string, body: CreateAppResourceBo
   });
 }
 
-export async function listMyResources(): Promise<{ resources: Resource[] }> {
-  return apiFetch('/user/resources');
+export async function listMyResources(includeGrants = false): Promise<{ resources: Resource[] }> {
+  return apiFetch(`/user/resources${includeGrants ? '?include=grants' : ''}`);
 }
 
 export async function createResource(body: CreateResourceBody): Promise<{ resource: Resource }> {

@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n';
 import { CreditCard, ExternalLink } from '@lucide/vue';
 import BaseButton from '@/components/ui/BaseButton.vue';
 import BaseBadge from '@/components/ui/BaseBadge.vue';
+import ApplicationIcon from '@/components/applications/ApplicationIcon.vue';
 import type { ConsumptionAggregate, UserSubscriptionEntry } from '@/types';
 
 defineProps<{
@@ -41,7 +42,7 @@ function isHttpUrl(value: string | null | undefined): boolean {
       <div v-for="sub in subscriptions" :key="sub.applicationId" class="px-4 py-4 sm:px-5">
         <div class="flex flex-wrap items-center gap-2 mb-2 sm:gap-3">
           <div class="flex items-center gap-2 min-w-0 w-full sm:flex-1">
-            <img v-if="sub.applicationIcon" :src="sub.applicationIcon" class="w-5 h-5 rounded shrink-0" />
+            <ApplicationIcon :name="sub.applicationName" :icon="sub.applicationIcon" />
             <a
               v-if="isHttpUrl(sub.applicationUrl)"
               :href="sub.applicationUrl || undefined"

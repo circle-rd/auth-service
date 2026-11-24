@@ -8,7 +8,7 @@ import { ERR } from "../../errors.js";
 import { getCallerRole, requireAdmin } from "../../middleware.js";
 import { MACHINE_SCOPES } from "../../services/machine-scopes.js";
 import { revokeClientTokens } from "../../services/oauth-tokens.js";
-import { publishEvent } from "../../services/event-bus.js";
+import { ADMIN_ROOM, publishEvent } from "../../services/event-bus.js";
 
 const idParamsSchema = z.object({ id: z.string().uuid() });
 
@@ -75,7 +75,7 @@ export async function applicationMachineScopesRoutes(
     );
     if (removed) await revokeClientTokens(app.slug);
 
-    publishEvent("application.changed");
+    publishEvent("application.changed", [ADMIN_ROOM]);
     await reply.send({ scopes });
   });
 }

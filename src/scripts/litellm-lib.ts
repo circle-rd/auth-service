@@ -28,6 +28,10 @@ export const WALLET_SCOPES = [
   "resources:usage:write",
 ];
 
+/** Confidential machine application reverse-relay uses to announce model changes. */
+export const RELAY_CLIENT_SLUG = "reverse-relay";
+export const RELAY_SCOPES = ["gateway:inventory:sync"];
+
 export type ScriptEnv = z.infer<typeof scriptEnvSchema> & {
   authUrl: string;
   litellmUrl: string;

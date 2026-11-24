@@ -9,10 +9,10 @@ import BaseBadge from '@/components/ui/BaseBadge.vue';
 import DataTable from '@/components/ui/DataTable.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import SpendChart from '@/components/wallet/SpendChart.vue';
-import SpendBreakdown from '@/components/wallet/SpendBreakdown.vue';
+import SpendDetails from '@/components/wallet/SpendDetails.vue';
 import PricingCard from '@/components/wallet/PricingCard.vue';
 import { getWalletStats, listWallets } from '@/api/wallet';
-import { useAdminEvents } from '@/composables/useAdminEvents';
+import { useRealtimeEvents } from '@/composables/useRealtimeEvents';
 import { useDebounce } from '@/composables/useDebounce';
 import { useMoney } from '@/composables/useMoney';
 import { useToast } from '@/composables/useToast';
@@ -22,7 +22,6 @@ import type { AdminWalletStats, WalletListFilter, WalletListItem } from '@/types
 
 const FILTERS: WalletListFilter[] = ['all', 'debt', 'credit', 'unlimited'];
 const DAYS = 30;
-const POLL_MS = 30_000;
 
 const { t } = useI18n();
 const { fmt } = useMoney();
@@ -76,15 +75,12 @@ watch([filter, debouncedSearch], () => {
 });
 watch([page, limit], () => void fetchList());
 
-const events = useAdminEvents({ 'wallet.changed': refreshAll });
-let poll: ReturnType<typeof setInterval> | null = null;
+const events = useRealtimeEvents({ 'wallet.changed': refreshAll }, { onResync: refreshAll });
 
 onMounted(() => {
   refreshAll();
-  poll = setInterval(() => { if (!document.hidden) refreshAll(); }, POLL_MS);
 });
 onUnmounted(() => {
-  if (poll) clearInterval(poll);
   events.close();
 });
 
@@ -152,7 +148,7 @@ function formatDate(iso: string): string {
             <template #empty>{{ t('wallet.spend.none') }}</template>
           </SpendChart>
           <div v-if="stats && stats.spend.calls > 0" class="mt-6 pt-6 border-t border-surface-700/40">
-            <SpendBreakdown :by-application="stats.byApplication" :by-kind="stats.byKind" :by-model="stats.byModel" />
+            <SpendDetails :by-application="stats.byApplication" :by-kind="stats.byKind" :by-model="stats.byModel" />
           </div>
         </div>
 

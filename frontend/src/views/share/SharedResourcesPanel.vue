@@ -25,14 +25,19 @@ import { formatDateTime } from './format';
 import ResourceFormModal, { type ResourceFormPayload } from './ResourceFormModal.vue';
 import SshTargetDialog from './SshTargetDialog.vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   appId: string;
   scope: 'app' | 'mine';
   canManage: boolean;
   canRead: boolean;
+  canCreate?: boolean;
   // Restricts the list, and the creation form, to one resource type.
   scheme?: string;
-}>();
+  // Application administrators declare gateway objects and choose wider audiences.
+  appAdmin?: boolean;
+}>(), {
+  canCreate: true,
+});
 
 const emit = defineEmits<{ changed: [] }>();
 
@@ -55,10 +60,6 @@ const validatorLink = ref<string | null>(null);
 
 const schemeByName = computed(() => new Map(schemes.value.map((entry) => [entry.scheme, entry])));
 
-// Gateway objects are declared by the application, never by a member.
-const creatableSchemes = computed(() =>
-  props.scope === 'mine' ? schemes.value.filter((entry) => entry.adapter !== 'litellm') : schemes.value,
-);
 
 // Choosing which gateway objects an application exposes is a platform decision.
 function awaitsPlatformValidation(resource: Resource): boolean {
@@ -118,7 +119,7 @@ async function save(form: ResourceFormPayload) {
       if (props.scope === 'app') {
         await createAppResource(props.appId, payload);
       } else {
-        await createResource({ applicationId: props.appId, ...payload });
+        await createResource({ applicationId: props.appId, ...payload, audience: form.audience });
       }
       toast.success(t('share.resources.created'));
     }
@@ -185,7 +186,7 @@ onMounted(() => void load());
   <div class="space-y-4">
     <div class="flex items-center justify-between gap-3">
       <p class="text-sm text-surface-400">{{ t('share.resources.hint') }}</p>
-      <BaseButton v-if="canManage" size="sm" class="shrink-0" @click="openCreate">
+      <BaseButton v-if="canCreate" size="sm" class="shrink-0" @click="openCreate">
         <Plus class="w-3.5 h-3.5" />{{ t('share.resources.add') }}
       </BaseButton>
     </div>
@@ -275,7 +276,10 @@ onMounted(() => void load());
 
     <ResourceFormModal
       :open="showForm"
-      :schemes="creatableSchemes"
+      :audience-enabled="scope === 'mine'"
+      :is-app-admin="appAdmin === true"
+      :app-id="appId"
+      :schemes="schemes"
       :fixed-scheme="scheme"
       :editing="editing"
       :saving="saving"

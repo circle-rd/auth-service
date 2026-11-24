@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { getUser, sendVerificationEmail, markEmailVerified, resetUserMfa, revokeUserSessions } from '@/api/users';
+import { getUser, sendVerificationEmail, markEmailVerified, resetUserMfa, revokeUserSessions, updateUser } from '@/api/users';
 import { getUserConsumption } from '@/api/consumption';
 import { setSubscriptionCancellation } from '@/api/subscriptions';
 import { useToast } from '@/composables/useToast';
@@ -46,6 +46,34 @@ async function reloadUser(): Promise<void> {
   const res = await getUser(userId);
   user.value = res.user;
   userApps.value = res.applications;
+}
+
+async function togglePhoneVerified(): Promise<void> {
+  if (!user.value) return;
+  actionLoading.value = true;
+  try {
+    await updateUser(userId, { phoneVerified: !user.value.phoneVerified });
+    await reloadUser();
+    toast.success(t('users.verificationUpdated'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
+  } finally {
+    actionLoading.value = false;
+  }
+}
+
+async function toggleAgeVerified(): Promise<void> {
+  if (!user.value) return;
+  actionLoading.value = true;
+  try {
+    await updateUser(userId, { ageVerified: !user.value.ageVerified });
+    await reloadUser();
+    toast.success(t('users.verificationUpdated'));
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : t('common.error'));
+  } finally {
+    actionLoading.value = false;
+  }
 }
 
 async function handleResendVerification(): Promise<void> {
@@ -235,6 +263,16 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
                   <XCircle v-else class="w-3.5 h-3.5 text-surface-600" />
                   {{ t('users.mfa') }}
                 </div>
+                <div class="flex items-center gap-1.5 text-xs text-surface-500">
+                  <CheckCircle v-if="user.phoneVerified" class="w-3.5 h-3.5 text-emerald-400" />
+                  <XCircle v-else class="w-3.5 h-3.5 text-surface-600" />
+                  {{ t('users.phoneVerified') }}
+                </div>
+                <div class="flex items-center gap-1.5 text-xs text-surface-500">
+                  <CheckCircle v-if="user.ageVerified" class="w-3.5 h-3.5 text-emerald-400" />
+                  <XCircle v-else class="w-3.5 h-3.5 text-surface-600" />
+                  {{ t('users.ageVerified') }}
+                </div>
               </div>
             </div>
           </div>
@@ -272,6 +310,24 @@ const appColumns = computed<ColumnDef<UserApplicationDetail>[]>(() => [
             >
               <MailCheck class="w-4 h-4" />
               {{ t('users.markVerified') }}
+            </BaseButton>
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :disabled="actionLoading || !user.phone"
+              @click="togglePhoneVerified"
+            >
+              <CheckCircle class="w-4 h-4" />
+              {{ user.phoneVerified ? t('users.unmarkPhoneVerified') : t('users.markPhoneVerified') }}
+            </BaseButton>
+            <BaseButton
+              variant="outline"
+              size="sm"
+              :disabled="actionLoading"
+              @click="toggleAgeVerified"
+            >
+              <CheckCircle class="w-4 h-4" />
+              {{ user.ageVerified ? t('users.unmarkAgeVerified') : t('users.markAgeVerified') }}
             </BaseButton>
           </div>
 

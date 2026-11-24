@@ -1,7 +1,5 @@
 import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { userApplications, userSubscriptions } from "../../db/schema.js";
-import { member, user as userTable } from "../../db/auth-schema.js";
 import {
   applicationSchemes,
   resourceGrants,
@@ -13,7 +11,13 @@ import {
   type AccessScope,
 } from "./application-scope.js";
 import type { ResourceGrantRow } from "./grants.js";
-import { decide, isBanned, type AccessDecision } from "./policy.js";
+import {
+  isAccountActive,
+  listActiveMemberships,
+  listActivePlanIds,
+  listOrganizationIds,
+} from "./identity-facts.js";
+import { decide, type AccessDecision } from "./policy.js";
 import type { ResourceView } from "./registry.js";
 
 interface BatchAccessContext {
@@ -73,31 +77,15 @@ async function loadBatchAccessContext(
   const resourceIds = resources.map((r) => r.id);
 
   const [
-    platformRows,
-    membershipRows,
+    accountActive,
+    memberships,
     schemeRows,
-    organizationRows,
-    planRows,
+    organizationIds,
+    planIds,
     grantRows,
   ] = await Promise.all([
-    db
-      .select({
-        banned: userTable.banned,
-        banExpires: userTable.banExpires,
-      })
-      .from(userTable)
-      .where(eq(userTable.id, subjectId))
-      .limit(1),
-    db
-      .select({ applicationId: userApplications.applicationId })
-      .from(userApplications)
-      .where(
-        and(
-          eq(userApplications.userId, subjectId),
-          eq(userApplications.isActive, true),
-          inArray(userApplications.applicationId, membershipApplicationIds),
-        ),
-      ),
+    isAccountActive(subjectId, now),
+    listActiveMemberships(subjectId, membershipApplicationIds),
     db
       .select({
         applicationId: applicationSchemes.applicationId,
@@ -115,27 +103,8 @@ async function loadBatchAccessContext(
           eq(resourceSchemes.status, "active"),
         ),
       ),
-    db
-      .select({ organizationId: member.organizationId })
-      .from(member)
-      .where(eq(member.userId, subjectId)),
-    db
-      .select({
-        applicationId: userSubscriptions.applicationId,
-        planId: userSubscriptions.planId,
-      })
-      .from(userSubscriptions)
-      .where(
-        and(
-          eq(userSubscriptions.userId, subjectId),
-          inArray(userSubscriptions.applicationId, applicationIds),
-          eq(userSubscriptions.isActive, true),
-          or(
-            isNull(userSubscriptions.expiresAt),
-            gt(userSubscriptions.expiresAt, now),
-          ),
-        ),
-      ),
+    listOrganizationIds(subjectId),
+    listActivePlanIds(subjectId, applicationIds, now),
     db
       .select()
       .from(resourceGrants)
@@ -151,19 +120,6 @@ async function loadBatchAccessContext(
       ),
   ]);
 
-  const accountActive =
-    platformRows[0] !== undefined && !isBanned(platformRows[0], now);
-
-  const planIds = new Map<string, Set<string>>();
-  for (const row of planRows) {
-    let ids = planIds.get(row.applicationId);
-    if (!ids) {
-      ids = new Set<string>();
-      planIds.set(row.applicationId, ids);
-    }
-    ids.add(row.planId);
-  }
-
   const grants = new Map<string, ResourceGrantRow[]>();
   for (const grant of grantRows) {
     const rows = grants.get(grant.resourceId);
@@ -175,15 +131,11 @@ async function loadBatchAccessContext(
     subjectId,
     scope,
     accountActive,
-    memberships: new Set(membershipRows.map((row) => row.applicationId)),
+    memberships,
     enabledSchemes: new Set(
       schemeRows.map((row) => schemeKey(row.applicationId, row.scheme)),
     ),
-    organizationIds: new Set(
-      organizationRows
-        .map((row) => row.organizationId)
-        .filter((id): id is string => id !== null),
-    ),
+    organizationIds: new Set(organizationIds),
     planIds,
     grants,
   };

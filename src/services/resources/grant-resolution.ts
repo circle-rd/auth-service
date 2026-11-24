@@ -1,11 +1,10 @@
 import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { userSubscriptions } from "../../db/schema.js";
-import { member } from "../../db/auth-schema.js";
 import {
   resourceGrants,
   resources as resourcesTable,
 } from "../../db/resource-schema.js";
+import { listActivePlanIds, listOrganizationIds } from "./identity-facts.js";
 import type { ResourceGrantRow } from "./grants.js";
 
 export interface ResolveGrantsOptions {
@@ -27,29 +26,14 @@ export async function resolveGrantsForSubject(
     .limit(1);
   if (!resource) return [];
 
-  const orgRows = await db
-    .select({ organizationId: member.organizationId })
-    .from(member)
-    .where(eq(member.userId, subjectId));
-  const orgIds = orgRows.map((row) => row.organizationId);
-
-  const planRows = options.includePlans
-    ? await db
-        .select({ planId: userSubscriptions.planId })
-        .from(userSubscriptions)
-        .where(
-          and(
-            eq(userSubscriptions.userId, subjectId),
-            eq(userSubscriptions.applicationId, resource.applicationId),
-            eq(userSubscriptions.isActive, true),
-            or(
-              isNull(userSubscriptions.expiresAt),
-              gt(userSubscriptions.expiresAt, now),
-            ),
-          ),
-        )
+  const orgIds = await listOrganizationIds(subjectId);
+  const planIds = options.includePlans
+    ? [
+        ...((
+          await listActivePlanIds(subjectId, [resource.applicationId], now)
+        ).get(resource.applicationId) ?? []),
+      ]
     : [];
-  const planIds = planRows.map((row) => row.planId);
 
   return db
     .select()

@@ -1,8 +1,6 @@
-import { eq } from "drizzle-orm";
 import { config } from "../../config.js";
-import { db } from "../../db/index.js";
-import { user as userTable } from "../../db/auth-schema.js";
 import { isActiveMember } from "./authority.js";
+import { isAccountActive } from "./identity-facts.js";
 import {
   GLOBAL_SCOPE,
   applicationScope,
@@ -176,18 +174,6 @@ export async function decide(
 }
 
 /**
- * A ban blocks token issuance, but tokens already issued stay valid until they
- * expire: the resource decision must not outlive the ban.
- */
-export function isBanned(
-  row: { banned: boolean | null; banExpires: Date | null },
-  now: Date,
-): boolean {
-  if (row.banned !== true) return false;
-  return row.banExpires === null || row.banExpires.getTime() > now.getTime();
-}
-
-/**
  * Membership is the gate; ownership or an active grant is the admission.
  * An administrator is not a recipient: nothing here admits one implicitly.
  * The resource application must also keep sharing enabled, and the scheme
@@ -215,17 +201,7 @@ export async function evaluateResourceAccess(
           await resolveApplicationGrants(resource.id, caller.slug, now),
         );
       },
-      accountActive: async () => {
-        const [row] = await db
-          .select({
-            banned: userTable.banned,
-            banExpires: userTable.banExpires,
-          })
-          .from(userTable)
-          .where(eq(userTable.id, subjectId))
-          .limit(1);
-        return row !== undefined && !isBanned(row, now);
-      },
+      accountActive: () => isAccountActive(subjectId, now),
       activeMember: () =>
         isActiveMember(subjectId, caller?.id ?? resource.applicationId),
       isOwner: () =>

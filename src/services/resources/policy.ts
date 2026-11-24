@@ -1,17 +1,26 @@
-import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { config } from "../../config.js";
 import { db } from "../../db/index.js";
-import { userApplications, userSubscriptions } from "../../db/schema.js";
-import { member, user as userTable } from "../../db/auth-schema.js";
-import {
-  applicationSchemes,
-  resourceGrants,
-  resourceSchemes,
-} from "../../db/resource-schema.js";
+import { user as userTable } from "../../db/auth-schema.js";
 import { isActiveMember } from "./authority.js";
-import { resolveGrantsForSubject, type ResourceGrantRow } from "./grants.js";
+import {
+  GLOBAL_SCOPE,
+  applicationScope,
+  applicationScopeLevel,
+  loadSharingApplication,
+  type AccessScope,
+  type CallerApplication,
+  type SharingApplication,
+} from "./application-scope.js";
+import {
+  resolveApplicationGrants,
+  resolveGrantsForSubject,
+} from "./grant-resolution.js";
+import type { ResourceGrantRow } from "./grants.js";
 import { findResourceByUri, type ResourceView } from "./registry.js";
 import { isSchemeEnabledForApplication } from "./scheme-service.js";
 import {
+  capPermission,
   permissionCovers,
   type ResourcePermission,
   type ResourceSubjectType,
@@ -20,6 +29,8 @@ import { parseResourceUri } from "./uri.js";
 
 export type DenialReason =
   | "invalid_input"
+  | "invalid_client"
+  | "invalid_audience"
   | "not_found"
   | "application_inactive"
   | "sharing_disabled"
@@ -28,12 +39,14 @@ export type DenialReason =
   | "scheme_disabled"
   | "not_validated"
   | "disabled"
+  | "not_in_scope"
   | "no_grant"
   | "insufficient_permission";
 
 export interface AuthorizeInput {
   subjectId: string;
-  clientId: string;
+  // The verified machine client: it comes from the token, never from a body.
+  caller: CallerApplication;
   resourceUri: string;
   audience: string;
   permission?: ResourcePermission;
@@ -42,6 +55,7 @@ export interface AuthorizeInput {
 export interface AccessFacts {
   resource: ResourceView;
   subjectId: string;
+  scope?: AccessScope;
   permission?: ResourcePermission;
   now?: Date;
 }
@@ -109,15 +123,23 @@ function strongestGrant(grants: readonly ResourceGrantRow[]) {
   return best;
 }
 
-interface AccessProvider {
+export interface AccessProvider {
   schemeEnabled: () => Promise<boolean>;
+  // The level the calling application holds on the resource, null when none.
+  scopeLevel: () => Promise<ResourcePermission | null>;
   accountActive: () => Promise<boolean>;
   activeMember: () => Promise<boolean>;
   isOwner: () => boolean;
+  // Grants that apply to the person: user, organization, plan and everyone.
   grants: () => Promise<ResourceGrantRow[]>;
 }
 
-async function decide(
+/**
+ * The effective level is the lower of what the person holds and what the
+ * calling application holds: an application grant never widens the person's
+ * own right, and the person's right never widens the application's.
+ */
+export async function decide(
   resource: ResourceView,
   provider: AccessProvider,
   required: ResourcePermission,
@@ -128,19 +150,29 @@ async function decide(
   if (!resource.applicationActive) return deny("application_inactive");
   if (!resource.resourceSharingEnabled) return deny("sharing_disabled");
   if (!(await provider.schemeEnabled())) return deny("scheme_disabled");
+  const scope = await provider.scopeLevel();
+  if (scope === null) return deny("not_in_scope");
   if (!(await provider.accountActive())) return deny("account_disabled");
   if (!(await provider.activeMember())) return deny("no_membership");
+
+  let subjectLevel: ResourcePermission;
+  let accessKind: AccessKind;
+  let grantSubjectType: ResourceSubjectType | undefined;
   if (provider.isOwner()) {
-    return permissionCovers("write", required)
-      ? allow(resource, "owner", "write")
-      : deny("insufficient_permission");
+    subjectLevel = "write";
+    accessKind = "owner";
+  } else {
+    const grant = strongestGrant(await provider.grants());
+    if (!grant) return deny("no_grant");
+    subjectLevel = grant.permission;
+    accessKind = "grant";
+    grantSubjectType = grant.subjectType;
   }
-  const grant = strongestGrant(await provider.grants());
-  if (!grant) return deny("no_grant");
-  if (!permissionCovers(grant.permission, required)) {
+  const effective = capPermission(subjectLevel, scope);
+  if (!permissionCovers(effective, required)) {
     return deny("insufficient_permission");
   }
-  return allow(resource, "grant", grant.permission, grant.subjectType);
+  return allow(resource, accessKind, effective, grantSubjectType);
 }
 
 /**
@@ -159,17 +191,30 @@ export function isBanned(
  * Membership is the gate; ownership or an active grant is the admission.
  * An administrator is not a recipient: nothing here admits one implicitly.
  * The resource application must also keep sharing enabled, and the scheme
- * must be active for it.
+ * must be active for it. Through an application, membership is that of the
+ * calling application and only the application's scope is reachable.
  */
 export async function evaluateResourceAccess(
   facts: AccessFacts,
 ): Promise<AccessDecision> {
   const { resource, subjectId } = facts;
+  const scope = facts.scope ?? GLOBAL_SCOPE;
+  const now = facts.now ?? new Date();
+  const caller = scope.kind === "application" ? scope.caller : null;
   return decide(
     resource,
     {
       schemeEnabled: () =>
         isSchemeEnabledForApplication(resource.applicationId, resource.scheme),
+      scopeLevel: async () => {
+        if (!caller) return "write";
+        if (resource.applicationId === caller.id) return "write";
+        return applicationScopeLevel(
+          resource.applicationId,
+          caller,
+          await resolveApplicationGrants(resource.id, caller.slug, now),
+        );
+      },
       accountActive: async () => {
         const [row] = await db
           .select({
@@ -179,230 +224,32 @@ export async function evaluateResourceAccess(
           .from(userTable)
           .where(eq(userTable.id, subjectId))
           .limit(1);
-        return row !== undefined && !isBanned(row, facts.now ?? new Date());
+        return row !== undefined && !isBanned(row, now);
       },
-      activeMember: () => isActiveMember(subjectId, resource.applicationId),
+      activeMember: () =>
+        isActiveMember(subjectId, caller?.id ?? resource.applicationId),
       isOwner: () =>
         resource.ownerType === "user" && resource.ownerId === subjectId,
       grants: () =>
-        resolveGrantsForSubject(
-          subjectId,
-          resource.id,
-          facts.now ?? new Date(),
-        ),
+        resolveGrantsForSubject(subjectId, resource.id, now, {
+          includePlans: !caller || caller.id === resource.applicationId,
+        }),
     },
     facts.permission ?? "read",
   );
 }
 
-interface BatchAccessContext {
-  subjectId: string;
-  accountActive: boolean;
-  memberships: Set<string>;
-  enabledSchemes: Set<string>;
-  organizationIds: Set<string>;
-  planIds: Map<string, Set<string>>;
-  grants: Map<string, ResourceGrantRow[]>;
-}
+const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
 
-function schemeKey(applicationId: string, scheme: string): string {
-  return `${applicationId}\u0000${scheme}`;
-}
-
-function grantApplies(
-  grant: ResourceGrantRow,
-  applicationId: string,
-  context: BatchAccessContext,
+/** The issuer, or a resource server the application is allowed to reach. */
+function audienceAllowed(
+  audience: string,
+  application: SharingApplication,
 ): boolean {
-  if (grant.subjectType === "everyone") return true;
-  if (grant.subjectType === "user") {
-    return grant.subjectId === context.subjectId;
-  }
-  if (grant.subjectType === "organization") {
-    return (
-      grant.subjectId !== null && context.organizationIds.has(grant.subjectId)
-    );
-  }
-  if (grant.subjectType === "plan") {
-    return (
-      grant.subjectId !== null &&
-      (context.planIds.get(applicationId)?.has(grant.subjectId) ?? false)
-    );
-  }
-  return false;
-}
-
-async function loadBatchAccessContext(
-  subjectId: string,
-  resources: readonly ResourceView[],
-  now: Date,
-): Promise<BatchAccessContext> {
-  const applicationIds = [...new Set(resources.map((r) => r.applicationId))];
-  const resourceIds = resources.map((r) => r.id);
-
-  const [
-    platformRows,
-    membershipRows,
-    schemeRows,
-    organizationRows,
-    planRows,
-    grantRows,
-  ] = await Promise.all([
-    db
-      .select({
-        banned: userTable.banned,
-        banExpires: userTable.banExpires,
-      })
-      .from(userTable)
-      .where(eq(userTable.id, subjectId))
-      .limit(1),
-    db
-      .select({ applicationId: userApplications.applicationId })
-      .from(userApplications)
-      .where(
-        and(
-          eq(userApplications.userId, subjectId),
-          eq(userApplications.isActive, true),
-          inArray(userApplications.applicationId, applicationIds),
-        ),
-      ),
-    db
-      .select({
-        applicationId: applicationSchemes.applicationId,
-        scheme: applicationSchemes.scheme,
-      })
-      .from(applicationSchemes)
-      .innerJoin(
-        resourceSchemes,
-        eq(applicationSchemes.scheme, resourceSchemes.scheme),
-      )
-      .where(
-        and(
-          inArray(applicationSchemes.applicationId, applicationIds),
-          eq(applicationSchemes.enabled, true),
-          eq(resourceSchemes.status, "active"),
-        ),
-      ),
-    db
-      .select({ organizationId: member.organizationId })
-      .from(member)
-      .where(eq(member.userId, subjectId)),
-    db
-      .select({
-        applicationId: userSubscriptions.applicationId,
-        planId: userSubscriptions.planId,
-      })
-      .from(userSubscriptions)
-      .where(
-        and(
-          eq(userSubscriptions.userId, subjectId),
-          inArray(userSubscriptions.applicationId, applicationIds),
-          eq(userSubscriptions.isActive, true),
-          or(
-            isNull(userSubscriptions.expiresAt),
-            gt(userSubscriptions.expiresAt, now),
-          ),
-        ),
-      ),
-    db
-      .select()
-      .from(resourceGrants)
-      .where(
-        and(
-          inArray(resourceGrants.resourceId, resourceIds),
-          isNull(resourceGrants.revokedAt),
-          or(
-            isNull(resourceGrants.expiresAt),
-            gt(resourceGrants.expiresAt, now),
-          ),
-        ),
-      ),
-  ]);
-
-  const accountActive =
-    platformRows[0] !== undefined && !isBanned(platformRows[0], now);
-
-  const planIds = new Map<string, Set<string>>();
-  for (const row of planRows) {
-    let ids = planIds.get(row.applicationId);
-    if (!ids) {
-      ids = new Set<string>();
-      planIds.set(row.applicationId, ids);
-    }
-    ids.add(row.planId);
-  }
-
-  const grants = new Map<string, ResourceGrantRow[]>();
-  for (const grant of grantRows) {
-    const rows = grants.get(grant.resourceId);
-    if (rows) rows.push(grant);
-    else grants.set(grant.resourceId, [grant]);
-  }
-
-  return {
-    subjectId,
-    accountActive,
-    memberships: new Set(membershipRows.map((row) => row.applicationId)),
-    enabledSchemes: new Set(
-      schemeRows.map((row) => schemeKey(row.applicationId, row.scheme)),
-    ),
-    organizationIds: new Set(
-      organizationRows
-        .map((row) => row.organizationId)
-        .filter((id): id is string => id !== null),
-    ),
-    planIds,
-    grants,
-  };
-}
-
-/**
- * Evaluate many resources with one set of membership, scheme, plan and grant
- * queries. Used by the catalogue and entitlement resolver, where per-resource
- * reads would grow with the total number of shared resources.
- */
-export async function evaluateResourceAccessBatch(
-  resources: readonly ResourceView[],
-  subjectId: string,
-  now: Date = new Date(),
-): Promise<AccessDecision[]> {
-  if (resources.length === 0) return [];
-  const context = await loadBatchAccessContext(subjectId, resources, now);
-  return Promise.all(
-    resources.map((resource) =>
-      decide(
-        resource,
-        {
-          schemeEnabled: async () =>
-            context.enabledSchemes.has(
-              schemeKey(resource.applicationId, resource.scheme),
-            ),
-          accountActive: async () => context.accountActive,
-          activeMember: async () =>
-            context.memberships.has(resource.applicationId),
-          isOwner: () =>
-            resource.ownerType === "user" && resource.ownerId === subjectId,
-          grants: async () =>
-            (context.grants.get(resource.id) ?? []).filter((grant) =>
-              grantApplies(grant, resource.applicationId, context),
-            ),
-        },
-        "read",
-      ),
-    ),
+  const wanted = trimTrailingSlash(audience);
+  return [config.betterAuth.url, ...application.allowedResources].some(
+    (allowed) => trimTrailingSlash(allowed) === wanted,
   );
-}
-
-export async function authorizeResource(
-  resource: ResourceView | null,
-  input: AuthorizeInput,
-): Promise<AccessDecision> {
-  if (!resource) return deny("not_found");
-  return evaluateResourceAccess({
-    resource,
-    subjectId: input.subjectId,
-    permission: input.permission,
-  });
 }
 
 export async function authorize(
@@ -410,11 +257,18 @@ export async function authorize(
 ): Promise<AccessDecision> {
   if (
     !isNonEmpty(input.subjectId) ||
-    !isNonEmpty(input.clientId) ||
+    !isNonEmpty(input.caller.slug) ||
     !isNonEmpty(input.audience) ||
     !isNonEmpty(input.resourceUri)
   ) {
     return deny("invalid_input");
+  }
+  const application = await loadSharingApplication(input.caller.id);
+  if (!application || application.slug !== input.caller.slug) {
+    return deny("invalid_client");
+  }
+  if (!audienceAllowed(input.audience, application)) {
+    return deny("invalid_audience");
   }
   let parsed;
   try {
@@ -427,6 +281,7 @@ export async function authorize(
   return evaluateResourceAccess({
     resource,
     subjectId: input.subjectId,
+    scope: applicationScope(input.caller),
     permission: input.permission,
   });
 }

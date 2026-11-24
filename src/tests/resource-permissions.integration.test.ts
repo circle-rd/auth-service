@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { auth } from "../auth.js";
+import { config } from "../config.js";
 import { db } from "../db/index.js";
 import {
   appRoles,
@@ -87,9 +88,9 @@ async function modelResource() {
 function ask(uri: string, subjectId: string, permission?: "read" | "write") {
   return authorize({
     subjectId,
-    clientId: "perm-app",
+    caller: { id: appId, slug: "perm-app" },
     resourceUri: uri,
-    audience: "https://auth.example",
+    audience: config.betterAuth.url,
     permission,
   });
 }

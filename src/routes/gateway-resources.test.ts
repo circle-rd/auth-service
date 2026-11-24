@@ -27,6 +27,7 @@ const {
 vi.mock("../db/index.js", () => ({ db: {} }));
 vi.mock("../services/machine-auth.js", () => ({
   requireMachineScope: mockMachineScope,
+  requireMachineApplication: mockMachineScope,
 }));
 vi.mock("../services/resources/policy.js", () => ({
   authorize: mockAuthorize,
@@ -64,9 +65,12 @@ const RESOURCE = {
   ownerId: "owner-1",
   applicationId: "11111111-1111-4111-8111-111111111111",
 };
+const CALLER = {
+  applicationId: "33333333-3333-4333-8333-333333333333",
+  clientId: "gateway",
+};
 const BODY = {
   subjectId: "user-2",
-  clientId: "gateway",
   resourceUri: "gine://project_1",
   audience: "https://auth.test",
 };
@@ -81,7 +85,7 @@ beforeEach(() => {
   ]) {
     mock.mockReset();
   }
-  mockMachineScope.mockResolvedValue({ clientId: "gateway" });
+  mockMachineScope.mockResolvedValue(CALLER);
   mockFindByUri.mockResolvedValue(RESOURCE);
 });
 
@@ -142,6 +146,71 @@ describe("gateway authorize", () => {
     const res = await authorizeCall();
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ decision: "deny" });
+  });
+
+  it("uses the verified client and refuses one sent in the body", async () => {
+    mockAuthorize.mockResolvedValue({ decision: "deny", reason: "no_grant" });
+    await app.inject({
+      method: "POST",
+      url: "/api/internal/gateway/authorize",
+      payload: { ...BODY, actorClientId: "agent-app" },
+    });
+    expect(mockAuthorize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        caller: { id: CALLER.applicationId, slug: CALLER.clientId },
+      }),
+    );
+    expect(mockRecordEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientId: CALLER.clientId,
+        metadata: { actorClientId: "agent-app" },
+      }),
+    );
+
+    const forged = await app.inject({
+      method: "POST",
+      url: "/api/internal/gateway/authorize",
+      payload: { ...BODY, clientId: "another-app" },
+    });
+    expect(forged.statusCode).toBe(400);
+  });
+
+  it("hides the owner from an application that does not own the resource", async () => {
+    const allow = {
+      decision: "allow",
+      resourceId: RESOURCE.id,
+      resourceUri: "gine://project_1",
+      scheme: "gine",
+      applicationId: RESOURCE.applicationId,
+      applicationSlug: "owner-app",
+      ownerType: "user",
+      ownerId: "owner-1",
+      accessKind: "grant",
+      permission: "read",
+    };
+    mockAuthorize.mockResolvedValue(allow);
+    const foreign = (await authorizeCall()).json();
+    expect(foreign).toMatchObject({ decision: "allow", permission: "read" });
+    expect(foreign.ownerId).toBeUndefined();
+
+    mockAuthorize.mockResolvedValue({
+      ...allow,
+      applicationId: CALLER.applicationId,
+    });
+    expect((await authorizeCall()).json().ownerId).toBe("owner-1");
+  });
+
+  it("lists only the scope of the verified application", async () => {
+    mockAccessible.mockResolvedValue([]);
+    await app.inject({
+      method: "GET",
+      url: "/api/internal/gateway/resources/accessible?subjectId=user-2",
+    });
+    expect(mockAccessible).toHaveBeenCalledWith({
+      subjectId: "user-2",
+      scheme: undefined,
+      caller: { id: CALLER.applicationId, slug: CALLER.clientId },
+    });
   });
 
   it("rejects unknown body fields", async () => {

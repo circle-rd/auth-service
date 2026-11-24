@@ -1,5 +1,6 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../../db/index.js";
+import { applications } from "../../db/schema.js";
 import { resourceGrants } from "../../db/resource-schema.js";
 import {
   appManagerRoom,
@@ -43,13 +44,31 @@ export async function activeGrantSubjects(
     );
 }
 
+/** Application ids by slug, for the `application` grants among the subjects. */
+async function applicationIdsBySlug(
+  subjects: readonly GrantSubjectRef[],
+): Promise<Map<string, string>> {
+  const slugs = subjects
+    .filter((subject) => subject.subjectType === "application")
+    .map((subject) => subject.subjectId)
+    .filter((slug): slug is string => slug !== null);
+  if (slugs.length === 0) return new Map();
+  const rows = await db
+    .select({ id: applications.id, slug: applications.slug })
+    .from(applications)
+    .where(inArray(applications.slug, slugs));
+  return new Map(rows.map((row) => [row.slug, row.id]));
+}
+
 /**
- * Rooms that may see a resource: its owner, every grantee, and the application
- * for `plan` / `everyone` grants (enrolled users of the application only).
+ * Rooms that may see a resource: its owner, every grantee, the application for
+ * `plan` / `everyone` grants (enrolled users of the application only) and the
+ * application an `application` grant opens the resource to.
  */
 function resourceRooms(
   resource: ResourceRef,
   subjects: readonly GrantSubjectRef[],
+  applicationIds: ReadonlyMap<string, string>,
 ): [Room, ...Room[]] {
   const rooms = new Set<Room>([
     resource.ownerType === "user"
@@ -70,6 +89,15 @@ function resourceRooms(
       case "everyone":
         rooms.add(appRoom(resource.applicationId));
         break;
+      case "application": {
+        if (!subject.subjectId) {
+          throw new Error("application grant without subject");
+        }
+        // A deleted application has no one left to notify.
+        const applicationId = applicationIds.get(subject.subjectId);
+        if (applicationId) rooms.add(appRoom(applicationId));
+        break;
+      }
       default:
         throw new Error(`unknown grant subject type: ${subject.subjectType}`);
     }
@@ -88,7 +116,10 @@ export async function announceResourceChanged(
   subjects?: readonly GrantSubjectRef[],
 ): Promise<void> {
   const list = subjects ?? (await activeGrantSubjects(resource.id));
-  publishEvent("resource.changed", resourceRooms(resource, list));
+  publishEvent(
+    "resource.changed",
+    resourceRooms(resource, list, await applicationIdsBySlug(list)),
+  );
 }
 
 /** The ownership fields of a usage row or access event, possibly unknown. */

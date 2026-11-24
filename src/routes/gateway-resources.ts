@@ -1,6 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { requireMachineScope } from "../services/machine-auth.js";
+import {
+  requireMachineApplication,
+  requireMachineScope,
+} from "../services/machine-auth.js";
 import { listAccessibleResources } from "../services/resources/access.js";
 import {
   authorize,
@@ -33,7 +36,8 @@ const resourceParamsSchema = z.object({ resourceId: z.string().uuid() });
 const authorizeBodySchema = z
   .object({
     subjectId: z.string().min(1).max(256),
-    clientId: z.string().min(1).max(256),
+    // The client the end user came through: audit only, never a decision input.
+    actorClientId: z.string().min(1).max(256).optional(),
     resourceUri: z.string().min(3).max(512),
     audience: z.string().min(1).max(2048),
     permission: z.enum(RESOURCE_PERMISSIONS).optional(),
@@ -126,7 +130,14 @@ function schemeOf(uri: string): string {
 // A denial of an existing resource keeps its owner and application, so the
 // people who manage it can see attempts on it; the gateway answer stays uniform.
 async function denialContext(reason: DenialReason, uri: string) {
-  if (reason === "invalid_input" || reason === "not_found") return {};
+  if (
+    reason === "invalid_input" ||
+    reason === "invalid_client" ||
+    reason === "invalid_audience" ||
+    reason === "not_found"
+  ) {
+    return {};
+  }
   const resource = await findResourceByUri(uri);
   if (!resource) return {};
   return {
@@ -137,12 +148,17 @@ async function denialContext(reason: DenialReason, uri: string) {
   };
 }
 
+function actorMetadata(actorClientId: string | undefined) {
+  return actorClientId ? { actorClientId } : {};
+}
+
 async function logDecision(
   decision: AccessDecision,
   input: {
     uri: string;
     subjectId: string;
     clientId: string;
+    actorClientId?: string;
     requestId?: string;
     source?: (typeof RESOURCE_EVENT_SOURCES)[number];
   },
@@ -162,6 +178,7 @@ async function logDecision(
       reasonClass: decision.accessKind,
       requestId: input.requestId,
       source: input.source ?? "gateway",
+      metadata: actorMetadata(input.actorClientId),
     });
     return;
   }
@@ -176,6 +193,7 @@ async function logDecision(
     reasonClass: decision.reason,
     requestId: input.requestId,
     source: input.source ?? "gateway",
+    metadata: actorMetadata(input.actorClientId),
   });
 }
 
@@ -186,14 +204,14 @@ export async function gatewayResourceRoutes(
     "/authorize",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      await requireMachineScope(
+      const caller = await requireMachineApplication(
         req.headers.authorization,
         "resources:authorize",
       );
       const body = authorizeBodySchema.parse(req.body);
       const decision = await authorize({
         subjectId: body.subjectId,
-        clientId: body.clientId,
+        caller: { id: caller.applicationId, slug: caller.clientId },
         resourceUri: body.resourceUri,
         audience: body.audience,
         permission: body.permission,
@@ -202,7 +220,8 @@ export async function gatewayResourceRoutes(
         await logDecision(decision, {
           uri: body.resourceUri,
           subjectId: body.subjectId,
-          clientId: body.clientId,
+          clientId: caller.clientId,
+          actorClientId: body.actorClientId,
           requestId: body.requestId,
           source: body.source,
         });
@@ -219,7 +238,9 @@ export async function gatewayResourceRoutes(
         resourceUri: decision.resourceUri,
         applicationSlug: decision.applicationSlug,
         ownerType: decision.ownerType,
-        ownerId: decision.ownerId,
+        ...(decision.applicationId === caller.applicationId
+          ? { ownerId: decision.ownerId }
+          : {}),
         accessKind: decision.accessKind,
         permission: decision.permission,
       });
@@ -230,7 +251,7 @@ export async function gatewayResourceRoutes(
     "/resources/accessible",
     { config: INTERNAL_RATE_LIMIT },
     async (req, reply) => {
-      await requireMachineScope(
+      const caller = await requireMachineApplication(
         req.headers.authorization,
         "resources:authorize",
       );
@@ -238,6 +259,7 @@ export async function gatewayResourceRoutes(
       const resources = await listAccessibleResources({
         subjectId: query.subjectId,
         scheme: query.scheme,
+        caller: { id: caller.applicationId, slug: caller.clientId },
       });
       await reply.send({ resources });
     },

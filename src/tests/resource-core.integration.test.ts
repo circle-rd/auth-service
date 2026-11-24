@@ -31,9 +31,9 @@ import { completeResourceValidation } from "../services/resources/validation.js"
 import { canManageGrants } from "../services/resources/authority.js";
 import { resolveAudience } from "../services/resources/audience.js";
 import { authorize } from "../services/resources/policy.js";
+import { resolveGrantsForSubject } from "../services/resources/grant-resolution.js";
 import {
   createResourceGrant,
-  resolveGrantsForSubject,
 } from "../services/resources/grants.js";
 import { listAccessibleResources } from "../services/resources/access.js";
 import {
@@ -62,7 +62,14 @@ import {
   userRoom,
   type DomainEvent,
 } from "../services/event-bus.js";
+import { config } from "../config.js";
 import { cleanDb } from "./helpers/db.js";
+
+const AUDIENCE = config.betterAuth.url;
+
+function callerA(seedData: { appAId: string }) {
+  return { id: seedData.appAId, slug: "app-a" };
+}
 
 interface Seed {
   appAId: string;
@@ -255,9 +262,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.ownerId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toEqual({ decision: "deny", reason: "not_validated" });
 
@@ -271,9 +278,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.ownerId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "allow", accessKind: "owner" });
   });
@@ -344,9 +351,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.memberId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "allow", accessKind: "grant" });
   });
@@ -441,9 +448,9 @@ describe("generic resource core", () => {
     const decide = () =>
       authorize({
         subjectId: seedData.ownerId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       });
     await expect(decide()).resolves.toMatchObject({ decision: "allow" });
 
@@ -533,9 +540,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.memberId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toEqual({ decision: "deny", reason: "no_grant" });
 
@@ -548,9 +555,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.memberId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "allow", accessKind: "grant" });
 
@@ -566,9 +573,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.orgUserId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: shared.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "allow", grantSubjectType: "organization" });
 
@@ -581,9 +588,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.planUserId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: shared.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "allow", grantSubjectType: "plan" });
 
@@ -596,17 +603,17 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: "everyone-user",
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: shared.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "allow", grantSubjectType: "everyone" });
 
     const outsider = await authorize({
       subjectId: seedData.outsiderId,
-      clientId: "client",
+      caller: callerA(seedData),
       resourceUri: shared.uri,
-      audience: "https://auth.example",
+      audience: AUDIENCE,
     });
     expect(outsider).toEqual({ decision: "deny", reason: "no_membership" });
   });
@@ -617,9 +624,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.adminId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "deny" });
     for (const subject of [
@@ -677,9 +684,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.memberId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toMatchObject({ decision: "allow", accessKind: "grant" });
   });
@@ -745,9 +752,9 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.ownerId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toEqual({ decision: "deny", reason: "scheme_disabled" });
 
@@ -756,14 +763,14 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.ownerId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
     ).resolves.toEqual({ decision: "deny", reason: "disabled" });
   });
 
-  it("denies when the resource application turns sharing off", async () => {
+  it("denies when the application turns sharing off", async () => {
     const seedData = await seed();
     const resource = await validatedResource(seedData);
     await db
@@ -774,11 +781,11 @@ describe("generic resource core", () => {
     await expect(
       authorize({
         subjectId: seedData.ownerId,
-        clientId: "client",
+        caller: callerA(seedData),
         resourceUri: resource.uri,
-        audience: "https://auth.example",
+        audience: AUDIENCE,
       }),
-    ).resolves.toEqual({ decision: "deny", reason: "sharing_disabled" });
+    ).resolves.toEqual({ decision: "deny", reason: "invalid_client" });
     await expect(
       listAccessibleResources({ subjectId: seedData.ownerId }),
     ).resolves.toEqual([]);

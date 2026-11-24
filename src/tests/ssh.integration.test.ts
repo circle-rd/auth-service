@@ -216,9 +216,9 @@ describe("SSH resource contract", () => {
     await expect(
       authorize({
         subjectId: seedData.memberId,
-        clientId: "ssh-gateway",
+        caller: { id: seedData.appId, slug: "share-app" },
         resourceUri: resource.uri,
-        audience: "ssh-gateway",
+        audience: config.betterAuth.url,
       }),
     ).resolves.toMatchObject({ decision: "allow" });
 

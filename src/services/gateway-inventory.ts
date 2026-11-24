@@ -22,7 +22,7 @@ export interface GatewayEntitlementResource {
   parentName: string;
   applicationSlug: string;
   ownerType: "user" | "application";
-  ownerId: string;
+  ownerId?: string;
 }
 
 export interface GatewayEntitlements {
@@ -190,7 +190,7 @@ export async function listGatewayEntitlements(
       parentName: link.parentName,
       applicationSlug: item.applicationSlug,
       ownerType: item.ownerType,
-      ownerId: item.ownerId,
+      ...(item.ownerId === undefined ? {} : { ownerId: item.ownerId }),
     });
   }
 

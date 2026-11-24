@@ -8,7 +8,13 @@ import {
 } from "../gateway-inventory-mirror.js";
 import { getUserIdentity, type UserIdentity } from "../usernames.js";
 import { isApplicationAdmin } from "./authority.js";
-import { assertLocator, litellmLocatorName, projectionOwners } from "./uri.js";
+import {
+  assertLocator,
+  litellmLocatorName,
+  projectionOwners,
+  USER_NAMESPACE_PREFIX,
+  userNamespace,
+} from "./uri.js";
 import { logger } from "../../logger.js";
 
 export const MODEL_CANDIDATE_SOURCES = ["managed", "native"] as const;
@@ -94,9 +100,23 @@ function ownedByUser(
   identity: UserIdentity,
 ): boolean {
   const createdBy = textField(metadata, "createdBy");
-  if (matchesIdentity(createdBy, identity)) return true;
   if (source === "managed") {
-    return matchesIdentity(textField(metadata, "clientId"), identity);
+    if (
+      identity.username !== null &&
+      createdBy?.toLowerCase() === userNamespace(identity.username)
+    ) {
+      return true;
+    }
+  } else if (matchesIdentity(createdBy, identity)) {
+    return true;
+  }
+  if (source === "managed") {
+    // The relay records the user namespace as the deployment's client id.
+    return (
+      identity.username !== null &&
+      textField(metadata, "clientId")?.toLowerCase() ===
+        userNamespace(identity.username)
+    );
   }
   return false;
 }
@@ -116,7 +136,12 @@ function candidateOf(
     );
     return null;
   }
-  const locator = `${appSlug}/${locatorName}`;
+  // A relay model already carries its owner's namespace and is its own locator;
+  // any other model is declared under the application's slug.
+  const locator =
+    source === "managed" && model.name.startsWith(USER_NAMESPACE_PREFIX)
+      ? locatorName
+      : `${appSlug}/${locatorName}`;
   try {
     assertLocator("llm", locator);
   } catch {

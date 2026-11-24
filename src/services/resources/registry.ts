@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { applications } from "../../db/schema.js";
+import { user as userTable } from "../../db/auth-schema.js";
 import { resources } from "../../db/resource-schema.js";
 import { ERR } from "../../errors.js";
 import type { DbExecutor } from "../credential-user.js";
@@ -18,6 +19,7 @@ import {
   assertLocator,
   buildResourceUri,
   parseResourceUri,
+  userNamespace,
 } from "./uri.js";
 
 export type ResourceRow = typeof resources.$inferSelect;
@@ -66,6 +68,16 @@ export interface CreateResourceInput {
   metadata?: Record<string, unknown>;
 }
 
+async function ownerNamespace(userId: string): Promise<string> {
+  const [row] = await db
+    .select({ username: userTable.username })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+  if (!row?.username) throw ERR.RES_017();
+  return userNamespace(row.username);
+}
+
 export async function createResource(
   input: CreateResourceInput,
 ): Promise<ResourceView> {
@@ -108,8 +120,14 @@ export async function createResource(
     .limit(1);
   if (!app) throw ERR.RES_004();
   if (adapterForScheme(input.scheme) === "litellm") {
-    if (locator.split("/")[0] !== app.slug) {
-      throw ERR.RES_005("The locator must start with the application slug");
+    // The namespace follows the owner: an application's slug, or the namespace
+    // of the user who owns the resource.
+    const namespace =
+      input.ownerType === "user"
+        ? await ownerNamespace(input.ownerId)
+        : app.slug;
+    if (locator.split("/")[0] !== namespace) {
+      throw ERR.RES_005("The locator must start with the owner's namespace");
     }
   }
 

@@ -1,6 +1,9 @@
 import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
+import { resources } from "../db/resource-schema.js";
+import { ERR } from "../errors.js";
+import { userNamespace } from "./resources/uri.js";
 
 /**
  * Public identifier accepted as an OAuth `preferred_username`. Resource servers
@@ -28,6 +31,43 @@ export async function assertUsernameAvailable(
     )
     .limit(1);
   if (row) throw new Error("USERNAME_TAKEN");
+}
+
+/**
+ * The username is the namespace of the resources the account owns on the
+ * gateway: changing it would orphan them, so it is refused while any exists.
+ * Deleting them for good frees the name again.
+ */
+export async function assertUsernameChangeAllowed(
+  userId: string,
+  next: string | null | undefined,
+): Promise<void> {
+  if (next === undefined) return;
+  const [current] = await db
+    .select({ username: userTable.username })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+  if (
+    !current?.username ||
+    current.username.toLowerCase() === next?.toLowerCase()
+  ) {
+    return;
+  }
+  const prefix = `${userNamespace(current.username)}/`;
+  const [owned] = await db
+    .select({ id: resources.id })
+    .from(resources)
+    .where(
+      and(
+        eq(resources.ownerType, "user"),
+        eq(resources.ownerId, userId),
+        // starts_with, not LIKE: usernames may hold underscores.
+        sql`starts_with(${resources.locator}, ${prefix})`,
+      ),
+    )
+    .limit(1);
+  if (owned) throw ERR.RES_018();
 }
 
 /** True when a stored username can be emitted verbatim to a resource server. */

@@ -103,7 +103,7 @@ describe("getUserClaims", () => {
     expect(claims.name).toBeUndefined();
   });
 
-  it("derives standard profile claims from the user name and email", async () => {
+  it("derives standard profile claims without inventing a username", async () => {
     const claims = await getUserClaims(
       "user-1",
       "client-1",
@@ -121,11 +121,12 @@ describe("getUserClaims", () => {
       given_name: "Alice",
       family_name: "Smith",
       nickname: "Alice",
-      preferred_username: "alice",
       updated_at: 1767225600,
       email: "alice@example.com",
       email_verified: true,
     });
+    // A public namespace is never derived from an e-mail address or a first name.
+    expect(claims).not.toHaveProperty("preferred_username");
     // Claims we cannot truthfully derive are omitted, not sent as nulls.
     expect(claims).not.toHaveProperty("middle_name");
     expect(claims).not.toHaveProperty("picture");

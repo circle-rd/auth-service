@@ -50,7 +50,10 @@ import {
   profileFieldsSchema,
   profileUpdateSet,
 } from "../profile-fields.js";
-import { assertUsernameAvailable } from "../../services/usernames.js";
+import {
+  assertUsernameAvailable,
+  assertUsernameChangeAllowed,
+} from "../../services/usernames.js";
 import { phoneVerificationResetSet } from "../../services/phone.js";
 
 // superadmin cannot be assigned via API — it is provisioned only at bootstrap via env vars.
@@ -374,6 +377,7 @@ export async function usersRoutes(fastify: FastifyInstance): Promise<void> {
       .limit(1);
     if (!targetRow) throw ERR.USR_001();
 
+    await assertUsernameChangeAllowed(req.params.id, parsed.data.username);
     if (parsed.data.username) {
       try {
         await assertUsernameAvailable(parsed.data.username, req.params.id);

@@ -48,10 +48,10 @@ beforeEach(async () => {
     .values({ name: "Chat", slug: "chat", resourceSharingEnabled: true })
     .returning({ id: applications.id });
   appId = app!.id;
-  await seedModel("bmz/qwen", {
+  await seedModel("u-bmz/qwen", {
     managedBy: "reverse-relay",
-    createdBy: "bmz",
-    clientId: "bmz",
+    createdBy: "u-bmz",
+    clientId: "u-bmz",
     tags: ["text", "tools"],
     supports: { functionCalling: true },
   });
@@ -71,12 +71,13 @@ describe("model candidates", () => {
       userId: "admin",
       source: "managed",
     });
-    expect(managed.map((model) => model.name)).toEqual(["bmz/qwen"]);
+    expect(managed.map((model) => model.name)).toEqual(["u-bmz/qwen"]);
     expect(managed[0]).toMatchObject({
-      locator: "chat/bmz/qwen",
+      // A relay model carries its owner's namespace and is its own locator.
+      locator: "u-bmz/qwen",
       owned: false,
-      createdBy: "bmz",
-      clientId: "bmz",
+      createdBy: "u-bmz",
+      clientId: "u-bmz",
       tags: ["text", "tools"],
       supports: { functionCalling: true },
     });
@@ -103,7 +104,7 @@ describe("model candidates", () => {
       userId: "owner",
       source: "managed",
     });
-    expect(models.map((model) => model.name)).toEqual(["bmz/qwen"]);
+    expect(models.map((model) => model.name)).toEqual(["u-bmz/qwen"]);
     expect(models[0]?.owned).toBe(true);
   });
 

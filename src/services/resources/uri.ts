@@ -5,9 +5,11 @@ export const RESOURCE_SCHEME_RE = /^[a-z][a-z0-9]{0,49}$/;
 export const RESOURCE_URI_MAX_LENGTH = 512;
 export const RESOURCE_LOCATOR_MAX_LENGTH = 255;
 
-const LITELLM_LOCATOR_RE = /^[a-z0-9-]{1,64}\/[A-Za-z0-9._~:@/-]{1,190}$/;
+// The first segment is an application slug or a user namespace (`u-` plus a
+// username of up to 63 characters, underscores included).
+const LITELLM_LOCATOR_RE = /^[a-z0-9_-]{1,65}\/[A-Za-z0-9._~:@/-]{1,190}$/;
 const MCP_LOCATOR_RE =
-  /^[a-z0-9-]{1,64}\/[A-Za-z0-9._~-]{1,128}(?:\/tool\/[A-Za-z0-9._~-]{1,128})?$/;
+  /^[a-z0-9_-]{1,65}\/[A-Za-z0-9._~-]{1,128}(?:\/tool\/[A-Za-z0-9._~-]{1,128})?$/;
 const SSH_LOCATOR_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const EXTERNAL_LOCATOR_RE = /^[A-Za-z0-9._~:@/-]{1,255}$/;
 const FILE_LOCATOR_RE = /^\/[^\0]{1,254}$/;
@@ -26,6 +28,29 @@ const BUILTIN_ADAPTERS: Readonly<Record<string, ResourceAdapter>> = {
   https: "http",
   file: "file",
 };
+
+/**
+ * Namespace of the resources a user owns on the gateway. No application slug
+ * may start with it (a database check), so the two families never overlap.
+ */
+export const USER_NAMESPACE_PREFIX = "u-";
+
+export function userNamespace(username: string): string {
+  return `${USER_NAMESPACE_PREFIX}${username.toLowerCase()}`;
+}
+
+/**
+ * The gateway object name a LiteLLM locator stands for. An application-owned
+ * locator is `<application slug>/<name>`; a user-owned one already is the name
+ * the relay published, `u-<username>/<name>`.
+ */
+export function gatewayNameOfLocator(locator: string): string | null {
+  const separator = locator.indexOf("/");
+  if (separator <= 0 || separator === locator.length - 1) return null;
+  return locator.startsWith(USER_NAMESPACE_PREFIX)
+    ? locator
+    : locator.slice(separator + 1);
+}
 
 /**
  * LiteLLM model names may hold spaces, which no locator can. The locator carries

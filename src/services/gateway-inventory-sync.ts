@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { announceCatalogueChanged } from "./gateway-catalogue-events.js";
 import { syncGatewayInventory } from "./gateway-inventory-mirror.js";
+import { declareRelayResources } from "./resources/auto-declaration.js";
 
 const SYNC_INTERVAL_MS = 5 * 60_000;
 
@@ -12,6 +13,17 @@ export async function syncAndAnnounce(): Promise<number> {
   return count;
 }
 
+/**
+ * The scheduled and requested syncs also declare the relay models their owners
+ * have not declared. Not part of `syncAndAnnounce`: validating a declaration
+ * refreshes the inventory through it, which must not start another declaration.
+ */
+async function syncDeclareAndAnnounce(): Promise<number> {
+  const count = await syncAndAnnounce();
+  await declareRelayResources();
+  return count;
+}
+
 let inventoryRun: Promise<void> | null = null;
 let inventoryDirty = false;
 
@@ -19,7 +31,7 @@ async function drainInventorySync(): Promise<void> {
   while (inventoryDirty) {
     inventoryDirty = false;
     try {
-      await syncAndAnnounce();
+      await syncDeclareAndAnnounce();
     } catch (err) {
       logger.warn({ err }, "[res] LiteLLM inventory sync failed");
     }
@@ -44,7 +56,7 @@ export function startGatewayInventorySync(): void {
     return;
   }
   const run = () => {
-    void syncAndAnnounce()
+    void syncDeclareAndAnnounce()
       .then((count) => {
         if (count > 0) logger.info({ count }, "[res] LiteLLM inventory synced");
       })

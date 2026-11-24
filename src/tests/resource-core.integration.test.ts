@@ -94,6 +94,7 @@ async function seedUser(
     name: id,
     email: `${id}@example.com`,
     emailVerified: true,
+    username: id,
     role,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -290,7 +291,7 @@ describe("generic resource core", () => {
     const resource = await createResource({
       applicationId: seedData.appAId,
       scheme: "llm",
-      locator: "app-a/bmz/qwen3",
+      locator: "u-app-admin/qwen3",
       displayName: "Qwen 3",
       ownerType: "user",
       ownerId: seedData.appAdminId,
@@ -298,7 +299,7 @@ describe("generic resource core", () => {
     expect(resource.status).toBe("pending_validation");
     expect(resource.ownerType).toBe("user");
     expect(resource.ownerId).toBe(seedData.appAdminId);
-    expect(resource.uri).toBe("llm://app-a/bmz/qwen3");
+    expect(resource.uri).toBe("llm://u-app-admin/qwen3");
   });
 
   it("lets a regular member declare a personal gateway resource, pending until checked", async () => {
@@ -306,12 +307,26 @@ describe("generic resource core", () => {
     const resource = await createResource({
       applicationId: seedData.appAId,
       scheme: "llm",
-      locator: "app-a/bmz/qwen3",
+      locator: "u-member/qwen3",
       displayName: "Qwen 3",
       ownerType: "user",
       ownerId: seedData.memberId,
     });
     expect(resource.status).toBe("pending_validation");
+    // The namespace follows the owner: neither the application's slug nor
+    // another user's namespace is theirs to declare in.
+    for (const locator of ["app-a/qwen3", "u-owner/qwen3"]) {
+      await expect(
+        createResource({
+          applicationId: seedData.appAId,
+          scheme: "llm",
+          locator,
+          displayName: "Qwen 3",
+          ownerType: "user",
+          ownerId: seedData.memberId,
+        }),
+      ).rejects.toMatchObject({ code: "RES_005" });
+    }
   });
 
   it("refuses a grant from an owner to themselves", async () => {
@@ -890,10 +905,10 @@ describe("generic resource core", () => {
     const seedData = await seed();
     await db.insert(gatewayObjects).values({
       kind: "model",
-      litellmId: "gpt-x",
-      objectName: "gpt-x",
+      litellmId: "u-owner/gpt-x",
+      objectName: "u-owner/gpt-x",
       parentName: "",
-      displayName: "gpt-x",
+      displayName: "u-owner/gpt-x",
     });
     const claim = (overrides: {
       ownerType: "user" | "application";
@@ -909,7 +924,7 @@ describe("generic resource core", () => {
     const memberClaim = await claim({
       ownerType: "user",
       ownerId: seedData.ownerId,
-      locator: "app-a/gpt-x",
+      locator: "u-owner/gpt-x",
     });
     expect(memberClaim.status).toBe("pending_validation");
     await expect(
@@ -925,6 +940,11 @@ describe("generic resource core", () => {
   });
 
   it("parses inventory targets from resource locators", () => {
+    expect(gatewayTargetForResource("llm", "u-alice/qwen")).toEqual({
+      kind: "model",
+      name: "u-alice/qwen",
+      parentName: "",
+    });
     expect(gatewayTargetForResource("llm", "acme/gpt-x")).toEqual({
       kind: "model",
       name: "gpt-x",

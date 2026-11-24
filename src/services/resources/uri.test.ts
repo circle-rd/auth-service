@@ -130,3 +130,23 @@ describe("LiteLLM model name projection", () => {
     expect(projectionOwners(["a b", "c d"])).toEqual(new Set(["a b", "c d"]));
   });
 });
+
+describe("user namespace", () => {
+  it("maps a user-owned locator to the published name and an application one to the rest", async () => {
+    const { gatewayNameOfLocator, userNamespace } = await import("./uri.js");
+    expect(userNamespace("Alice_01")).toBe("u-alice_01");
+    expect(gatewayNameOfLocator("u-alice/qwen3")).toBe("u-alice/qwen3");
+    expect(gatewayNameOfLocator("acme/u-alice/qwen3")).toBe("u-alice/qwen3");
+    expect(gatewayNameOfLocator("acme/gpt-x")).toBe("gpt-x");
+    expect(gatewayNameOfLocator("acme/")).toBeNull();
+    expect(gatewayNameOfLocator("acme")).toBeNull();
+  });
+
+  it("accepts a 63 character username with underscores as the first segment", async () => {
+    const { assertLocator } = await import("./uri.js");
+    const first = `u-${"a_".repeat(31)}a`;
+    expect(first).toHaveLength(65);
+    expect(assertLocator("llm", `${first}/model`)).toBe(`${first}/model`);
+    expect(() => assertLocator("llm", `${first}x/model`)).toThrow();
+  });
+});

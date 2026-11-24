@@ -94,14 +94,12 @@ export async function getUserClaims(
       if (familyName) claims.family_name = familyName;
       if (profile.username) claims.nickname = profile.username;
       else if (givenName) claims.nickname = givenName;
+      // Only a chosen username is emitted: it becomes a public namespace, so
+      // nothing is derived from an e-mail address or a first name.
       if (profile.username) {
         // The stored identifier is validated lowercase; resource servers
         // compare the claim case-insensitively, so emit one canonical form.
         claims.preferred_username = profile.username.toLowerCase();
-      } else if (profile.email) {
-        claims.preferred_username = profile.email.split("@")[0];
-      } else if (givenName) {
-        claims.preferred_username = givenName.toLowerCase();
       }
       if (profile.company) claims.company = profile.company;
       if (profile.image) claims.picture = profile.image;

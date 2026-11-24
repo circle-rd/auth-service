@@ -197,6 +197,11 @@ export const ERR = {
   // A 4xx other than 401/403/408/429 makes the gateway stop retrying the event.
   RES_016: (msg = "Usage event does not match a valid decision") =>
     new ApiError(400, "RES_016", msg),
+  RES_017: (msg = "A username is required to declare this resource") =>
+    new ApiError(400, "RES_017", msg),
+  RES_018: (
+    msg = "The username is the namespace of resources the account owns",
+  ) => new ApiError(409, "RES_018", msg),
 
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),

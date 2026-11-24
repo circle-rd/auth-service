@@ -26,6 +26,7 @@ import {
   replaceClientResource,
 } from "../../services/oauth-resources.js";
 import { getRequestSession } from "../../middleware.js";
+import { USER_NAMESPACE_PREFIX } from "../../services/resources/uri.js";
 import {
   assertReachableBackchannelLogoutUri,
   backchannelLogoutUriSchema,
@@ -63,7 +64,10 @@ export const createAppSchema = z.object({
     .string()
     .min(1)
     .max(64)
-    .regex(/^[a-z0-9-]+$/, "slug must be lowercase alphanumeric with hyphens"),
+    .regex(/^[a-z0-9-]+$/, "slug must be lowercase alphanumeric with hyphens")
+    .refine((slug) => !slug.startsWith(USER_NAMESPACE_PREFIX), {
+      message: `slug must not start with ${USER_NAMESPACE_PREFIX}, which is reserved for user namespaces`,
+    }),
   description: z.string().max(500).optional(),
   isActive: z.boolean().default(true),
   isPublic: z.boolean().default(false),

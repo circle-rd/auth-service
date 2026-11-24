@@ -25,7 +25,10 @@ import { getApplicationUsage } from "../services/billing/app-views.js";
 import { syncBillingCustomerBestEffort } from "../services/billing/customers.js";
 import { profileFieldsSchema, profileUpdateSet } from "./profile-fields.js";
 import { phoneVerificationResetSet } from "../services/phone.js";
-import { assertUsernameAvailable } from "../services/usernames.js";
+import {
+  assertUsernameAvailable,
+  assertUsernameChangeAllowed,
+} from "../services/usernames.js";
 import { getMfaState, hasBackupCodes } from "../services/mfa.js";
 import { mutateUserAndRefreshSnapshots } from "../services/session-snapshot.js";
 import { revokeOtherUserRefreshTokens } from "../services/oauth-tokens.js";
@@ -470,6 +473,7 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     if (!parsed.success) {
       throw ERR.USR_003("Invalid profile data", parsed.error.flatten());
     }
+    await assertUsernameChangeAllowed(userId, parsed.data.username);
     if (parsed.data.username) {
       try {
         await assertUsernameAvailable(parsed.data.username, userId);

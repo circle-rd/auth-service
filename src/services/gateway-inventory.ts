@@ -9,7 +9,11 @@ import { logger } from "../logger.js";
 import { syncAndAnnounce } from "./gateway-inventory-sync.js";
 import { listAccessibleResources } from "./resources/access.js";
 import type { CallerApplication } from "./resources/application-scope.js";
-import { litellmLocatorName, projectionOwners } from "./resources/uri.js";
+import {
+  gatewayNameOfLocator,
+  litellmLocatorName,
+  projectionOwners,
+} from "./resources/uri.js";
 import type { ResourceView } from "./resources/registry.js";
 
 const LITELLM_SCHEMES = new Set(["llm", "agent", "mcp"]);
@@ -43,9 +47,8 @@ export function gatewayTargetForResource(
   locator: string,
 ): InventoryTarget | null {
   if (!LITELLM_SCHEMES.has(scheme)) return null;
-  const separator = locator.indexOf("/");
-  if (separator <= 0 || separator === locator.length - 1) return null;
-  const rest = locator.slice(separator + 1);
+  const rest = gatewayNameOfLocator(locator);
+  if (rest === null) return null;
   if (scheme === "llm") return { kind: "model", name: rest, parentName: "" };
   if (scheme === "agent") return { kind: "agent", name: rest, parentName: "" };
   const toolSeparator = rest.lastIndexOf("/tool/");

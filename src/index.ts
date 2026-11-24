@@ -18,6 +18,7 @@ import { isNotNull } from "drizzle-orm";
 import { buildServer } from "./server.js";
 import { logger } from "./logger.js";
 import { startGatewayInventorySync } from "./services/gateway-inventory-sync.js";
+import { ensureCatalogueApplication } from "./services/resources/catalogue-app.js";
 import { syncBuiltinSchemes } from "./services/resources/scheme-service.js";
 import { startResourceMonitoringRetention } from "./services/resources/usage.js";
 import { startResourceWebhookWorker } from "./services/resources/webhooks.js";
@@ -35,7 +36,10 @@ async function start(): Promise<void> {
     await runMigrations();
   }
   await bootstrap();
-  if (config.features.resourceSharing) await syncBuiltinSchemes();
+  if (config.features.resourceSharing) {
+    await syncBuiltinSchemes();
+    await ensureCatalogueApplication();
+  }
   await ensureSigningKey();
   await reconcileTokenAuthMethod();
   if (config.compat.profile !== "default") {

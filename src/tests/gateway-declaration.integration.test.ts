@@ -54,13 +54,13 @@ beforeEach(async () => {
   await enableSchemeForApplication(appId, "llm");
   await seedUser("bmz-id", "bmz");
   await seedUser("alice-id", "alice");
-  await seedObject("bmz/qwen3.8", {
+  await seedObject("u-bmz/qwen3.8", {
     managedBy: "reverse-relay",
-    clientId: "bmz",
-    reverseName: "bmz/qwen3.8",
+    clientId: "u-bmz",
+    reverseName: "u-bmz/qwen3.8",
     tags: ["text", "tools"],
   });
-  await seedObject("native/gpt", { createdBy: "bmz" });
+  await seedObject("u-bmz/native", { createdBy: "bmz" });
 });
 
 async function declare(ownerId: string, locator: string) {
@@ -75,26 +75,43 @@ async function declare(ownerId: string, locator: string) {
 }
 
 describe("relay declarations", () => {
-  it("validates a model the relay learned for the declaring account", async () => {
-    const created = await declare("bmz-id", "app-a/bmz/qwen3.8");
+  it("validates a model the relay published in the declaring user's namespace", async () => {
+    const created = await declare("bmz-id", "u-bmz/qwen3.8");
     const validated = await validateRelayDeclaration(created, "bmz");
     expect(validated.status).toBe("validated");
   });
 
-  it("keeps another account's relay model pending for a platform decision", async () => {
-    const created = await declare("alice-id", "app-a/bmz/qwen3.8");
-    const pending = await validateRelayDeclaration(created, "alice");
-    expect(pending.status).toBe("pending_validation");
+  it("refuses to declare a model in another user's namespace", async () => {
+    await expect(declare("alice-id", "u-bmz/qwen3.8")).rejects.toMatchObject({
+      code: "RES_005",
+    });
+    await expect(declare("alice-id", "app-a/bmz/qwen3.8")).rejects.toMatchObject({
+      code: "RES_005",
+    });
   });
 
   it("keeps a native LiteLLM model pending, even one whose created_by names the declarer", async () => {
-    const created = await declare("bmz-id", "app-a/native/gpt");
+    const created = await declare("bmz-id", "u-bmz/native");
     const pending = await validateRelayDeclaration(created, "bmz");
     expect(pending.status).toBe("pending_validation");
   });
 
-  it("never auto-validates when the account has no username", async () => {
-    const created = await declare("bmz-id", "app-a/bmz/qwen3.8");
+  it("does not let an account without a username declare in a namespace", async () => {
+    await db.insert(user).values({
+      id: "nameless-id",
+      name: "nameless",
+      email: "nameless@example.com",
+      emailVerified: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db
+      .insert(userApplications)
+      .values({ userId: "nameless-id", applicationId: appId, isActive: true });
+    await expect(declare("nameless-id", "u-nameless/m")).rejects.toMatchObject({
+      code: "RES_017",
+    });
+    const created = await declare("bmz-id", "u-bmz/qwen3.8");
     const pending = await validateRelayDeclaration(created, null);
     expect(pending.status).toBe("pending_validation");
   });

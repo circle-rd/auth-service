@@ -455,6 +455,8 @@ export default {
   applications: {
     teams: 'Teams',
     teamsHint: 'Users of this application can create teams and join them with an invitation token. Turned on with the org claim; this switch can turn it off.',
+    autoShareRelayModels: 'Receive relay models',
+    autoShareRelayModelsHint: 'Every model a user serves through the relay is shared with this application, read-only, when it is first declared. Its owner can revoke the grant. Existing models are not shared retroactively.',
     title: 'Applications',
     subtitle: 'Manage OAuth2 applications',
     createApp: 'Create Application',
@@ -1622,6 +1624,8 @@ export default {
       deleteMessage: 'This grant is already inactive. It is removed from the list for good.',
       deletedToast: 'Grant deleted.',
       applicationHint: 'The slug of an application with resource sharing enabled. It receives the resource through your own right on it.',
+      applicationOwnerHint: 'You will be able to use this resource in that application. Other members of the application get no access unless you also share it with them.',
+      noApplication: 'You do not belong to any application that accepts shared resources',
     },
     invitations: {
       hint: 'Invitations are email-bound, single-use, and reserved to accounts that do not exist yet.',
@@ -1771,6 +1775,13 @@ export default {
       plan: 'Plan',
       everyone: 'Everyone',
       application: 'Application',
+    },
+    subjectTypeHints: {
+      user: 'One person, by e-mail. They must be an active member of the application.',
+      organization: 'Every current member of an organisation, checked at each access. They must also be members of the application where they use the resource.',
+      plan: 'Every user with an active subscription to this plan in the application that owns the resource. Not applied when the resource is used through another application.',
+      everyone: 'Every active member of an application through which the resource is reachable: the one that owns it and any application it is shared with. Nobody outside those applications.',
+      application: 'Makes the resource reachable from that application, at the level you choose. It opens nothing to the application’s users by itself: add a recipient as well (the owner of a personal resource is admitted automatically).',
     },
     permissions: {
       read: 'Read',

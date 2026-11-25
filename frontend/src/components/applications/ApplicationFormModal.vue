@@ -295,6 +295,7 @@ async function submit() {
       resourceSharingEnabled: form.value.resourceSharingEnabled,
       resourceWebhookUrl: form.value.resourceWebhookUrl || null,
       teamsEnabled: form.value.teamsEnabled,
+      autoShareRelayModels: form.value.resourceSharingEnabled && form.value.autoShareRelayModels,
       allowedScopes: withManagedScope(
         withManagedScope(form.value.allowedScopes, RESOURCE_SELF_SCOPE, form.value.resourceSharingEnabled),
         TEAMS_SCOPE,

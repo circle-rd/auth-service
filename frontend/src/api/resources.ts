@@ -296,7 +296,7 @@ export interface CreateGrantBody {
   subjectType: ResourceSubjectType;
   subjectId?: string | null;
   // A user grant may name an e-mail; auth-service resolves it among active members.
-  subjectEmail?: string | null;
+  subjectEmail?: string;
   permission?: ResourcePermission;
   expiresAt?: string | null;
 }

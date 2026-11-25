@@ -7,6 +7,7 @@ import { applications, userApplications } from "../../db/schema.js";
 import { logger } from "../../logger.js";
 import { CATALOGUE_SLUG } from "./catalogue-app.js";
 import { validateRelayDeclaration } from "./gateway-declaration.js";
+import { createResourceGrant } from "./grants.js";
 import { RELAY_MANAGER } from "./provenance.js";
 import { createResource } from "./registry.js";
 import {
@@ -71,11 +72,28 @@ async function ownersByUsername(
   );
 }
 
+/** Applications that take every newly declared relay model, read-only. */
+async function listAutoShareSlugs(): Promise<string[]> {
+  const rows = await db
+    .select({ slug: applications.slug })
+    .from(applications)
+    .where(
+      and(
+        eq(applications.autoShareRelayModels, true),
+        eq(applications.resourceSharingEnabled, true),
+        eq(applications.isActive, true),
+      ),
+    );
+  return rows.map((row) => row.slug);
+}
+
 /**
  * Declare, in the catalogue application, a resource for each relay model whose
  * owner has a username, and validate it on the relay's provenance. Nothing is
  * declared for a model nobody owns, and an existing resource is left alone: it
- * was declared (or deleted) on purpose. Returns the number of resources made.
+ * was declared (or deleted) on purpose. A new resource is shared read-only with
+ * the applications that opted in; the owner can revoke that grant. Returns the
+ * number of resources made.
  */
 export async function declareRelayResources(): Promise<number> {
   const models = await listRelayModels();
@@ -105,6 +123,7 @@ export async function declareRelayResources(): Promise<number> {
   );
 
   let declared = 0;
+  const autoShare = await listAutoShareSlugs();
   for (const [index, model] of models.entries()) {
     const uri = uris[index];
     const ownerId = owners.get(model.username.toLowerCase());
@@ -128,6 +147,12 @@ export async function declareRelayResources(): Promise<number> {
       });
       await validateRelayDeclaration(resource, model.username);
       declared += 1;
+      await shareWithApplications(
+        resource.id,
+        ownerId,
+        model.objectName,
+        autoShare,
+      );
     } catch (err) {
       logger.warn(
         { err, model: model.objectName },
@@ -136,6 +161,31 @@ export async function declareRelayResources(): Promise<number> {
     }
   }
   return declared;
+}
+
+/** A refused grant (scheme not enabled, application unavailable) is logged and skipped. */
+async function shareWithApplications(
+  resourceId: string,
+  ownerId: string,
+  objectName: string,
+  slugs: readonly string[],
+): Promise<void> {
+  for (const slug of slugs) {
+    try {
+      await createResourceGrant({
+        resourceId,
+        subjectType: "application",
+        subjectId: slug,
+        actorUserId: ownerId,
+        permission: "read",
+      });
+    } catch (err) {
+      logger.warn(
+        { err, model: objectName, application: slug },
+        "[res] relay model could not be shared with application",
+      );
+    }
+  }
 }
 
 function buildUriOrNull(objectName: string): string | null {

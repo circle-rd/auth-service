@@ -20,6 +20,7 @@ const resourceSharingSupport = computed({
   get: () => props.form.resourceSharingEnabled,
   set: (enabled: boolean) => {
     props.form.resourceSharingEnabled = enabled;
+    if (!enabled) props.form.autoShareRelayModels = false;
     props.form.allowedScopes = withManagedScope(props.form.allowedScopes, RESOURCE_SELF_SCOPE, enabled);
   },
 });
@@ -122,6 +123,13 @@ const { t } = useI18n();
           :label="t('applications.resourceSharing')"
           :description="resourceSharingAvailable ? t('applications.resourceSharingHint') : t('applications.resourceSharingUnavailable')"
           :disabled="!resourceSharingAvailable"
+        />
+        <BaseToggle
+          v-if="form.resourceSharingEnabled"
+          v-model="form.autoShareRelayModels"
+          class="p-3.5"
+          :label="t('applications.autoShareRelayModels')"
+          :description="t('applications.autoShareRelayModelsHint')"
         />
         <BaseToggle
           v-model="teamsSupport"

@@ -39,6 +39,11 @@ export const applications = pgTable(
       .default(false),
     // Lets the application's users create and join teams through the SDK.
     teamsEnabled: boolean("teams_enabled").notNull().default(false),
+    // Receives a `read` grant on every relay model when it is declared, so the
+    // owner can use it there at once. The owner can revoke the grant.
+    autoShareRelayModels: boolean("auto_share_relay_models")
+      .notNull()
+      .default(false),
     // Public endpoint auth-service POSTs signed resource-sharing events to.
     resourceWebhookUrl: text("resource_webhook_url"),
     // AES-256-GCM ciphertext of the HMAC secret; never logged or returned

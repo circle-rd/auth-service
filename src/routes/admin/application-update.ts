@@ -58,6 +58,7 @@ const updateAppSchema = createAppSchema
     billingMode: z.enum(["none", "delegated"]).optional(),
     resourceSharingEnabled: z.boolean().optional(),
     teamsEnabled: z.boolean().optional(),
+    autoShareRelayModels: z.boolean().optional(),
     allowedScopes: z.array(z.string()).optional(),
     redirectUris: z.array(z.string().url()).optional(),
     enableEndSession: z.boolean().optional(),
@@ -99,11 +100,19 @@ export async function applicationUpdateRoutes(
         allowedScopes: applications.allowedScopes,
         resourceSharingEnabled: applications.resourceSharingEnabled,
         teamsEnabled: applications.teamsEnabled,
+        autoShareRelayModels: applications.autoShareRelayModels,
       })
       .from(applications)
       .where(eq(applications.id, req.params.id))
       .limit(1);
     if (!before) throw ERR.APP_002();
+
+    if (
+      (parsed.data.autoShareRelayModels ?? before.autoShareRelayModels) &&
+      !(parsed.data.resourceSharingEnabled ?? before.resourceSharingEnabled)
+    ) {
+      throw ERR.APP_001("Sharing relay models requires resource sharing");
+    }
 
     assertOauthClientSettings({
       isPublic: before.isPublic,

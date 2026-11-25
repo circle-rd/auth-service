@@ -117,6 +117,8 @@ export interface Application {
   resourceSharingEnabled: boolean
   /** Lets the application's users create and join teams through the SDK. */
   teamsEnabled: boolean
+  /** Receives a read grant on every relay model when it is declared; needs resource sharing. */
+  autoShareRelayModels: boolean
   /** Endpoint auth-service POSTs signed resource-sharing events to. */
   resourceWebhookUrl: string | null
   /** HMAC secret of the webhook, admin-only. */

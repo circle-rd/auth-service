@@ -77,6 +77,7 @@ const subjectOptions = computed<SelectOption[]>(() =>
   RESOURCE_SUBJECT_TYPES.filter((value) => props.isAdmin || value === 'user').map((value) => ({
     value,
     label: t(`share.subjectTypes.${value}`),
+    description: t(`share.subjectTypeHints.${value}`),
   })),
 );
 const planOptions = computed<SelectOption[]>(() =>

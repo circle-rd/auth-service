@@ -40,6 +40,16 @@ All notable changes to auth-service are documented in this file. The format foll
   and a retention sweep (`RESOURCE_GRANT_RETENTION_DAYS`, default 90).
 - System application `catalogue` that owns the models declared by the relay.
 - Console: permission levels, application sharing, permanent deletion of grants and resources.
+- Application option `autoShareRelayModels` (column `applications.auto_share_relay_models`,
+  baseline regenerated): a relay model gets a `read` grant for each opted-in application when
+  it is first declared, created on behalf of its owner, who can revoke it. Models declared
+  earlier are not shared retroactively. It requires resource sharing (`400 APP_001`).
+- Console: an owner can share a personal resource with an application they belong to.
+
+### Fixed
+
+- Console: creating an organisation, plan, application or everyone grant from the resource
+  grant dialog failed with a validation error because the form sent `subjectEmail: null`.
 
 ## [0.3.0] - 2026-11-22
 

@@ -30,6 +30,7 @@ export interface ApplicationFormState {
   billingDelegated: boolean;
   resourceSharingEnabled: boolean;
   teamsEnabled: boolean;
+  autoShareRelayModels: boolean;
   resourceWebhookUrl: string;
   allowedScopes: string[];
   redirectUris: string[];
@@ -66,6 +67,7 @@ export function emptyApplicationForm(
     billingDelegated: false,
     resourceSharingEnabled: false,
     teamsEnabled: false,
+    autoShareRelayModels: false,
     resourceWebhookUrl: '',
     allowedScopes: [...DEFAULT_SCOPES],
     redirectUris: [''],
@@ -96,6 +98,7 @@ export function formFromApplication(a: Application): ApplicationFormState {
     resourceSharingEnabled: a.resourceSharingEnabled,
     resourceWebhookUrl: a.resourceWebhookUrl ?? '',
     teamsEnabled: a.teamsEnabled,
+    autoShareRelayModels: a.autoShareRelayModels,
     // The scopes are owned by the Resource sharing and Teams options, not picked by hand.
     allowedScopes: withManagedScope(
       a.resourceSharingEnabled

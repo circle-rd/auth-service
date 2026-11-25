@@ -10,14 +10,17 @@ import BaseSelect from '@/components/ui/BaseSelect.vue';
 import ConfirmDialog from '@/components/ui/ConfirmDialog.vue';
 import { useToast } from '@/composables/useToast';
 import { getMyOrganizations } from '@/api/organizations';
+import { buildGrantBody } from '@/utils/grantBody';
 import {
   createGrant,
   deleteGrant,
+  listMemberApplications,
   listOwnerPlans,
   listResourceGrants,
   revokeGrant,
   updateGrantPermission,
   RESOURCE_SUBJECT_TYPES,
+  type MemberApplication,
   type OwnerPlan,
   type Resource,
   type ResourceGrant,
@@ -42,6 +45,7 @@ const toast = useToast();
 const grants = ref<ResourceGrant[]>([]);
 const plans = ref<OwnerPlan[]>([]);
 const organizations = ref<Array<{ id: string; name: string }>>([]);
+const memberApplications = ref<MemberApplication[]>([]);
 const loading = ref(false);
 const saving = ref(false);
 const revoking = ref(false);
@@ -77,19 +81,33 @@ const levelOptions = computed<SelectOption[]>(() =>
 );
 
 const allowedTypes = computed<ResourceSubjectType[]>(() => {
-  // A personal resource is shared with members or with an organization the
-  // owner belongs to; plans and everyone stay reserved to application admins.
+  // A personal resource is shared with members, with an organization the owner
+  // belongs to, or with an application the owner uses; plans and everyone stay
+  // reserved to application admins.
   if (props.resource?.ownerType === 'user' && !props.isAdmin) {
-    return RESOURCE_SUBJECT_TYPES.filter((type) => type === 'user' || type === 'organization');
+    return RESOURCE_SUBJECT_TYPES.filter(
+      (type) => type === 'user' || type === 'organization' || type === 'application',
+    );
   }
   return [...RESOURCE_SUBJECT_TYPES];
 });
 
 const typeOptions = computed<SelectOption[]>(() =>
-  allowedTypes.value.map((value) => ({ value, label: t(`share.subjectTypes.${value}`) })),
+  allowedTypes.value.map((value) => ({
+    value,
+    label: t(`share.subjectTypes.${value}`),
+    description: t(`share.subjectTypeHints.${value}`),
+  })),
 );
 const organizationOptions = computed<SelectOption[]>(() =>
   organizations.value.map((org) => ({ value: org.id, label: org.name })),
+);
+// The owner can only use the resource in an application they belong to; an
+// administrator names any application by its slug.
+const applicationOptions = computed<SelectOption[]>(() =>
+  memberApplications.value
+    .filter((app) => app.slug !== props.resource?.applicationSlug)
+    .map((app) => ({ value: app.slug, label: app.name })),
 );
 const planOptions = computed<SelectOption[]>(() =>
   plans.value.map((plan) => ({ value: plan.id, label: plan.name, description: plan.description ?? undefined })),
@@ -114,12 +132,14 @@ async function load() {
   loading.value = true;
   error.value = '';
   try {
-    const [grantRes, orgRes] = await Promise.all([
+    const [grantRes, orgRes, appRes] = await Promise.all([
       listResourceGrants(props.resource.id),
       getMyOrganizations(),
+      props.isAdmin ? Promise.resolve({ applications: [] }) : listMemberApplications(),
     ]);
     grants.value = grantRes.grants;
     organizations.value = orgRes.organizations.map((org) => ({ id: org.id, name: org.name }));
+    memberApplications.value = appRes.applications;
     if (props.isAdmin) {
       plans.value = (await listOwnerPlans(props.appId)).plans;
     }
@@ -156,20 +176,10 @@ async function save() {
   saving.value = true;
   error.value = '';
   try {
-    await createGrant(props.resource.id, {
-      subjectType: form.subjectType,
-      subjectEmail: form.subjectType === 'user' ? form.email.trim() : null,
-      subjectId:
-        form.subjectType === 'organization'
-          ? form.organizationId
-          : form.subjectType === 'plan'
-            ? form.planId
-            : form.subjectType === 'application'
-              ? form.applicationSlug.trim()
-              : null,
-      permission: form.permission,
-      expiresAt: form.expiresAt ? toIso(form.expiresAt) ?? null : null,
-    });
+    await createGrant(
+      props.resource.id,
+      buildGrantBody({ ...form, expiresAt: form.expiresAt ? toIso(form.expiresAt) ?? null : null }),
+    );
     toast.success(t('share.grants.created'));
     resetForm();
     await load();
@@ -305,7 +315,12 @@ async function revoke() {
           <p class="text-xs font-medium text-surface-500 uppercase tracking-wider">
             {{ t('share.grants.add') }}
           </p>
-          <BaseSelect v-model="form.subjectType" :label="t('share.grants.subjectType')" :options="typeOptions" />
+          <BaseSelect
+            v-model="form.subjectType"
+            :label="t('share.grants.subjectType')"
+            :options="typeOptions"
+            show-selected-description
+          />
           <BaseInput
             v-if="form.subjectType === 'user'"
             v-model="form.email"
@@ -327,6 +342,15 @@ async function revoke() {
             :label="t('share.subjectTypes.plan')"
             :options="planOptions"
           />
+          <div v-else-if="form.subjectType === 'application' && !isAdmin" class="space-y-1">
+            <BaseSelect
+              v-model="form.applicationSlug"
+              :label="t('share.subjectTypes.application')"
+              :options="applicationOptions"
+              :placeholder="applicationOptions.length ? undefined : t('share.grants.noApplication')"
+            />
+            <p class="text-xs text-surface-500">{{ t('share.grants.applicationOwnerHint') }}</p>
+          </div>
           <BaseInput
             v-else-if="form.subjectType === 'application'"
             v-model="form.applicationSlug"

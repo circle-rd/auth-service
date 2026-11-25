@@ -39,6 +39,8 @@ export interface CreateApplicationBody {
   resourceSharingEnabled?: boolean
   /** Lets the application's users create and join teams through the SDK. */
   teamsEnabled?: boolean
+  /** Receives a read grant on every relay model when it is declared. */
+  autoShareRelayModels?: boolean
   /** Signed callback for resource-sharing events. */
   resourceWebhookUrl?: string | null
   allowedScopes?: string[]
@@ -87,6 +89,7 @@ export async function createApplication(body: CreateApplicationBody): Promise<Ap
       billingMode: body.billingMode ?? 'none',
       resourceSharingEnabled: body.resourceSharingEnabled ?? false,
       teamsEnabled: body.teamsEnabled ?? false,
+      autoShareRelayModels: body.autoShareRelayModels ?? false,
       resourceWebhookUrl: body.resourceWebhookUrl ?? null,
       resourceWebhookSecret: body.resourceWebhookUrl ? 'whsec_mock_' + Math.random().toString(36).slice(2, 18) : null,
       allowedScopes: body.allowedScopes ?? ['openid'],

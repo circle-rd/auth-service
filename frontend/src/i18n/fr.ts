@@ -455,6 +455,8 @@ export default {
   applications: {
     teams: '\u00c9quipes',
     teamsHint: 'Les utilisateurs de cette application peuvent cr\u00e9er des \u00e9quipes et les rejoindre avec un jeton d\u2019invitation. Activ\u00e9 avec la claim org ; ce r\u00e9glage permet de le d\u00e9sactiver.',
+    autoShareRelayModels: 'Recevoir les mod\u00e8les relay',
+    autoShareRelayModelsHint: 'Chaque mod\u00e8le qu\u2019un utilisateur sert via le relay est partag\u00e9 avec cette application, en lecture seule, lors de sa premi\u00e8re d\u00e9claration. Son propri\u00e9taire peut r\u00e9voquer l\u2019autorisation. Les mod\u00e8les existants ne sont pas partag\u00e9s r\u00e9troactivement.',
     title: 'Applications',
     subtitle: 'Gérer les applications OAuth2',
     createApp: 'Créer une application',
@@ -1623,6 +1625,8 @@ export default {
       deleteMessage: 'Cette autorisation est déjà inactive. Elle est retirée de la liste définitivement.',
       deletedToast: 'Autorisation supprimée.',
       applicationHint: 'Le slug d’une application dont le partage de ressources est activé. Elle reçoit la ressource dans la limite de vos propres droits.',
+      applicationOwnerHint: 'Vous pourrez utiliser cette ressource dans cette application. Les autres membres de l’application n’y ont pas accès, sauf si vous la partagez aussi avec eux.',
+      noApplication: 'Vous n’appartenez à aucune application qui accepte des ressources partagées',
     },
     invitations: {
       hint: 'Les invitations sont liées à une adresse email, à usage unique, et réservées aux comptes qui n’existent pas encore.',
@@ -1772,6 +1776,13 @@ export default {
       plan: 'Plan',
       everyone: 'Tout le monde',
       application: 'Application',
+    },
+    subjectTypeHints: {
+      user: 'Une personne, par e-mail. Elle doit être membre actif de l’application.',
+      organization: 'Tous les membres actuels d’une organisation, vérifiés à chaque accès. Ils doivent aussi être membres de l’application où ils utilisent la ressource.',
+      plan: 'Tous les utilisateurs ayant un abonnement actif à ce plan dans l’application propriétaire de la ressource. Non appliqué quand la ressource est utilisée via une autre application.',
+      everyone: 'Tous les membres actifs d’une application par laquelle la ressource est accessible : celle qui la possède et toute application avec laquelle elle est partagée. Personne en dehors de ces applications.',
+      application: 'Rend la ressource accessible depuis cette application, au niveau choisi. Cela n’ouvre rien à ses utilisateurs par lui-même : ajoutez aussi un destinataire (le propriétaire d’une ressource personnelle est admis automatiquement).',
     },
     permissions: {
       read: 'Lecture',

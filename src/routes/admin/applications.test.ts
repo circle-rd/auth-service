@@ -209,6 +209,19 @@ describe("Admin — applicationRoutes", () => {
     expect(res.statusCode).not.toBe(400);
   });
 
+  // ── autoShareRelayModels ─────────────────────────────────────────────
+
+  it("POST / → 400 when relay models are shared without resource sharing", async () => {
+    mockGetSession.mockResolvedValueOnce(adminSession);
+    const res = await app.inject({
+      method: "POST",
+      url: "/",
+      payload: { name: "App", slug: "app", autoShareRelayModels: true },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "APP_001" });
+  });
+
   // ── Back-channel logout endpoint ──────────────────────────────────────
 
   describe("backchannelLogoutUri", () => {

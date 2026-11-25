@@ -3,14 +3,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../db/index.js";
 import { user as userTable } from "../db/auth-schema.js";
 import { gatewayObjects } from "../db/gateway-schema.js";
-import { resources } from "../db/resource-schema.js";
+import { resourceGrants, resources } from "../db/resource-schema.js";
 import { applications, userApplications } from "../db/schema.js";
 import { declareRelayResources } from "../services/resources/auto-declaration.js";
 import {
   CATALOGUE_SLUG,
   ensureCatalogueApplication,
 } from "../services/resources/catalogue-app.js";
-import { syncBuiltinSchemes } from "../services/resources/scheme-service.js";
+import { syncBuiltinSchemes, enableSchemeForApplication } from "../services/resources/scheme-service.js";
 import { cleanDb } from "./helpers/db.js";
 
 async function seedUser(id: string, username: string | null): Promise<void> {
@@ -124,5 +124,61 @@ describe("relay model auto-declaration", () => {
   it("skips an inactive object", async () => {
     await db.update(gatewayObjects).set({ isActive: false });
     expect(await declareRelayResources()).toBe(0);
+  });
+});
+
+describe("relay model auto-share", () => {
+  async function seedApplication(
+    slug: string,
+    options: { autoShare: boolean; sharing?: boolean },
+  ): Promise<string> {
+    const [app] = await db
+      .insert(applications)
+      .values({
+        name: slug,
+        slug,
+        resourceSharingEnabled: options.sharing ?? true,
+        autoShareRelayModels: options.autoShare,
+      })
+      .returning({ id: applications.id });
+    await enableSchemeForApplication(app!.id, "llm");
+    return app!.id;
+  }
+
+  const grantsOf = () =>
+    db
+      .select({
+        subjectType: resourceGrants.subjectType,
+        subjectId: resourceGrants.subjectId,
+        permission: resourceGrants.permission,
+        createdBy: resourceGrants.createdBy,
+      })
+      .from(resourceGrants);
+
+  it("shares a new model read-only with the applications that opted in, as its owner", async () => {
+    await seedApplication("raiversed", { autoShare: true });
+    await seedApplication("other", { autoShare: false });
+    await declareRelayResources();
+    expect(await grantsOf()).toEqual([
+      {
+        subjectType: "application",
+        subjectId: "raiversed",
+        permission: "read",
+        createdBy: "alice-id",
+      },
+    ]);
+  });
+
+  it("ignores an application whose sharing is off", async () => {
+    await seedApplication("raiversed", { autoShare: true, sharing: false });
+    expect(await declareRelayResources()).toBe(1);
+    expect(await grantsOf()).toEqual([]);
+  });
+
+  it("does not share a model that was declared before the application opted in", async () => {
+    await declareRelayResources();
+    await seedApplication("raiversed", { autoShare: true });
+    await declareRelayResources();
+    expect(await grantsOf()).toEqual([]);
   });
 });

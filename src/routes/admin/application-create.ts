@@ -86,6 +86,7 @@ export const createAppSchema = z.object({
   billingMode: z.enum(["none", "delegated"]).default("none"),
   resourceSharingEnabled: z.boolean().default(false),
   teamsEnabled: z.boolean().default(false),
+  autoShareRelayModels: z.boolean().default(false),
   // Optional callback auth-service POSTs signed resource-sharing events to.
   resourceWebhookUrl: resourceWebhookUrlSchema.nullable().optional(),
   allowedScopes: z.array(z.string()).default(["openid", "profile", "email"]),
@@ -131,6 +132,9 @@ export async function applicationCreateRoutes(
       throw ERR.APP_001("Invalid application data", parsed.error.flatten());
     }
     const data = parsed.data;
+    if (data.autoShareRelayModels && !data.resourceSharingEnabled) {
+      throw ERR.APP_001("Sharing relay models requires resource sharing");
+    }
     if (data.isSystem) await assertMaySetSystemFlag(req);
     assertOauthClientSettings(data);
 
@@ -185,6 +189,7 @@ export async function applicationCreateRoutes(
           billingMode: data.billingMode,
           resourceSharingEnabled: data.resourceSharingEnabled,
           teamsEnabled: data.teamsEnabled,
+          autoShareRelayModels: data.autoShareRelayModels,
           resourceWebhookUrl: data.resourceWebhookUrl ?? null,
           resourceWebhookSecret: resourceWebhookSecret
             ? encryptResourceWebhookSecret(resourceWebhookSecret)

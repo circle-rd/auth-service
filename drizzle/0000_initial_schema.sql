@@ -45,6 +45,7 @@ CREATE TABLE "applications" (
 	"billing_mode" text DEFAULT 'none' NOT NULL,
 	"resource_sharing_enabled" boolean DEFAULT false NOT NULL,
 	"teams_enabled" boolean DEFAULT false NOT NULL,
+	"auto_share_relay_models" boolean DEFAULT false NOT NULL,
 	"resource_webhook_url" text,
 	"resource_webhook_secret" text,
 	"allowed_scopes" text[] DEFAULT '{"openid","profile","email"}' NOT NULL,

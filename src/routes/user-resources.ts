@@ -392,6 +392,7 @@ export async function userResourceRoutes(
     await reply.send({
       resources: resources.map((resource) => ({
         ...resource,
+        permissions: supportedPermissions(resource.scheme),
         grantCount: counts.get(resource.id) ?? 0,
         ...(query.include === "grants"
           ? { grants: grantsByResource.get(resource.id) ?? [] }

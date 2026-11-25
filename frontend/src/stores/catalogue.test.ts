@@ -7,6 +7,7 @@ const { api } = vi.hoisted(() => ({
     listOwnerApplications: vi.fn(),
     listMemberSchemes: vi.fn(),
     listMyResources: vi.fn(),
+    listAppResources: vi.fn(),
     listAccessibleResources: vi.fn(),
   },
 }));
@@ -38,6 +39,7 @@ beforeEach(() => {
   api.listOwnerApplications.mockResolvedValue({ apps: [owned] });
   api.listMemberSchemes.mockResolvedValue({ schemes: [] });
   api.listMyResources.mockResolvedValue({ resources: [] });
+  api.listAppResources.mockResolvedValue({ resources: [] });
   api.listAccessibleResources.mockResolvedValue({ resources: [] });
 });
 
@@ -50,6 +52,25 @@ describe('catalogue store', () => {
     api.listOwnerApplications.mockResolvedValue({ apps: [] });
     await store.loadApps(true);
     expect(store.byId.get('app-1')?.owner).toBeNull();
+  });
+
+  it('lists the resources the application owns next to the ones the user owns', async () => {
+    const own = { id: 'r-1', applicationId: 'app-1', ownerType: 'user' };
+    const shared = { id: 'r-2', applicationId: 'app-1', ownerType: 'application' };
+    const otherOwner = { id: 'r-3', applicationId: 'app-1', ownerType: 'user' };
+    api.listMyResources.mockResolvedValue({ resources: [own] });
+    api.listAppResources.mockResolvedValue({ resources: [shared, otherOwner] });
+    const store = useCatalogueStore();
+    await store.loadOverview('app-1');
+    expect(store.overviews['app-1']?.mine.map((resource) => resource.id)).toEqual(['r-1', 'r-2']);
+  });
+
+  it('keeps the overview when the application resources are refused', async () => {
+    api.listMyResources.mockResolvedValue({ resources: [{ id: 'r-1', applicationId: 'app-1', ownerType: 'user' }] });
+    api.listAppResources.mockRejectedValue(new Error('forbidden'));
+    const store = useCatalogueStore();
+    await store.loadOverview('app-1');
+    expect(store.overviews['app-1']?.mine.map((resource) => resource.id)).toEqual(['r-1']);
   });
 
   it('drops the cached overview and the remembered application once access is lost', async () => {

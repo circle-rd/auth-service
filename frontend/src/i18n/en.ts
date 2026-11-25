@@ -1531,6 +1531,7 @@ export default {
       modelsLoading: 'Loading models…',
       modelsPlaceholder: 'Select a model',
       modelsEmpty: 'No model available. Models created in the gateway appear after the next inventory sync.',
+      applicationOwned: 'This model belongs to the application, not to you. Share it with grants after creating it.',
       modelOwned: 'Owned by you',
       modelGroups: { routers: 'Routers', models: 'Models' },
       modelKinds: { router: 'Auto-router' },

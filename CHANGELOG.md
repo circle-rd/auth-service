@@ -72,6 +72,13 @@ All notable changes to auth-service are documented in this file. The format foll
 
 ### Fixed
 
+- The resource lists (`GET /api/user/resources`, `GET /api/user/apps/:appId/resources`) return
+  `permissions`, so the sharing dialogs offer the read and write levels; the application list
+  also returns `grantCount`.
+- Declaring a gateway model from the catalogue no longer fails with a 400. Model candidates
+  carry an `ownership`: a `u-<username>` model is declared as the user's, any other model as
+  an application-owned resource (administrators only), and the catalogue lists both. The
+  creation form shows the server error for LLM resources.
 - The OAuth client's scopes follow the application's Resource sharing flag when the flag
   changes, and at creation. Before, only an explicit `allowedScopes` update was mirrored to the
   OAuth client, so toggling the flag alone could leave the client without the scope.

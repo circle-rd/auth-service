@@ -33,6 +33,8 @@ export interface ResourceFormPayload {
   displayName: string;
   locator: string | undefined;
   audience: ResourceAudience | undefined;
+  // `application` for a gateway model that is not under the user's own namespace.
+  owner: 'user' | 'application';
 }
 
 type AudienceChoice = 'private' | 'everyone' | 'plan' | 'organization' | 'user';
@@ -207,7 +209,14 @@ const audienceOptions = computed<SelectOption[]>(() => {
   return options;
 });
 
-const showAudience = computed(() => !props.editing && audienceOptions.value.length > 1);
+const owner = computed<'user' | 'application'>(() =>
+  isLlm.value && candidates.value.find((model) => model.locator === form.locator)?.ownership === 'application'
+    ? 'application'
+    : 'user',
+);
+const showAudience = computed(
+  () => !props.editing && owner.value === 'user' && audienceOptions.value.length > 1,
+);
 const planOptions = computed<SelectOption[]>(() =>
   plans.value.map((plan) => ({ value: plan.id, label: plan.name, description: plan.description ?? undefined, icon: Layers })),
 );
@@ -279,7 +288,9 @@ const tags = computed(() => {
   return list;
 });
 
-const audienceComplete = computed(() => audience.choice === 'private' || audiencePayload() !== undefined);
+const audienceComplete = computed(
+  () => owner.value === 'application' || audience.choice === 'private' || audiencePayload() !== undefined,
+);
 
 const canSave = computed(() => {
   if (form.displayName.trim().length === 0) return false;
@@ -295,7 +306,8 @@ function submit() {
     scheme: form.scheme,
     displayName: form.displayName.trim(),
     locator: isSsh.value || props.editing ? undefined : form.locator.trim(),
-    audience: props.editing ? undefined : audiencePayload(),
+    audience: props.editing || owner.value === 'application' ? undefined : audiencePayload(),
+    owner: owner.value,
   });
 }
 </script>
@@ -344,6 +356,9 @@ function submit() {
         />
         <p v-if="!candidatesLoading && modelOptions.length === 0" class="text-xs text-surface-500">
           {{ t('share.resources.modelsEmpty') }}
+        </p>
+        <p v-else-if="owner === 'application'" class="text-xs text-surface-500">
+          {{ t('share.resources.applicationOwned') }}
         </p>
       </template>
       <UriInput
@@ -402,7 +417,7 @@ function submit() {
         </p>
       </section>
 
-      <p v-if="error && (editing || isSsh)" class="text-xs text-red-400">{{ error }}</p>
+      <p v-if="error && (editing || isSsh || isLlm)" class="text-xs text-red-400">{{ error }}</p>
 
       <div
         v-if="editing?.validationError"

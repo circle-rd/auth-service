@@ -75,6 +75,7 @@ describe("model candidates", () => {
     expect(managed[0]).toMatchObject({
       // A relay model carries its owner's namespace and is its own locator.
       locator: "u-bmz/qwen",
+      ownership: "user",
       owned: false,
       createdBy: "u-bmz",
       clientId: "u-bmz",
@@ -96,6 +97,9 @@ describe("model candidates", () => {
     expect(native.find((model) => model.name === "bmz/router")?.kind).toBe(
       "router",
     );
+    expect(native.every((model) => model.ownership === "application")).toBe(
+      true,
+    );
   });
 
   it("shows a member only the managed models they own", async () => {
@@ -108,26 +112,15 @@ describe("model candidates", () => {
     expect(models[0]?.owned).toBe(true);
   });
 
-  it("shows a member only the native models with a matching owner", async () => {
-    const models = await listModelCandidates({
-      appId,
-      userId: "owner",
-      source: "native",
-    });
-    expect(models.map((model) => model.name)).toEqual([
-      "bmz/router",
-      "owned-native",
-    ]);
-    expect(models.map((model) => model.kind)).toEqual(["router", "model"]);
-  });
-
-  it("hides unowned native models and other accounts from members", async () => {
-    const models = await listModelCandidates({
-      appId,
-      userId: "alice",
-      source: "native",
-    });
-    expect(models.map((model) => model.name)).toEqual(["alice-model"]);
+  it("offers a member no native model: only an administrator declares them", async () => {
+    for (const userId of ["owner", "alice"]) {
+      const models = await listModelCandidates({
+        appId,
+        userId,
+        source: "native",
+      });
+      expect(models).toEqual([]);
+    }
   });
 });
 

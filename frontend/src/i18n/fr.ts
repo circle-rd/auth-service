@@ -1532,6 +1532,7 @@ export default {
       modelsLoading: 'Chargement des modèles…',
       modelsPlaceholder: 'Sélectionner un modèle',
       modelsEmpty: 'Aucun modèle disponible. Les modèles créés dans la passerelle apparaissent après la prochaine synchronisation de l’inventaire.',
+      applicationOwned: 'Ce modèle appartient à l’application, pas à vous. Partagez-le avec des accès après sa création.',
       modelOwned: 'Vous appartient',
       modelGroups: { routers: 'Routeurs', models: 'Modèles' },
       modelKinds: { router: 'Routeur automatique' },

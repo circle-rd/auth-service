@@ -32,12 +32,15 @@ export interface ModelSupports {
 
 export const MODEL_CANDIDATE_KINDS = ["model", "router"] as const;
 export type ModelCandidateKind = (typeof MODEL_CANDIDATE_KINDS)[number];
+export type ModelCandidateOwnership = "user" | "application";
 
 export interface ModelCandidate {
   name: string;
   locator: string;
   kind: ModelCandidateKind;
   source: ModelCandidateSource;
+  /** Who may own the resource: a `u-` locator is the user's, any other the application's. */
+  ownership: ModelCandidateOwnership;
   owned: boolean;
   createdBy: string | null;
   clientId: string | null;
@@ -159,6 +162,9 @@ function candidateOf(
     locator,
     kind: model.metadata.router === true ? "router" : "model",
     source,
+    ownership: locator.startsWith(USER_NAMESPACE_PREFIX)
+      ? "user"
+      : "application",
     owned,
     createdBy: textField(model.metadata, "createdBy"),
     clientId: textField(model.metadata, "clientId"),
@@ -171,9 +177,10 @@ function candidateOf(
 /**
  * Models an application member may select when declaring an LLM resource.
  *
- * Application administrators see every model; other members only see the
- * models whose gateway owner is their own account. A native model with no
- * recorded owner is therefore visible to administrators only.
+ * Application administrators see every model and declare the ones that are not
+ * a user's as application-owned resources. Other members only see the models
+ * under their own `u-<username>` namespace, which is the only locator a
+ * user-owned resource can have.
  */
 export async function listModelCandidates(input: {
   appId: string;
@@ -202,6 +209,6 @@ export async function listModelCandidates(input: {
     .map((model) => candidateOf(model, app.slug, identity, owners))
     .filter((model): model is ModelCandidate => model !== null)
     .filter((model) => model.source === input.source)
-    .filter((model) => admin || model.owned)
+    .filter((model) => admin || (model.owned && model.ownership === "user"))
     .sort((left, right) => left.name.localeCompare(right.name));
 }

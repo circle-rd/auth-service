@@ -69,12 +69,15 @@ export interface ResourceScheme {
 
 export type ModelCandidateSource = 'managed' | 'native';
 export type ModelCandidateKind = 'model' | 'router';
+// A `u-` locator is the user's own; any other belongs to the application.
+export type ModelCandidateOwnership = 'user' | 'application';
 
 export interface ModelCandidate {
   name: string;
   locator: string;
   kind: ModelCandidateKind;
   source: ModelCandidateSource;
+  ownership: ModelCandidateOwnership;
   owned: boolean;
   createdBy: string | null;
   clientId: string | null;

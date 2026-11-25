@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
   listAccessibleResources,
+  listAppResources,
   listMemberApplications,
   listMemberSchemes,
   listMyResources,
@@ -83,18 +84,27 @@ export const useCatalogueStore = defineStore('catalogue', () => {
     try {
       // Each source degrades on its own: a delegate who is not a member of the
       // application still gets the management area.
-      const [schemes, mine, accessible] = await Promise.allSettled([
+      const [schemes, mine, owned, accessible] = await Promise.allSettled([
         listMemberSchemes(appId),
         listMyResources(true),
+        listAppResources(appId),
         listAccessibleResources({ applicationId: appId }),
       ]);
+      // The application's own resources are listed for its administrators only: the call is refused to others.
+      const applicationOwned =
+        owned.status === 'fulfilled'
+          ? owned.value.resources.filter((resource) => resource.ownerType === 'application')
+          : [];
       overviews.value = {
         ...overviews.value,
         [appId]: {
           schemes: schemes.status === 'fulfilled' ? schemes.value.schemes : [],
-          mine: mine.status === 'fulfilled'
-            ? mine.value.resources.filter((resource) => resource.applicationId === appId)
-            : [],
+          mine: [
+            ...(mine.status === 'fulfilled'
+              ? mine.value.resources.filter((resource) => resource.applicationId === appId)
+              : []),
+            ...applicationOwned,
+          ],
           accessible: accessible.status === 'fulfilled' ? accessible.value.resources : [],
         },
       };

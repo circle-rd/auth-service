@@ -19,7 +19,10 @@ import {
   assertActiveMember,
   isApplicationAdmin,
 } from "../services/resources/authority.js";
-import { listGrantsForApplication } from "../services/resources/grant-views.js";
+import {
+  listActiveGrantCounts,
+  listGrantsForApplication,
+} from "../services/resources/grant-views.js";
 import { listModelCandidates } from "../services/resources/model-candidates.js";
 import {
   buildResourceInvitationUrl,
@@ -46,6 +49,7 @@ import {
   USAGE_GROUP_BY,
 } from "../services/resources/usage.js";
 import { RESOURCE_SCHEME_RE } from "../services/resources/uri.js";
+import { supportedPermissions } from "../services/resources/schemes.js";
 import {
   RESOURCE_EVENT_DECISIONS,
   RESOURCE_PERMISSIONS,
@@ -226,7 +230,17 @@ export async function appResourceRoutes(
       "resources:read",
     );
     if (!userId) return;
-    await reply.send({ resources: await listResourcesForApplication(appId) });
+    const resources = await listResourcesForApplication(appId);
+    const counts = await listActiveGrantCounts(
+      resources.map((resource) => resource.id),
+    );
+    await reply.send({
+      resources: resources.map((resource) => ({
+        ...resource,
+        permissions: supportedPermissions(resource.scheme),
+        grantCount: counts.get(resource.id) ?? 0,
+      })),
+    });
   });
 
   fastify.post("/apps/:appId/resources", async (req, reply) => {

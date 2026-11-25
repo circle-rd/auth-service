@@ -158,7 +158,7 @@ vi.mock("../services/resources/grants.js", () => ({
 vi.mock("../services/resources/grant-views.js", () => ({
   listGrantsForResource: mockListGrants,
   listGrantsForResources: vi.fn(),
-  listActiveGrantCounts: vi.fn(),
+  listActiveGrantCounts: vi.fn(async () => new Map<string, number>()),
   listGrantsForApplication: mockListAppGrants,
 }));
 vi.mock("../services/resources/invitations.js", () => ({

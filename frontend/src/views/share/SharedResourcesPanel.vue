@@ -116,7 +116,7 @@ async function save(form: ResourceFormPayload) {
       toast.success(t('share.resources.saved'));
     } else {
       const payload = { scheme: form.scheme, displayName: form.displayName, locator: form.locator };
-      if (props.scope === 'app') {
+      if (props.scope === 'app' || form.owner === 'application') {
         await createAppResource(props.appId, payload);
       } else {
         await createResource({ applicationId: props.appId, ...payload, audience: form.audience });

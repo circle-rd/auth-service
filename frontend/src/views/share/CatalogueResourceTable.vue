@@ -10,6 +10,7 @@ import SchemeIcon from '@/components/ui/SchemeIcon.vue';
 import { useToast } from '@/composables/useToast';
 import { useAuthStore } from '@/stores/auth';
 import {
+  createAppResource,
   createResource,
   removeResource,
   requestValidation,
@@ -173,6 +174,13 @@ async function save(form: ResourceFormPayload) {
     if (editing.value) {
       await updateResource(editing.value.id, { displayName: form.displayName });
       toast.success(t('share.resources.saved'));
+    } else if (form.owner === 'application') {
+      await createAppResource(props.appId, {
+        scheme: form.scheme,
+        displayName: form.displayName,
+        locator: form.locator,
+      });
+      toast.success(t('share.resources.created'));
     } else {
       await createResource({
         applicationId: props.appId,

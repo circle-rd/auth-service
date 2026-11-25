@@ -45,6 +45,12 @@ All notable changes to auth-service are documented in this file. The format foll
   it is first declared, created on behalf of its owner, who can revoke it. Models declared
   earlier are not shared retroactively. It requires resource sharing (`400 APP_001`).
 - Console: an owner can share a personal resource with an application they belong to.
+- The LiteLLM mirror keeps the hardware the relay publishes in `model_info.hardware`
+  (validated, bounded and cleaned of control characters; a malformed value is logged and
+  dropped). `GET /api/user/resources` returns it as `hardware` to the owner only.
+- A user token of any application lists, shares (`POST /api/user/resource-shares`) and
+  deletes the user's own relay models, which live in the `catalogue` application. Every
+  other route stays confined to the application of the token.
 
 ### Fixed
 

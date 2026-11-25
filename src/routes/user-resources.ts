@@ -21,6 +21,8 @@ import {
   listSharingApplications,
 } from "../services/resources/access.js";
 import { listMemberApplications } from "../services/resources/apps.js";
+import { listHardwareForResources } from "../services/gateway-hardware.js";
+import { CATALOGUE_SLUG } from "../services/resources/catalogue-app.js";
 import {
   assertActiveMember,
   assertCanManageGrants,
@@ -295,6 +297,33 @@ async function getResourceInScope(caller: ResourceCaller, resourceId: string) {
   return resource;
 }
 
+/**
+ * A relay model is owned by its user inside the system `catalogue` application.
+ * Its owner reaches it through a token of any application, to list, share or
+ * delete it: nobody else can, and the owner checks of each action still apply.
+ */
+function isOwnCatalogueResource(
+  caller: ResourceCaller,
+  resource: Awaited<ReturnType<typeof getResource>>,
+): boolean {
+  return (
+    resource.applicationSlug === CATALOGUE_SLUG &&
+    resource.ownerType === "user" &&
+    resource.ownerId === caller.userId
+  );
+}
+
+async function getOwnResourceInScope(
+  caller: ResourceCaller,
+  resourceId: string,
+) {
+  const resource = await getResource(resourceId);
+  if (!isOwnCatalogueResource(caller, resource)) {
+    assertInCallerApplication(caller, resource.applicationId);
+  }
+  return resource;
+}
+
 export async function userResourceRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
@@ -374,14 +403,17 @@ export async function userResourceRoutes(
       .parse(req.query);
     const resources = (await listResourcesForOwner("user", userId)).filter(
       (resource) =>
-        !caller.application || resource.applicationId === caller.application.id,
+        !caller.application ||
+        resource.applicationId === caller.application.id ||
+        isOwnCatalogueResource(caller, resource),
     );
     const resourceIds = resources.map((resource) => resource.id);
-    const [counts, grants] = await Promise.all([
+    const [counts, grants, hardware] = await Promise.all([
       listActiveGrantCounts(resourceIds),
       query.include === "grants"
         ? listGrantsForResources(resourceIds)
         : Promise.resolve([]),
+      listHardwareForResources(resourceIds),
     ]);
     const grantsByResource = new Map<string, typeof grants>();
     for (const grant of grants) {
@@ -394,6 +426,10 @@ export async function userResourceRoutes(
         ...resource,
         permissions: supportedPermissions(resource.scheme),
         grantCount: counts.get(resource.id) ?? 0,
+        // Self-reported by the agent, and only ever returned to the owner.
+        ...(hardware.has(resource.id)
+          ? { hardware: hardware.get(resource.id) }
+          : {}),
         ...(query.include === "grants"
           ? { grants: grantsByResource.get(resource.id) ?? [] }
           : {}),
@@ -473,7 +509,7 @@ export async function userResourceRoutes(
     if (!caller) return;
     const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
-    await getResourceInScope(caller, resourceId);
+    await getOwnResourceInScope(caller, resourceId);
     const resource = await removeResource(resourceId, userId);
     const scheme = await getResourceScheme(resource.scheme);
     await reply.send({ resource: publicResource(resource, scheme) });
@@ -596,7 +632,7 @@ export async function userResourceRoutes(
     if (!caller) return;
     const body = bulkShareSchema.parse(req.body);
     for (const resourceId of body.resourceIds) {
-      await getResourceInScope(caller, resourceId);
+      await getOwnResourceInScope(caller, resourceId);
     }
     const results = await shareResourcesWithApplication({
       resourceIds: body.resourceIds,

@@ -7,6 +7,7 @@ import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { gatewayObjects } from "../db/gateway-schema.js";
 import { linkResourceToGatewayObject } from "../services/gateway-inventory.js";
+import { listHardwareForResources } from "../services/gateway-hardware.js";
 import { requestGatewayInventorySync } from "../services/gateway-inventory-sync.js";
 import { syncGatewayInventory } from "../services/gateway-inventory-mirror.js";
 import { getEventBus, setEventBus, MemoryEventBus, type DomainEvent } from "../services/event-bus.js";
@@ -218,6 +219,83 @@ describe("gateway inventory sync", () => {
     } finally {
       setEventBus(previous);
     }
+  });
+
+  describe("agent hardware", () => {
+    const spark = {
+      kind: "dgx-spark",
+      product: " NVIDIA DGX Spark\u0007 ",
+      vendor: "NVIDIA",
+      gpus: ["NVIDIA GB10"],
+      memoryMb: 122880,
+      cpuArch: "aarch64",
+      cpuCores: 20,
+    };
+
+    function stubGateway(modelInfo: Record<string, unknown>): void {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (url.endsWith("/v1/models")) return json({ data: [{ id: "u-bmz/qwen" }] });
+          if (url.endsWith("/model/info")) {
+            return json({
+              data: [{ model_name: "u-bmz/qwen", model_info: { managed_by: "reverse-relay", ...modelInfo } }],
+            });
+          }
+          return json([]);
+        }),
+      );
+    }
+
+    async function seedLinkedResource(): Promise<string> {
+      await syncBuiltinSchemes();
+      const [app] = await db
+        .insert(applications)
+        .values({ name: "Catalogue", slug: "catalogue", resourceSharingEnabled: true })
+        .returning({ id: applications.id });
+      const [resource] = await db
+        .insert(resources)
+        .values({
+          applicationId: app!.id,
+          scheme: "llm",
+          locator: "u-bmz/qwen",
+          uri: "llm://u-bmz/qwen",
+          displayName: "u-bmz/qwen",
+          ownerType: "user",
+          ownerId: "owner",
+          status: "validated",
+        })
+        .returning({ id: resources.id, scheme: resources.scheme, locator: resources.locator });
+      await linkResourceToGatewayObject(resource!);
+      return resource!.id;
+    }
+
+    it("mirrors the distinct hardware of a model, cleaned of control characters", async () => {
+      stubGateway({ hardware: [spark, spark, { ...spark, cpuCores: 8 }] });
+      await syncGatewayInventory();
+      const [row] = await db.select().from(gatewayObjects).where(eq(gatewayObjects.objectName, "u-bmz/qwen"));
+      const hardware = (row?.metadata as { hardware: Array<{ product: string; cpuCores: number }> }).hardware;
+      expect(hardware.map((entry) => entry.cpuCores)).toEqual([20, 8]);
+      expect(hardware[0]?.product).toBe("NVIDIA DGX Spark");
+    });
+
+    it("drops a malformed hardware value and still mirrors the model", async () => {
+      stubGateway({ hardware: [{ ...spark, gpus: new Array(9).fill("GPU") }] });
+      await syncGatewayInventory();
+      const [row] = await db.select().from(gatewayObjects).where(eq(gatewayObjects.objectName, "u-bmz/qwen"));
+      expect(row?.isActive).toBe(true);
+      expect(row?.metadata).not.toHaveProperty("hardware");
+    });
+
+    it("serves the hardware of a linked resource while its model is active", async () => {
+      stubGateway({ hardware: [spark] });
+      await syncGatewayInventory();
+      const resourceId = await seedLinkedResource();
+      const found = await listHardwareForResources([resourceId]);
+      expect(found.get(resourceId)).toHaveLength(1);
+      await db.update(gatewayObjects).set({ isActive: false });
+      expect((await listHardwareForResources([resourceId])).size).toBe(0);
+    });
   });
 
   describe("linking models by locator projection", () => {

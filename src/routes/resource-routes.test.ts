@@ -61,6 +61,7 @@ const {
   mockDeleteGrant,
   bearerClient,
   mockLoadSharingApp,
+  mockListHardware,
 } = vi.hoisted(() => ({
   mockRequireSession: vi.fn(),
   mockRequireUserOrBearer: vi.fn(),
@@ -114,6 +115,7 @@ const {
   // The OAuth client of the bearer token: null means the auth-service UI session.
   bearerClient: { current: null as string | null },
   mockLoadSharingApp: vi.fn(),
+  mockListHardware: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({ db: {} }));
@@ -194,6 +196,9 @@ vi.mock("../services/resources/resource-deletion.js", () => ({
 }));
 vi.mock("../services/gateway-inventory.js", () => ({
   linkResourceToGatewayObject: mockLinkInventory,
+}));
+vi.mock("../services/gateway-hardware.js", () => ({
+  listHardwareForResources: mockListHardware,
 }));
 vi.mock("../services/resources/scheme-service.js", () => ({
   createApplicationScheme: mockCreateScheme,
@@ -307,9 +312,11 @@ beforeEach(() => {
     mockListOwnerPlans,
     mockSendInvitation,
     mockMailConfigured,
+    mockListHardware,
   ]) {
     mock.mockReset();
   }
+  mockListHardware.mockResolvedValue(new Map());
   mockRequireSession.mockResolvedValue("user-1");
   mockRequireUserOrBearer.mockResolvedValue("user-1");
   mockRequireAppDelegation.mockResolvedValue("user-1");
@@ -452,6 +459,106 @@ describe("user resource routes confined to the bearer's application", () => {
     expect(mockListAccessible).toHaveBeenCalledWith(
       expect.objectContaining({ subjectId: "user-1", caller: undefined }),
     );
+  });
+
+  describe("relay models in the catalogue application", () => {
+    const ownCatalogue = {
+      ...resource,
+      id: "55555555-5555-4555-8555-555555555555",
+      applicationId: OTHER_APP,
+      applicationSlug: "catalogue",
+      scheme: "llm",
+    };
+    const hardware = {
+      kind: "dgx-spark",
+      product: "Spark",
+      vendor: null,
+      gpus: ["GB10"],
+      memoryMb: 122880,
+      cpuArch: "aarch64",
+      cpuCores: 20,
+    };
+
+    it("lists the owner's own catalogue resources with their hardware, and no other application's", async () => {
+      const foreign = {
+        ...ownCatalogue,
+        id: "66666666-6666-4666-8666-666666666666",
+        applicationSlug: "gine",
+      };
+      const someoneElses = {
+        ...ownCatalogue,
+        id: "77777777-7777-4777-8777-777777777777",
+        ownerId: "user-2",
+      };
+      mockListMyResources.mockResolvedValue([
+        resource,
+        ownCatalogue,
+        foreign,
+        someoneElses,
+      ]);
+      mockListHardware.mockResolvedValue(
+        new Map([[ownCatalogue.id, [hardware]]]),
+      );
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/user/resources",
+      });
+      expect(res.statusCode).toBe(200);
+      const listed = res.json().resources as Array<{
+        id: string;
+        hardware?: unknown;
+      }>;
+      expect(listed.map((entry) => entry.id)).toEqual([
+        RESOURCE,
+        ownCatalogue.id,
+      ]);
+      expect(listed[0]).not.toHaveProperty("hardware");
+      expect(listed[1]?.hardware).toEqual([hardware]);
+    });
+
+    it("lets the owner share and delete it through any application's token", async () => {
+      mockGetResource.mockResolvedValue(ownCatalogue);
+      mockCreateGrant.mockResolvedValue({ id: "grant-1" });
+      mockRemoveResource.mockResolvedValue(ownCatalogue);
+      const shared = await app.inject({
+        method: "POST",
+        url: "/api/user/resource-shares",
+        payload: {
+          resourceIds: [ownCatalogue.id],
+          applicationSlug: "consumer-app",
+        },
+      });
+      expect(shared.statusCode).toBe(200);
+      const removed = await app.inject({
+        method: "DELETE",
+        url: `/api/user/resources/${ownCatalogue.id}`,
+      });
+      expect(removed.statusCode).toBe(200);
+    });
+
+    it("keeps another user's catalogue resource out of reach", async () => {
+      mockGetResource.mockResolvedValue({ ...ownCatalogue, ownerId: "user-2" });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/user/resource-shares",
+        payload: {
+          resourceIds: [ownCatalogue.id],
+          applicationSlug: "consumer-app",
+        },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+    });
+
+    it("does not open the other actions on the resource", async () => {
+      mockGetResource.mockResolvedValue(ownCatalogue);
+      for (const url of [
+        `/api/user/resources/${ownCatalogue.id}`,
+        `/api/user/resources/${ownCatalogue.id}/grants`,
+      ]) {
+        expect((await app.inject({ method: "GET", url })).statusCode).toBe(404);
+      }
+    });
   });
 });
 

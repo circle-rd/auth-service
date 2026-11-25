@@ -8,6 +8,10 @@ import {
   type GatewayObjectKind,
 } from "../db/gateway-schema.js";
 import { logger } from "../logger.js";
+import {
+  parseGatewayHardware,
+  type GatewayHardware,
+} from "./gateway-hardware.js";
 
 const REQUEST_TIMEOUT_MS = 8_000;
 const UPSERT_CHUNK = 100;
@@ -66,6 +70,8 @@ const modelDetailsSchema = z.object({
             supports_video_input: z.boolean().nullish(),
             supports_audio_input: z.boolean().nullish(),
             supports_audio_output: z.boolean().nullish(),
+            // Validated by `parseGatewayHardware`: the agent reports it unchecked.
+            hardware: z.unknown().optional(),
           })
           .passthrough()
           .optional(),
@@ -81,6 +87,7 @@ interface ModelDetails {
   reverseName?: string;
   router: boolean;
   tags: Set<string>;
+  hardware: GatewayHardware[];
   mode: string | null;
   supports: {
     functionCalling: boolean;
@@ -95,6 +102,7 @@ function mergeModelDetails(
   target: ModelDetails,
   info: z.infer<typeof modelDetailsSchema>["data"][number]["model_info"],
   litellmModel: string | null | undefined,
+  modelName: string,
 ): void {
   target.router ||= isAutoRouter(litellmModel);
   if (!info) return;
@@ -104,6 +112,12 @@ function mergeModelDetails(
   target.reverseName ??= info.reverse_name ?? undefined;
   target.mode ??= info.mode ?? null;
   for (const tag of info.tags ?? []) target.tags.add(tag);
+  for (const entry of parseGatewayHardware(info.hardware, modelName)) {
+    const key = JSON.stringify(entry);
+    if (!target.hardware.some((known) => JSON.stringify(known) === key)) {
+      target.hardware.push(entry);
+    }
+  }
   target.supports.functionCalling ||= info.supports_function_calling === true;
   target.supports.vision ||= info.supports_vision === true;
   target.supports.videoInput ||= info.supports_video_input === true;
@@ -126,6 +140,7 @@ async function fetchModelDetails(): Promise<Map<string, ModelDetails>> {
       const entry = details.get(row.model_name) ?? {
         router: false,
         tags: new Set<string>(),
+        hardware: [],
         mode: null,
         supports: {
           functionCalling: false,
@@ -135,7 +150,12 @@ async function fetchModelDetails(): Promise<Map<string, ModelDetails>> {
           audioOutput: false,
         },
       };
-      mergeModelDetails(entry, row.model_info, row.litellm_params?.model);
+      mergeModelDetails(
+        entry,
+        row.model_info,
+        row.litellm_params?.model,
+        row.model_name,
+      );
       details.set(row.model_name, entry);
     }
     return details;
@@ -233,6 +253,13 @@ async function fetchInventory(): Promise<InventoryRow[]> {
               reverseName: detail.reverseName,
               router: detail.router,
               tags: [...detail.tags].sort(),
+              ...(detail.hardware.length > 0
+                ? {
+                    hardware: [...detail.hardware].sort((a, b) =>
+                      JSON.stringify(a).localeCompare(JSON.stringify(b)),
+                    ),
+                  }
+                : {}),
               mode: detail.mode,
               supports: detail.supports,
             }

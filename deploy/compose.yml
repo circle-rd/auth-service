@@ -1,0 +1,382 @@
+# Production deployment for auth-service.
+#
+# This file is the deployment counterpart of the repository's development
+# docker-compose.yml: it adds Traefik, always runs Redis, and ships the optional
+# LiteLLM gateway and reverse-relay behind compose profiles.
+#
+# `deploy.sh` copies this file into the deployment directory and writes the
+# matching .env. Values in .env are interpolated here; optional profile services
+# are selected through COMPOSE_PROFILES (llm, relay).
+#
+# Services:
+#   traefik          TLS termination and Let's Encrypt (ports 80/443)
+#   postgres         auth-service database, plus the "litellm" database
+#   redis            shared rate-limit and admin-event state
+#   auth             auth-service (public https://${AUTH_HOST})
+#   litellm-setup    one-shot gateway provisioning     (profile: llm)
+#   litellm-provision one-shot inventory/relay keys    (profile: llm)
+#   litellm          LLM and MCP gateway               (profile: llm)
+#   reverse-relay    reverse-agent tunnel termination  (profile: relay)
+
+name: circle
+
+x-auth-image: &auth-image ${AUTH_IMAGE:-ghcr.io/circle-rd/auth-service:${AUTH_TAG:-nightly}}
+x-auth-url: &auth-url https://${AUTH_HOST:-auth.example.com}
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ── Edge ──────────────────────────────────────────────────────────────────
+  traefik:
+    image: ${TRAEFIK_IMAGE:-traefik:v3}
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=circle-net
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?ACME_EMAIL is required}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --log.level=${TRAEFIK_LOG_LEVEL:-INFO}
+      - --accesslog=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - circle-net
+    labels:
+      - traefik.enable=true
+      - traefik.http.middlewares.secure-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.secure-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.secure-headers.headers.stsPreload=true
+      - traefik.http.middlewares.secure-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.secure-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.secure-headers.headers.browserXssFilter=true
+      - traefik.http.middlewares.secure-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+
+  # ── Data ──────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-auth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-auth}
+    volumes:
+      # Bind mount so a plain `docker compose down -v` never removes the database.
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - circle-net
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-auth} -d ${POSTGRES_DB:-auth}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - circle-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Identity provider ─────────────────────────────────────────────────────
+  auth:
+    image: *auth-image
+    restart: unless-stopped
+    logging: *default-logging
+    # Optional integrations (SMTP, Stripe, social providers, wallet tuning)
+    # are consumed from .env without having to list every variable here.
+    env_file:
+      - .env
+    environment:
+      PORT: 3001
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      DATABASE_URL: postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-auth}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+      BETTER_AUTH_URL: *auth-url
+
+      # Bootstrap superadmin; also used by litellm-setup.
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://${AUTH_HOST:-auth.example.com}}
+      # Empty ignores forwarded headers (secure default); set the Traefik
+      # address or a narrow CIDR so rate limits see the real client address.
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      REDIS_URL: redis://redis:6379
+
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      MAGIC_LINK_ENABLED: ${MAGIC_LINK_ENABLED:-false}
+      EMAIL_OTP_ENABLED: ${EMAIL_OTP_ENABLED:-false}
+      SHOWCASE: ${SHOWCASE:-true}
+      APP_NAME: ${APP_NAME:-CIRCLE Auth}
+      TEMPLATES_DIR: /templates
+
+      # Cross-application resources. Enabled schemes must match the profiles
+      # started on this host (RESOURCE_SCHEMES_ENABLED in .env).
+      RESOURCE_SHARING_ENABLED: ${RESOURCE_SHARING_ENABLED:-false}
+      RESOURCE_SCHEMES_ENABLED: ${RESOURCE_SCHEMES_ENABLED:-}
+
+      # reverse-agent device grant, configured together with reverse-relay.
+      DEVICE_AUTHORIZATION_ENABLED: ${DEVICE_AUTHORIZATION_ENABLED:-false}
+      OAUTH_DEVICE_GRANT_ENABLED: ${OAUTH_DEVICE_GRANT_ENABLED:-false}
+      REVERSE_AGENT_CLIENT_ID: ${REVERSE_AGENT_CLIENT_ID:-reverse-agent}
+      REVERSE_AGENT_RESOURCE: ${REVERSE_AGENT_RESOURCE:-https://${RELAY_HOST:-relay.example.com}}
+      REVERSE_AGENT_RESOURCE_NAME: ${REVERSE_AGENT_RESOURCE_NAME:-reverse-relay}
+      REVERSE_AGENT_ACCESS_TOKEN_TTL_SECONDS: ${REVERSE_AGENT_ACCESS_TOKEN_TTL_SECONDS:-900}
+
+      # LiteLLM inventory variables are provided by .env only when the llm
+      # profile is enabled; without them the inventory sync stays disabled.
+    volumes:
+      - ./templates:/templates:ro
+      - litellm_provisioner:/run/litellm-provisioner:ro
+    networks:
+      - circle-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.auth.rule=Host(`${AUTH_HOST:-auth.example.com}`)
+      - traefik.http.routers.auth.entrypoints=websecure
+      - traefik.http.routers.auth.tls.certresolver=letsencrypt
+      - traefik.http.routers.auth.middlewares=secure-headers
+      - traefik.http.services.auth.loadbalancer.server.port=3001
+
+  # ── LiteLLM gateway (profile: llm) ────────────────────────────────────────
+  # Provisions the gateway, then exits. Copies the gateway configuration from
+  # the auth-service image so it always validates the tokens of the running
+  # version, creates the "litellm" database when missing, registers the
+  # litellm/litellm-wallet clients and the reverse-relay client, and stores the
+  # generated secrets on the shared volumes. Idempotent; never regenerates a
+  # stored secret.
+  litellm-setup:
+    image: *auth-image
+    profiles: ["llm"]
+    user: root
+    logging: *default-logging
+    entrypoint:
+      - sh
+      - -c
+      - cp -f /app/litellm/*.py /app/litellm/*.yaml /config/ && node dist/scripts/litellm-setup.js
+    environment:
+      BETTER_AUTH_URL: *auth-url
+      AUTH_SERVICE_URL: http://auth:3001
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      LITELLM_PUBLIC_URL: ${LITELLM_PUBLIC_URL:-https://${LLM_HOST:-llm.example.com}}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-}
+      LITELLM_SSO_ENABLED: ${LITELLM_SSO_ENABLED:-true}
+      LITELLM_STATE_FILE: /config/secrets.env
+      # Secret of the reverse-relay client, on the volume only the relay reads.
+      RELAY_SECRET_FILE: /relay-secrets/catalogue-secret
+      LITELLM_DB_ADMIN_URL: postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-auth}
+    volumes:
+      - litellm_config:/config
+      - relay_secrets:/relay-secrets
+    networks:
+      - circle-net
+    depends_on:
+      auth:
+        condition: service_healthy
+    restart: "no"
+
+  # Gives auth-service its read-only gateway inventory key and writes the
+  # management key reverse-relay uses for its own deployments, then exits.
+  litellm-provision:
+    image: *auth-image
+    profiles: ["llm"]
+    user: root
+    logging: *default-logging
+    entrypoint: ["node", "dist/scripts/litellm-provision.js"]
+    environment:
+      LITELLM_URL: http://litellm:4000
+      LITELLM_STATE_FILE: /config/secrets.env
+      LITELLM_INVENTORY_KEY_FILE: /run/litellm-provisioner/inventory-key
+      LITELLM_RELAY_KEY_FILE: /run/litellm-provisioner/relay-key
+    volumes:
+      - litellm_config:/config:ro
+      - litellm_provisioner:/run/litellm-provisioner
+    networks:
+      - circle-net
+    depends_on:
+      litellm:
+        condition: service_healthy
+    restart: "no"
+
+  litellm:
+    # Pinned to the 1.108 LTS line: custom_auth relies on LiteLLM internals.
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm:v1.108.8}
+    profiles: ["llm"]
+    restart: unless-stopped
+    logging: *default-logging
+    entrypoint:
+      - sh
+      - -c
+      - set -a && . /app/gateway/secrets.env && set +a && export WALLET_CLIENT_SECRET="$$LITELLM_WALLET_CLIENT_SECRET" && exec docker/prod_entrypoint.sh "$$@"
+      - litellm
+    command: ["--config", "/app/gateway/config.yaml", "--port", "4000"]
+    environment:
+      PYTHONPATH: /app/gateway
+      DATABASE_URL: postgresql://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/litellm
+      JWT_PUBLIC_KEY_URL: http://auth:3001/api/auth/jwks
+      JWT_ISSUER: *auth-url
+      # Must equal the "litellm" application URL registered in auth-service.
+      JWT_AUDIENCE: ${LITELLM_PUBLIC_URL:-https://${LLM_HOST:-llm.example.com}}
+      WALLET_AUTH_URL: http://auth:3001
+      WALLET_CLIENT_ID: litellm-wallet
+      WALLET_SPOOL_DIR: /var/lib/circle-wallet
+      GATEWAY_ENTITLEMENTS_URL: http://auth:3001
+      GATEWAY_ENTITLEMENTS_SCOPE: gateway:entitlements:read
+      GATEWAY_ENTITLEMENTS_TTL_S: ${GATEWAY_ENTITLEMENTS_TTL_S:-30}
+      RESOURCE_USAGE_SCOPE: resources:usage:write
+      RESOURCE_USAGE_SPOOL_DIR: /var/lib/circle-wallet/resource-usage
+      WALLET_MAX_REQUESTS_PER_MINUTE: ${WALLET_MAX_REQUESTS_PER_MINUTE:-120}
+      WALLET_MAX_SPEND_PER_MINUTE_USD: ${WALLET_MAX_SPEND_PER_MINUTE_USD:-5}
+      WALLET_MAX_CONCURRENT_CALLS: ${WALLET_MAX_CONCURRENT_CALLS:-8}
+    volumes:
+      - litellm_config:/app/gateway:ro
+      - litellm_spool:/var/lib/circle-wallet
+    networks:
+      - circle-net
+    depends_on:
+      litellm-setup:
+        condition: service_completed_successfully
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.litellm.loadbalancer.server.port=4000
+
+      # Client routes (LLM API and MCP) are public. Whitelist: a new LiteLLM
+      # route stays private until it is added here.
+      - traefik.http.routers.litellm.rule=Host(`${LLM_HOST:-llm.example.com}`) && PathRegexp(`^/(v1|chat|completions|embeddings|models|responses|images|audio|rerank|moderations|files|batches|anthropic|mcp|mcp-rest)(/.*)?$$|^/[^/]+/mcp(/.*)?$$`)
+      - traefik.http.routers.litellm.priority=100
+      - traefik.http.routers.litellm.entrypoints=websecure
+      - traefik.http.routers.litellm.tls.certresolver=letsencrypt
+      - traefik.http.routers.litellm.middlewares=secure-headers
+
+      # Everything else (/ui, /key, /model, /docs, /health…) is restricted to
+      # the administration network.
+      - traefik.http.routers.litellm-admin.rule=Host(`${LLM_HOST:-llm.example.com}`)
+      - traefik.http.routers.litellm-admin.priority=1
+      - traefik.http.routers.litellm-admin.entrypoints=websecure
+      - traefik.http.routers.litellm-admin.tls.certresolver=letsencrypt
+      - traefik.http.routers.litellm-admin.middlewares=secure-headers,litellm-admin
+      - traefik.http.middlewares.litellm-admin.ipallowlist.sourcerange=${LITELLM_ADMIN_CIDR:-10.0.0.0/8}
+
+  # ── Reverse relay (profile: relay) ────────────────────────────────────────
+  # Terminates reverse-agent tunnels and announces the models they publish to
+  # auth-service. The relay profile must be enabled together with llm:
+  # COMPOSE_PROFILES=llm,relay. It reads the relay's LiteLLM management key and
+  # the reverse-relay client secret from the llm volumes.
+  reverse-relay:
+    image: ${RELAY_IMAGE:-ghcr.io/circle-rd/ai-reverse-relay:nightly}
+    profiles: ["relay"]
+    restart: unless-stopped
+    logging: *default-logging
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      core: 0
+    environment:
+      RELAY_TUNNEL_LISTEN: 0.0.0.0:8080
+      RELAY_API_LISTEN: 0.0.0.0:8081
+      RELAY_PUBLIC_URL: https://${RELAY_HOST:-relay.example.com}
+      RELAY_PUBLIC_API_BASE: http://reverse-relay:8081
+      RELAY_API_KEY: ${RELAY_API_KEY:?RELAY_API_KEY is required}
+      RELAY_AUTH_ISSUER: *auth-url
+      RELAY_AUTH_AUDIENCE: https://${RELAY_HOST:-relay.example.com}
+      RELAY_AUTH_SCOPE: tunnel:serve
+      RELAY_LITELLM_URL: http://litellm:4000
+      RELAY_LITELLM_API_KEY_FILE: /run/litellm-provisioner/relay-key
+      RELAY_CATALOGUE_CLIENT_ID: reverse-relay
+      RELAY_CATALOGUE_CLIENT_SECRET_FILE: /run/relay-secrets/catalogue-secret
+      RELAY_TRUST_FORWARDED_FOR: "true"
+      RUST_LOG: ${LOG_LEVEL:-info}
+    volumes:
+      - litellm_provisioner:/run/litellm-provisioner:ro
+      - relay_secrets:/run/relay-secrets:ro
+    networks:
+      - circle-net
+    depends_on:
+      litellm-provision:
+        condition: service_completed_successfully
+      litellm:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.relay.rule=Host(`${RELAY_HOST:-relay.example.com}`)
+      - traefik.http.routers.relay.entrypoints=websecure
+      - traefik.http.routers.relay.tls.certresolver=letsencrypt
+      - traefik.http.routers.relay.middlewares=secure-headers
+      - traefik.http.services.relay.loadbalancer.server.port=8080
+
+networks:
+  circle-net:
+    name: circle-net
+    driver: bridge
+
+volumes:
+  letsencrypt:
+  litellm_config:
+  litellm_spool:
+  litellm_provisioner:
+  relay_secrets:

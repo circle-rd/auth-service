@@ -32,6 +32,12 @@ All notable changes to auth-service are documented in this file. The format foll
 
 ### Added
 
+- Production deployment bundle `deploy/deploy.sh` with a single-host
+  `deploy/compose.yml`: Traefik and Let's Encrypt, auth-service, PostgreSQL,
+  Redis, and optional LiteLLM (`--litellm`) and reverse-relay
+  (`--resource-sharing --relay`). It derives `auth.<domain>`, `llm.<domain>`
+  and `relay.<domain>`, generates the stack secrets into `.env`, and preserves
+  existing `.env` values on redeploy.
 - Grant `permission` (`read` default, `write` covers `read`) on grants, invitations,
   `accessible-resources` and `authorize`; `PATCH …/grants/:grantId`; per-scheme supported
   levels (`400 RES_014`, `409 RES_015`); webhook event `resource.grant.updated`.

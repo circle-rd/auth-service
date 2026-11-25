@@ -18,6 +18,7 @@ import { createResource } from "../services/resources/registry.js";
 import {
   getSecurityStats,
   getUserActivity,
+  getUserActivityBetween,
   listAdminAccessEvents,
 } from "../services/resources/monitoring.js";
 import { recordAccessEvent } from "../services/resources/usage.js";
@@ -74,9 +75,10 @@ async function usage(
   subjectId: string,
   totalTokens: number,
   costUsd: string,
+  occurredAt: Date = new Date(),
 ) {
   await db.insert(resourceUsageRecords).values({
-    occurredAt: new Date(),
+    occurredAt,
     resourceId: seeded.resource.id,
     uri: seeded.resource.uri,
     scheme: "gine",
@@ -198,6 +200,41 @@ describe("resource monitoring", () => {
     const guest = await getUserActivity("guest", seeded.appId, "7d");
     expect(guest.shared).toMatchObject({ allow: 0, deny: 0 });
     expect(guest.used).toMatchObject({ calls: 2, totalTokens: 20, costUsd: "0.40" });
+  });
+
+  it("windows the activity on an explicit closed month", async () => {
+    const seeded = await seed();
+    await usage(seeded, "guest", 10, "0.1", new Date("2026-01-10T12:00:00.000Z"));
+    await usage(seeded, "guest", 4, "0.2", new Date("2026-01-31T23:59:59.000Z"));
+    await usage(seeded, "guest", 99, "9", new Date("2026-02-01T00:00:00.000Z"));
+    await event(seeded, "guest", "deny", "no_grant");
+
+    const january = await getUserActivityBetween(
+      "owner",
+      seeded.appId,
+      "2026-01-01",
+      "2026-01-31",
+    );
+    expect(january.range).toBe("custom");
+    expect(january.from).toBe("2026-01-01");
+    expect(january.to).toBe("2026-01-31");
+    expect(january.shared).toMatchObject({
+      allow: 2,
+      totalTokens: 14,
+      costUsd: "0.3",
+    });
+    expect(january.shared.series).toHaveLength(31);
+    expect(january.shared.series[0]?.date).toBe("2026-01-01");
+    expect(january.shared.series[30]?.date).toBe("2026-01-31");
+
+    const february = await getUserActivityBetween(
+      "owner",
+      seeded.appId,
+      "2026-02-01",
+      "2026-02-28",
+    );
+    expect(february.shared.allow).toBe(1);
+    expect(february.shared.totalTokens).toBe(99);
   });
 
   it("estimates MRR from Stripe-managed subscriptions only", async () => {

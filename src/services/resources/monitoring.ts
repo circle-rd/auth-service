@@ -1,4 +1,15 @@
-import { and, count, desc, eq, gte, lt, ne, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  lt,
+  lte,
+  ne,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { user as userTable } from "../../db/auth-schema.js";
 import {
@@ -247,7 +258,9 @@ export async function listAdminAccessEvents(query: AdminAccessEventQuery) {
 }
 
 export interface UserActivity {
-  range: StatsRange;
+  range: StatsRange | "custom";
+  from?: string;
+  to?: string;
   shared: {
     allow: number;
     deny: number;
@@ -272,20 +285,29 @@ export interface UserActivity {
  * (LLM, SSH, external consumers) is counted consistently. No caller identity
  * is returned: the dashboard only needs counters.
  */
-export async function getUserActivity(
+interface ActivityWindow {
+  readonly label: StatsRange | "custom";
+  readonly days: number;
+  readonly since: Date;
+  readonly until: Date;
+  readonly anchor: Date;
+  readonly from?: string;
+  readonly to?: string;
+}
+
+async function queryUserActivity(
   userId: string,
   applicationId: string,
-  range: StatsRange,
-  now: Date = new Date(),
+  window: ActivityWindow,
 ): Promise<UserActivity> {
-  const days = rangeToDays(range);
-  const since = rangeStart(days, now);
+  const { days, since, until, anchor } = window;
   const sharedUsageWhere = and(
     eq(resourceUsageRecords.applicationId, applicationId),
     eq(resourceUsageRecords.ownerType, "user"),
     eq(resourceUsageRecords.ownerId, userId),
     ne(resourceUsageRecords.subjectId, userId),
     gte(resourceUsageRecords.occurredAt, since),
+    lte(resourceUsageRecords.occurredAt, until),
   );
   const sharedDeniedWhere = and(
     eq(resourceAccessEvents.applicationId, applicationId),
@@ -294,11 +316,13 @@ export async function getUserActivity(
     ne(resourceAccessEvents.subjectId, userId),
     eq(resourceAccessEvents.decision, "deny"),
     gte(resourceAccessEvents.occurredAt, since),
+    lte(resourceAccessEvents.occurredAt, until),
   );
   const usedWhere = and(
     eq(resourceUsageRecords.applicationId, applicationId),
     eq(resourceUsageRecords.subjectId, userId),
     gte(resourceUsageRecords.occurredAt, since),
+    lte(resourceUsageRecords.occurredAt, until),
   );
   const usageDay = sql<string>`to_char(date_trunc('day', ${resourceUsageRecords.occurredAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
   const accessDay = sql<string>`to_char(date_trunc('day', ${resourceAccessEvents.occurredAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
@@ -377,17 +401,19 @@ export async function getUserActivity(
     [...sharedByDay].map(([day, value]) => ({ day, value })),
     days,
     { allow: 0, deny: 0 },
-    now,
+    anchor,
   ).map((p) => ({ date: p.date, ...p.value }));
   const usedDaily = denseDailySeries(
     usedSeries.map((r) => ({ day: r.day, value: r.calls })),
     days,
     0,
-    now,
+    anchor,
   ).map((p) => ({ date: p.date, calls: p.value }));
 
   return {
-    range,
+    range: window.label,
+    ...(window.from === undefined ? {} : { from: window.from }),
+    ...(window.to === undefined ? {} : { to: window.to }),
     shared: {
       allow: series.reduce((acc, p) => acc + p.allow, 0),
       deny: series.reduce((acc, p) => acc + p.deny, 0),
@@ -404,4 +430,48 @@ export async function getUserActivity(
       costUsd: String(usedTotals[0]?.cost ?? "0"),
     },
   };
+}
+
+export async function getUserActivity(
+  userId: string,
+  applicationId: string,
+  range: StatsRange,
+  now: Date = new Date(),
+): Promise<UserActivity> {
+  const days = rangeToDays(range);
+  return queryUserActivity(userId, applicationId, {
+    label: range,
+    days,
+    since: rangeStart(days, now),
+    until: now,
+    anchor: now,
+  });
+}
+
+/**
+ * Same activity over an explicit UTC date window (`YYYY-MM-DD`, inclusive).
+ * Reports use it to freeze a closed month; the caller has already bounded the
+ * window (max one year, no day in the future).
+ */
+export async function getUserActivityBetween(
+  userId: string,
+  applicationId: string,
+  from: string,
+  to: string,
+): Promise<UserActivity> {
+  const since = new Date(`${from}T00:00:00.000Z`);
+  const anchor = new Date(`${to}T00:00:00.000Z`);
+  const days =
+    Math.round((anchor.getTime() - since.getTime()) / 86_400_000) + 1;
+  const until = new Date(anchor);
+  until.setUTCHours(23, 59, 59, 999);
+  return queryUserActivity(userId, applicationId, {
+    label: "custom",
+    days,
+    since,
+    until,
+    anchor,
+    from,
+    to,
+  });
 }

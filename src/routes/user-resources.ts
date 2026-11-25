@@ -48,7 +48,10 @@ import {
 import { validateRelayDeclaration } from "../services/resources/gateway-declaration.js";
 import { getUserIdentity } from "../services/usernames.js";
 import { acceptResourceInvitation } from "../services/resources/invitations.js";
-import { getUserActivity } from "../services/resources/monitoring.js";
+import {
+  getUserActivity,
+  getUserActivityBetween,
+} from "../services/resources/monitoring.js";
 import {
   createResource,
   getResource,
@@ -86,12 +89,44 @@ const accessibleQuerySchema = z
   })
   .strict();
 
+const activityDaySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine(
+    (value) =>
+      !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) &&
+      new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value,
+    "invalid date",
+  );
+
 const activityQuerySchema = z
   .object({
     applicationId: z.string().uuid(),
-    range: z.enum(["7d", "30d"]).default("7d"),
+    range: z.enum(["7d", "30d"]).optional(),
+    from: activityDaySchema.optional(),
+    to: activityDaySchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((query) => (query.from === undefined) === (query.to === undefined), {
+    message: "from and to must be provided together",
+  })
+  .refine((query) => query.from === undefined || query.range === undefined, {
+    message: "range and from/to are mutually exclusive",
+  });
+
+const ACTIVITY_WINDOW_MAX_DAYS = 366;
+
+function assertActivityWindow(from: string, to: string): void {
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  const end = Date.parse(`${to}T00:00:00.000Z`);
+  const today = Date.parse(
+    `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+  );
+  const days = Math.round((end - start) / 86_400_000) + 1;
+  if (end < start || end > today || days > ACTIVITY_WINDOW_MAX_DAYS) {
+    throw ERR.APP_001("Invalid activity window");
+  }
+}
 
 const resourceAudienceSchema = z.union([
   z.object({ type: z.literal("everyone") }).strict(),
@@ -389,8 +424,20 @@ export async function userResourceRoutes(
     const query = activityQuerySchema.parse(req.query);
     assertInCallerApplication(caller, query.applicationId);
     await assertActiveMember(userId, query.applicationId);
+    if (query.from !== undefined && query.to !== undefined) {
+      assertActivityWindow(query.from, query.to);
+      await reply.send(
+        await getUserActivityBetween(
+          userId,
+          query.applicationId,
+          query.from,
+          query.to,
+        ),
+      );
+      return;
+    }
     await reply.send(
-      await getUserActivity(userId, query.applicationId, query.range),
+      await getUserActivity(userId, query.applicationId, query.range ?? "7d"),
     );
   });
 

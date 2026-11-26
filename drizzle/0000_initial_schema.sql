@@ -713,6 +713,7 @@ CREATE TABLE "resource_usage_records" (
 	"subject_id" text,
 	"client_id" text NOT NULL,
 	"application_id" uuid,
+	"gateway_key_id" uuid,
 	"request_id" text NOT NULL,
 	"prompt_tokens" bigint,
 	"completion_tokens" bigint,
@@ -795,6 +796,22 @@ CREATE TABLE "resource_gateway_links" (
 	"resource_id" uuid PRIMARY KEY NOT NULL,
 	"gateway_object_id" uuid NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "personal_gateway_keys" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"user_id" text NOT NULL,
+	"application_id" uuid NOT NULL,
+	"organization_id" text,
+	"label" text NOT NULL,
+	"key_hash" text NOT NULL,
+	"masked_key" text NOT NULL,
+	"last_used_at" timestamp with time zone,
+	"revoked_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "personal_gateway_keys_label_check" CHECK (length("personal_gateway_keys"."label") BETWEEN 1 AND 80),
+	CONSTRAINT "personal_gateway_keys_hash_check" CHECK (length("personal_gateway_keys"."key_hash") = 43)
 );
 --> statement-breakpoint
 CREATE TABLE "ssh_recipient_keys" (
@@ -917,11 +934,15 @@ ALTER TABLE "resource_grants" ADD CONSTRAINT "resource_grants_resource_id_resour
 ALTER TABLE "resource_invitations" ADD CONSTRAINT "resource_invitations_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "resource_usage_records" ADD CONSTRAINT "resource_usage_records_gateway_key_id_personal_gateway_keys_id_fk" FOREIGN KEY ("gateway_key_id") REFERENCES "public"."personal_gateway_keys"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_webhook_deliveries" ADD CONSTRAINT "resource_webhook_deliveries_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resources" ADD CONSTRAINT "resources_scheme_resource_schemes_scheme_fk" FOREIGN KEY ("scheme") REFERENCES "public"."resource_schemes"("scheme") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_gateway_links" ADD CONSTRAINT "resource_gateway_links_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resource_gateway_links" ADD CONSTRAINT "resource_gateway_links_gateway_object_id_gateway_objects_id_fk" FOREIGN KEY ("gateway_object_id") REFERENCES "public"."gateway_objects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "personal_gateway_keys" ADD CONSTRAINT "personal_gateway_keys_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "personal_gateway_keys" ADD CONSTRAINT "personal_gateway_keys_application_id_applications_id_fk" FOREIGN KEY ("application_id") REFERENCES "public"."applications"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "personal_gateway_keys" ADD CONSTRAINT "personal_gateway_keys_organization_id_organization_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ssh_recipient_keys" ADD CONSTRAINT "ssh_recipient_keys_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ssh_resource_details" ADD CONSTRAINT "ssh_resource_details_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ssh_resource_identities" ADD CONSTRAINT "ssh_resource_identities_resource_id_resources_id_fk" FOREIGN KEY ("resource_id") REFERENCES "public"."resources"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -1020,6 +1041,8 @@ CREATE UNIQUE INDEX "gateway_objects_litellm_idx" ON "gateway_objects" USING btr
 CREATE UNIQUE INDEX "gateway_objects_name_idx" ON "gateway_objects" USING btree ("kind","object_name","parent_name") WHERE "gateway_objects"."is_active" = true;--> statement-breakpoint
 CREATE INDEX "gateway_objects_active_idx" ON "gateway_objects" USING btree ("kind","is_active");--> statement-breakpoint
 CREATE INDEX "resource_gateway_links_object_idx" ON "resource_gateway_links" USING btree ("gateway_object_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "personal_gateway_keys_hash_idx" ON "personal_gateway_keys" USING btree ("key_hash");--> statement-breakpoint
+CREATE INDEX "personal_gateway_keys_user_idx" ON "personal_gateway_keys" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "ssh_recipient_keys_public_active_idx" ON "ssh_recipient_keys" USING btree ("public_key") WHERE "ssh_recipient_keys"."revoked_at" IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "ssh_recipient_keys_fingerprint_active_idx" ON "ssh_recipient_keys" USING btree ("fingerprint") WHERE "ssh_recipient_keys"."revoked_at" IS NULL;--> statement-breakpoint
 CREATE INDEX "ssh_recipient_keys_user_idx" ON "ssh_recipient_keys" USING btree ("user_id");--> statement-breakpoint

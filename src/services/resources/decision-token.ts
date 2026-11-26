@@ -17,6 +17,8 @@ const decisionPayloadSchema = z
     by: z.string().min(1),
     iat: z.number().int(),
     exp: z.number().int(),
+    // Set when the decision was obtained with a personal gateway key.
+    key: z.string().uuid().optional(),
   })
   .strict();
 
@@ -49,6 +51,7 @@ export function signDecision(input: {
   app: string;
   by: string;
   notAfter?: number | null;
+  key?: string;
   now?: Date;
 }): SignedDecision {
   const iat = Math.floor((input.now ?? new Date()).getTime() / 1000);
@@ -61,6 +64,7 @@ export function signDecision(input: {
     by: input.by,
     iat,
     exp,
+    ...(input.key !== undefined ? { key: input.key } : {}),
   };
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return {

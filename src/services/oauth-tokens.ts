@@ -113,7 +113,7 @@ async function acceptedAudiences(): Promise<string[]> {
  * client, so callers can fail closed.
  */
 /** BetterAuth stores opaque access tokens as SHA-256, base64url without padding. */
-function hashOpaqueToken(token: string): string {
+export function hashOpaqueToken(token: string): string {
   return createHash("sha256").update(token).digest("base64url");
 }
 

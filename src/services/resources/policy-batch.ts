@@ -29,6 +29,9 @@ interface BatchAccessContext {
   organizationIds: Set<string>;
   planIds: Map<string, Set<string>>;
   grants: Map<string, ResourceGrantRow[]>;
+  // Set when the key is narrowed to one organization: only that organization's
+  // grants apply, never user, everyone or plan grants.
+  pool: string | null;
 }
 
 function schemeKey(applicationId: string, scheme: string): string {
@@ -41,6 +44,13 @@ function grantApplies(
   resource: ResourceView,
   context: BatchAccessContext,
 ): boolean {
+  if (context.pool !== null) {
+    return (
+      grant.subjectType === "organization" &&
+      grant.subjectId === context.pool &&
+      context.organizationIds.has(context.pool)
+    );
+  }
   if (grant.subjectType === "everyone") return true;
   if (grant.subjectType === "user") {
     return grant.subjectId === context.subjectId;
@@ -69,6 +79,7 @@ async function loadBatchAccessContext(
   subjectId: string,
   resources: readonly ResourceView[],
   scope: AccessScope,
+  pool: string | null,
   now: Date,
 ): Promise<BatchAccessContext> {
   const applicationIds = [...new Set(resources.map((r) => r.applicationId))];
@@ -138,11 +149,13 @@ async function loadBatchAccessContext(
     organizationIds: new Set(organizationIds),
     planIds,
     grants,
+    pool,
   };
 }
 
 export interface BatchAccessOptions {
   scope?: AccessScope;
+  pool?: string;
   now?: Date;
 }
 
@@ -162,6 +175,7 @@ export async function evaluateResourceAccessBatch(
     subjectId,
     resources,
     scope,
+    options.pool ?? null,
     options.now ?? new Date(),
   );
   const caller = scope.kind === "application" ? scope.caller : null;

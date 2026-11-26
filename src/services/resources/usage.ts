@@ -108,6 +108,8 @@ export interface RecordUsageInput {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+  // The personal gateway key that obtained the decision, when there is one.
+  gatewayKeyId?: string | null;
 }
 
 export interface RecordUsageResult {
@@ -129,6 +131,7 @@ function sameUsageEvent(
   return (
     record.subjectId === input.subjectId &&
     record.clientId === input.caller.slug &&
+    record.gatewayKeyId === (input.gatewayKeyId ?? null) &&
     record.uri === input.resourceUri &&
     record.requestId === input.requestId &&
     record.usageSource === input.usageSource &&
@@ -207,6 +210,7 @@ export async function recordUsageEvent(
       totalTokens: input.totalTokens,
       costUsd: input.costUsd,
       usageSource: input.usageSource,
+      gatewayKeyId: input.gatewayKeyId ?? null,
     })
     .onConflictDoNothing({
       target: [resourceUsageRecords.resourceId, resourceUsageRecords.requestId],

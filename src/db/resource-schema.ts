@@ -15,6 +15,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { applications } from "./schema.js";
+import { personalGatewayKeys } from "./gateway-key-schema.js";
 import type {
   ResourceAdapter,
   ResourceEventDecision,
@@ -351,6 +352,10 @@ export const resourceUsageRecords = pgTable(
     applicationId: uuid("application_id").references(() => applications.id, {
       onDelete: "set null",
     }),
+    gatewayKeyId: uuid("gateway_key_id").references(
+      () => personalGatewayKeys.id,
+      { onDelete: "set null" },
+    ),
     requestId: text("request_id").notNull(),
     promptTokens: bigint("prompt_tokens", { mode: "number" }),
     completionTokens: bigint("completion_tokens", { mode: "number" }),

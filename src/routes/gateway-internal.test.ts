@@ -15,12 +15,16 @@ const {
   mockRequestSync,
   mockVerifyBearer,
   mockLoadApp,
+  mockResolveKey,
+  mockTouchKey,
 } = vi.hoisted(() => ({
   mockRequireMachineScope: vi.fn(),
   mockListEntitlements: vi.fn(),
   mockRequestSync: vi.fn(),
   mockVerifyBearer: vi.fn(),
   mockLoadApp: vi.fn(),
+  mockResolveKey: vi.fn(),
+  mockTouchKey: vi.fn(),
 }));
 
 vi.mock("../services/machine-auth.js", () => ({
@@ -28,6 +32,10 @@ vi.mock("../services/machine-auth.js", () => ({
 }));
 vi.mock("../services/gateway-inventory.js", () => ({
   listGatewayEntitlements: mockListEntitlements,
+}));
+vi.mock("../services/gateway-keys.js", () => ({
+  resolveGatewayKey: mockResolveKey,
+  touchGatewayKeyLastUsed: mockTouchKey,
 }));
 vi.mock("../services/gateway-inventory-sync.js", () => ({
   requestGatewayInventorySync: mockRequestSync,
@@ -45,6 +53,8 @@ const { verifyDecision } =
 
 const TOKEN = "t".repeat(40);
 const APP_ID = "22222222-2222-4222-8222-222222222222";
+const KEY_ID = "33333333-3333-4333-8333-333333333333";
+const PERSONAL_KEY = `cgk_${"A".repeat(43)}`;
 const app = createTestApp();
 
 beforeAll(async () => {
@@ -62,6 +72,8 @@ beforeEach(() => {
     mockRequestSync,
     mockVerifyBearer,
     mockLoadApp,
+    mockResolveKey,
+    mockTouchKey,
   ]) {
     mock.mockReset();
   }
@@ -84,6 +96,12 @@ beforeEach(() => {
     mcpServers: [],
     mcpToolPermissions: {},
     resources: [],
+  });
+  mockResolveKey.mockResolvedValue({
+    keyId: KEY_ID,
+    userId: "user_abc",
+    caller: { id: APP_ID, slug: "consumer-app" },
+    pool: null,
   });
 });
 
@@ -169,6 +187,72 @@ describe("gateway entitlements by token introspection", () => {
       url: "/api/internal/gateway/users/user_abc/entitlements",
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+const resolvePersonalKey = (payload: unknown = { key: PERSONAL_KEY }) =>
+  app.inject({
+    method: "POST",
+    url: "/api/internal/gateway/personal-keys/entitlements",
+    payload: payload as Record<string, unknown>,
+  });
+
+describe("personal gateway key resolution", () => {
+  it("returns the entitlements and a decision that names the key", async () => {
+    const res = await resolvePersonalKey();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      keyId: KEY_ID,
+      subjectId: "user_abc",
+      clientId: "consumer-app",
+      models: ["gpt-x"],
+    });
+    expect(mockResolveKey).toHaveBeenCalledWith(PERSONAL_KEY);
+    expect(mockListEntitlements).toHaveBeenCalledWith(
+      "user_abc",
+      { id: APP_ID, slug: "consumer-app" },
+      {},
+    );
+    expect(mockTouchKey).toHaveBeenCalledWith(KEY_ID);
+    expect(verifyDecision(res.json().decisionId)).toMatchObject({
+      sub: "user_abc",
+      app: "consumer-app",
+      by: "litellm-wallet",
+      key: KEY_ID,
+    });
+  });
+
+  it("narrows the entitlement query to the key's pool", async () => {
+    mockResolveKey.mockResolvedValueOnce({
+      keyId: KEY_ID,
+      userId: "user_abc",
+      caller: { id: APP_ID, slug: "consumer-app" },
+      pool: "org_1",
+    });
+    const res = await resolvePersonalKey();
+    expect(res.statusCode).toBe(200);
+    expect(mockListEntitlements).toHaveBeenCalledWith(
+      "user_abc",
+      { id: APP_ID, slug: "consumer-app" },
+      { pool: "org_1" },
+    );
+  });
+
+  it("maps service refusals to the documented statuses", async () => {
+    const { ApiError } = await import("../errors.js");
+    mockResolveKey.mockRejectedValueOnce(new ApiError(401, "KEY_001", "bad"));
+    expect((await resolvePersonalKey()).statusCode).toBe(401);
+
+    mockResolveKey.mockRejectedValueOnce(new ApiError(403, "KEY_004", "no"));
+    expect((await resolvePersonalKey()).statusCode).toBe(403);
+    expect(mockTouchKey).not.toHaveBeenCalled();
+  });
+
+  it("refuses a body without a key and signs a decision for the machine", async () => {
+    mockRequireMachineScope.mockResolvedValueOnce({ clientId: "litellm" });
+    expect((await resolvePersonalKey({ key: 1 })).statusCode).toBe(400);
+    expect((await resolvePersonalKey({})).statusCode).toBe(400);
+    expect(mockResolveKey).not.toHaveBeenCalled();
   });
 });
 

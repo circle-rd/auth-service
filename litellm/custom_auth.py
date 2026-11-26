@@ -40,6 +40,7 @@ from entitlements import (
     USAGE_METADATA_KEY,
     Entitlements,
     EntitlementsDenied,
+    EntitlementsRejected,
     EntitlementsUnavailable,
     resolver,
 )
@@ -75,6 +76,7 @@ NO_MODEL_SENTINEL = SpecialModelNames.no_default_models.value
 NO_MCP_SENTINEL = SpecialMCPServerNames.no_mcp_servers.value
 
 MCP_SERVER_ROUTE_RE = re.compile(r"^/(?!(?i:v1)/)[^/]+/mcp(/.*)?$")
+PERSONAL_KEY_RE = re.compile(r"^cgk_[A-Za-z0-9_-]{43}$")
 DISCOVERY_ROUTES = frozenset({"/v1/agents", "/v1/mcp/server"})
 
 _keys: dict[str, jwt.PyJWK] = {}
@@ -166,18 +168,22 @@ def _usage_context(entitlements: Entitlements) -> dict:
     }
 
 
-def _identity(claims: dict, entitlements: Entitlements) -> UserAPIKeyAuth:
-    subject_id = claims["sub"]
-    client_id = claims["azp"]
+def _identity_from(
+    subject_id: str,
+    client_id: str,
+    entitlements: Entitlements,
+    api_key: str,
+    preferred_username: str = "",
+) -> UserAPIKeyAuth:
     return UserAPIKeyAuth(
-        api_key=f"jwt:{subject_id}",
+        api_key=api_key,
         user_id=subject_id,
         user_role=LitellmUserRoles.CUSTOMER,
         models=list(entitlements.models) or [NO_MODEL_SENTINEL],
         object_permission=_permission(entitlements),
         metadata={
             "azp": client_id,
-            "preferredUsername": str(claims.get("preferred_username", "")),
+            "preferredUsername": preferred_username,
             ENTITLEMENTS_METADATA_KEY: {
                 "models": list(entitlements.models),
                 "agents": list(entitlements.agents),
@@ -185,6 +191,17 @@ def _identity(claims: dict, entitlements: Entitlements) -> UserAPIKeyAuth:
             },
             USAGE_METADATA_KEY: _usage_context(entitlements),
         },
+    )
+
+
+def _identity(claims: dict, entitlements: Entitlements) -> UserAPIKeyAuth:
+    subject_id = claims["sub"]
+    return _identity_from(
+        subject_id,
+        claims["azp"],
+        entitlements,
+        f"jwt:{subject_id}",
+        str(claims.get("preferred_username", "")),
     )
 
 
@@ -201,6 +218,38 @@ async def user_api_key_auth(
     # them itself; an unknown key is refused there.
     if api_key.startswith("sk-"):
         return None
+
+    # Personal gateway keys are resolved on every request and never cached:
+    # revocation takes effect on the next call.
+    if api_key.startswith("cgk_"):
+        if not PERSONAL_KEY_RE.match(api_key):
+            raise _reject("Invalid or expired access token")
+        if not _is_client_route(request.url.path, request.method):
+            raise ProxyException(
+                message="This endpoint is not available to users",
+                type="auth_error",
+                param="route",
+                code=403,
+            )
+        try:
+            entitlements = await resolver().resolve_key(api_key)
+        except EntitlementsRejected:
+            raise _reject("Invalid or expired access token") from None
+        except EntitlementsDenied:
+            raise ProxyException(
+                message="This key is not allowed to use shared resources",
+                type="auth_error",
+                param="api_key",
+                code=403,
+            ) from None
+        except EntitlementsUnavailable:
+            raise _unavailable("Could not resolve entitlements; try again") from None
+        return _identity_from(
+            entitlements.subject_id,
+            entitlements.client_id,
+            entitlements,
+            f"cgk:{entitlements.key_id}",
+        )
 
     try:
         kid = jwt.get_unverified_header(api_key).get("kid")

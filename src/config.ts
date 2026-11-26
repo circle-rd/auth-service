@@ -254,6 +254,15 @@ const envSchema = z
       .max(300)
       .default(60),
 
+    // Long-lived consumer credentials: issued by auth-service, resolved by the
+    // LiteLLM hook on every request. The cap counts active keys only.
+    PERSONAL_GATEWAY_KEYS_ENABLED: envBoolean(true),
+    PERSONAL_GATEWAY_KEYS_MAX_PER_USER: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(20),
+
     // CAPTCHA on credential endpoints. Deliberately opt-in via CAPTCHA_ENABLED
     // (not merely by setting keys): enabling it rejects sign-in, sign-up and
     // password reset until every client submits `x-captcha-response`, so it must
@@ -565,6 +574,10 @@ export const config = {
     grantRetentionDays: parsed.data.RESOURCE_GRANT_RETENTION_DAYS,
     retentionSweepHours: parsed.data.RESOURCE_RETENTION_SWEEP_HOURS,
     decisionTtlSeconds: parsed.data.GATEWAY_DECISION_TTL_S,
+  },
+  personalGatewayKeys: {
+    enabled: parsed.data.PERSONAL_GATEWAY_KEYS_ENABLED,
+    maxPerUser: parsed.data.PERSONAL_GATEWAY_KEYS_MAX_PER_USER,
   },
   captcha: {
     enabled: !!(

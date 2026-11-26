@@ -42,6 +42,8 @@ export interface AccessibleResourceInput {
   scheme?: string;
   // The calling application. Without it the view is the user's global one.
   caller?: CallerApplication;
+  // Narrows the reach to one organization pool (personal gateway key).
+  pool?: string;
   now?: Date;
 }
 
@@ -83,6 +85,7 @@ export async function listAccessibleResources(
     input.subjectId,
     {
       scope: input.caller ? applicationScope(input.caller) : GLOBAL_SCOPE,
+      ...(input.pool !== undefined ? { pool: input.pool } : {}),
       now: input.now,
     },
   );

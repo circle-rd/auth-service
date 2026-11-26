@@ -17,6 +17,7 @@ export const AUTH_RATE_PATHS = [
   "/api/auth/passkey/verify-registration",
   "/api/auth/passkey/generate-authenticate-options",
   "/api/auth/passkey/verify-authentication",
+  "/api/user/gateway-keys",
 ];
 export const AUTH_RATE_WINDOW = 60_000;
 

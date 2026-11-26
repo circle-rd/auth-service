@@ -32,6 +32,17 @@ All notable changes to auth-service are documented in this file. The format foll
 
 ### Added
 
+- Personal gateway keys: opaque `cgk_` consumer credentials issued by
+  auth-service (`GET`/`POST`/`DELETE /api/user/gateway-keys`), resolved by the
+  LiteLLM hook on every request through
+  `POST /api/internal/gateway/personal-keys/entitlements`. A key is bound to
+  `(user, application, pool)`; `organizationId: null` reaches the user's full
+  entitlements and a set organization narrows them to that organization's
+  grants. Decisions carry an optional `key`, and usage records store
+  `gateway_key_id`. New codes `KEY_001`–`KEY_005`; configuration
+  `PERSONAL_GATEWAY_KEYS_ENABLED` (default `true`) and
+  `PERSONAL_GATEWAY_KEYS_MAX_PER_USER` (default `20`). The database baseline is
+  regenerated; existing databases are reset.
 - Production deployment bundle `deploy/deploy.sh` with a single-host
   `deploy/compose.yml`: Traefik and Let's Encrypt, auth-service, PostgreSQL,
   Redis, and optional LiteLLM (`--litellm`) and reverse-relay

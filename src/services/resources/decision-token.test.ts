@@ -22,6 +22,13 @@ describe("gateway decision token", () => {
     expect(expiresAt.getTime()).toBe(payload.exp * 1000);
   });
 
+  it("carries an optional gateway key id", () => {
+    const key = "33333333-3333-4333-8333-333333333333";
+    const { decisionId } = signDecision({ ...base, key });
+    expect(verifyDecision(decisionId).key).toBe(key);
+    expect(verifyDecision(signDecision(base).decisionId).key).toBeUndefined();
+  });
+
   it("is capped by the end of the user token", () => {
     const notAfter = Math.floor(NOW.getTime() / 1000) + 10;
     const { decisionId } = signDecision({ ...base, notAfter });

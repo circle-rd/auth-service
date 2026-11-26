@@ -207,6 +207,18 @@ export const ERR = {
   RES_020: (msg = "Only a revoked or expired grant can be deleted") =>
     new ApiError(409, "RES_020", msg),
 
+  // ── KEY ───────────────────────────────────────────────────────────────────
+  KEY_001: (msg = "Malformed, unknown or revoked gateway key") =>
+    new ApiError(401, "KEY_001", msg),
+  KEY_002: (msg = "Gateway key not found") => new ApiError(404, "KEY_002", msg),
+  KEY_003: (msg = "Invalid gateway key payload") =>
+    new ApiError(400, "KEY_003", msg),
+  KEY_004: (
+    msg = "Gateway key admission failed: membership, application or organization",
+  ) => new ApiError(403, "KEY_004", msg),
+  KEY_005: (msg = "Active gateway key limit reached") =>
+    new ApiError(409, "KEY_005", msg),
+
   // ── SRV ───────────────────────────────────────────────────────────────────
   SRV_001: (msg = "Internal server error") => new ApiError(500, "SRV_001", msg),
   SRV_002: (msg = "Service temporarily unavailable") =>

@@ -58,7 +58,11 @@ class EntitlementsUnavailable(Exception):
 
 
 class EntitlementsDenied(Exception):
-    """auth-service refused the token's client: fail closed with 403."""
+    """auth-service refused the credential: fail closed with 403."""
+
+
+class EntitlementsRejected(Exception):
+    """The personal gateway key is malformed, unknown or revoked: 401."""
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,7 @@ class Entitlements:
     decision_id: str = ""
     subject_id: str = ""
     client_id: str = ""
+    key_id: str = ""
     expires_at: float = float("inf")
 
 
@@ -95,6 +100,21 @@ def _strings(value: Any, what: str) -> tuple[str, ...]:
     ):
         raise EntitlementsUnavailable(f"invalid {what}")
     return tuple(dict.fromkeys(value))
+
+
+def _error_code(resp: Any) -> str:
+    """The auth-service error code, when the refusal body carries one."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    error = body.get("error")
+    if not isinstance(error, dict):
+        return ""
+    code = error.get("code")
+    return code if isinstance(code, str) else ""
 
 
 def _parse(body: Any) -> Entitlements:
@@ -148,7 +168,10 @@ def _parse(body: Any) -> Entitlements:
     decision_id = body.get("decisionId")
     subject_id = body.get("subjectId")
     client_id = body.get("clientId")
+    key_id = body.get("keyId", "")
     expires_raw = body.get("expiresAt")
+    if not isinstance(key_id, str):
+        raise EntitlementsUnavailable("invalid key id")
     if not all(
         isinstance(value, str) and value
         for value in (decision_id, subject_id, client_id, expires_raw)
@@ -169,6 +192,7 @@ def _parse(body: Any) -> Entitlements:
         decision_id=decision_id,
         subject_id=subject_id,
         client_id=client_id,
+        key_id=key_id,
         expires_at=expires_at.timestamp(),
     )
 
@@ -284,6 +308,46 @@ class EntitlementResolver:
             if remaining <= 0:
                 raise EntitlementsUnavailable("entitlements already expired")
             self._cache[key] = (entitlements, now + min(self._ttl_s, remaining))
+            return entitlements
+        raise AssertionError("unreachable")
+
+    async def resolve_key(self, key: str) -> Entitlements:
+        """Decide for a personal gateway key, on every request.
+
+        A key is never cached: revocation is immediate, so the answer must come
+        from auth-service each time. The hook trusts the answer for who the key
+        belongs to and which application and pool it names. A 401 may name an
+        expired machine token rather than a bad key, so the token is refreshed
+        once before the key is refused.
+        """
+        for attempt in (0, 1):
+            token = await self._access_token(force=attempt == 1)
+            try:
+                resp = await self._http().post(
+                    f"{self._auth_url}/api/internal/gateway/personal-keys/entitlements",
+                    json={"key": key},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            except httpx.HTTPError as err:
+                raise EntitlementsUnavailable("entitlements unavailable") from err
+            if resp.status_code == 401:
+                if _error_code(resp) == "KEY_001":
+                    raise EntitlementsRejected("key not allowed")
+                if attempt == 0:
+                    continue
+                raise EntitlementsRejected("key not allowed")
+            if resp.status_code == 403:
+                raise EntitlementsDenied("key not allowed")
+            if resp.status_code != 200:
+                raise EntitlementsUnavailable("entitlements unavailable")
+            try:
+                entitlements = _parse(resp.json())
+            except ValueError as err:
+                raise EntitlementsUnavailable("entitlements unavailable") from err
+            if not entitlements.key_id:
+                raise EntitlementsUnavailable("entitlements mismatch")
+            if entitlements.expires_at <= self._wall_clock():
+                raise EntitlementsUnavailable("entitlements already expired")
             return entitlements
         raise AssertionError("unreachable")
 

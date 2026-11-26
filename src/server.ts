@@ -19,6 +19,7 @@ import { servicesRoutes } from "./routes/admin/services.js";
 import { consumptionRoutes } from "./routes/consumption.js";
 import { userRoutes } from "./routes/user.js";
 import { userOrganizationRoutes } from "./routes/user-organizations.js";
+import { userGatewayKeyRoutes } from "./routes/user-gateway-keys.js";
 import { userResourceRoutes } from "./routes/user-resources.js";
 import { appResourceRoutes } from "./routes/app-resources.js";
 import { sshResourceRoutes } from "./routes/ssh.js";
@@ -177,6 +178,7 @@ export async function buildServer(
   await fastify.register(registrationRoutes, { prefix: "/api/registration" });
   await fastify.register(consumptionRoutes, { prefix: "/api/consumption" });
   await fastify.register(userRoutes, { prefix: "/api/user" });
+  await fastify.register(userGatewayKeyRoutes, { prefix: "/api/user" });
   await fastify.register(userOrganizationRoutes, {
     prefix: "/api/user/organizations",
   });

@@ -52,9 +52,10 @@ def body(
     subject="user-1",
     client="acme",
     ttl=60,
+    key_id=None,
 ):
     expires = datetime.fromtimestamp(NOW + ttl, tz=timezone.utc).isoformat()
-    return {
+    payload = {
         "subjectId": subject,
         "clientId": client,
         "decisionId": "decision-1",
@@ -76,6 +77,9 @@ def body(
             }
         ],
     }
+    if key_id is not None:
+        payload["keyId"] = key_id
+    return payload
 
 
 def entitlement_calls(client):
@@ -174,6 +178,60 @@ class Resolver(unittest.IsolatedAsyncioTestCase):
         resolver, _ = self.resolver([FakeResponse(200, answer)])
         with self.assertRaises(entitlements.EntitlementsUnavailable):
             await resolver.resolve("token-a", "user-1", "acme")
+
+    async def test_resolve_key_never_caches(self) -> None:
+        resolver, client = self.resolver(
+            [
+                FakeResponse(200, body(key_id="key-1")),
+                FakeResponse(200, body(key_id="key-1", models=("o",))),
+            ]
+        )
+        first = await resolver.resolve_key("cgk_" + "A" * 43)
+        self.assertEqual(first.key_id, "key-1")
+        second = await resolver.resolve_key("cgk_" + "A" * 43)
+        self.assertEqual(second.models, ("o",))
+        calls = [c for c in client.calls if c[1].endswith("/personal-keys/entitlements")]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][2]["json"], {"key": "cgk_" + "A" * 43})
+
+    async def test_resolve_key_refreshes_the_machine_token_on_401(self) -> None:
+        resolver, client = self.resolver(
+            [
+                FakeResponse(401, {"error": {"code": "AUTH_001"}}),
+                FakeResponse(200, body(key_id="key-1")),
+            ]
+        )
+        result = await resolver.resolve_key("cgk_" + "A" * 43)
+        self.assertEqual(result.key_id, "key-1")
+        tokens = [c for c in client.calls if c[1].endswith("/oauth2/token")]
+        self.assertEqual(len(tokens), 2)
+
+    async def test_resolve_key_maps_refusals(self) -> None:
+        resolver, client = self.resolver(
+            [FakeResponse(401, {"error": {"code": "KEY_001"}})]
+        )
+        with self.assertRaises(entitlements.EntitlementsRejected):
+            await resolver.resolve_key("cgk_" + "A" * 43)
+        tokens = [c for c in client.calls if c[1].endswith("/oauth2/token")]
+        self.assertEqual(len(tokens), 1)
+
+        resolver, _ = self.resolver([FakeResponse(403, {})])
+        with self.assertRaises(entitlements.EntitlementsDenied):
+            await resolver.resolve_key("cgk_" + "A" * 43)
+
+        resolver, _ = self.resolver([FakeResponse(503, {})])
+        with self.assertRaises(entitlements.EntitlementsUnavailable):
+            await resolver.resolve_key("cgk_" + "A" * 43)
+
+    async def test_resolve_key_requires_a_key_id_in_the_answer(self) -> None:
+        resolver, _ = self.resolver([FakeResponse(200, body())])
+        with self.assertRaises(entitlements.EntitlementsUnavailable):
+            await resolver.resolve_key("cgk_" + "A" * 43)
+
+    async def test_resolve_key_refuses_an_expired_decision(self) -> None:
+        resolver, _ = self.resolver([FakeResponse(200, body(key_id="key-1", ttl=-1))])
+        with self.assertRaises(entitlements.EntitlementsUnavailable):
+            await resolver.resolve_key("cgk_" + "A" * 43)
 
     async def test_401_refreshes_the_token_once(self) -> None:
         resolver, client = self.resolver(

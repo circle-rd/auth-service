@@ -315,6 +315,7 @@ export async function gatewayResourceRoutes(
         promptTokens: body.promptTokens,
         completionTokens: body.completionTokens,
         totalTokens: body.totalTokens,
+        gatewayKeyId: decision.key ?? null,
       });
       req.log.info(
         {

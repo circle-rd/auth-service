@@ -10,6 +10,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 for name, value in {
     "JWT_PUBLIC_KEY_URL": "https://auth.test/api/auth/jwks",
@@ -27,7 +28,14 @@ for name, value in {
 sys.path.insert(0, str(Path(os.environ.get("GATEWAY_DIR", "/gateway"))))
 
 import custom_auth  # noqa: E402
-from entitlements import EntitlementResource, Entitlements  # noqa: E402
+import entitlements  # noqa: E402
+from entitlements import (  # noqa: E402
+    EntitlementResource,
+    Entitlements,
+    EntitlementsDenied,
+    EntitlementsRejected,
+    EntitlementsUnavailable,
+)
 
 
 class ClientRoutePolicy(unittest.TestCase):
@@ -170,6 +178,117 @@ class EntitlementIdentity(unittest.TestCase):
         self.assertEqual(permission.mcp_servers, [custom_auth.NO_MCP_SENTINEL])
         self.assertEqual(permission.agents, [])
         self.assertEqual(permission.mcp_tool_permissions, None)
+
+
+VALID_KEY = "cgk_" + "A" * 43
+
+
+class FakeKeyResolver:
+    def __init__(self, answer=None, error=None):
+        self.answer = answer
+        self.error = error
+        self.calls = 0
+
+    async def resolve_key(self, key):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return self.answer
+
+
+def request(path):
+    return SimpleNamespace(url=SimpleNamespace(path=path), method="POST")
+
+
+def key_entitlements(**overrides):
+    values = {
+        "models": ("gpt-x",),
+        "agents": ("analyst",),
+        "mcp_servers": ("server-x",),
+        "mcp_tool_permissions": {"server-x": ("search",)},
+        "resources": (),
+        "decision_id": "decision-1",
+        "subject_id": "user-1",
+        "client_id": "acme",
+        "key_id": "key-1",
+    }
+    values.update(overrides)
+    return Entitlements(**values)
+
+
+class PersonalGatewayKey(unittest.IsolatedAsyncioTestCase):
+    def tearDown(self) -> None:
+        entitlements.set_resolver_for_tests(None)
+
+    async def test_identity_is_built_from_the_answer(self) -> None:
+        fake = FakeKeyResolver(key_entitlements())
+        entitlements.set_resolver_for_tests(fake)
+        identity = await custom_auth.user_api_key_auth(
+            request("/v1/chat/completions"), VALID_KEY
+        )
+        self.assertEqual(identity.api_key, "cgk:key-1")
+        self.assertEqual(identity.user_id, "user-1")
+        self.assertEqual(identity.metadata["azp"], "acme")
+        self.assertEqual(identity.metadata["preferredUsername"], "")
+        self.assertEqual(identity.models, ["gpt-x"])
+        self.assertEqual(identity.object_permission.agents, ["analyst"])
+        self.assertEqual(fake.calls, 1)
+        self.assertNotIn(VALID_KEY, identity.api_key)
+        self.assertNotIn(VALID_KEY, repr(identity.metadata))
+
+    async def test_empty_lists_become_sentinels(self) -> None:
+        entitlements.set_resolver_for_tests(
+            FakeKeyResolver(
+                key_entitlements(
+                    models=(),
+                    agents=(),
+                    mcp_servers=(),
+                    mcp_tool_permissions={},
+                )
+            )
+        )
+        identity = await custom_auth.user_api_key_auth(
+            request("/v1/models"), VALID_KEY
+        )
+        self.assertEqual(identity.models, [custom_auth.NO_MODEL_SENTINEL])
+        self.assertEqual(
+            identity.object_permission.mcp_servers,
+            [custom_auth.NO_MCP_SENTINEL],
+        )
+
+    async def test_key_is_resolved_on_every_request(self) -> None:
+        fake = FakeKeyResolver(key_entitlements())
+        entitlements.set_resolver_for_tests(fake)
+        await custom_auth.user_api_key_auth(request("/v1/models"), VALID_KEY)
+        await custom_auth.user_api_key_auth(request("/v1/models"), VALID_KEY)
+        self.assertEqual(fake.calls, 2)
+
+    async def test_client_route_guard_and_format_are_enforced(self) -> None:
+        fake = FakeKeyResolver(key_entitlements())
+        entitlements.set_resolver_for_tests(fake)
+
+        with self.assertRaises(custom_auth.ProxyException) as guard:
+            await custom_auth.user_api_key_auth(request("/key/generate"), VALID_KEY)
+        self.assertEqual(guard.exception.code, "403")
+
+        with self.assertRaises(custom_auth.ProxyException) as malformed:
+            await custom_auth.user_api_key_auth(request("/v1/models"), "cgk_short")
+        self.assertEqual(malformed.exception.code, "401")
+        self.assertEqual(fake.calls, 0)
+
+    async def test_resolution_errors_map_like_the_jwt_path(self) -> None:
+        cases = [
+            (EntitlementsRejected("no"), 401),
+            (EntitlementsDenied("no"), 403),
+            (EntitlementsUnavailable("no"), 503),
+        ]
+        for error, status in cases:
+            entitlements.set_resolver_for_tests(FakeKeyResolver(error=error))
+            with self.assertRaises(custom_auth.ProxyException) as raised:
+                await custom_auth.user_api_key_auth(
+                    request("/v1/models"), VALID_KEY
+                )
+            self.assertEqual(raised.exception.code, str(status))
 
 
 if __name__ == "__main__":

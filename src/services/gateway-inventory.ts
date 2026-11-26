@@ -131,10 +131,12 @@ export async function linkResourceToGatewayObject(
 export async function listGatewayEntitlements(
   userId: string,
   caller: CallerApplication,
+  options: { pool?: string } = {},
 ): Promise<GatewayEntitlements> {
   const accessible = await listAccessibleResources({
     subjectId: userId,
     caller,
+    ...(options.pool !== undefined ? { pool: options.pool } : {}),
   });
   const lite = accessible.filter((item) => LITELLM_SCHEMES.has(item.scheme));
   if (lite.length === 0) {

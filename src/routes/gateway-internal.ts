@@ -2,6 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ERR } from "../errors.js";
 import { requireMachineScope } from "../services/machine-auth.js";
+import {
+  resolveGatewayKey,
+  touchGatewayKeyLastUsed,
+} from "../services/gateway-keys.js";
 import { listGatewayEntitlements } from "../services/gateway-inventory.js";
 import { requestGatewayInventorySync } from "../services/gateway-inventory-sync.js";
 import { verifyBearerAccessToken } from "../services/oauth-tokens.js";
@@ -19,6 +23,8 @@ const INVENTORY_NOTIFY_RATE_LIMIT = {
 const entitlementsBodySchema = z
   .object({ token: z.string().min(20).max(8192) })
   .strict();
+
+const personalKeyBodySchema = z.object({ key: z.string() }).strict();
 
 /**
  * Machine-to-machine API the LiteLLM hook uses to resolve what a user may reach.
@@ -63,6 +69,41 @@ export async function gatewayInternalRoutes(
         decisionId,
         expiresAt: expiresAt.toISOString(),
         ...(await listGatewayEntitlements(verified.userId, caller)),
+      });
+    },
+  );
+
+  fastify.post(
+    "/personal-keys/entitlements",
+    { config: INTERNAL_RATE_LIMIT },
+    async (req, reply) => {
+      const machine = await requireMachineScope(
+        req.headers.authorization,
+        "gateway:entitlements:read",
+      );
+      const parsed = personalKeyBodySchema.safeParse(req.body);
+      if (!parsed.success) throw ERR.KEY_003();
+      const resolved = await resolveGatewayKey(parsed.data.key);
+      const entitlements = await listGatewayEntitlements(
+        resolved.userId,
+        resolved.caller,
+        resolved.pool !== null ? { pool: resolved.pool } : {},
+      );
+      await touchGatewayKeyLastUsed(resolved.keyId);
+      const { decisionId, expiresAt } = signDecision({
+        sub: resolved.userId,
+        app: resolved.caller.slug,
+        by: machine.clientId,
+        notAfter: null,
+        key: resolved.keyId,
+      });
+      await reply.send({
+        keyId: resolved.keyId,
+        subjectId: resolved.userId,
+        clientId: resolved.caller.slug,
+        decisionId,
+        expiresAt: expiresAt.toISOString(),
+        ...entitlements,
       });
     },
   );

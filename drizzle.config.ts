@@ -8,6 +8,7 @@ export default defineConfig({
     "./src/db/auth-schema.ts",
     "./src/db/resource-schema.ts",
     "./src/db/gateway-schema.ts",
+    "./src/db/gateway-key-schema.ts",
     "./src/db/ssh-schema.ts",
   ],
   dialect: "postgresql",

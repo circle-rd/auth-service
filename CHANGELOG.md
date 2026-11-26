@@ -62,6 +62,12 @@ All notable changes to auth-service are documented in this file. The format foll
   it is first declared, created on behalf of its owner, who can revoke it. Models declared
   earlier are not shared retroactively. It requires resource sharing (`400 APP_001`).
 - Console: an owner can share a personal resource with an application they belong to.
+- A personal resource owner shares it with any existing account by e-mail; access
+  still requires membership of the application the recipient calls through.
+- Team members: any member of a team lists it with
+  `GET /api/user/organizations/:id/members` (`username`, `displayName`, `role`,
+  `joinedAt`; never an e-mail or a user id). Grant views add `subjectUsername`,
+  the account-wide pseudo, alongside the existing `subjectLabel`.
 - The LiteLLM mirror keeps the hardware the relay publishes in `model_info.hardware`
   (validated, bounded and cleaned of control characters; a malformed value is logged and
   dropped). `GET /api/user/resources` returns it as `hardware` to the owner only.

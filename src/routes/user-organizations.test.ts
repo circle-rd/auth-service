@@ -17,6 +17,7 @@ const {
   mockIssue,
   mockRevoke,
   mockList,
+  mockListMembers,
 } = vi.hoisted(() => ({
   mockRequireUserOrBearer: vi.fn(),
   mockCreateTeam: vi.fn(),
@@ -25,6 +26,7 @@ const {
   mockIssue: vi.fn(),
   mockRevoke: vi.fn(),
   mockList: vi.fn(),
+  mockListMembers: vi.fn(),
 }));
 
 vi.mock("../middleware.js", () => ({
@@ -36,6 +38,7 @@ vi.mock("../services/teams.js", () => ({
   leaveTeam: mockLeaveTeam,
   issueInvitationToken: mockIssue,
   revokeInvitationToken: mockRevoke,
+  listTeamMembers: mockListMembers,
 }));
 vi.mock("../services/user-organizations.js", () => ({
   listUserOrganizations: mockList,
@@ -211,6 +214,35 @@ describe("team membership and invitation token", () => {
       expiresAt: expiresAt.toISOString(),
     });
     expect(mockIssue).toHaveBeenCalledWith("user-1", "team-1");
+  });
+
+  it("lists the members of a team", async () => {
+    mockListMembers.mockResolvedValueOnce([
+      {
+        username: "ada",
+        displayName: "Ada Lovelace",
+        role: "owner",
+        joinedAt: new Date("2026-11-20T10:00:00.000Z"),
+      },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/user/organizations/team-1/members",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      members: [
+        {
+          username: "ada",
+          displayName: "Ada Lovelace",
+          role: "owner",
+          joinedAt: "2026-11-20T10:00:00.000Z",
+        },
+      ],
+    });
+    expect(mockListMembers).toHaveBeenCalledWith("user-1", "team-1");
   });
 
   it("revokes the invitation token with 204", async () => {

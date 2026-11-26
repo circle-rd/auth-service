@@ -253,7 +253,9 @@ export async function canGrantToSubject(
       // The owner consents to expose a personal resource to an application.
       if (subjectType === "application") return true;
       if (subjectType === "user") {
-        return isActiveMember(subjectId, resource.applicationId);
+        // Access is gated by the membership of the application the recipient
+        // calls through, so a personal resource can name any account.
+        return true;
       }
       if (subjectType === "organization") {
         return isOrganizationMember(userId, subjectId);

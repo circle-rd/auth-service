@@ -44,6 +44,7 @@ import {
 import {
   activeMemberIdByEmail,
   resolveAudience,
+  userIdByEmail,
 } from "../services/resources/audience.js";
 import { validateRelayDeclaration } from "../services/resources/gateway-declaration.js";
 import { getUserIdentity } from "../services/usernames.js";
@@ -621,9 +622,16 @@ export async function userResourceRoutes(
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const body = grantCreateSchema.parse(req.body);
     const resource = await getOwnResourceInScope(caller, resourceId);
+    const ownPersonalResource =
+      resource.ownerType === "user" && resource.ownerId === userId;
     const subjectId =
       body.subjectType === "user" && body.subjectEmail
-        ? await activeMemberIdByEmail(body.subjectEmail, resource.applicationId)
+        ? ownPersonalResource
+          ? await userIdByEmail(body.subjectEmail)
+          : await activeMemberIdByEmail(
+              body.subjectEmail,
+              resource.applicationId,
+            )
         : (body.subjectId ?? null);
     const grant = await createResourceGrant({
       resourceId,

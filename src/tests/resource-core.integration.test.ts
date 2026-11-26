@@ -705,7 +705,7 @@ describe("generic resource core", () => {
     ).resolves.toMatchObject({ decision: "allow", accessKind: "grant" });
   });
 
-  it("does not let a standard owner grant to a non-member or a group", async () => {
+  it("lets a standard owner grant a personal resource to any account, never to a group", async () => {
     const seedData = await seed();
     const resource = await validatedResource(seedData);
     await expect(
@@ -715,7 +715,10 @@ describe("generic resource core", () => {
         subjectId: seedData.outsiderId,
         actorUserId: seedData.ownerId,
       }),
-    ).rejects.toMatchObject({ code: "RES_004" });
+    ).resolves.toMatchObject({
+      subjectType: "user",
+      subjectId: seedData.outsiderId,
+    });
     await expect(
       createResourceGrant({
         resourceId: resource.id,

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { generateId } from "better-auth";
-import { and, count, eq, gt, isNull } from "drizzle-orm";
+import { and, asc, count, eq, gt, isNull } from "drizzle-orm";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import {
@@ -351,4 +351,54 @@ export async function revokeInvitationToken(
         ),
       );
   });
+}
+
+export interface TeamMemberView {
+  username: string | null;
+  displayName: string;
+  role: "owner" | "admin" | "member";
+  joinedAt: Date;
+}
+
+/** Members of a team, visible to every member. Never returns an e-mail or a user id. */
+export async function listTeamMembers(
+  userId: string,
+  organizationId: string,
+): Promise<TeamMemberView[]> {
+  const [team] = await db
+    .select({ team: organization.team })
+    .from(organization)
+    .where(eq(organization.id, organizationId));
+  if (!team) throw ERR.ORG_001();
+  if (!team.team) throw ERR.ORG_012();
+
+  const [membership] = await db
+    .select({ id: member.id })
+    .from(member)
+    .where(
+      and(eq(member.organizationId, organizationId), eq(member.userId, userId)),
+    )
+    .limit(1);
+  if (!membership) throw ERR.ORG_004();
+
+  const rows = await db
+    .select({
+      username: userTable.username,
+      displayName: userTable.name,
+      role: member.role,
+      joinedAt: member.createdAt,
+    })
+    .from(member)
+    .innerJoin(userTable, eq(userTable.id, member.userId))
+    .where(eq(member.organizationId, organizationId))
+    .orderBy(asc(member.createdAt))
+    .limit(1000);
+
+  return rows.map((row) => ({
+    ...row,
+    role:
+      row.role === "owner" || row.role === "admin"
+        ? row.role
+        : ("member" as const),
+  }));
 }

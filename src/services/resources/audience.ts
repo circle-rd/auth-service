@@ -48,6 +48,23 @@ export async function resolveAudience(
   }
 }
 
+/**
+ * Resolves an e-mail to any active account, for a personal resource. Access is
+ * still gated by the membership of the application the recipient calls
+ * through, so the recipient does not need a row in the owner's application.
+ */
+export async function userIdByEmail(email: string): Promise<string> {
+  const [row] = await db
+    .select({ id: userTable.id })
+    .from(userTable)
+    .where(eq(sql`lower(${userTable.email})`, email.toLowerCase()))
+    .limit(1);
+  if (!row) {
+    throw ERR.RES_001("The recipient was not found");
+  }
+  return row.id;
+}
+
 export async function activeMemberIdByEmail(
   email: string,
   applicationId: string,

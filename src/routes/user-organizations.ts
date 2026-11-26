@@ -15,6 +15,7 @@ import {
   issueInvitationToken,
   joinTeam,
   leaveTeam,
+  listTeamMembers,
   revokeInvitationToken,
 } from "../services/teams.js";
 import { listUserOrganizations } from "../services/user-organizations.js";
@@ -92,6 +93,23 @@ export async function userOrganizationRoutes(
       organization: await joinTeam(userId, parsed.data.token),
     });
   });
+
+  // GET /api/user/organizations/:id/members — members of a team, visible to its members
+  fastify.get<{ Params: { id: string } }>(
+    "/:id/members",
+    async (req, reply) => {
+      const userId = await requireUserOrBearer(
+        req,
+        reply,
+        ORGANIZATION_SELF_SCOPE,
+      );
+      if (!userId) return;
+
+      await reply.send({
+        members: await listTeamMembers(userId, req.params.id),
+      });
+    },
+  );
 
   // POST /api/user/organizations/:id/leave — leave a team
   fastify.post<{ Params: { id: string } }>("/:id/leave", async (req, reply) => {

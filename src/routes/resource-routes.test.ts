@@ -36,6 +36,7 @@ const {
   mockRemoveResource,
   mockResolveAudience,
   mockActiveMemberIdByEmail,
+  mockUserIdByEmail,
   mockGetResource,
   mockListMyResources,
   mockRequestValidation,
@@ -89,6 +90,7 @@ const {
   mockRemoveResource: vi.fn(),
   mockResolveAudience: vi.fn(),
   mockActiveMemberIdByEmail: vi.fn(),
+  mockUserIdByEmail: vi.fn(),
   mockGetResource: vi.fn(),
   mockListMyResources: vi.fn(),
   mockRequestValidation: vi.fn(),
@@ -174,6 +176,7 @@ vi.mock("../services/resources/invitations.js", () => ({
 }));
 vi.mock("../services/resources/audience.js", () => ({
   activeMemberIdByEmail: mockActiveMemberIdByEmail,
+  userIdByEmail: mockUserIdByEmail,
   resolveAudience: mockResolveAudience,
 }));
 vi.mock("../services/resources/gateway-declaration.js", () => ({
@@ -876,7 +879,35 @@ describe("user resource routes", () => {
     );
   });
 
-  it("resolves a user grant named by e-mail", async () => {
+  it("resolves a personal resource user grant by any account e-mail", async () => {
+    mockGetResource.mockResolvedValue(resource);
+    mockUserIdByEmail.mockResolvedValue("user-9");
+    mockCreateGrant.mockResolvedValue({
+      id: GRANT,
+      resourceId: RESOURCE,
+      subjectType: "user",
+      subjectId: "user-9",
+      revokedAt: null,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/user/resources/${RESOURCE}/grants`,
+      payload: { subjectType: "user", subjectEmail: "member@example.com" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(mockUserIdByEmail).toHaveBeenCalledWith("member@example.com");
+    expect(mockActiveMemberIdByEmail).not.toHaveBeenCalled();
+    expect(mockCreateGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ subjectId: "user-9" }),
+    );
+  });
+
+  it("keeps the application membership resolution for an application-owned resource", async () => {
+    mockGetResource.mockResolvedValue({
+      ...resource,
+      ownerType: "application",
+      ownerId: APP,
+    });
     mockActiveMemberIdByEmail.mockResolvedValue("user-9");
     mockCreateGrant.mockResolvedValue({
       id: GRANT,
@@ -895,9 +926,7 @@ describe("user resource routes", () => {
       "member@example.com",
       APP,
     );
-    expect(mockCreateGrant).toHaveBeenCalledWith(
-      expect.objectContaining({ subjectId: "user-9" }),
-    );
+    expect(mockUserIdByEmail).not.toHaveBeenCalled();
   });
 
   it("refuses both a subject id and an e-mail", async () => {

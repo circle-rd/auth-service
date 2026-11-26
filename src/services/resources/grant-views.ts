@@ -9,9 +9,12 @@ import {
 import type { ResourceGrantRow } from "./grants.js";
 import type { ResourceSubjectType } from "./types.js";
 
-export async function listGrantsForResource(
-  resourceId: string,
-): Promise<(ResourceGrantRow & { subjectLabel: string | null })[]> {
+export async function listGrantsForResource(resourceId: string): Promise<
+  (ResourceGrantRow & {
+    subjectLabel: string | null;
+    subjectUsername: string | null;
+  })[]
+> {
   const rows = await db
     .select()
     .from(resourceGrants)
@@ -55,6 +58,7 @@ export async function listGrantsForResources(
     resourceScheme: row.resourceScheme,
     applicationId: row.applicationId,
     subjectLabel: byId.get(row.grant.id)?.subjectLabel ?? null,
+    subjectUsername: byId.get(row.grant.id)?.subjectUsername ?? null,
   }));
 }
 
@@ -87,6 +91,8 @@ export interface ResourceGrantView extends ResourceGrantRow {
   applicationId: string;
   // Human-readable recipient, null for `everyone` (the UI renders that label).
   subjectLabel: string | null;
+  // Account-wide pseudo for a user grant, never an e-mail.
+  subjectUsername: string | null;
 }
 
 /**
@@ -98,7 +104,11 @@ export async function enrichGrantSubjects<
     subjectType: ResourceSubjectType;
     subjectId: string | null;
   },
->(grants: T[]): Promise<(T & { subjectLabel: string | null })[]> {
+>(
+  grants: T[],
+): Promise<
+  (T & { subjectLabel: string | null; subjectUsername: string | null })[]
+> {
   const userIds = new Set<string>();
   const organizationIds = new Set<string>();
   const planIds = new Set<string>();
@@ -120,6 +130,7 @@ export async function enrichGrantSubjects<
               id: userTable.id,
               name: userTable.name,
               email: userTable.email,
+              username: userTable.username,
             })
             .from(userTable)
             .where(inArray(userTable.id, [...userIds]))
@@ -144,8 +155,10 @@ export async function enrichGrantSubjects<
         : Promise.resolve([]),
     ]);
   const labels = new Map<string, string>();
+  const usernames = new Map<string, string>();
   for (const row of userRows) {
     labels.set(`user:${row.id}`, row.name || row.email || row.id);
+    if (row.username) usernames.set(`user:${row.id}`, row.username);
   }
   for (const row of organizationRows) {
     labels.set(`organization:${row.id}`, row.name);
@@ -160,6 +173,9 @@ export async function enrichGrantSubjects<
     ...grant,
     subjectLabel: grant.subjectId
       ? (labels.get(`${grant.subjectType}:${grant.subjectId}`) ?? null)
+      : null,
+    subjectUsername: grant.subjectId
+      ? (usernames.get(`${grant.subjectType}:${grant.subjectId}`) ?? null)
       : null,
   }));
 }
@@ -188,5 +204,6 @@ export async function listGrantsForApplication(
     resourceScheme: row.resourceScheme,
     applicationId: row.applicationId,
     subjectLabel: byId.get(row.grant.id)?.subjectLabel ?? null,
+    subjectUsername: byId.get(row.grant.id)?.subjectUsername ?? null,
   }));
 }

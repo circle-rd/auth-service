@@ -582,6 +582,12 @@ describe("user resource routes confined to the bearer's application", () => {
       ]) {
         expect((await app.inject({ method: "GET", url })).statusCode).toBe(404);
       }
+      const patched = await app.inject({
+        method: "PATCH",
+        url: `/api/user/resources/${ownCatalogue.id}/grants/${GRANT}`,
+        payload: { permission: "read" },
+      });
+      expect(patched.statusCode).toBe(404);
     });
   });
 });

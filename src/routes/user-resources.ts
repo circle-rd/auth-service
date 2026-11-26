@@ -664,6 +664,7 @@ export async function userResourceRoutes(
       const { userId } = caller;
       const { resourceId, grantId } = grantParamsSchema.parse(req.params);
       const body = grantUpdateSchema.parse(req.body);
+      await getOwnResourceInScope(caller, resourceId);
       await getGrantForResource(grantId, resourceId);
       const grant = await updateResourceGrantPermission(
         grantId,

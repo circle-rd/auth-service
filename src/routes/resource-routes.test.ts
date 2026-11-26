@@ -550,8 +550,32 @@ describe("user resource routes confined to the bearer's application", () => {
       expect(mockCreateGrant).not.toHaveBeenCalled();
     });
 
-    it("does not open the other actions on the resource", async () => {
+    it("lets the owner read it and its grants through any application's token", async () => {
       mockGetResource.mockResolvedValue(ownCatalogue);
+      mockGetScheme.mockResolvedValue({
+        scheme: "llm",
+        displayName: "LLM",
+        enabled: true,
+      });
+      mockListGrants.mockResolvedValue([]);
+      const read = await app.inject({
+        method: "GET",
+        url: `/api/user/resources/${ownCatalogue.id}`,
+      });
+      expect(read.statusCode).toBe(200);
+      const grants = await app.inject({
+        method: "GET",
+        url: `/api/user/resources/${ownCatalogue.id}/grants`,
+      });
+      expect(grants.statusCode).toBe(200);
+      expect(mockAssertCanManageGrants).toHaveBeenCalledWith(
+        "user-1",
+        ownCatalogue,
+      );
+    });
+
+    it("keeps another user's catalogue resource unreadable", async () => {
+      mockGetResource.mockResolvedValue({ ...ownCatalogue, ownerId: "user-2" });
       for (const url of [
         `/api/user/resources/${ownCatalogue.id}`,
         `/api/user/resources/${ownCatalogue.id}/grants`,

@@ -533,7 +533,7 @@ export async function userResourceRoutes(
     if (!caller) return;
     const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
-    const resource = await getResourceInScope(caller, resourceId);
+    const resource = await getOwnResourceInScope(caller, resourceId);
     await assertCanManageResource(userId, resource);
     const scheme = await getResourceScheme(resource.scheme);
     await reply.send({ resource: publicResource(resource, scheme) });
@@ -608,7 +608,7 @@ export async function userResourceRoutes(
     if (!caller) return;
     const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
-    const resource = await getResourceInScope(caller, resourceId);
+    const resource = await getOwnResourceInScope(caller, resourceId);
     await assertCanManageGrants(userId, resource);
     const grants = await listGrantsForResource(resourceId);
     await reply.send({ grants });
@@ -620,7 +620,7 @@ export async function userResourceRoutes(
     const { userId } = caller;
     const { resourceId } = resourceParamsSchema.parse(req.params);
     const body = grantCreateSchema.parse(req.body);
-    const resource = await getResourceInScope(caller, resourceId);
+    const resource = await getOwnResourceInScope(caller, resourceId);
     const subjectId =
       body.subjectType === "user" && body.subjectEmail
         ? await activeMemberIdByEmail(body.subjectEmail, resource.applicationId)
@@ -644,7 +644,7 @@ export async function userResourceRoutes(
       const { userId } = caller;
       const { resourceId, grantId } = grantParamsSchema.parse(req.params);
       const query = grantDeleteQuerySchema.parse(req.query);
-      await getResourceInScope(caller, resourceId);
+      await getOwnResourceInScope(caller, resourceId);
       await getGrantForResource(grantId, resourceId);
       if (query.permanent) {
         await deleteResourceGrant(grantId, userId);
